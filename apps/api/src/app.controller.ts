@@ -43,7 +43,7 @@ export class AppController {
         articles: user.preferences?.articles ?? false, billing: user.preferences?.billing ?? true
       };
     const lineNotificationState = !user.lineAccount || user.lineAccount.unlinkedAt ? 'NOT_LINKED' : user.lineAccount.notificationDisabledAt ? 'BLOCKED' : !preferences.predictions ? 'DISABLED' : 'READY';
-    return { id: user.id, email: user.email, emailVerified: !!user.emailVerifiedAt, hasPassword: !!user.passwordHash, registrationMethod: user.registrationMethod, displayName: user.displayName, role: user.role, aal: identity.aal, mfaEnabled: !!user.mfaSecret || identity.aal === 2,
+    return { id: user.id, email: user.email, emailVerified: !!user.emailVerifiedAt, hasPassword: !!user.passwordHash || (process.env.AUTH_PROVIDER === 'supabase' && !!user.authSubject), registrationMethod: user.registrationMethod, displayName: user.displayName, role: user.role, aal: identity.aal, mfaEnabled: !!user.mfaSecret || !!user.externalMfaFactorId || identity.aal === 2,
       mfaRequired: requiresMfa(user.role), preferences, lineLinked: !!user.lineAccount && !user.lineAccount.unlinkedAt,
       lineNotificationState, lineNotificationReady: lineNotificationState === 'READY',
       entitlements: user.entitlements.map(e => ({ planCode: e.planCode, startsAt: e.startsAt, endsAt: e.endsAt, raceDate: e.raceDate })),
@@ -298,7 +298,7 @@ export class AppController {
     const add = (check: Check) => checks.push(check);
     const baseUrl = process.env.APP_BASE_URL ?? '';
     const authConfigured = process.env.AUTH_PROVIDER === 'supabase' && !!process.env.SUPABASE_URL && !!process.env.SUPABASE_ANON_KEY;
-    add({ code: 'PRODUCTION_AUTH', group: 'APPLICATION', status: authConfigured ? 'MANUAL' : 'BLOCKED', title: '本番認証', evidence: authConfigured ? 'Supabase PKCE登録、ログイン、Cookie更新、JWT検証の設定があります。実環境でのメール到達と一連の操作は未確認です。' : '現在はローカル認証、またはSupabase設定が不足しています。', action: 'Supabaseの許可Redirect URLとSMTPを設定し、登録・メール確認・ログイン・セッション更新・ログアウトを実環境で確認します。' });
+    add({ code: 'PRODUCTION_AUTH', group: 'APPLICATION', status: authConfigured ? 'MANUAL' : 'BLOCKED', title: '本番認証', evidence: authConfigured ? 'Supabase PKCE登録、ログイン、Cookie更新、JWT検証、初回管理者CLI、TOTP MFAの実装があります。実環境でのメール到達と一連の操作は未確認です。' : '現在はローカル認証、またはSupabase設定が不足しています。', action: 'Supabaseの許可Redirect URLとSMTPを設定し、登録・メール確認・ログイン・セッション更新・ログアウト・AAL2を実環境で確認します。' });
     add({ code: 'HTTPS_BASE_URL', group: 'APPLICATION', status: /^https:\/\//.test(baseUrl) ? 'READY' : 'BLOCKED', title: '公開URLとHTTPS', evidence: /^https:\/\//.test(baseUrl) ? 'APP_BASE_URLはHTTPSです。' : 'APP_BASE_URLは公開用HTTPSではありません。', action: '公開ドメインとHTTPSを設定し、Origin制御を確認します。' });
     const messagingConfigured = process.env.NOTIFICATION_TRANSPORT === 'line' && !!settings.lineChannelId && !!settings.lineChannelSecretEncrypted && !!settings.lineAccessTokenEncrypted;
     add({ code: 'LINE_MESSAGING', group: 'CONNECTIONS', status: messagingConfigured ? 'READY' : 'BLOCKED', title: 'LINE Messaging API', evidence: messagingConfigured ? '本番transportと必要な資格情報が設定済みです。' : '本番transportまたは必要な資格情報が未設定です。', action: '管理設定を保存し、実アカウントへの送信リハーサルを行います。', href: '/admin/settings' });

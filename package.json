@@ -3,7 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "packageManager": "pnpm@10.10.0",
-  "engines": { "node": ">=22.15.0" },
+  "engines": {
+    "node": ">=22.15.0"
+  },
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "typecheck": "pnpm -r typecheck",
@@ -15,11 +17,19 @@
     "db:generate": "pnpm --filter @keiba/db generate",
     "db:migrate": "pnpm --filter @keiba/db migrate",
     "db:seed": "pnpm --filter @keiba/db seed",
+    "admin:bootstrap": "pnpm --filter @keiba/db build && node scripts/bootstrap-admin.mjs",
     "db:backup:verify": "node scripts/backup-verify.mjs"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.1", "eslint": "^9.39.1", "typescript-eslint": "^8.48.0",
-    "typescript": "^5.9.3", "tsx": "^4.20.6", "vitest": "^3.2.4",
-    "@playwright/test": "^1.56.1", "@types/node": "^22.19.0", "dotenv": "^16.6.1"
+    "@eslint/js": "^9.39.1",
+    "@playwright/test": "^1.56.1",
+    "@types/node": "^22.19.0",
+    "dotenv": "^16.6.1",
+    "eslint": "^9.39.1",
+    "jose": "^5.10.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.48.0",
+    "vitest": "^3.2.4"
   }
 }

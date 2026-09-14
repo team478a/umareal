@@ -26,6 +26,7 @@ model User {
   passwordHash           String?
   mfaSecret              String?
   pendingMfaSecret       String?
+  externalMfaFactorId    String?                  @db.Uuid
   mfaLastStep            BigInt?
   disabledAt             DateTime?                @db.Timestamptz(3)
   createdAt              DateTime                 @default(now()) @db.Timestamptz(3)

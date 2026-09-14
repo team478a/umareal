@@ -3,6 +3,7 @@ import { createServer, type Server } from 'node:http';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { db } from './helpers';
 
 let authServer: Server;
@@ -47,10 +48,25 @@ beforeAll(async () => {
   const databaseUrl = new URL(process.env.DATABASE_URL ?? '');
   if (!['localhost', '127.0.0.1'].includes(databaseUrl.hostname)) throw new Error('Supabase integration test is limited to a local development database');
 
+  const keys = await generateKeyPair('RS256');
+  const publicJwk = await exportJWK(keys.publicKey);
+  Object.assign(publicJwk, { kid: 'integration-signing-key', alg: 'RS256', use: 'sig' });
+  const factorId = randomUUID();
+  const providerSession = async (user: { id: string; email: string; identities: unknown[] }, aal: 'aal1' | 'aal2' = 'aal1') => ({
+    access_token: await new SignJWT({ aal }).setProtectedHeader({ alg: 'RS256', kid: 'integration-signing-key' }).setSubject(user.id).setIssuer(`${authBase}/auth/v1`).setAudience('authenticated').setIssuedAt().setExpirationTime('1h').sign(keys.privateKey),
+    refresh_token: `refresh-${randomBytes(12).toString('hex')}`,
+    expires_in: 3600,
+    user: { ...user, email_confirmed_at: new Date().toISOString() }
+  });
+
   authServer = createServer((request, response) => {
+    if (request.method === 'GET' && request.url === '/auth/v1/.well-known/jwks.json') {
+      response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ keys: [publicJwk] }));
+      return;
+    }
     const chunks: Buffer[] = [];
     request.on('data', chunk => chunks.push(Buffer.from(chunk)));
-    request.on('end', () => {
+    request.on('end', async () => {
       if (request.method !== 'POST' || !request.url?.startsWith('/auth/v1/')) {
         response.writeHead(404).end();
         return;
@@ -70,7 +86,22 @@ beforeAll(async () => {
         if (!user) { response.writeHead(400, { 'content-type': 'application/json' }).end('{}'); return; }
         activeProviderUser = user;
         response.writeHead(200, { 'content-type': 'application/json' });
-        response.end(JSON.stringify({ access_token: `access-${randomBytes(18).toString('hex')}`, refresh_token: `refresh-${randomBytes(12).toString('hex')}`, expires_in: 3600, user: { ...user, email_confirmed_at: new Date().toISOString() } }));
+        response.end(JSON.stringify(await providerSession(user)));
+        return;
+      }
+      if (request.url === '/auth/v1/factors' && activeProviderUser) {
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ id: factorId, type: 'totp', totp: { qr_code: '<svg />', secret: 'ABCDEFGHIJKLMNOP', uri: 'otpauth://totp/umareal' } }));
+        return;
+      }
+      if (request.url === `/auth/v1/factors/${factorId}/challenge`) {
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ id: randomUUID() }));
+        return;
+      }
+      if (request.url === `/auth/v1/factors/${factorId}/verify` && activeProviderUser) {
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify(await providerSession(activeProviderUser, 'aal2')));
         return;
       }
       response.writeHead(200, { 'content-type': 'application/json' });
@@ -155,6 +186,21 @@ describe('Supabase free-member registration boundary', () => {
     const login = await fetch(`${apiBase}/api/v1/auth/login`, { method: 'POST', headers: { Origin: 'http://localhost:3000', 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: 'integration-password-123' }) });
     expect(login.status).toBe(201);
     expect(login.headers.get('set-cookie')).toContain('keiba_refresh_token=');
+    const loginCookies = login.headers.getSetCookie().map(value => value.split(';', 1)[0]).join('; ');
+    const aal1 = await fetch(`${apiBase}/api/v1/me`, { headers: { Cookie: loginCookies } });
+    expect(await aal1.json()).toMatchObject({ aal: 1, mfaEnabled: false, hasPassword: true });
+
+    const enrollment = await fetch(`${apiBase}/api/v1/auth/mfa/enroll`, { method: 'POST', headers: { Origin: 'http://localhost:3000', Cookie: loginCookies, 'Content-Type': 'application/json' }, body: '{}' });
+    expect(enrollment.status).toBe(201);
+    const enrollmentBody = await enrollment.json() as { factorId: string; secret: string };
+    expect(enrollmentBody).toMatchObject({ secret: 'ABCDEFGHIJKLMNOP' });
+    const verification = await fetch(`${apiBase}/api/v1/auth/mfa/verify`, { method: 'POST', headers: { Origin: 'http://localhost:3000', Cookie: loginCookies, 'Content-Type': 'application/json' }, body: JSON.stringify({ factorId: enrollmentBody.factorId, code: '123456' }) });
+    expect(verification.status).toBe(201);
+    const aal2Cookies = verification.headers.getSetCookie().map(value => value.split(';', 1)[0]).join('; ');
+    const aal2 = await fetch(`${apiBase}/api/v1/me`, { headers: { Cookie: aal2Cookies } });
+    expect(await aal2.json()).toMatchObject({ aal: 2, mfaEnabled: true });
+    expect((await db.user.findUniqueOrThrow({ where: { id: user.id } })).externalMfaFactorId).toBe(enrollmentBody.factorId);
+
     const refreshed = await fetch(`${apiBase}/api/v1/auth/refresh`, { method: 'POST', headers: { Origin: 'http://localhost:3000', Cookie: 'keiba_refresh_token=refresh-test-token', 'Content-Type': 'application/json' }, body: '{}' });
     expect(refreshed.status).toBe(201);
     expect(refreshed.headers.get('set-cookie')).toContain('keiba_access_token=');

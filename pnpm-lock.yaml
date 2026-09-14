@@ -23,6 +23,9 @@ importers:
       eslint:
         specifier: ^9.39.1
         version: 9.39.5(jiti@2.7.0)
+      jose:
+        specifier: ^5.10.0
+        version: 5.10.0
       tsx:
         specifier: ^4.20.6
         version: 4.23.13

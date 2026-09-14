@@ -14,8 +14,8 @@
 | POST | /auth/logout | ログイン必須。ローカルセッションを失効 |
 | POST | /auth/password/request | 開発認証のみ。email。ローカルメール保存、同一応答で登録有無を伏せる |
 | POST | /auth/password/reset | token/password。使い切り、15分有効。全セッション失効 |
-| POST | /auth/mfa/enroll | 開発認証でログイン必須。TOTP登録済みは再登録不可 |
-| POST | /auth/mfa/verify | code。使用済みステップ拒否、セッション回転とAAL2昇格 |
+| POST | /auth/mfa/enroll | ログイン必須。localは暗号化したTOTP secret、SupabaseはAuth側の未確認TOTP factorを作成。登録済みは再登録不可 |
+| POST | /auth/mfa/verify | code、Supabase初回だけfactorId。challenge検証後にセッションをAAL2へ昇格。localは使用済み時刻ステップも拒否 |
 | GET | /me | 本人の会員・通知・同意・有限期間権限。秘密情報を選択除外 |
 | PATCH | /me/preferences | 本人。predictions/changes/articles/billing（boolean） |
 | GET | /me/notifications | 本人。会員登録後に発生した対象レース告知と閲覧権限内の予想公開履歴。`page`、`limit`、`unread` |

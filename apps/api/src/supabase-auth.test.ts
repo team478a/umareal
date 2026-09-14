@@ -34,4 +34,25 @@ describe('Supabase authentication transport', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ message: 'provider detail must stay internal' }), { status: 400, headers: { 'content-type': 'application/json' } })));
     await expect(new SupabaseAuthService().signIn(user.email, 'wrong-password')).rejects.toMatchObject({ response: { code: 'LOGIN_FAILED' }, status: 401 });
   });
+
+  it('enrolls, challenges and verifies a TOTP factor with the user access token', async () => {
+    const factorId = '123e4567-e89b-42d3-a456-426614174010';
+    const challengeId = '123e4567-e89b-42d3-a456-426614174011';
+    const request = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: factorId, type: 'totp', totp: { qr_code: '<svg />', secret: 'ABCDEFGHIJKLMNOP', uri: 'otpauth://totp/test' } }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: challengeId }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(session), { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', request);
+    const service = new SupabaseAuthService();
+    expect((await service.enrollTotp(session.access_token)).id).toBe(factorId);
+    expect((await service.challengeFactor(session.access_token, factorId)).id).toBe(challengeId);
+    expect(await service.verifyFactor(session.access_token, factorId, challengeId, '123456')).toEqual(session);
+    expect(request.mock.calls.map(call => call[0])).toEqual([
+      'https://project.supabase.co/auth/v1/factors',
+      `https://project.supabase.co/auth/v1/factors/${factorId}/challenge`,
+      `https://project.supabase.co/auth/v1/factors/${factorId}/verify`
+    ]);
+    expect((request.mock.calls[2][1] as RequestInit).headers).toMatchObject({ Authorization: `Bearer ${session.access_token}` });
+    expect(JSON.parse(String((request.mock.calls[2][1] as RequestInit).body))).toEqual({ challenge_id: challengeId, code: '123456' });
+  });
 });

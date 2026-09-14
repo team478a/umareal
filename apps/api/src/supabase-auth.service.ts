@@ -14,6 +14,12 @@ const sessionSchema = z.object({
   expires_in: z.number().int().positive(),
   user: userSchema
 }).passthrough();
+const factorSchema = z.object({
+  id: z.string().uuid(),
+  type: z.literal('totp'),
+  totp: z.object({ qr_code: z.string().min(1), secret: z.string().min(16), uri: z.string().min(1) })
+}).passthrough();
+const challengeSchema = z.object({ id: z.string().uuid() }).passthrough();
 
 export type SupabaseUser = z.infer<typeof userSchema>;
 export type SupabaseSession = z.infer<typeof sessionSchema>;
@@ -86,6 +92,23 @@ export class SupabaseAuthService {
 
   async recover(email: string, challenge: string, redirectTo: string) {
     await this.request(`recover?redirect_to=${encodeURIComponent(redirectTo)}`, { email, code_challenge: challenge, code_challenge_method: 's256' });
+  }
+
+  async enrollTotp(accessToken: string) {
+    const parsed = factorSchema.safeParse(await this.request('factors', { factor_type: 'totp', friendly_name: 'umareal staff' }, accessToken));
+    if (!parsed.success) throw new ServiceUnavailableException({ code: 'AUTH_INVALID_RESPONSE', message: '認証サービスの応答を確認できません。' });
+    return parsed.data;
+  }
+
+  async challengeFactor(accessToken: string, factorId: string) {
+    const parsed = challengeSchema.safeParse(await this.request(`factors/${encodeURIComponent(factorId)}/challenge`, {}, accessToken));
+    if (!parsed.success) throw new ServiceUnavailableException({ code: 'AUTH_INVALID_RESPONSE', message: '認証サービスの応答を確認できません。' });
+    return parsed.data;
+  }
+
+  async verifyFactor(accessToken: string, factorId: string, challengeId: string, code: string) {
+    try { return sessionResponse(await this.request(`factors/${encodeURIComponent(factorId)}/verify`, { challenge_id: challengeId, code }, accessToken)); }
+    catch (error) { if (error instanceof BadRequestException) throw new UnauthorizedException({ code: 'MFA_INVALID', message: '認証コードを確認してください。' }); throw error; }
   }
 
   async updatePassword(accessToken: string, password: string) { await this.request('user', { password }, accessToken); }

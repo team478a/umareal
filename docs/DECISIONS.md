@@ -359,7 +359,17 @@ Phase 6G完了時に次候補として示したキャンペーンURL発行とCSV
 - メール登録のDB制約は、ローカル`passwordHash`または外部`authSubject`のどちらかを必須にする。外部認証を示すsubjectがないメール会員は、従来どおりローカルpassword hashなしでは作成できない。
 - 無料会員、20歳確認、規約・プライバシー同意、初回流入はSupabase signup成功後に自社DBへ同一トランザクションで保存する。同意履歴はPostgreSQLで更新・削除・TRUNCATEを拒否する。既存メールを隠すidentity-less応答から会員を新規作成しない。
 - 現行処理はanon keyだけを使用する。service-role keyは必要な管理操作が承認・実装されるまで配備しない。
-- Supabase本番SMTP、Redirect URL、CAPTCHA、初回管理者のauth subject結合、スタッフMFA登録と復旧は本番接続前の確認事項として残す。
+- Supabase本番SMTP、Redirect URL、CAPTCHAとスタッフMFA復旧は本番接続前の確認事項として残す。
+
+### Phase 6K 初回管理者・Supabase MFA（追加承認済み）
+
+ユーザーの公開準備継続依頼により、初回管理者の作成とSupabase TOTP MFAを実装対象とした。実アカウントの昇格、factor登録、復旧操作は本番接続時に人が確認して実行する。
+
+- 初回管理者は通常の無料会員登録とメール確認を先に完了し、Supabase User UIDとメールを二人で照合する。一度だけ使えるCLIが同じ値を自社DBで再検証し、有効ADMINが0人の場合だけMEMBERから昇格する。
+- CLIはDB advisory lockとSerializable transactionを使い、昇格と監査ログを同時に保存する。Supabase service-role key、user metadataのrole、恒久的なbootstrap secretは使用しない。
+- SupabaseモードのTOTP secretはSupabase Authが保持する。自社DBには確認済みfactor IDだけを保存し、secretを保存しない。
+- MFA登録とログイン後の再確認はSupabaseのEnroll、Challenge、Verify APIを使う。Verifyが返す新しいアクセストークンと更新トークンをHttpOnly Cookieへ入れ替え、署名検証済みJWTの`aal=aal2`だけを管理権限判定に採用する。
+- factor解除、端末紛失時の本人確認、復旧担当者、二名承認は事業運用の決定が必要なため管理機能を追加しない。募集開始前に緊急手順を確定する。
 
 ### 保留一覧
 

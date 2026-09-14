@@ -43,3 +43,9 @@ const backup = spawnSync(process.execPath, ['scripts/backup-verify.mjs'], {
 });
 if (backup.status === 0 || !backup.stderr.includes('Local Windows development only')) throw new Error('Production backup guard did not reject local backup mode');
 console.info('PASS: backup verification refuses production mode.');
+const bootstrap = spawnSync(process.execPath, ['scripts/bootstrap-admin.mjs'], {
+  cwd: resolve('.'), env: { ...process.env, AUTH_PROVIDER: 'supabase', BOOTSTRAP_CONFIRM: '', BOOTSTRAP_ADMIN_SUBJECT: '123e4567-e89b-42d3-a456-426614174000', BOOTSTRAP_ADMIN_EMAIL: 'admin@example.test' },
+  encoding: 'utf8', timeout: 10000, windowsHide: true
+});
+if (bootstrap.status === 0 || !bootstrap.stderr.includes('Set BOOTSTRAP_CONFIRM=CREATE_FIRST_ADMIN')) throw new Error('Initial administrator bootstrap did not require explicit one-time confirmation');
+console.info('PASS: initial administrator bootstrap requires explicit one-time confirmation.');

@@ -54,6 +54,25 @@ Supabaseのservice-role keyは現行アプリでは使用しない。管理API�
 
 登録とパスワード再設定はPKCEを使用する。コード検証値、アクセストークン、更新トークンはHttpOnly・SameSite=Lax・本番Secure Cookieだけに保存する。更新トークンによるセッション更新は同一Origin API中継が401を受けた場合に一度だけ実行する。ロールはSupabaseのuser metadataを使用せず、自社DBの値だけを参照する。
 
+## 初回管理者とMFA
+
+1. 独自ドメインの通常登録画面で、初回管理者本人が無料会員登録とメール確認を完了する。
+2. Supabase DashboardのUsersで、その会員のUser UIDと確認済みメールアドレスが一致することを二人で確認する。
+3. RenderのAPI Shellで、次の値をそのセッションだけに設定して `pnpm admin:bootstrap` を一度実行する。値をRenderの永続環境変数へ保存しない。
+
+```text
+BOOTSTRAP_ADMIN_SUBJECT={確認したSupabase User UID}
+BOOTSTRAP_ADMIN_EMAIL={確認済みメールアドレス}
+BOOTSTRAP_CONFIRM=CREATE_FIRST_ADMIN
+```
+
+処理はSupabaseモード、UUID、メール一致、メール確認済み、無効化されていないMEMBER、既存の有効ADMINが0人であることを同一トランザクション内で検証する。成功時はADMINへの変更と `INITIAL_ADMIN_BOOTSTRAP` 監査記録を同時に保存する。2回目以降は拒否する。
+
+4. 管理者は再ログインし、`/security` でSupabase TOTP factorを登録する。表示されたsecretを認証アプリへ登録し、6桁コードを確認する。成功したセッションだけがSupabase署名済みJWTの `aal2` になり、管理機能へ進める。
+5. 別ブラウザーで再ログインし、既存factorの6桁コードでAAL2へ昇格できること、AAL1のまま管理APIが403になることを確認する。
+
+MFA端末紛失時のfactor解除・本人確認・再登録は、復旧責任者と本人確認基準が未決定のため管理画面から実行できない。募集開始前にSupabase Dashboardを使う緊急手順と二名確認を定める。
+
 ## 独自ドメイン設定の順序
 
 1. RenderでこのGitHubリポジトリのBlueprintを選び、各リソースと本番用secretを作成する。
@@ -70,10 +89,10 @@ Supabaseのservice-role keyは現行アプリでは使用しない。管理API�
 
 コンテナとドメイン経路は準備できるが、一般ユーザーの募集開始はまだできない。
 
-1. Supabase認証経路は実装済みだが、本番project、Redirect URL、SMTPを使った登録・メール確認・ログイン・更新・ログアウトの実環境試験が未実施である。初回管理者のauth subject結合とSupabase MFA登録手順も確定していない。
+1. Supabase認証、初回管理者bootstrap、TOTP MFA経路は実装済みだが、本番project、Redirect URL、SMTPを使った登録・メール確認・ログイン・更新・ログアウト・AAL2の実環境試験が未実施である。MFA端末紛失時の復旧手順も未確定である。
 2. 利用規約とプライバシーポリシーは `draft-v1` であり、正式同意として扱えない。
 3. 個人情報の保持・匿名化、マイグレーション所有者とアプリDB権限の分離、本番バックアップの保持と復元責任者が未確定である。
 4. LINE、Stripe、Supabase SMTP、監視のライブ資格情報と実環境試験が未実施である。
 5. APIのレート制限はプロセス内保存である。初期はAPIを1インスタンスに固定し、複数インスタンス化の前に共有ストアへ移す。
 
-次の公開準備ゴールは、正式文書の反映と初回管理者・Supabase MFAの起動手順確定とする。その後、外部サービス資格情報を受け取り、Renderリソース作成、DNS設定、TLS確認、限定公開試験へ進める。
+次の公開準備ゴールは正式な利用規約・プライバシーポリシーの反映とする。その後、外部サービス資格情報を受け取り、Renderリソース作成、DNS設定、TLS確認、限定公開試験へ進める。

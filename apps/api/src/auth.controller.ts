@@ -30,6 +30,11 @@ function externalFlowCookies(res: Response, verifier: string, flow: 'signup' | '
   res.cookie('keiba_pkce_verifier', verifier, { ...externalCookieOptions(), maxAge: 24 * 3600000 });
   res.cookie('keiba_auth_flow', flow, { ...externalCookieOptions(), maxAge: 24 * 3600000 });
 }
+function accessToken(req: AppRequest) {
+  const value: unknown = req.cookies?.keiba_access_token;
+  if (typeof value !== 'string' || value.length > 8192) throw new UnauthorizedException();
+  return value;
+}
 const otp = (secret: string, email: string) => new TOTP({ issuer: '競馬会員メディア 開発用', label: email, algorithm: 'SHA1', digits: 6, period: 30, secret: Secret.fromBase32(secret) });
 @Controller('auth')
 export class AuthController {
@@ -254,6 +259,12 @@ export class AuthController {
     return { ok: true };
   }
   @Post('mfa/enroll') async enroll(@Req() req: AppRequest) {
+    if (process.env.AUTH_PROVIDER === 'supabase') {
+      const identity = await this.auth.authenticate(req);
+      if (identity.user.externalMfaFactorId) throw new ForbiddenException({ code: 'MFA_ALREADY_ENROLLED', message: '二段階認証は設定済みです。' });
+      const factor = await this.supabase.enrollTotp(accessToken(req));
+      return { factorId: factor.id, secret: factor.totp.secret, uri: factor.totp.uri, qrCode: factor.totp.qr_code };
+    }
     this.auth.ensureLocal();
     const identity = await this.auth.authenticate(req);
     if (identity.user.mfaSecret) throw new ForbiddenException({ code: 'MFA_ALREADY_ENROLLED', message: '二段階認証は設定済みです。' });
@@ -265,6 +276,23 @@ export class AuthController {
     return { secret, uri: otp(secret, identity.user.email ?? `user-${identity.user.id}`).toString() };
   }
   @Post('mfa/verify') async verify(@Body() body: unknown, @Req() req: AppRequest, @Res({ passthrough: true }) res: Response) {
+    if (process.env.AUTH_PROVIDER === 'supabase') {
+      const identity = await this.auth.authenticate(req);
+      const { code, factorId: submittedFactorId } = z.object({ code: z.string().regex(/^\d{6}$/), factorId: z.string().uuid().optional() }).strict().parse(body);
+      const factorId = identity.user.externalMfaFactorId ?? submittedFactorId;
+      if (!factorId) throw new BadRequestException({ code: 'MFA_NOT_ENROLLED', message: '二段階認証の設定を開始してください。' });
+      const token = accessToken(req);
+      const challenge = await this.supabase.challengeFactor(token, factorId);
+      const session = await this.supabase.verifyFactor(token, factorId, challenge.id, code);
+      if (session.user.id !== identity.user.authSubject) throw new UnauthorizedException();
+      req.auth = { ...identity, aal: 2 };
+      await this.auth.db.$transaction(async tx => {
+        if (!identity.user.externalMfaFactorId) await tx.user.update({ where: { id: identity.id }, data: { externalMfaFactorId: factorId } });
+        await this.auth.audit(tx, req, 'MFA_VERIFIED', identity.id, identity.user.externalMfaFactorId ? 'Supabase二段階認証成功' : 'Supabase二段階認証登録完了');
+      });
+      externalCookies(res, session);
+      return { verified: true };
+    }
     this.auth.ensureLocal();
     const identity = await this.auth.authenticate(req);
     const { code } = mfaCodeSchema.parse(body);
