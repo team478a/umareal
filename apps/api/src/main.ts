@@ -10,7 +10,7 @@ import cookieParser from 'cookie-parser';
 import { rateLimit } from 'express-rate-limit';
 import { ZodError } from 'zod';
 import { databaseRuntimeAccessRestricted, Prisma } from '@keiba/db';
-import { legalDocumentReleaseErrors } from '@keiba/domain';
+import { launchCapabilities, legalDocumentReleaseErrors, resolveLaunchMode } from '@keiba/domain';
 import { AppController } from './app.controller';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
@@ -58,6 +58,9 @@ class AppModule {}
 
 async function main() {
   const provider = process.env.AUTH_PROVIDER;
+  if (process.env.NODE_ENV === 'production' && !process.env.LAUNCH_MODE) throw new Error('Set LAUNCH_MODE explicitly in production');
+  const launchMode = resolveLaunchMode(process.env.LAUNCH_MODE);
+  const capabilities = launchCapabilities(launchMode);
   let applicationUrl: URL;
   try { applicationUrl = new URL(process.env.APP_BASE_URL ?? ''); } catch { throw new Error('APP_BASE_URL must be an absolute URL'); }
   if (process.env.NODE_ENV === 'production' && applicationUrl.protocol !== 'https:') throw new Error('Production requires an HTTPS application URL');
@@ -72,11 +75,16 @@ async function main() {
   if (Buffer.from(process.env.ENCRYPTION_KEY ?? '', 'base64').length !== 32) throw new Error('Configure ENCRYPTION_KEY');
   if (process.env.CORRECTION_POLICY && !['ADMIN_ONLY', 'EXPERT_OR_ADMIN'].includes(process.env.CORRECTION_POLICY)) throw new Error('Invalid CORRECTION_POLICY');
   if (process.env.DELAYED_PUBLICATION_POLICY && !['CLOSED', 'LATEST_STARTS_AT'].includes(process.env.DELAYED_PUBLICATION_POLICY)) throw new Error('Invalid DELAYED_PUBLICATION_POLICY');
-  if (process.env.NODE_ENV === 'production' && process.env.NOTIFICATION_TRANSPORT !== 'line') throw new Error('Production requires the LINE notification transport');
-  if (process.env.NODE_ENV === 'production' && process.env.LINE_OAUTH_TRANSPORT !== 'line') throw new Error('Production requires the LINE OAuth transport');
-  if (!['test', 'stripe'].includes(process.env.BILLING_TRANSPORT ?? '')) throw new Error('Set BILLING_TRANSPORT explicitly');
-  if (process.env.NODE_ENV === 'production' && process.env.BILLING_TRANSPORT !== 'stripe') throw new Error('Production requires an external billing transport');
-  if (process.env.NODE_ENV === 'production' && process.env.STRIPE_LIVE_MODE !== 'true') throw new Error('Production requires Stripe live mode');
+  if (!['test', 'line', 'disabled'].includes(process.env.NOTIFICATION_TRANSPORT ?? '')) throw new Error('Set NOTIFICATION_TRANSPORT explicitly');
+  if (!['test', 'line', 'disabled'].includes(process.env.LINE_OAUTH_TRANSPORT ?? '')) throw new Error('Set LINE_OAUTH_TRANSPORT explicitly');
+  if (process.env.NODE_ENV === 'production' && capabilities.lineNotifications && process.env.NOTIFICATION_TRANSPORT !== 'line') throw new Error('Full production launch requires the LINE notification transport');
+  if (process.env.NODE_ENV === 'production' && capabilities.lineLogin && process.env.LINE_OAUTH_TRANSPORT !== 'line') throw new Error('Full production launch requires the LINE OAuth transport');
+  if (process.env.NODE_ENV === 'production' && !capabilities.lineNotifications && process.env.NOTIFICATION_TRANSPORT !== 'disabled') throw new Error('Free registration launch requires LINE notifications to be disabled');
+  if (process.env.NODE_ENV === 'production' && !capabilities.lineLogin && process.env.LINE_OAUTH_TRANSPORT !== 'disabled') throw new Error('Free registration launch requires LINE OAuth to be disabled');
+  if (!['test', 'stripe', 'disabled'].includes(process.env.BILLING_TRANSPORT ?? '')) throw new Error('Set BILLING_TRANSPORT explicitly');
+  if (process.env.NODE_ENV === 'production' && capabilities.billing && process.env.BILLING_TRANSPORT !== 'stripe') throw new Error('Full production launch requires an external billing transport');
+  if (process.env.NODE_ENV === 'production' && capabilities.billing && process.env.STRIPE_LIVE_MODE !== 'true') throw new Error('Full production launch requires Stripe live mode');
+  if (process.env.NODE_ENV === 'production' && !capabilities.billing && process.env.BILLING_TRANSPORT !== 'disabled') throw new Error('Free registration launch requires billing to be disabled');
   if (!['test', 'resend'].includes(process.env.MAIL_TRANSPORT ?? '')) throw new Error('Set MAIL_TRANSPORT explicitly');
   if (process.env.NODE_ENV === 'production' && process.env.MAIL_TRANSPORT !== 'resend') throw new Error('Production requires an external mail transport');
   if (process.env.NODE_ENV === 'production') {

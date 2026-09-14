@@ -1,6 +1,6 @@
-import { BadRequestException, Body, ConflictException, Controller, Get, Inject, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Get, Inject, Post, Query, Req, Res, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { acquisitionSchema, lineOAuthStartSchema, lineRegistrationSchema } from '@keiba/domain';
+import { acquisitionSchema, launchCapabilities, lineOAuthStartSchema, lineRegistrationSchema, resolveLaunchMode } from '@keiba/domain';
 import type { AppRequest } from './context';
 import { AuthService } from './auth.service';
 import { LineLoginService } from './line-login.service';
@@ -12,8 +12,13 @@ function sessionCookie(res: Response, token: string) { res.cookie('keiba_session
 export class LineLoginController {
   constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(LineLoginService) private readonly line: LineLoginService) {}
 
+  private enabled() {
+    if (!launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).lineLogin) throw new ServiceUnavailableException({ code: 'LINE_LOGIN_NOT_IN_LAUNCH', message: 'LINEログインは現在の公開範囲では利用できません。' });
+  }
+
   @Post('start')
   async start(@Body() body: unknown, @Req() req: AppRequest) {
+    this.enabled();
     const { purpose, acquisition } = lineOAuthStartSchema.parse(body);
     const identity = purpose === 'LINK' ? await this.auth.authenticate(req) : undefined;
     return this.line.start(purpose, identity?.id, acquisition);
@@ -21,6 +26,7 @@ export class LineLoginController {
 
   @Get('callback')
   async callback(@Query() query: Record<string, unknown>, @Req() req: AppRequest, @Res() res: Response) {
+    this.enabled();
     if (typeof query.error === 'string') throw new BadRequestException({ code: 'LINE_AUTHORIZATION_DECLINED', message: 'LINEでの認証がキャンセルされました。' });
     if (typeof query.state !== 'string' || typeof query.code !== 'string') throw new BadRequestException({ code: 'LINE_CALLBACK_INVALID', message: 'LINE認証の応答を確認できませんでした。' });
     let callbackActor: Awaited<ReturnType<AuthService['authenticate']>> | undefined;
@@ -63,6 +69,7 @@ export class LineLoginController {
 
   @Post('register')
   async register(@Body() body: unknown, @Req() req: AppRequest, @Res({ passthrough: true }) res: Response) {
+    this.enabled();
     const input = lineRegistrationSchema.parse(body); const now = new Date();
     const result = await this.auth.db.$transaction(async tx => {
       const grant = await tx.lineRegistrationGrant.findUnique({ where: { tokenHash: hashToken(input.token) } });
@@ -87,6 +94,7 @@ export class LineLoginController {
 
   @Post('unlink')
   async unlink(@Req() req: AppRequest) {
+    this.enabled();
     const actor = await this.auth.authenticate(req);
     return this.auth.db.$transaction(async tx => {
       const account = await tx.lineAccount.findUnique({ where: { userId: actor.id } });

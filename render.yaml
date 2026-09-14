@@ -17,6 +17,8 @@ services:
         sync: false
       - key: AUTH_PROVIDER
         value: supabase
+      - key: LAUNCH_MODE
+        value: FREE_REGISTRATION
       - key: APP_BASE_URL
         sync: false
       - key: ADMIN_BASE_URL
@@ -28,13 +30,13 @@ services:
       - key: SUPABASE_ANON_KEY
         sync: false
       - key: NOTIFICATION_TRANSPORT
-        value: line
+        value: disabled
       - key: LINE_OAUTH_TRANSPORT
-        value: line
+        value: disabled
       - key: BILLING_TRANSPORT
-        value: stripe
+        value: disabled
       - key: STRIPE_LIVE_MODE
-        value: "true"
+        value: "false"
       - key: MAIL_TRANSPORT
         value: resend
       - key: RESEND_API_KEY
@@ -85,12 +87,14 @@ services:
         value: production
       - key: DATABASE_URL
         sync: false
+      - key: LAUNCH_MODE
+        value: FREE_REGISTRATION
       - key: APP_BASE_URL
         sync: false
       - key: ENCRYPTION_KEY
         sync: false
       - key: NOTIFICATION_TRANSPORT
-        value: line
+        value: disabled
 
 databases:
   - name: umareal-db

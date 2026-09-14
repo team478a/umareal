@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, assessmentSchema, canEditRace, canManage, consentVersions, jstDate, legalDocumentReleaseErrors, paddockComplete, preferencesSchema, requiresMfa } from '@keiba/domain';
+import { acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, assessmentSchema, canEditRace, canManage, consentVersions, jstDate, launchCapabilities, legalDocumentReleaseErrors, paddockComplete, preferencesSchema, requiresMfa, resolveLaunchMode } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -35,7 +35,7 @@ function csvCell(value: string | number) {
 @Controller()
 export class AppController {
   constructor(@Inject(AuthService) private readonly auth: AuthService) {}
-  @Get('health') async health() { await this.auth.db.$queryRaw`SELECT 1`; return { status: 'ok', phase: '6h-campaign-links' }; }
+  @Get('health') async health() { await this.auth.db.$queryRaw`SELECT 1`; return { status: 'ok', phase: '6n-free-registration-launch' }; }
   @Get('me') async me(@Req() req: AppRequest) {
     const identity = await this.auth.authenticate(req);
     const user = await this.auth.db.user.findUniqueOrThrow({ where: { id: identity.id }, include: { preferences: true, lineAccount: true, entitlements: { where: { revokedAt: null, endsAt: { gt: new Date() } } }, consents: { orderBy: { acceptedAt: 'desc' } } } });
@@ -288,6 +288,8 @@ export class AppController {
   }
   @Get('admin/readiness') async readiness(@Req() req: AppRequest) {
     await this.staff(req, ['ADMIN']);
+    const launchMode = resolveLaunchMode(process.env.LAUNCH_MODE);
+    const capabilities = launchCapabilities(launchMode);
     const [settings, backup, appliedMigrations, stripeConfig, databaseAccessRestricted] = await Promise.all([
       this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: true, lineLoginEnabled: true, newPurchasesEnabled: true, lineChannelId: true, lineChannelSecretEncrypted: true, lineAccessTokenEncrypted: true, lineLoginChannelId: true, lineLoginChannelSecretEncrypted: true, lineLoginCallbackUrl: true, updatedAt: true } }),
       readLocalBackupStatus(),
@@ -302,14 +304,14 @@ export class AppController {
     const authConfigured = process.env.AUTH_PROVIDER === 'supabase' && !!process.env.SUPABASE_URL && !!process.env.SUPABASE_ANON_KEY;
     add({ code: 'PRODUCTION_AUTH', group: 'APPLICATION', status: authConfigured ? 'MANUAL' : 'BLOCKED', title: '本番認証', evidence: authConfigured ? 'Supabase PKCE登録、ログイン、Cookie更新、JWT検証、初回管理者CLI、TOTP MFAの実装があります。実環境でのメール到達と一連の操作は未確認です。' : '現在はローカル認証、またはSupabase設定が不足しています。', action: 'Supabaseの許可Redirect URLとSMTPを設定し、登録・メール確認・ログイン・セッション更新・ログアウト・AAL2を実環境で確認します。' });
     add({ code: 'HTTPS_BASE_URL', group: 'APPLICATION', status: /^https:\/\//.test(baseUrl) ? 'READY' : 'BLOCKED', title: '公開URLとHTTPS', evidence: /^https:\/\//.test(baseUrl) ? 'APP_BASE_URLはHTTPSです。' : 'APP_BASE_URLは公開用HTTPSではありません。', action: '公開ドメインとHTTPSを設定し、Origin制御を確認します。' });
-    const messagingConfigured = process.env.NOTIFICATION_TRANSPORT === 'line' && !!settings.lineChannelId && !!settings.lineChannelSecretEncrypted && !!settings.lineAccessTokenEncrypted;
-    add({ code: 'LINE_MESSAGING', group: 'CONNECTIONS', status: messagingConfigured ? 'READY' : 'BLOCKED', title: 'LINE Messaging API', evidence: messagingConfigured ? '本番transportと必要な資格情報が設定済みです。' : '本番transportまたは必要な資格情報が未設定です。', action: '管理設定を保存し、実アカウントへの送信リハーサルを行います。', href: '/admin/settings' });
-    const loginConfigured = process.env.LINE_OAUTH_TRANSPORT === 'line' && !!settings.lineLoginChannelId && !!settings.lineLoginChannelSecretEncrypted && !!settings.lineLoginCallbackUrl && /^https:\/\//.test(settings.lineLoginCallbackUrl);
-    add({ code: 'LINE_LOGIN', group: 'CONNECTIONS', status: loginConfigured ? 'READY' : 'BLOCKED', title: 'LINE Login', evidence: loginConfigured ? '本番transportとHTTPS Callbackが設定済みです。' : '本番transport、資格情報、HTTPS Callbackのいずれかが不足しています。', action: 'LINE DevelopersのCallback URLと管理設定を一致させます。', href: '/admin/settings' });
+    const messagingConfigured = capabilities.lineNotifications && process.env.NOTIFICATION_TRANSPORT === 'line' && !!settings.lineChannelId && !!settings.lineChannelSecretEncrypted && !!settings.lineAccessTokenEncrypted;
+    add({ code: 'LINE_MESSAGING', group: 'CONNECTIONS', status: !capabilities.lineNotifications || messagingConfigured ? 'READY' : 'BLOCKED', title: 'LINE Messaging API', evidence: !capabilities.lineNotifications ? '無料会員募集モードでは対象外です。' : messagingConfigured ? '本番transportと必要な資格情報が設定済みです。' : '本番transportまたは必要な資格情報が未設定です。', action: capabilities.lineNotifications ? '管理設定を保存し、実アカウントへの送信リハーサルを行います。' : 'FULLへ切り替える前にLINE設定と送信リハーサルを完了します。', href: '/admin/settings' });
+    const loginConfigured = capabilities.lineLogin && process.env.LINE_OAUTH_TRANSPORT === 'line' && !!settings.lineLoginChannelId && !!settings.lineLoginChannelSecretEncrypted && !!settings.lineLoginCallbackUrl && /^https:\/\//.test(settings.lineLoginCallbackUrl);
+    add({ code: 'LINE_LOGIN', group: 'CONNECTIONS', status: !capabilities.lineLogin || loginConfigured ? 'READY' : 'BLOCKED', title: 'LINE Login', evidence: !capabilities.lineLogin ? '無料会員募集モードでは対象外です。' : loginConfigured ? '本番transportとHTTPS Callbackが設定済みです。' : '本番transport、資格情報、HTTPS Callbackのいずれかが不足しています。', action: capabilities.lineLogin ? 'LINE DevelopersのCallback URLと管理設定を一致させます。' : 'FULLへ切り替える前にLINE Loginの実アカウント試験を完了します。', href: '/admin/settings' });
     const mailConfigured = process.env.MAIL_TRANSPORT === 'resend' && !!process.env.RESEND_API_KEY && !!process.env.MAIL_FROM;
     add({ code: 'TRANSACTIONAL_MAIL', group: 'CONNECTIONS', status: mailConfigured ? 'READY' : 'BLOCKED', title: '確認・再設定メール', evidence: mailConfigured ? '外部メールtransportと送信元が設定済みです。' : '現在はテスト配信、または外部メール設定が不足しています。', action: '送信ドメインを認証し、登録・再設定メールを実送信で確認します。' });
-    const stripeConfigured = process.env.BILLING_TRANSPORT === 'stripe' && stripeConfig.usable;
-    add({ code: 'EXTERNAL_BILLING', group: 'CONNECTIONS', status: stripeConfigured ? 'MANUAL' : 'BLOCKED', title: '外部決済', evidence: stripeConfigured ? `Stripe Checkoutと署名付きWebhookの設定があります（設定元: ${stripeConfig.source === 'ADMIN' ? '管理画面' : '環境変数'}）。ライブ疎通は人による確認が必要です。` : '現在はローカル決済試験、またはStripe設定が不足・不整合です。', action: stripeConfigured ? 'テスト環境で決済成功・重複Webhook・金額不一致を確認します。' : '管理画面でStripe資格情報、動作モード、3プランのPrice IDを設定します。', href: '/admin/settings' });
+    const stripeConfigured = capabilities.billing && process.env.BILLING_TRANSPORT === 'stripe' && stripeConfig.usable;
+    add({ code: 'EXTERNAL_BILLING', group: 'CONNECTIONS', status: !capabilities.billing ? 'READY' : stripeConfigured ? 'MANUAL' : 'BLOCKED', title: '外部決済', evidence: !capabilities.billing ? '無料会員募集モードでは購入機能を停止しています。' : stripeConfigured ? `Stripe Checkoutと署名付きWebhookの設定があります（設定元: ${stripeConfig.source === 'ADMIN' ? '管理画面' : '環境変数'}）。ライブ疎通は人による確認が必要です。` : '現在はローカル決済試験、またはStripe設定が不足・不整合です。', action: !capabilities.billing ? 'FULLへ切り替える前に本番決済リハーサルを完了します。' : stripeConfigured ? 'テスト環境で決済成功・重複Webhook・金額不一致を確認します。' : '管理画面でStripe資格情報、動作モード、3プランのPrice IDを設定します。', href: '/admin/settings' });
     const legalReady = legalDocumentReleaseErrors().length === 0;
     add({ code: 'LEGAL_DOCUMENTS', group: 'LEGAL_DATA', status: legalReady ? 'READY' : 'BLOCKED', title: '利用規約・プライバシー', evidence: legalReady ? '正式版の文書バージョンを使用しています。' : `同意文書は開発版（${consentVersions.terms} / ${consentVersions.privacy}）です。`, action: '正式文書を確定し、バージョンを更新して同意を取得します。' });
     add({ code: 'DATA_RETENTION', group: 'LEGAL_DATA', status: 'BLOCKED', title: '個人情報の保持・匿名化', evidence: '退会処理はdevelopment-v1方針で履歴を保持しています。', action: '保持期間、匿名化範囲、開示・削除請求、再登録の扱いを確定します。', href: '/admin/account-closures' });
@@ -319,8 +321,8 @@ export class AppController {
     add({ code: 'PRODUCTION_BACKUP', group: 'OPERATIONS', status: 'MANUAL', title: '本番バックアップ運用', evidence: '暗号化、別拠点保管、保持世代、RPO/RTOは未確認です。', action: 'DB基盤のバックアップ設定と定期復元試験の責任者を確認します。', href: '/admin/backups' });
     const monitoringReady = !!process.env.SENTRY_DSN;
     add({ code: 'EXTERNAL_MONITORING', group: 'OPERATIONS', status: monitoringReady ? 'MANUAL' : 'BLOCKED', title: '外部監視・連絡', evidence: monitoringReady ? '監視先の設定があります。通知先と発報を人が確認する必要があります。' : '外部監視先が未設定です。', action: '死活・エラー・通知遅延の監視と連絡先を設定し、発報試験を行います。', href: '/admin/incidents' });
-    const unsafePurchases = settings.newPurchasesEnabled && !stripeConfigured;
-    add({ code: 'SAFE_FEATURE_FLAGS', group: 'OPERATIONS', status: unsafePurchases ? 'BLOCKED' : 'READY', title: '公開前の機能状態', evidence: unsafePurchases ? '外部決済未接続のまま新規購入が有効です。' : `予想公開 ${settings.predictionPublicationEnabled ? '有効' : '停止'}、CSV ${settings.csvImportEnabled ? '有効' : '停止'}、新規購入 ${settings.newPurchasesEnabled ? '有効' : '停止'}です。`, action: unsafePurchases ? '新規購入を停止します。' : '公開当日に緊急停止と復旧手順を再確認します。', href: '/admin/settings' });
+    const unsafePurchases = capabilities.billing && settings.newPurchasesEnabled && !stripeConfigured;
+    add({ code: 'SAFE_FEATURE_FLAGS', group: 'OPERATIONS', status: unsafePurchases ? 'BLOCKED' : 'READY', title: '公開前の機能状態', evidence: unsafePurchases ? '外部決済未接続のまま新規購入が有効です。' : `公開モード ${launchMode}、予想公開 ${settings.predictionPublicationEnabled ? '有効' : '停止'}、CSV ${settings.csvImportEnabled ? '有効' : '停止'}、新規購入 ${capabilities.billing && settings.newPurchasesEnabled ? '有効' : '停止'}です。`, action: unsafePurchases ? '新規購入を停止します。' : '公開当日に緊急停止と復旧手順を再確認します。', href: '/admin/settings' });
     const counts = { ready: checks.filter(item => item.status === 'READY').length, blocked: checks.filter(item => item.status === 'BLOCKED').length, manual: checks.filter(item => item.status === 'MANUAL').length, total: checks.length };
     return { generatedAt: new Date(), status: counts.blocked ? 'NOT_READY' : counts.manual ? 'MANUAL_REVIEW' : 'READY_FOR_REVIEW', counts, checks, nextActions: checks.filter(item => item.status !== 'READY').map(item => item.code), settingsUpdatedAt: settings.updatedAt, declaration: 'この自動判定だけで本番公開を承認しません。' };
   }

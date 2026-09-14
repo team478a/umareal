@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, Param, Post, Req, ServiceUnavailableException } from '@nestjs/common';
-import { addCalendarMonthUtc, canManage, dayPassCheckoutSchema, dayPassWindow, jstDate, requiresMfa, subscriptionCheckoutSchema } from '@keiba/domain';
+import { addCalendarMonthUtc, canManage, dayPassCheckoutSchema, dayPassWindow, jstDate, launchCapabilities, requiresMfa, resolveLaunchMode, subscriptionCheckoutSchema } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { randomUUID } from 'node:crypto';
@@ -17,6 +17,7 @@ export class BillingController {
   constructor(@Inject(AuthService) private readonly auth: AuthService) {}
 
   private transport() {
+    if (!launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).billing) throw new ServiceUnavailableException({ code: 'BILLING_NOT_IN_LAUNCH', message: '有料プランは現在準備中です。' });
     const transport = process.env.BILLING_TRANSPORT;
     if (transport !== 'test' && transport !== 'stripe') throw new ServiceUnavailableException({ code: 'BILLING_TRANSPORT_UNAVAILABLE', message: 'この環境では申込を処理できません。' });
     return transport;
@@ -34,9 +35,10 @@ export class BillingController {
   async plans() {
     const settings = await this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' } });
     const founderSold = await this.auth.db.subscription.count({ where: { planCode: 'FOUNDER', status: { in: ['TRIALING', 'ACTIVE', 'PAST_DUE', 'CANCELED', 'EXPIRED'] } } });
-    const stripeConfig = process.env.BILLING_TRANSPORT === 'stripe' ? await loadStripeConfig(this.auth.db) : null;
-    const transportAvailable = process.env.BILLING_TRANSPORT === 'test' || (process.env.BILLING_TRANSPORT === 'stripe' && stripeConfig?.usable);
-    return { newPurchasesEnabled: settings.newPurchasesEnabled, developmentTerms: true, billingTransport: process.env.BILLING_TRANSPORT, currency: 'JPY', taxIncluded: true,
+    const billingEnabled = launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).billing;
+    const stripeConfig = billingEnabled && process.env.BILLING_TRANSPORT === 'stripe' ? await loadStripeConfig(this.auth.db) : null;
+    const transportAvailable = billingEnabled && (process.env.BILLING_TRANSPORT === 'test' || (process.env.BILLING_TRANSPORT === 'stripe' && stripeConfig?.usable));
+    return { newPurchasesEnabled: billingEnabled && settings.newPurchasesEnabled, developmentTerms: true, billingTransport: process.env.BILLING_TRANSPORT, currency: 'JPY', taxIncluded: true,
       plans: [
         { code: 'FOUNDER', name: '創設会員', priceYen: settings.founderPriceYen, interval: 'MONTH', available: transportAvailable && settings.newPurchasesEnabled && settings.founderSalesEnabled && founderSold < settings.founderSalesLimit, remaining: Math.max(0, settings.founderSalesLimit - founderSold) },
         { code: 'STANDARD', name: '通常会員', priceYen: settings.standardPriceYen, interval: 'MONTH', available: transportAvailable && settings.newPurchasesEnabled },
@@ -121,6 +123,7 @@ export class BillingController {
 
   @Post('webhooks/stripe')
   async stripeWebhook(@Req() req: AppRequest) {
+    if (!launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).billing) throw new ServiceUnavailableException({ code: 'BILLING_NOT_IN_LAUNCH', message: '有料プランは現在準備中です。' });
     if (process.env.BILLING_TRANSPORT !== 'stripe') throw new ServiceUnavailableException({ code: 'STRIPE_WEBHOOK_DISABLED', message: 'Stripe Webhookは無効です。' });
     const stripeConfig = await this.stripeConfig();
     const signature = req.headers['stripe-signature'];

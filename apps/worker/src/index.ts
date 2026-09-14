@@ -1,8 +1,9 @@
 import { resolve } from 'node:path';
 import { config } from 'dotenv';
+import { launchCapabilities, resolveLaunchMode } from '@keiba/domain';
 import { databaseRuntimeAccessRestricted, PrismaClient } from '@keiba/db';
 import { decryptSecret } from '@keiba/db';
-import { runNotificationBatch, TestNotificationTransport } from './notification-runner';
+import { runNotificationBatch, skipPendingNotificationEvents, TestNotificationTransport } from './notification-runner';
 import { runPublicationSchedules } from './publication-scheduler';
 import { LineMessagingTransport } from './line-transport';
 
@@ -11,8 +12,11 @@ export const workerCapabilities = ['scheduled-publication', 'prediction-notifica
 
 async function main() {
   const transportName = process.env.NOTIFICATION_TRANSPORT ?? 'test';
-  if (!['test', 'line'].includes(transportName)) throw new Error('NOTIFICATION_TRANSPORT must be test or line');
-  if (process.env.NODE_ENV === 'production' && transportName === 'test') throw new Error('The test notification transport is forbidden in production');
+  if (process.env.NODE_ENV === 'production' && !process.env.LAUNCH_MODE) throw new Error('Set LAUNCH_MODE explicitly in production');
+  const capabilities = launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE));
+  if (!['test', 'line', 'disabled'].includes(transportName)) throw new Error('NOTIFICATION_TRANSPORT must be test, line or disabled');
+  if (process.env.NODE_ENV === 'production' && capabilities.lineNotifications && transportName !== 'line') throw new Error('Full production launch requires the LINE notification transport');
+  if (process.env.NODE_ENV === 'production' && !capabilities.lineNotifications && transportName !== 'disabled') throw new Error('Free registration launch requires LINE notifications to be disabled');
   const db = new PrismaClient();
   const continuous = !process.argv.includes('--once');
   let stopping = false;
@@ -23,10 +27,10 @@ async function main() {
     if (process.env.NODE_ENV === 'production' && !await databaseRuntimeAccessRestricted(db)) throw new Error('Production requires a restricted database runtime role');
     const transport = transportName === 'line'
       ? new LineMessagingTransport(decryptSecret((await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { lineAccessTokenEncrypted: true } })).lineAccessTokenEncrypted ?? ''))
-      : new TestNotificationTransport();
+      : transportName === 'test' ? new TestNotificationTransport() : null;
     do {
       const schedules = await runPublicationSchedules({ db });
-      const result = await runNotificationBatch({ db, transport });
+      const result = transport ? await runNotificationBatch({ db, transport }) : await skipPendingNotificationEvents(db);
       console.info(JSON.stringify({ job: 'publication-and-notifications', schedules, ...result }));
       if (!continuous || stopping) break;
       await new Promise(resolveWait => setTimeout(resolveWait, 5000));

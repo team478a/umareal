@@ -22,6 +22,17 @@ export class TestNotificationTransport implements NotificationTransport {
 
 export type BatchResult = { disabled: boolean; expandedEvents: number; claimedDeliveries: number; sent: number; retried: number; failed: number; skipped: number };
 
+export async function skipPendingNotificationEvents(db: PrismaClient, limit = 100): Promise<BatchResult> {
+  const candidates = await db.notificationEvent.findMany({ where: { expandedAt: null }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: limit, select: { id: true } });
+  let skipped = 0;
+  for (const candidate of candidates) {
+    const now = new Date();
+    const changed = await db.notificationEvent.updateMany({ where: { id: candidate.id, expandedAt: null }, data: { status: 'SKIPPED', expandedAt: now, updatedAt: now } });
+    skipped += changed.count;
+  }
+  return { disabled: true, expandedEvents: skipped, claimedDeliveries: 0, sent: 0, retried: 0, failed: 0, skipped };
+}
+
 async function refreshEventStatus(db: PrismaClient, eventId: string) {
   const deliveries = await db.notificationDelivery.findMany({ where: { eventId }, select: { status: true, attemptCount: true } });
   let status = 'QUEUED';

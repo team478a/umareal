@@ -79,7 +79,7 @@ Phase 3Bは外部LINEへ接続せずtest transportで配送状態を検証する
 
 ## Messaging API transportとWebhook
 
-`NOTIFICATION_TRANSPORT=line` でワーカーは管理画面に暗号化保存したChannel access tokenを読み、固定のLINE push APIへ送信する。資格情報や送信先を標準出力へ出さない。`test` はローカル検証専用で、本番APIとワーカーは `line` 以外の起動を拒否する。ライブ切替前に通知キューと対象会員を確認し、意図しない一斉送信がない時間帯に行う。
+`NOTIFICATION_TRANSPORT=line` でワーカーは管理画面に暗号化保存したChannel access tokenを読み、固定のLINE push APIへ送信する。資格情報や送信先を標準出力へ出さない。`test` はローカル検証専用である。`LAUNCH_MODE=FREE_REGISTRATION` の本番では `disabled` を必須にし、workerは予約公開だけを処理して通知配送を展開しない。`FULL` の本番は `line` 以外を拒否する。ライブ切替前に通知キューと対象会員を確認し、意図しない一斉送信がない時間帯に行う。
 
 Webhook URLは `{API公開URL}/api/v1/webhooks/line`。LINE Developers側でWebhook再送を有効にできるが、アプリは `webhookEventId` で重複を拒否する。管理画面の通知運用で最終受信、24時間件数、未照合、通知不可アカウントを確認する。初回送信から24時間を越えた配送は同じリトライキーの保証期間外になるため再送しない。
 
@@ -142,7 +142,7 @@ LINE通知を有効にしても現区間では送信しない。次区間のワ�
 
 ## Stripe Checkout
 
-`BILLING_TRANSPORT=stripe` を配備時の安全スイッチとして設定し、Secret key、Webhook secret、テスト／本番モード、創設・通常・1日利用のPrice IDは `/admin/settings` で管理する。管理画面の秘密値は暗号化され、保存後は再表示されない。管理画面未設定時だけ同名の環境変数を互換用フォールバックとして使う。Webhook URLは `{API公開URL}/api/v1/webhooks/stripe`。Checkoutの完了画面だけでは権限を付けず、`checkout.session.completed` の署名、live/testモード、JPY金額、内部申込ID、会員ID、プランを照合してから反映する。
+`LAUNCH_MODE=FREE_REGISTRATION` では `BILLING_TRANSPORT=disabled` とし、会員向け購入画面と購入APIを停止する。`FULL`へ進むときに `BILLING_TRANSPORT=stripe` を配備時の安全スイッチとして設定し、Secret key、Webhook secret、テスト／本番モード、創設・通常・1日利用のPrice IDは `/admin/settings` で管理する。管理画面の秘密値は暗号化され、保存後は再表示されない。管理画面未設定時だけ同名の環境変数を互換用フォールバックとして使う。Webhook URLは `{API公開URL}/api/v1/webhooks/stripe`。Checkoutの完了画面だけでは権限を付けず、`checkout.session.completed` の署名、live/testモード、JPY金額、内部申込ID、会員ID、プランを照合してから反映する。
 
 Webhookには `checkout.session.completed`、`invoice.paid`、`invoice.payment_failed`、`customer.subscription.updated`、`customer.subscription.deleted` を登録する。更新成功はInvoiceの請求期間へ権限を更新する。失敗は管理設定の猶予期限を反映し、期限後は時刻ベースの権限判定で有料本文を返さない。契約終了は即時失効する。外部決済モードでは管理画面のローカル失敗・回復操作を拒否する。
 

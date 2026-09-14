@@ -2,6 +2,7 @@ import { BadRequestException, Controller, Inject, Post, Req, ServiceUnavailableE
 import type { RawBodyRequest } from '@nestjs/common';
 import type { Request } from 'express';
 import { z } from 'zod';
+import { launchCapabilities, resolveLaunchMode } from '@keiba/domain';
 import { AuthService } from './auth.service';
 import { decrypt, hashToken } from './security';
 import { verifyLineWebhookSignature } from './line-webhook';
@@ -19,6 +20,7 @@ export class LineWebhookController {
 
   @Post()
   async receive(@Req() req: RawBodyRequest<Request>) {
+    if (!launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).lineNotifications) throw new ServiceUnavailableException({ code: 'LINE_WEBHOOK_NOT_IN_LAUNCH', message: 'LINE通知は現在の公開範囲では利用できません。' });
     const rawBody = req.rawBody;
     if (!rawBody) throw new BadRequestException({ code: 'LINE_RAW_BODY_REQUIRED', message: 'Webhook本文を確認できません。' });
     const settings = await this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { lineChannelSecretEncrypted: true } });

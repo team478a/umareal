@@ -40,7 +40,7 @@
 | `JOB_SECRET` | API | 32byte以上のランダム値 |
 | `SENTRY_DSN` | API | 本番プロジェクトの監視先 |
 
-LINEとStripeの秘密値は初回管理者を本番認証へ結合した後、AAL2で `/admin/settings` から暗号化保存する。APIとworkerには同じ `ENCRYPTION_KEY` が必要である。キーを失うと保存済みLINE・Stripe秘密値を復号できない。
+初回公開は `LAUNCH_MODE=FREE_REGISTRATION` とし、LINEとStripeのtransportを `disabled` にする。LINEとStripeの秘密値は`FULL`への拡張前に、初回管理者を本番認証へ結合した後、AAL2で `/admin/settings` から暗号化保存する。APIとworkerには同じ `ENCRYPTION_KEY` が必要である。キーを失うと保存済みLINE・Stripe秘密値を復号できない。
 
 Supabaseのservice-role keyは現行アプリでは使用しない。管理APIが必要になるまでRenderへ登録せず、anon keyだけで登録・ログイン・更新・JWT検証を行う。
 
@@ -82,8 +82,8 @@ MFA端末紛失時のfactor解除・本人確認・再登録は、復旧責任�
 5. Renderが表示するA/CNAMEと所有確認用DNSレコードをドメイン管理会社へ登録する。固定値を推測して入力しない。
 6. Renderでドメイン検証とTLS証明書発行を確認する。
 7. `APP_BASE_URL` と `ADMIN_BASE_URL` を独自ドメインへ更新して再配備する。
-8. LINE Login Callback、LINE Messaging Webhook、Stripe Webhook、Resend送信ドメインを独自ドメインへ揃える。
-9. `/admin/readiness` の自動判定と人による確認を完了し、登録・ログイン・メール・LINE・決済を少人数でリハーサルする。
+8. Resend送信ドメインを独自ドメインへ揃える。LINE Login Callback、LINE Messaging Webhook、Stripe Webhookは`FULL`への拡張時に設定する。
+9. `/admin/readiness` の自動判定と人による確認を完了し、無料登録・ログイン・確認メール・再設定・無料情報閲覧を少人数でリハーサルする。
 10. 独自ドメインを公開導線へ載せる。Renderの一時サブドメインを無効にする場合は、独自ドメインでの復旧確認後に行う。
 
 ## 現在の公開ブロッカー
@@ -93,7 +93,7 @@ MFA端末紛失時のfactor解除・本人確認・再登録は、復旧責任�
 1. Supabase認証、初回管理者bootstrap、TOTP MFA経路は実装済みだが、本番project、Redirect URL、SMTPを使った登録・メール確認・ログイン・更新・ログアウト・AAL2の実環境試験が未実施である。MFA端末紛失時の復旧手順も未確定である。
 2. 利用規約とプライバシーポリシーは `draft-v1` であり、正式同意として扱えない。本文・版・施行日・公開状態が揃うまでproduction APIも起動を拒否する。反映手順は `docs/LEGAL_RELEASE.md` に記載した。
 3. 個人情報の保持・匿名化と、本番バックアップの保持・復元責任者が未確定である。DB権限分離の実装は完了したが、本番DBでのruntimeロール構成と検証は未実施である。
-4. LINE、Stripe、Supabase SMTP、監視のライブ資格情報と実環境試験が未実施である。
+4. 無料募集に必要なSupabase SMTPと監視のライブ資格情報、実環境試験が未実施である。LINEとStripeは`FULL`への拡張前に実施する。
 5. APIのレート制限はプロセス内保存である。初期はAPIを1インスタンスに固定し、複数インスタンス化の前に共有ストアへ移す。
 
 次の公開準備ゴールは、審査済みの利用規約・プライバシーポリシーを `docs/LEGAL_RELEASE.md` の手順で反映することとする。その後、外部サービス資格情報を受け取り、Renderリソース作成、DNS設定、TLS確認、限定公開試験へ進める。

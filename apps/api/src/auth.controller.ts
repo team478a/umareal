@@ -3,7 +3,7 @@ import type { Response } from 'express';
 import { createHash, randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { TOTP, Secret } from 'otpauth';
-import { fallbackEmailSchema, loginSchema, mfaCodeSchema, registrationSchema } from '@keiba/domain';
+import { fallbackEmailSchema, launchCapabilities, loginSchema, mfaCodeSchema, registrationSchema, resolveLaunchMode } from '@keiba/domain';
 import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
 import { decrypt, encrypt, hashPassword, hashToken, newToken, verifyPassword } from './security';
@@ -47,7 +47,19 @@ export class AuthController {
     });
     await this.mail.send({ userId, to: email, kind: purpose === 'REGISTRATION' ? 'VERIFY_EMAIL' : 'ADD_FALLBACK', url: `${process.env.APP_BASE_URL}/verify-email?token=${token}`, expiresInMinutes, idempotencyKey: verification.id });
   }
-  @Get('config') async config() { const settings = await this.auth.db.systemSetting.findUnique({ where: { id: 'global' }, select: { lineLoginEnabled: true } }); return { provider: process.env.AUTH_PROVIDER, localOnly: process.env.AUTH_PROVIDER === 'local', lineEnabled: settings?.lineLoginEnabled === true }; }
+  @Get('config') async config() {
+    const mode = resolveLaunchMode(process.env.LAUNCH_MODE);
+    const capabilities = launchCapabilities(mode);
+    const settings = await this.auth.db.systemSetting.findUnique({ where: { id: 'global' }, select: { lineLoginEnabled: true, lineNotificationsEnabled: true } });
+    return {
+      provider: process.env.AUTH_PROVIDER,
+      localOnly: process.env.AUTH_PROVIDER === 'local',
+      launchMode: mode,
+      capabilities,
+      lineEnabled: capabilities.lineLogin && settings?.lineLoginEnabled === true,
+      lineNotificationsEnabled: capabilities.lineNotifications && settings?.lineNotificationsEnabled === true
+    };
+  }
   @Post('register') async register(@Body() body: unknown, @Req() req: AppRequest, @Res({ passthrough: true }) res: Response) {
     const input = registrationSchema.parse(body);
     if (process.env.AUTH_PROVIDER === 'supabase') {

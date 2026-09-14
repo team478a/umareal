@@ -20,6 +20,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://keiba:ci-only-password@127.0.0.1:55432/keiba_test
       AUTH_PROVIDER: local
+      LAUNCH_MODE: FULL
       APP_BASE_URL: http://localhost:3000
       API_BASE_URL: http://127.0.0.1:4000
       API_PORT: 4000

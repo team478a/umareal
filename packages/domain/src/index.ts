@@ -14,6 +14,7 @@ export * from './billing';
 export * from './free-report';
 export * from './publication-schedule';
 export * from './legal';
+export * from './launch';
 
 export const roles = ['MEMBER', 'EXPERT', 'EDITOR', 'OPERATOR', 'ADMIN'] as const;
 export type Role = typeof roles[number];

@@ -5,7 +5,7 @@
 | Method | Path | 権限・動作 |
 | --- | --- | --- |
 | GET | /health | DB接続確認 |
-| GET | /auth/config | 認証モードと接続機能の状態 |
+| GET | /auth/config | 認証モード、公開モード、メール登録・無料情報・LINE・決済の公開機能状態。秘密値を含まない |
 | POST | /auth/register | 開発認証のみ。メール無料登録を作成し確認メールを送信。任意のacquisition（標準UTM相当）を初回流入として固定。確認完了までセッションを発行しない |
 | POST | /auth/email/resend | 開発認証のみ。未確認の登録メールを再送。登録有無を同一応答で伏せる |
 | POST | /auth/email/verify | 30分有効の使い切りtoken。登録または予備メール確認を完了しセッションを発行 |
@@ -76,7 +76,7 @@ HTTP 400=入力不正、401=未認証、403=権限/MFA/Origin不正、404=対象
 
 ## 料金・契約
 
-`BILLING_TRANSPORT=test` はローカル検証専用で、外部通信、カード入力、実請求を行わない。本番はtest transportで起動できない。`stripe` はHosted Checkoutと署名付きWebhookを使用する。新規購入停止は月額と1日利用の両方へ適用する。
+`BILLING_TRANSPORT=test` はローカル検証専用で、外部通信、カード入力、実請求を行わない。`stripe` はHosted Checkoutと署名付きWebhookを使用する。`LAUNCH_MODE=FREE_REGISTRATION` の本番では `disabled` を必須にし、購入画面を表示せず、CheckoutとWebhookを503で拒否する。新規購入停止は月額と1日利用の両方へ適用する。
 
 ローカル月額契約は申込時刻からUTC基準の暦1か月を計算し、Stripe月額契約はInvoiceの請求期間を正とする。`invoice.paid` は初回期間補正、更新、回復を反映し、`invoice.payment_failed` はPAST_DUEと設定済み猶予期限を反映する。`customer.subscription.updated/deleted` は解約予約・終了を同期する。1日利用は対象日のJST 00:00以上、翌日00:00未満。支払試行、請求イベント、Stripe受信イベントはDBで更新・削除・TRUNCATEを拒否する。
 

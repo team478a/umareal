@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import type { NotificationTransport } from '../apps/worker/src/notification-runner';
-import { runNotificationBatch, TestNotificationTransport } from '../apps/worker/src/notification-runner';
+import { runNotificationBatch, skipPendingNotificationEvents, TestNotificationTransport } from '../apps/worker/src/notification-runner';
 import { account, Client, db } from './helpers';
 
 let settingsBefore: Awaited<ReturnType<typeof db.systemSetting.findUniqueOrThrow>>;
@@ -47,6 +47,16 @@ async function processFirstAttempt(eventId: string, userId: string, transport: N
 }
 
 describe('notification worker and administration', () => {
+  it('finalizes web-only events without creating delayed LINE deliveries', async () => {
+    const target = await publication('FREE');
+    const result = await skipPendingNotificationEvents(db, 200);
+    expect(result).toMatchObject({ disabled: true, claimedDeliveries: 0, sent: 0 });
+    expect(await db.notificationEvent.findUnique({ where: { id: target.event.id } })).toMatchObject({ status: 'SKIPPED', expandedAt: expect.any(Date) });
+    expect(await db.notificationDelivery.count({ where: { eventId: target.event.id } })).toBe(0);
+    await runNotificationBatch({ db, transport: new TestNotificationTransport(), limit: 200 });
+    expect(await db.notificationDelivery.count({ where: { eventId: target.event.id } })).toBe(0);
+  });
+
   it('publishes an append-only target-race announcement and sends it to free members', async () => {
     const admin = new Client(); await admin.login(await account('ADMIN')); await admin.mfa();
     const suffix = randomUUID().slice(0, 8);
