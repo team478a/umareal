@@ -1,0 +1,903 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  MEMBER
+  EXPERT
+  EDITOR
+  OPERATOR
+  ADMIN
+}
+
+model User {
+  id                     String                   @id @default(uuid()) @db.Uuid
+  authSubject            String?                  @unique
+  email                  String?                  @unique
+  emailVerifiedAt        DateTime?                @db.Timestamptz(3)
+  registrationMethod     String                   @default("EMAIL")
+  displayName            String
+  role                   Role                     @default(MEMBER)
+  passwordHash           String?
+  mfaSecret              String?
+  pendingMfaSecret       String?
+  mfaLastStep            BigInt?
+  disabledAt             DateTime?                @db.Timestamptz(3)
+  createdAt              DateTime                 @default(now()) @db.Timestamptz(3)
+  consents               UserConsent[]
+  sessions               Session[]
+  preferences            NotificationPreference?
+  lineAccount            LineAccount?
+  lineOAuthFlows         LineOAuthFlow[]
+  notificationDeliveries NotificationDelivery[]
+  notificationReads      MemberNotificationRead[]
+  entitlements           Entitlement[]
+  subscriptions          Subscription[]
+  dayPasses              DayPass[]
+  paymentTransactions    PaymentTransaction[]
+  billingEvents          BillingEvent[]
+  billingCheckouts       BillingCheckout[]
+  journeyEvents          MemberJourneyEvent[]
+  assignments            ExpertAssignment[]
+  resets                 PasswordReset[]
+  emailVerifications     EmailVerification[]
+  raceAnnouncements      RaceAnnouncement[]       @relation("AnnouncementPublisher")
+  freeReportVersions     FreeReportVersion[]      @relation("FreeReportPublisher")
+  audioAssets            AudioAsset[]             @relation("AudioAssetCreator")
+  publicationSchedules   PublicationSchedule[]    @relation("PublicationScheduleCreator")
+  accountClosure         AccountClosure?
+  acquisition            MemberAcquisition?
+  acquisitionCampaigns   AcquisitionCampaign[]    @relation("AcquisitionCampaignCreator")
+
+  @@map("users")
+}
+
+model MemberAcquisition {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @unique @db.Uuid
+  user         User     @relation(fields: [userId], references: [id])
+  source       String
+  medium       String?
+  campaign     String?
+  content      String?
+  term         String?
+  landingPath  String?
+  referralCode String?
+  capturedAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([source, campaign, capturedAt])
+  @@map("member_acquisitions")
+}
+
+model AcquisitionCampaign {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  code         String   @unique
+  source       String
+  medium       String
+  content      String?
+  landingPath  String
+  referralCode String?
+  createdBy    String   @db.Uuid
+  creator      User     @relation("AcquisitionCampaignCreator", fields: [createdBy], references: [id])
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([createdAt])
+  @@map("acquisition_campaigns")
+}
+
+model AccountClosure {
+  id                     String   @id @default(uuid()) @db.Uuid
+  userId                 String   @unique @db.Uuid
+  user                   User     @relation(fields: [userId], references: [id])
+  reasonCode             String
+  requestedAt            DateTime @default(now()) @db.Timestamptz(3)
+  accessRevokedAt        DateTime @db.Timestamptz(3)
+  retentionPolicyVersion String
+
+  @@index([requestedAt])
+  @@map("account_closures")
+}
+
+model MemberJourneyEvent {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventType  String
+  occurredAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([userId, eventType])
+  @@index([eventType, occurredAt])
+  @@map("member_journey_events")
+}
+
+model EmailVerification {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @db.Uuid
+  user         User      @relation(fields: [userId], references: [id])
+  tokenHash    String    @unique
+  purpose      String
+  email        String
+  passwordHash String?
+  expiresAt    DateTime  @db.Timestamptz(3)
+  usedAt       DateTime? @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([userId, expiresAt])
+  @@map("email_verifications")
+}
+
+model LineRegistrationGrant {
+  id               String    @id @default(uuid()) @db.Uuid
+  tokenHash        String    @unique
+  subjectHash      String
+  subjectEncrypted String
+  expiresAt        DateTime  @db.Timestamptz(3)
+  usedAt           DateTime? @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+  acquisition      Json?
+
+  @@index([subjectHash, expiresAt])
+  @@map("line_registration_grants")
+}
+
+model UserConsent {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @db.Uuid
+  user         User     @relation(fields: [userId], references: [id])
+  documentType String
+  version      String
+  source       String
+  acceptedAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([userId])
+  @@map("user_consents")
+}
+
+model Session {
+  id        String   @id @default(uuid()) @db.Uuid
+  tokenHash String   @unique
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id])
+  aal       Int      @default(1)
+  expiresAt DateTime @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model PasswordReset {
+  id        String    @id @default(uuid()) @db.Uuid
+  tokenHash String    @unique
+  userId    String    @db.Uuid
+  user      User      @relation(fields: [userId], references: [id])
+  expiresAt DateTime  @db.Timestamptz(3)
+  usedAt    DateTime? @db.Timestamptz(3)
+
+  @@map("password_resets")
+}
+
+model NotificationPreference {
+  userId      String  @id @db.Uuid
+  user        User    @relation(fields: [userId], references: [id])
+  predictions Boolean @default(true)
+  changes     Boolean @default(true)
+  articles    Boolean @default(false)
+  billing     Boolean @default(true)
+
+  @@map("notification_preferences")
+}
+
+model LineAccount {
+  id                     String    @id @default(uuid()) @db.Uuid
+  userId                 String    @unique @db.Uuid
+  user                   User      @relation(fields: [userId], references: [id])
+  subject                String    @unique
+  linkedAt               DateTime  @default(now()) @db.Timestamptz(3)
+  unlinkedAt             DateTime? @db.Timestamptz(3)
+  notificationDisabledAt DateTime? @db.Timestamptz(3)
+  lastWebhookAt          DateTime? @db.Timestamptz(3)
+
+  @@map("line_accounts")
+}
+
+model LineOAuthFlow {
+  id                    String    @id @default(uuid()) @db.Uuid
+  stateHash             String    @unique
+  nonceHash             String
+  nonceEncrypted        String
+  codeVerifierEncrypted String
+  purpose               String
+  userId                String?   @db.Uuid
+  user                  User?     @relation(fields: [userId], references: [id])
+  expiresAt             DateTime  @db.Timestamptz(3)
+  usedAt                DateTime? @db.Timestamptz(3)
+  createdAt             DateTime  @default(now()) @db.Timestamptz(3)
+  acquisition           Json?
+
+  @@index([expiresAt])
+  @@map("line_oauth_flows")
+}
+
+model LineWebhookEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  webhookEventId String   @unique
+  eventType      String
+  subjectHash    String?
+  occurredAt     DateTime @db.Timestamptz(3)
+  outcome        String
+  receivedAt     DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([receivedAt])
+  @@map("line_webhook_events")
+}
+
+model Entitlement {
+  id           String        @id @default(uuid()) @db.Uuid
+  userId       String        @db.Uuid
+  user         User          @relation(fields: [userId], references: [id])
+  planCode     String
+  startsAt     DateTime      @db.Timestamptz(3)
+  endsAt       DateTime      @db.Timestamptz(3)
+  raceDate     String?
+  reason       String
+  grantedBy    String        @db.Uuid
+  revokedAt    DateTime?     @db.Timestamptz(3)
+  subscription Subscription?
+  dayPass      DayPass?
+
+  @@index([userId, endsAt])
+  @@map("entitlements")
+}
+
+model Subscription {
+  id                     String               @id @default(uuid()) @db.Uuid
+  userId                 String               @db.Uuid
+  user                   User                 @relation(fields: [userId], references: [id])
+  planCode               String
+  status                 String
+  priceYen               Int
+  currentPeriodStartsAt  DateTime             @db.Timestamptz(3)
+  currentPeriodEndsAt    DateTime             @db.Timestamptz(3)
+  cancelAtPeriodEnd      Boolean              @default(false)
+  canceledAt             DateTime?            @db.Timestamptz(3)
+  graceEndsAt            DateTime?            @db.Timestamptz(3)
+  provider               String
+  providerSubscriptionId String               @unique
+  entitlementId          String               @unique @db.Uuid
+  entitlement            Entitlement          @relation(fields: [entitlementId], references: [id])
+  payments               PaymentTransaction[]
+  events                 BillingEvent[]
+  createdAt              DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime             @default(now()) @db.Timestamptz(3)
+
+  @@index([userId, status])
+  @@map("subscriptions")
+}
+
+model DayPass {
+  id             String               @id @default(uuid()) @db.Uuid
+  userId         String               @db.Uuid
+  user           User                 @relation(fields: [userId], references: [id])
+  raceDate       String
+  status         String
+  priceYen       Int
+  startsAt       DateTime             @db.Timestamptz(3)
+  endsAt         DateTime             @db.Timestamptz(3)
+  provider       String
+  providerPassId String               @unique
+  entitlementId  String               @unique @db.Uuid
+  entitlement    Entitlement          @relation(fields: [entitlementId], references: [id])
+  payments       PaymentTransaction[]
+  events         BillingEvent[]
+  createdAt      DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime             @default(now()) @db.Timestamptz(3)
+
+  @@unique([userId, raceDate])
+  @@index([status, endsAt])
+  @@map("day_passes")
+}
+
+model PaymentTransaction {
+  id                String        @id @default(uuid()) @db.Uuid
+  userId            String        @db.Uuid
+  user              User          @relation(fields: [userId], references: [id])
+  provider          String
+  providerPaymentId String        @unique
+  kind              String
+  status            String
+  amountYen         Int
+  subscriptionId    String?       @db.Uuid
+  subscription      Subscription? @relation(fields: [subscriptionId], references: [id])
+  dayPassId         String?       @db.Uuid
+  dayPass           DayPass?      @relation(fields: [dayPassId], references: [id])
+  occurredAt        DateTime      @default(now()) @db.Timestamptz(3)
+  createdTxId       BigInt        @default(dbgenerated("txid_current()"))
+
+  @@index([userId, occurredAt])
+  @@map("payment_transactions")
+}
+
+model BillingEvent {
+  id             String        @id @default(uuid()) @db.Uuid
+  userId         String        @db.Uuid
+  user           User          @relation(fields: [userId], references: [id])
+  eventType      String
+  subscriptionId String?       @db.Uuid
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id])
+  dayPassId      String?       @db.Uuid
+  dayPass        DayPass?      @relation(fields: [dayPassId], references: [id])
+  details        Json
+  actorId        String        @db.Uuid
+  occurredAt     DateTime      @default(now()) @db.Timestamptz(3)
+
+  @@index([userId, occurredAt])
+  @@map("billing_events")
+}
+
+model BillingCheckout {
+  id                     String    @id @default(uuid()) @db.Uuid
+  userId                 String    @db.Uuid
+  user                   User      @relation(fields: [userId], references: [id])
+  kind                   String
+  planCode               String
+  raceDate               String?
+  amountYen              Int
+  status                 String    @default("INITIATED")
+  idempotencyKey         String    @unique
+  requestHash            String
+  providerSessionId      String?   @unique
+  providerCheckoutUrl    String?
+  providerSubscriptionId String?
+  createdAt              DateTime  @default(now()) @db.Timestamptz(3)
+  expiresAt              DateTime  @db.Timestamptz(3)
+  completedAt            DateTime? @db.Timestamptz(3)
+
+  @@index([userId, status])
+  @@map("billing_checkouts")
+}
+
+model StripeWebhookEvent {
+  id              String   @id @default(uuid()) @db.Uuid
+  providerEventId String   @unique
+  eventType       String
+  livemode        Boolean
+  outcome         String
+  receivedAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([receivedAt])
+  @@map("stripe_webhook_events")
+}
+
+model Race {
+  id                   String                @id @default(uuid()) @db.Uuid
+  raceDate             String
+  venue                String
+  number               Int
+  name                 String
+  startsAt             DateTime              @db.Timestamptz(3)
+  status               String                @default("SCHEDULED")
+  assignments          ExpertAssignment[]
+  resultDraft          RaceResultDraft?
+  resultVersions       RaceResultVersion[]
+  raceDayId            String?               @db.Uuid
+  raceDay              RaceDay?              @relation(fields: [raceDayId], references: [id])
+  raceClass            String?
+  distance             Int?
+  surface              String?
+  direction            String?
+  going                String?
+  weather              String?
+  revision             Int                   @default(1)
+  entries              RaceEntry[]
+  prediction           Prediction?
+  announcements        RaceAnnouncement[]
+  freeReportDraft      FreeReportDraft?
+  freeReportVersions   FreeReportVersion[]
+  publicationSchedules PublicationSchedule[]
+
+  @@unique([raceDate, venue, number])
+  @@map("races")
+}
+
+model RaceAnnouncement {
+  id                String             @id @default(uuid()) @db.Uuid
+  raceId            String             @db.Uuid
+  race              Race               @relation(fields: [raceId], references: [id])
+  version           Int
+  publishedBy       String             @db.Uuid
+  publisher         User               @relation("AnnouncementPublisher", fields: [publishedBy], references: [id])
+  reason            String
+  publishedAt       DateTime           @default(now()) @db.Timestamptz(3)
+  createdTxId       BigInt             @default(dbgenerated("txid_current()"))
+  notificationEvent NotificationEvent?
+
+  @@unique([raceId, version])
+  @@index([publishedAt])
+  @@map("race_announcements")
+}
+
+model FreeReportDraft {
+  id          String   @id @default(uuid()) @db.Uuid
+  raceId      String   @unique @db.Uuid
+  race        Race     @relation(fields: [raceId], references: [id])
+  upEntryId   String   @db.Uuid
+  upReason    String
+  downEntryId String   @db.Uuid
+  downReason  String
+  audioUrl    String
+  reviewText  String   @default("")
+  revision    Int      @default(1)
+  updatedBy   String   @db.Uuid
+  updatedAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@map("free_report_drafts")
+}
+
+model FreeReportVersion {
+  id                String             @id @default(uuid()) @db.Uuid
+  raceId            String             @db.Uuid
+  race              Race               @relation(fields: [raceId], references: [id])
+  version           Int
+  kind              String
+  upEntryId         String             @db.Uuid
+  upHorseNumber     Int
+  upHorseName       String
+  upReason          String
+  downEntryId       String             @db.Uuid
+  downHorseNumber   Int
+  downHorseName     String
+  downReason        String
+  audioUrl          String
+  reviewText        String?
+  publishedBy       String             @db.Uuid
+  publisher         User               @relation("FreeReportPublisher", fields: [publishedBy], references: [id])
+  publishReason     String
+  publishedAt       DateTime           @default(now()) @db.Timestamptz(3)
+  createdTxId       BigInt             @default(dbgenerated("txid_current()"))
+  notificationEvent NotificationEvent?
+
+  @@unique([raceId, version])
+  @@index([raceId, kind, publishedAt])
+  @@map("free_report_versions")
+}
+
+model FreeMemberBenefit {
+  id          String   @id @default("global")
+  title       String
+  description String
+  videoUrl    String
+  revision    Int      @default(1)
+  updatedBy   String?  @db.Uuid
+  updatedAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@map("free_member_benefits")
+}
+
+model AudioAsset {
+  id          String   @id @default(uuid()) @db.Uuid
+  contentType String
+  data        Bytes
+  sizeBytes   Int
+  createdBy   String   @db.Uuid
+  creator     User     @relation("AudioAssetCreator", fields: [createdBy], references: [id])
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([createdAt])
+  @@map("audio_assets")
+}
+
+model PublicationSchedule {
+  id                String    @id @default(uuid()) @db.Uuid
+  raceId            String    @db.Uuid
+  race              Race      @relation(fields: [raceId], references: [id])
+  kind              String
+  draftRevision     Int?
+  scheduledAt       DateTime  @db.Timestamptz(3)
+  status            String    @default("PENDING")
+  reason            String
+  createdBy         String    @db.Uuid
+  creator           User      @relation("PublicationScheduleCreator", fields: [createdBy], references: [id])
+  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
+  processedAt       DateTime? @db.Timestamptz(3)
+  publishedTargetId String?   @db.Uuid
+  errorCode         String?
+
+  @@index([status, scheduledAt])
+  @@index([raceId, kind, createdAt])
+  @@map("publication_schedules")
+}
+
+model RaceDay {
+  id       String @id @default(uuid()) @db.Uuid
+  raceDate String
+  venue    String
+  races    Race[]
+
+  @@unique([raceDate, venue])
+  @@map("race_days")
+}
+
+model Horse {
+  id      String      @id @db.Uuid
+  name    String
+  entries RaceEntry[]
+
+  @@map("horses")
+}
+
+model RaceEntry {
+  assessment    Assessment?
+  id            String      @id @default(uuid()) @db.Uuid
+  raceId        String      @db.Uuid
+  race          Race        @relation(fields: [raceId], references: [id])
+  horseId       String      @db.Uuid
+  horse         Horse       @relation(fields: [horseId], references: [id])
+  number        Int
+  gate          Int
+  horseName     String
+  sex           String
+  age           Int
+  carriedWeight Decimal     @db.Decimal(4, 1)
+  jockey        String
+  trainer       String
+  winOdds       Decimal?    @db.Decimal(8, 1)
+  popularity    Int?
+  status        String      @default("ACTIVE")
+
+  @@unique([raceId, number])
+  @@unique([raceId, horseId])
+  @@map("race_entries")
+}
+
+model ImportBatch {
+  id           String    @id @default(uuid()) @db.Uuid
+  actorId      String    @db.Uuid
+  kind         String
+  raceId       String?   @db.Uuid
+  rows         Json
+  baselineHash String
+  expiresAt    DateTime  @db.Timestamptz(3)
+  confirmedAt  DateTime? @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@map("import_batches")
+}
+
+model Assessment {
+  id        String              @id @default(uuid()) @db.Uuid
+  entryId   String              @unique @db.Uuid
+  entry     RaceEntry           @relation(fields: [entryId], references: [id])
+  content   Json
+  revision  Int
+  updatedBy String              @db.Uuid
+  updatedAt DateTime            @default(now()) @db.Timestamptz(3)
+  versions  AssessmentVersion[]
+
+  @@map("assessments")
+}
+
+model AssessmentVersion {
+  id            String     @id @default(uuid()) @db.Uuid
+  assessmentId  String     @db.Uuid
+  assessment    Assessment @relation(fields: [assessmentId], references: [id])
+  revision      Int
+  content       Json
+  entrySnapshot Json
+  actorId       String     @db.Uuid
+  reason        String
+  createdAt     DateTime   @default(now()) @db.Timestamptz(3)
+
+  @@unique([assessmentId, revision])
+  @@map("assessment_versions")
+}
+
+model ExpertAssignment {
+  raceId String @db.Uuid
+  userId String @db.Uuid
+  race   Race   @relation(fields: [raceId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@id([raceId, userId])
+  @@map("expert_assignments")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actorId    String?  @db.Uuid
+  actorRole  String?
+  action     String
+  targetType String
+  targetId   String
+  reason     String
+  details    Json
+  requestId  String
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model IdempotencyKey {
+  key         String   @id
+  requestHash String
+  response    Json
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@map("idempotency_keys")
+}
+
+model Prediction {
+  id        String               @id @default(uuid()) @db.Uuid
+  raceId    String               @unique @db.Uuid
+  race      Race                 @relation(fields: [raceId], references: [id])
+  draft     Json
+  revision  Int
+  updatedBy String               @db.Uuid
+  updatedAt DateTime             @default(now()) @db.Timestamptz(3)
+  versions  PredictionVersion[]
+  previews  PublicationPreview[]
+
+  @@map("predictions")
+}
+
+model PredictionVersion {
+  id                 String                  @id @default(uuid()) @db.Uuid
+  predictionId       String                  @db.Uuid
+  prediction         Prediction              @relation(fields: [predictionId], references: [id])
+  version            Int
+  status             String
+  visibility         String
+  confidence         String
+  stance             String
+  summary            String
+  estimatedTotalYen  Int
+  contentSnapshot    Json
+  assessmentSnapshot Json
+  publisherId        String                  @db.Uuid
+  publishedAt        DateTime                @default(now()) @db.Timestamptz(3)
+  deadlineAt         DateTime                @db.Timestamptz(3)
+  correctionReason   String?
+  previousVersionId  String?                 @unique @db.Uuid
+  previousVersion    PredictionVersion?      @relation("PredictionCorrections", fields: [previousVersionId], references: [id])
+  corrections        PredictionVersion[]     @relation("PredictionCorrections")
+  createdTxId        BigInt                  @default(dbgenerated("txid_current()"))
+  marks              PredictionMark[]
+  bets               PredictionBet[]
+  notificationEvent  NotificationEvent?
+  confirmedPreview   PublicationPreview?     @relation("ConfirmedPublication")
+  performances       PredictionPerformance[]
+
+  @@unique([predictionId, version])
+  @@map("prediction_versions")
+}
+
+model PredictionMark {
+  id          String            @id @default(uuid()) @db.Uuid
+  versionId   String            @db.Uuid
+  version     PredictionVersion @relation(fields: [versionId], references: [id])
+  entryId     String            @db.Uuid
+  horseId     String            @db.Uuid
+  horseNumber Int
+  horseName   String
+  mark        String
+  reason      String
+
+  @@unique([versionId, entryId])
+  @@map("prediction_marks")
+}
+
+model PredictionBet {
+  id                String            @id @default(uuid()) @db.Uuid
+  versionId         String            @db.Uuid
+  version           PredictionVersion @relation(fields: [versionId], references: [id])
+  betType           String
+  combination       Json
+  amountPerPointYen Int
+  points            Int
+  totalYen          Int
+  performances      BetPerformance[]
+
+  @@map("prediction_bets")
+}
+
+model RaceResultDraft {
+  id        String   @id @default(uuid()) @db.Uuid
+  raceId    String   @unique @db.Uuid
+  race      Race     @relation(fields: [raceId], references: [id])
+  revision  Int      @default(1)
+  content   Json
+  updatedBy String   @db.Uuid
+  updatedAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@map("race_result_drafts")
+}
+
+model RaceResultVersion {
+  id              String                  @id @default(uuid()) @db.Uuid
+  raceId          String                  @db.Uuid
+  race            Race                    @relation(fields: [raceId], references: [id])
+  version         Int
+  sourceRevision  Int
+  status          String                  @default("CONFIRMED")
+  ruleVersion     String
+  raceCanceled    Boolean                 @default(false)
+  entriesSnapshot Json
+  payoutsSnapshot Json
+  reason          String
+  confirmedBy     String                  @db.Uuid
+  confirmedAt     DateTime                @default(now()) @db.Timestamptz(3)
+  createdTxId     BigInt                  @default(dbgenerated("txid_current()"))
+  performances    PredictionPerformance[]
+
+  @@unique([raceId, version])
+  @@unique([raceId, sourceRevision])
+  @@index([confirmedAt])
+  @@map("race_result_versions")
+}
+
+model PredictionPerformance {
+  id                  String            @id @default(uuid()) @db.Uuid
+  resultVersionId     String            @db.Uuid
+  resultVersion       RaceResultVersion @relation(fields: [resultVersionId], references: [id])
+  predictionVersionId String            @db.Uuid
+  predictionVersion   PredictionVersion @relation(fields: [predictionVersionId], references: [id])
+  excluded            Boolean
+  hit                 Boolean
+  stakeYen            Int
+  refundYen           Int
+  payoutYen           Int
+  returnYen           Int
+  honmeiPosition      Int?
+  createdTxId         BigInt            @default(dbgenerated("txid_current()"))
+  betPerformances     BetPerformance[]
+
+  @@unique([resultVersionId, predictionVersionId])
+  @@map("prediction_performances")
+}
+
+model BetPerformance {
+  id              String                @id @default(uuid()) @db.Uuid
+  performanceId   String                @db.Uuid
+  performance     PredictionPerformance @relation(fields: [performanceId], references: [id])
+  predictionBetId String                @db.Uuid
+  predictionBet   PredictionBet         @relation(fields: [predictionBetId], references: [id])
+  hit             Boolean
+  stakeYen        Int
+  refundYen       Int
+  payoutYen       Int
+  returnYen       Int
+  settlement      Json
+
+  @@unique([performanceId, predictionBetId])
+  @@map("bet_performances")
+}
+
+model PublicationPreview {
+  id                 String             @id @default(uuid()) @db.Uuid
+  actorId            String             @db.Uuid
+  predictionId       String             @db.Uuid
+  prediction         Prediction         @relation(fields: [predictionId], references: [id])
+  baselineHash       String
+  snapshot           Json
+  expiresAt          DateTime           @db.Timestamptz(3)
+  confirmedVersionId String?            @unique @db.Uuid
+  confirmedVersion   PredictionVersion? @relation("ConfirmedPublication", fields: [confirmedVersionId], references: [id])
+  createdAt          DateTime           @default(now()) @db.Timestamptz(3)
+
+  @@map("publication_previews")
+}
+
+model NotificationEvent {
+  id                  String                   @id @default(uuid()) @db.Uuid
+  versionId           String?                  @unique @db.Uuid
+  version             PredictionVersion?       @relation(fields: [versionId], references: [id])
+  announcementId      String?                  @unique @db.Uuid
+  announcement        RaceAnnouncement?        @relation(fields: [announcementId], references: [id])
+  freeReportVersionId String?                  @unique @db.Uuid
+  freeReportVersion   FreeReportVersion?       @relation(fields: [freeReportVersionId], references: [id])
+  eventType           String
+  status              String
+  payload             Json
+  createdAt           DateTime                 @default(now()) @db.Timestamptz(3)
+  expandedAt          DateTime?                @db.Timestamptz(3)
+  updatedAt           DateTime                 @default(now()) @db.Timestamptz(3)
+  deliveries          NotificationDelivery[]
+  memberReads         MemberNotificationRead[]
+
+  @@map("notification_events")
+}
+
+model MemberNotificationRead {
+  userId  String            @db.Uuid
+  user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventId String            @db.Uuid
+  event   NotificationEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  readAt  DateTime          @default(now()) @db.Timestamptz(3)
+
+  @@id([userId, eventId])
+  @@index([userId, readAt])
+  @@map("member_notification_reads")
+}
+
+model NotificationDelivery {
+  id               String                @id @default(uuid()) @db.Uuid
+  eventId          String                @db.Uuid
+  event            NotificationEvent     @relation(fields: [eventId], references: [id])
+  userId           String                @db.Uuid
+  user             User                  @relation(fields: [userId], references: [id])
+  channel          String                @default("LINE")
+  status           String                @default("QUEUED")
+  idempotencyKey   String                @unique
+  attemptCount     Int                   @default(0)
+  manualRetryCount Int                   @default(0)
+  forceAttempt     Boolean               @default(false)
+  nextAttemptAt    DateTime              @default(now()) @db.Timestamptz(3)
+  lockedAt         DateTime?             @db.Timestamptz(3)
+  leaseToken       String?               @db.Uuid
+  lastErrorCode    String?
+  sentAt           DateTime?             @db.Timestamptz(3)
+  createdAt        DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime              @default(now()) @db.Timestamptz(3)
+  attempts         NotificationAttempt[]
+
+  @@unique([eventId, userId, channel])
+  @@index([status, nextAttemptAt])
+  @@map("notification_deliveries")
+}
+
+model NotificationAttempt {
+  id                String               @id @default(uuid()) @db.Uuid
+  deliveryId        String               @db.Uuid
+  delivery          NotificationDelivery @relation(fields: [deliveryId], references: [id])
+  attemptNumber     Int
+  outcome           String
+  errorCode         String?
+  providerMessageId String?
+  startedAt         DateTime             @db.Timestamptz(3)
+  finishedAt        DateTime             @db.Timestamptz(3)
+
+  @@unique([deliveryId, attemptNumber])
+  @@map("notification_attempts")
+}
+
+model SystemSetting {
+  id                              String   @id
+  revision                        Int      @default(1)
+  predictionPublicationEnabled    Boolean  @default(true)
+  csvImportEnabled                Boolean  @default(true)
+  lineNotificationsEnabled        Boolean  @default(false)
+  lineLoginEnabled                Boolean  @default(false)
+  newPurchasesEnabled             Boolean  @default(false)
+  founderSalesEnabled             Boolean  @default(false)
+  founderPriceYen                 Int      @default(1980)
+  standardPriceYen                Int      @default(2980)
+  dayPassPriceYen                 Int      @default(980)
+  founderSalesLimit               Int      @default(100)
+  billingGraceDays                Int      @default(0)
+  maintenanceMessage              String   @default("")
+  notificationMaxAttempts         Int      @default(5)
+  notificationBaseDelaySeconds    Int      @default(30)
+  lineChannelId                   String?
+  lineChannelSecretEncrypted      String?
+  lineAccessTokenEncrypted        String?
+  lineLoginChannelId              String?
+  lineLoginChannelSecretEncrypted String?
+  lineLoginCallbackUrl            String?
+  stripeSecretKeyEncrypted        String?
+  stripeWebhookSecretEncrypted    String?
+  stripeLiveMode                  Boolean  @default(false)
+  stripePriceFounder              String?
+  stripePriceStandard             String?
+  stripePriceDayPass              String?
+  updatedBy                       String?  @db.Uuid
+  updatedAt                       DateTime @default(now()) @db.Timestamptz(3)
+
+  @@map("system_settings")
+}

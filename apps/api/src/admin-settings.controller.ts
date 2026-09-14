@@ -1,0 +1,138 @@
+import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, Patch, Req } from '@nestjs/common';
+import { adminSettingsUpdateSchema, canManage, requiresMfa } from '@keiba/domain';
+import type { Role } from '@keiba/domain';
+import type { SystemSetting } from '@keiba/db';
+import { AuthService } from './auth.service';
+import type { AppRequest } from './context';
+import { decrypt, encrypt } from './security';
+
+@Controller('admin/settings')
+export class AdminSettingsController {
+  constructor(@Inject(AuthService) private readonly auth: AuthService) {}
+
+  private async staff(req: AppRequest, roles: Role[]) {
+    const actor = await this.auth.authenticate(req);
+    if (!canManage(actor, roles)) throw new ForbiddenException({ code: requiresMfa(actor.role) && actor.aal !== 2 ? 'MFA_REQUIRED' : 'FORBIDDEN', message: '管理設定の権限と二段階認証を確認してください。' });
+    return actor;
+  }
+
+  private view(value: SystemSetting) {
+    const channelSecretConfigured = !!value.lineChannelSecretEncrypted;
+    const channelAccessTokenConfigured = !!value.lineAccessTokenEncrypted;
+    const configured = !!value.lineChannelId && channelSecretConfigured && channelAccessTokenConfigured;
+    const readable = (encrypted: string | null) => { if (!encrypted) return false; try { return decrypt(encrypted).length > 0; } catch { return false; } };
+    const messagingSecretsReadable = readable(value.lineChannelSecretEncrypted) && readable(value.lineAccessTokenEncrypted);
+    const loginSecretReadable = readable(value.lineLoginChannelSecretEncrypted);
+    const stripeSecretKeyConfigured = !!value.stripeSecretKeyEncrypted;
+    const stripeWebhookSecretConfigured = !!value.stripeWebhookSecretEncrypted;
+    const stripeSecretKeyReadable = readable(value.stripeSecretKeyEncrypted);
+    const stripeWebhookSecretReadable = readable(value.stripeWebhookSecretEncrypted);
+    const stripePricesConfigured = !!value.stripePriceFounder && !!value.stripePriceStandard && !!value.stripePriceDayPass;
+    const stripeAdminSelected = stripeSecretKeyConfigured || stripeWebhookSecretConfigured || value.stripeLiveMode || !!value.stripePriceFounder || !!value.stripePriceStandard || !!value.stripePriceDayPass;
+    let stripeModeConsistent = false;
+    if (stripeSecretKeyReadable) {
+      const key = decrypt(value.stripeSecretKeyEncrypted!);
+      stripeModeConsistent = key.startsWith(value.stripeLiveMode ? 'sk_live_' : 'sk_test_');
+    }
+    const stripeComplete = stripeSecretKeyConfigured && stripeWebhookSecretConfigured && stripePricesConfigured && stripeModeConsistent;
+    const environmentLiveMode = process.env.STRIPE_LIVE_MODE === 'true';
+    const environmentCredentials = !!process.env.STRIPE_SECRET_KEY && !!process.env.STRIPE_WEBHOOK_SECRET;
+    const environmentPrices = !!process.env.STRIPE_PRICE_FOUNDER && !!process.env.STRIPE_PRICE_STANDARD && !!process.env.STRIPE_PRICE_DAY_PASS;
+    const environmentModeConsistent = !!process.env.STRIPE_SECRET_KEY && process.env.STRIPE_SECRET_KEY.startsWith(environmentLiveMode ? 'sk_live_' : 'sk_test_');
+    const effectiveComplete = stripeAdminSelected ? stripeComplete : environmentCredentials && environmentPrices && environmentModeConsistent;
+    const baseUrl = process.env.APP_BASE_URL ?? '';
+    let secureApplicationUrl = false;
+    try { const parsed = new URL(baseUrl); secureApplicationUrl = parsed.protocol === 'https:' || (parsed.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(parsed.hostname)); } catch { secureApplicationUrl = false; }
+    return {
+      revision: value.revision,
+      operations: {
+        predictionPublicationEnabled: value.predictionPublicationEnabled,
+        csvImportEnabled: value.csvImportEnabled,
+        lineNotificationsEnabled: value.lineNotificationsEnabled,
+        lineLoginEnabled: value.lineLoginEnabled,
+        newPurchasesEnabled: value.newPurchasesEnabled
+      },
+      maintenanceMessage: value.maintenanceMessage,
+      notificationPolicy: { maxAttempts: value.notificationMaxAttempts, baseDelaySeconds: value.notificationBaseDelaySeconds },
+      billing: {
+        founderSalesEnabled: value.founderSalesEnabled, founderPriceYen: value.founderPriceYen,
+        standardPriceYen: value.standardPriceYen, dayPassPriceYen: value.dayPassPriceYen,
+        founderSalesLimit: value.founderSalesLimit, billingGraceDays: value.billingGraceDays
+      },
+      stripe: {
+        source: stripeAdminSelected ? 'ADMIN' : 'ENVIRONMENT', liveMode: value.stripeLiveMode,
+        secretKeyConfigured: stripeSecretKeyConfigured, webhookSecretConfigured: stripeWebhookSecretConfigured,
+        priceFounder: value.stripePriceFounder, priceStandard: value.stripePriceStandard, priceDayPass: value.stripePriceDayPass,
+        connectionStatus: effectiveComplete ? 'CONFIGURED_NOT_VERIFIED' : stripeAdminSelected ? 'INCOMPLETE' : 'NOT_CONFIGURED',
+        readiness: { credentialsStored: stripeAdminSelected ? stripeSecretKeyConfigured && stripeWebhookSecretConfigured : environmentCredentials, secretsReadable: stripeAdminSelected ? stripeSecretKeyReadable && stripeWebhookSecretReadable : environmentCredentials, pricesConfigured: stripeAdminSelected ? stripePricesConfigured : environmentPrices, modeConsistent: stripeAdminSelected ? stripeModeConsistent : environmentModeConsistent, billingTransport: process.env.BILLING_TRANSPORT === 'stripe' ? 'STRIPE' : 'TEST_ONLY', externalConnectionTested: false }
+      },
+      line: {
+        channelId: value.lineChannelId, channelSecretConfigured, channelAccessTokenConfigured, connectionStatus: configured ? 'CONFIGURED_NOT_VERIFIED' : 'NOT_CONFIGURED',
+        messagingReadiness: { credentialsStored: configured, secretsReadable: messagingSecretsReadable, applicationUrlReady: secureApplicationUrl, notificationWorkerReady: true, webhookSignatureVerifierReady: true, outboundTransport: process.env.NOTIFICATION_TRANSPORT === 'line' ? 'LINE' : 'TEST_ONLY', externalConnectionTested: false },
+        loginChannelId: value.lineLoginChannelId, loginChannelSecretConfigured: !!value.lineLoginChannelSecretEncrypted, loginCallbackUrl: value.lineLoginCallbackUrl,
+        loginConnectionStatus: value.lineLoginChannelId && value.lineLoginChannelSecretEncrypted && value.lineLoginCallbackUrl ? 'CONFIGURED_NOT_VERIFIED' : 'NOT_CONFIGURED',
+        loginReadiness: { credentialsStored: !!value.lineLoginChannelId && !!value.lineLoginChannelSecretEncrypted, secretReadable: loginSecretReadable, callbackUrlConfigured: !!value.lineLoginCallbackUrl, oauthCallbackHandlerReady: true, oauthTransport: process.env.LINE_OAUTH_TRANSPORT === 'line' ? 'LINE' : 'TEST_ONLY', externalConnectionTested: false }
+      },
+      updatedAt: value.updatedAt,
+      updatedBy: value.updatedBy
+    };
+  }
+
+  @Get()
+  async get(@Req() req: AppRequest) {
+    await this.staff(req, ['ADMIN', 'OPERATOR']);
+    return this.view(await this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' } }));
+  }
+
+  @Patch()
+  async update(@Req() req: AppRequest, @Body() body: unknown) {
+    const actor = await this.staff(req, ['ADMIN']);
+    const input = adminSettingsUpdateSchema.parse(body);
+    return this.auth.db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(7262026)::text`;
+      const before = await tx.systemSetting.findUniqueOrThrow({ where: { id: 'global' } });
+      if (before.revision !== input.revision) throw new ConflictException({ code: 'STALE_REVISION', message: '別の管理者が設定を変更しました。再読み込みしてください。' });
+      const lineChannelSecretEncrypted = input.line.channelSecret ? encrypt(input.line.channelSecret) : input.line.clearChannelSecret ? null : before.lineChannelSecretEncrypted;
+      const lineAccessTokenEncrypted = input.line.channelAccessToken ? encrypt(input.line.channelAccessToken) : input.line.clearChannelAccessToken ? null : before.lineAccessTokenEncrypted;
+      const lineLoginChannelSecretEncrypted = input.line.loginChannelSecret ? encrypt(input.line.loginChannelSecret) : input.line.clearLoginChannelSecret ? null : before.lineLoginChannelSecretEncrypted;
+      const stripeSecretKeyEncrypted = input.stripe.secretKey ? encrypt(input.stripe.secretKey) : input.stripe.clearSecretKey ? null : before.stripeSecretKeyEncrypted;
+      const stripeWebhookSecretEncrypted = input.stripe.webhookSecret ? encrypt(input.stripe.webhookSecret) : input.stripe.clearWebhookSecret ? null : before.stripeWebhookSecretEncrypted;
+      if (input.operations.lineNotificationsEnabled && (!input.line.channelId || !lineChannelSecretEncrypted || !lineAccessTokenEncrypted)) throw new BadRequestException({ code: 'LINE_CREDENTIALS_REQUIRED', message: 'LINE通知を有効にするにはChannel ID、Channel secret、Channel access tokenが必要です。' });
+      if (input.operations.lineLoginEnabled && (!input.line.loginChannelId || !lineLoginChannelSecretEncrypted || !input.line.loginCallbackUrl)) throw new BadRequestException({ code: 'LINE_LOGIN_CREDENTIALS_REQUIRED', message: 'LINE Loginを有効にするにはChannel ID、Channel secret、Callback URLが必要です。' });
+      const stripeComplete = !!stripeSecretKeyEncrypted && !!stripeWebhookSecretEncrypted && !!input.stripe.priceFounder && !!input.stripe.priceStandard && !!input.stripe.priceDayPass;
+      if (input.stripe.liveMode && !stripeComplete) throw new BadRequestException({ code: 'STRIPE_CREDENTIALS_REQUIRED', message: 'Stripe本番モードにはSecret key、Webhook secret、3つのPrice IDが必要です。' });
+      let stripeSecretKey: string | null = null;
+      try { stripeSecretKey = stripeSecretKeyEncrypted ? decrypt(stripeSecretKeyEncrypted) : null; }
+      catch { throw new BadRequestException({ code: 'STRIPE_CREDENTIALS_UNREADABLE', message: '保存済みStripe資格情報を読み取れません。再設定してください。' }); }
+      if (stripeSecretKey && !stripeSecretKey.startsWith(input.stripe.liveMode ? 'sk_live_' : 'sk_test_')) throw new BadRequestException({ code: 'STRIPE_MODE_MISMATCH', message: 'Stripe Secret keyとテスト・本番モードが一致しません。' });
+      if (process.env.BILLING_TRANSPORT === 'stripe' && input.operations.newPurchasesEnabled && (!stripeComplete || !stripeSecretKey || (process.env.NODE_ENV === 'production' && !input.stripe.liveMode))) throw new BadRequestException({ code: 'STRIPE_CONFIGURATION_REQUIRED', message: '新規購入を有効にする前に、この環境で利用できるStripe設定を完了してください。' });
+      const after = await tx.systemSetting.update({ where: { id: 'global' }, data: {
+        ...input.operations,
+        maintenanceMessage: input.maintenanceMessage,
+        notificationMaxAttempts: input.notificationPolicy.maxAttempts,
+        notificationBaseDelaySeconds: input.notificationPolicy.baseDelaySeconds,
+        ...input.billing,
+        stripeSecretKeyEncrypted,
+        stripeWebhookSecretEncrypted,
+        stripeLiveMode: input.stripe.liveMode,
+        stripePriceFounder: input.stripe.priceFounder,
+        stripePriceStandard: input.stripe.priceStandard,
+        stripePriceDayPass: input.stripe.priceDayPass,
+        lineChannelId: input.line.channelId,
+        lineChannelSecretEncrypted,
+        lineAccessTokenEncrypted,
+        lineLoginChannelId: input.line.loginChannelId,
+        lineLoginChannelSecretEncrypted,
+        lineLoginCallbackUrl: input.line.loginCallbackUrl,
+        updatedBy: actor.id,
+        updatedAt: new Date(),
+        revision: { increment: 1 }
+      } });
+      await this.auth.audit(tx, req, 'SYSTEM_SETTINGS_UPDATE', 'global', input.reason, {
+        before: this.view(before), after: this.view(after),
+        credentialsChanged: { channelSecret: !!input.line.channelSecret || input.line.clearChannelSecret, channelAccessToken: !!input.line.channelAccessToken || input.line.clearChannelAccessToken, loginChannelSecret: !!input.line.loginChannelSecret || input.line.clearLoginChannelSecret, stripeSecretKey: !!input.stripe.secretKey || input.stripe.clearSecretKey, stripeWebhookSecret: !!input.stripe.webhookSecret || input.stripe.clearWebhookSecret }
+      });
+      return this.view(after);
+    }, { timeout: 20000, maxWait: 10000 });
+  }
+}

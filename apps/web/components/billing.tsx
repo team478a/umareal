@@ -1,0 +1,66 @@
+'use client';
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { ArrowRight, CreditCard, ShieldCheck } from 'lucide-react';
+
+type Plan = { code: 'FOUNDER' | 'STANDARD' | 'DAY_PASS'; name: string; priceYen: number; interval: string; available: boolean; remaining?: number };
+type BillingData = {
+  billingTransport?: 'test' | 'stripe';
+  subscriptions: { id: string; planCode: string; status: string; priceYen: number; currentPeriodEndsAt: string; graceEndsAt: string | null; cancelAtPeriodEnd: boolean; user?: { email: string; displayName: string } }[];
+  dayPasses: { id: string; raceDate: string; status: string; priceYen: number; user?: { email: string; displayName: string } }[];
+  payments: { id: string; kind: string; status: string; amountYen: number; occurredAt: string; user?: { email: string; displayName: string } }[];
+  checkouts?: { id: string; kind: string; planCode: string; raceDate: string | null; amountYen: number; status: string; createdAt: string; expiresAt: string; completedAt: string | null; user: { email: string; displayName: string } }[];
+  stripeWebhooks?: { id: string; providerEventId: string; eventType: string; livemode: boolean; outcome: string; receivedAt: string }[];
+};
+const money = (value: number) => new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY' }).format(value);
+const date = (value: string) => new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
+async function request<T>(path: string, method = 'GET', body?: unknown, idempotent = false): Promise<T> {
+  const response = await fetch(`/api/v1/${path}`, { method, cache: 'no-store', headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(idempotent ? { 'Idempotency-Key': crypto.randomUUID() } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  const result = await response.json(); if (!response.ok) throw new Error(result.message ?? '処理に失敗しました。'); return result;
+}
+function Notice({ value, error = false }: { value: string; error?: boolean }) { return value ? <div className={`notice ${error ? 'error' : ''}`} role={error ? 'alert' : 'status'}>{value}</div> : null; }
+
+export function PlansPage({ loggedIn, purchaseReady, refresh }: { loggedIn: boolean; purchaseReady: boolean; refresh: () => Promise<void> }) {
+  const [plans, setPlans] = useState<Plan[]>([]); const [enabled, setEnabled] = useState(false); const [raceDate, setRaceDate] = useState('');
+  const [transport, setTransport] = useState<'test' | 'stripe'>('test');
+  const [selected, setSelected] = useState<Plan | null>(null); const [message, setMessage] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  useEffect(() => { request<{ plans: Plan[]; newPurchasesEnabled: boolean; billingTransport: 'test' | 'stripe' }>('billing/plans').then(v => { setPlans(v.plans); setEnabled(v.newPurchasesEnabled); setTransport(v.billingTransport); }).catch(e => setError(e.message)); }, []);
+  useEffect(() => { if (loggedIn) void request('me/journey', 'POST', { eventType: 'PLAN_VIEWED' }).catch(() => undefined); }, [loggedIn]);
+  useEffect(() => { if (selected) document.getElementById('plan-review')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, [selected]);
+  async function buy(plan: Plan) { setBusy(true); setError(''); setMessage(''); try {
+    const result = plan.code === 'DAY_PASS'
+      ? (raceDate ? await request<{ checkoutUrl?: string }>('billing/day-pass', 'POST', { raceDate }, true) : (() => { throw new Error('利用する開催日を選択してください。'); })())
+      : await request<{ checkoutUrl?: string }>('billing/checkout', 'POST', { planCode: plan.code }, true);
+    if (result.checkoutUrl) { window.location.assign(result.checkoutUrl); return; }
+    await refresh(); setSelected(null); setMessage(`${plan.name}をローカル決済で登録しました。実際の請求はありません。`);
+  } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
+  return <><div className="page-heading"><span className="eyebrow">MEMBERSHIP</span><h1>料金プラン</h1><p>公開された有料予想を閲覧するための、開発環境用プランです。</p></div><Notice value={error} error /><Notice value={message} />
+    <div className="notice">表示価格は税込の開発初期値です。{transport === 'stripe' ? '申込時はStripeの決済画面へ移動し、署名済みWebhookの確認後に閲覧権限を反映します。' : 'この画面では外部決済やカード情報の入力を行いません。'}</div>
+    {loggedIn && !purchaseReady && <div className="notice error">申込前にマイページで予備のメールアドレスとパスワードを設定してください。 <Link className="text-link" href="/account">設定する</Link></div>}
+    <div className="plan-grid">{plans.map(plan => <section className="panel plan-card" key={plan.code}><div className="panel-body"><span className="eyebrow">{plan.interval === 'MONTH' ? 'MONTHLY' : 'ONE DAY'}</span><h2>{plan.name}</h2><strong className="plan-price">{money(plan.priceYen)}<small>{plan.interval === 'MONTH' ? '／月' : '／開催日'}</small></strong><p>{plan.code === 'DAY_PASS' ? '指定した開催日の0:00から翌日0:00まで閲覧できます。' : transport === 'stripe' ? 'Stripeの請求期間で月次更新します。解約予約後も支払済み期間の終了まで閲覧できます。' : '申込日時から1か月間。解約予約後も支払済み期間の終了まで閲覧できます。'}</p>{plan.code === 'FOUNDER' && <small>残り枠：{plan.remaining ?? 0}</small>}
+      {plan.code === 'DAY_PASS' && <label className="field">利用する開催日<input type="date" value={raceDate} min={new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' })} onChange={e => setRaceDate(e.target.value)} /></label>}
+      {loggedIn ? <button className="button full" disabled={busy || !purchaseReady || (plan.code === 'DAY_PASS' && !raceDate)} onClick={() => { setError(''); setMessage(''); setSelected(plan); void request('me/journey', 'POST', { eventType: 'CHECKOUT_REVIEWED' }).catch(() => undefined); }}>{!purchaseReady ? 'メール確認後に確認可能' : plan.code === 'DAY_PASS' && !raceDate ? '開催日を選択' : '申込内容を確認'}<ArrowRight size={17} /></button> : <Link className="button full" href="/login">ログインして申し込む<ArrowRight size={17} /></Link>}</div></section>)}</div>
+    {selected && <section className="panel plan-review" id="plan-review" aria-live="polite"><div className="panel-heading"><div><span className="eyebrow">APPLICATION REVIEW</span><h2>申込内容の確認</h2></div><ShieldCheck size={20} /></div><div className="panel-body"><dl className="review-details"><div><dt>プラン</dt><dd>{selected.name}</dd></div><div><dt>料金</dt><dd>{money(selected.priceYen)}{selected.interval === 'MONTH' ? '／月' : '／開催日'}</dd></div>{selected.code === 'DAY_PASS' && <div><dt>利用日</dt><dd>{raceDate}</dd></div>}<div><dt>利用期間</dt><dd>{selected.interval === 'MONTH' ? transport === 'stripe' ? 'Stripeの請求期間に従って月次更新' : '申込日時から1か月間' : '指定日の0:00から翌日0:00まで'}</dd></div></dl>{(!enabled || !selected.available) && <div className="notice error">このプランは現在、新規申込を受け付けていません。内容は確認できます。</div>}<div className="notice">{transport === 'stripe' ? 'Stripeの決済画面へ移動します。カード情報は本サービスのDBへ保存しません。' : '開発環境のローカル申込です。外部への請求やカード情報の送信はありません。'}</div><div className="review-actions"><button className="button secondary" disabled={busy} onClick={() => setSelected(null)}>プラン選択へ戻る</button><button className="button" disabled={busy || !enabled || !selected.available} onClick={() => void buy(selected)}>{busy ? '処理中…' : !enabled ? '新規購入を停止中' : !selected.available ? '現在は申込できません' : '内容を確認して申し込む'}<ArrowRight size={17} /></button></div></div></section>}
+    <section className="panel billing-terms"><div className="panel-heading"><h2>申込前の確認</h2><ShieldCheck size={20} /></div><div className="panel-body"><p>自動更新、正式な解約期限、返金条件、事業者情報は未確定です。本番提供前に正式な条件と同意画面へ置き換えます。</p></div></section></>;
+}
+
+export function BillingAccount() {
+  const [data, setData] = useState<BillingData | null>(null); const [error, setError] = useState(''); const [message, setMessage] = useState('');
+  const load = () => request<BillingData>('billing/me').then(setData).catch(e => setError(e.message));
+  useEffect(() => { void load(); }, []);
+  async function cancel(id: string) { setError(''); try { await request(`billing/subscriptions/${id}/cancel`, 'POST'); setMessage('次回更新を停止しました。支払済み期間の終了まで閲覧できます。'); await load(); } catch (e) { setError((e as Error).message); } }
+  return <section className="panel settings-panel"><div className="panel-heading"><div><span className="eyebrow">BILLING</span><h2>契約・お支払い履歴</h2></div><CreditCard size={20} /></div><div className="panel-body"><Notice value={error} error /><Notice value={message} />{!data ? <p>読み込み中…</p> : <>
+    {!data.subscriptions.length && !data.dayPasses.length ? <p className="muted">契約はありません。 <Link className="text-link" href="/plans">料金プランを見る</Link></p> : <div className="billing-contracts">{data.subscriptions.map(s => <div className="billing-contract" key={s.id}><div><strong>{s.planCode} 月額契約</strong><small>{money(s.priceYen)} · {s.status} · 閲覧期限 {date(s.currentPeriodEndsAt)}{s.status === 'PAST_DUE' && s.graceEndsAt ? ` · 支払猶予 ${date(s.graceEndsAt)}まで` : ''}</small></div>{!s.cancelAtPeriodEnd && ['ACTIVE','PAST_DUE','TRIALING'].includes(s.status) && <button className="button secondary small" onClick={() => void cancel(s.id)}>次回更新を停止</button>}{s.cancelAtPeriodEnd && <span className="status-tag warning">解約予約済み</span>}</div>)}{data.dayPasses.map(p => <div className="billing-contract" key={p.id}><div><strong>{p.raceDate} 1日利用</strong><small>{money(p.priceYen)} · {p.status}</small></div></div>)}</div>}
+    {!!data.payments.length && <div className="table-scroll"><table><thead><tr><th>日時</th><th>種別</th><th>状態</th><th>金額</th></tr></thead><tbody>{data.payments.map(p => <tr key={p.id}><td>{date(p.occurredAt)}</td><td>{p.kind}</td><td>{p.status}</td><td>{money(p.amountYen)}</td></tr>)}</tbody></table></div>}</>}</div></section>;
+}
+
+export function AdminBilling() {
+  const [data, setData] = useState<BillingData | null>(null); const [reason, setReason] = useState(''); const [error, setError] = useState(''); const [message, setMessage] = useState('');
+  const load = () => request<BillingData>('admin/billing').then(setData).catch(e => setError(e.message)); useEffect(() => { void load(); }, []);
+  async function action(id: string, name: 'simulate-failure' | 'recover') { setError(''); setMessage(''); try { if (!reason.trim()) throw new Error('試験操作の理由を入力してください。'); await request(`admin/billing/subscriptions/${id}/${name}`, 'POST', { reason }); setMessage(name === 'recover' ? '支払回復を記録しました。' : '支払失敗を記録しました。'); setReason(''); await load(); } catch (e) { setError((e as Error).message); } }
+  const localSimulation = data?.billingTransport !== 'stripe';
+  return <><div className="page-heading"><span className="eyebrow">ADMINISTRATION</span><h1>契約・請求管理</h1><p>会員の契約と追記専用の支払履歴を確認します。</p></div><Notice value={error} error /><Notice value={message} /><section className="panel"><div className="panel-body"><div className="notice">{localSimulation ? '失敗・回復操作はローカル決済の動作確認専用です。外部への請求や返金は行いません。' : '外部決済の契約状態は署名済みStripe Webhookから同期します。管理画面から状態を変更できません。'}</div>{localSimulation && <label className="field">試験操作の理由<input value={reason} maxLength={500} onChange={e => setReason(e.target.value)} /></label>}</div><div className="table-scroll"><table><thead><tr><th>会員</th><th>プラン</th><th>状態</th><th>金額</th><th>期間終了</th><th>試験操作</th></tr></thead><tbody>{data?.subscriptions.map(s => <tr key={s.id}><td>{s.user?.displayName}<small className="cell-note">{s.user?.email}</small></td><td>{s.planCode}</td><td>{s.status}{s.cancelAtPeriodEnd ? '・解約予約' : ''}{s.status === 'PAST_DUE' && s.graceEndsAt ? <small className="cell-note">猶予 {date(s.graceEndsAt)}まで</small> : null}</td><td>{money(s.priceYen)}</td><td>{date(s.currentPeriodEndsAt)}</td><td>{!localSimulation ? 'Webhook同期' : s.status === 'PAST_DUE' ? <button className="button secondary small" onClick={() => void action(s.id, 'recover')}>回復</button> : s.status === 'ACTIVE' ? <button className="button secondary small" onClick={() => void action(s.id, 'simulate-failure')}>失敗を試験</button> : '—'}</td></tr>)}</tbody></table></div></section>
+    <section className="panel"><div className="panel-heading"><h2>支払試行履歴</h2></div><div className="table-scroll"><table><thead><tr><th>日時</th><th>会員</th><th>種別</th><th>状態</th><th>金額</th></tr></thead><tbody>{data?.payments.map(p => <tr key={p.id}><td>{date(p.occurredAt)}</td><td>{p.user?.displayName}</td><td>{p.kind}</td><td>{p.status}</td><td>{money(p.amountYen)}</td></tr>)}</tbody></table></div></section>
+    {!!data?.checkouts?.length && <section className="panel"><div className="panel-heading"><h2>外部決済申込</h2></div><div className="table-scroll"><table><thead><tr><th>開始日時</th><th>会員</th><th>プラン</th><th>状態</th><th>金額</th></tr></thead><tbody>{data.checkouts.map(item => <tr key={item.id}><td>{date(item.createdAt)}</td><td>{item.user.displayName}<small className="cell-note">{item.user.email}</small></td><td>{item.planCode}{item.raceDate ? ` · ${item.raceDate}` : ''}</td><td>{item.status}</td><td>{money(item.amountYen)}</td></tr>)}</tbody></table></div></section>}
+    {!!data?.stripeWebhooks?.length && <section className="panel"><div className="panel-heading"><h2>Stripe Webhook受信</h2></div><div className="table-scroll"><table><thead><tr><th>受信日時</th><th>イベント</th><th>結果</th><th>モード</th></tr></thead><tbody>{data.stripeWebhooks.map(item => <tr key={item.id}><td>{date(item.receivedAt)}</td><td>{item.eventType}<small className="cell-note mono">{item.providerEventId}</small></td><td>{item.outcome}</td><td>{item.livemode ? 'LIVE' : 'TEST'}</td></tr>)}</tbody></table></div></section>}</>;
+}

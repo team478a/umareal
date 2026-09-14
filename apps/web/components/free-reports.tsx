@@ -1,0 +1,90 @@
+'use client';
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
+import Link from 'next/link';
+import { ArrowDownRight, ArrowRight, ArrowUpRight, Headphones, Mic, PlayCircle, Square, Upload } from 'lucide-react';
+
+type Entry = { id: string; number: number; horseName: string; status: string };
+type Version = { id: string; version: number; kind: 'PRE_RACE' | 'POST_RACE_REVIEW'; upHorseNumber: number; upHorseName: string; upReason: string; downHorseNumber: number; downHorseName: string; downReason: string; audioUrl: string; reviewText: string | null; publishedAt: string };
+type Draft = { revision: number; upEntryId: string; upReason: string; downEntryId: string; downReason: string; audioUrl: string; reviewText: string };
+type RaceDetail = { id: string; raceDate: string; venue: string; number: number; name: string; startsAt: string; status: string; entries: Entry[]; freeReportDraft: Draft | null; freeReportVersions: Version[]; resultVersions: { id: string; version: number; confirmedAt: string }[] };
+type RaceList = { items: { id: string; venue: string; number: number; name: string; _count: { entries: number }; freeReportDraft: { revision: number } | null; freeReportVersions: { version: number; kind: string; publishedAt: string }[] }[] };
+type Benefit = { revision: number; title: string; description: string; videoUrl: string };
+
+async function api<T>(path: string, method = 'GET', body?: unknown, idempotent = false): Promise<T> {
+  const response = await fetch(`/api/v1/${path}`, { method, cache: 'no-store', headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(idempotent ? { 'Idempotency-Key': crypto.randomUUID() } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  const value = await response.json(); if (!response.ok) throw new Error(value.message ?? '処理に失敗しました。'); return value;
+}
+const jstDate = () => new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+
+function AudioInput({ value, onChange, disabled }: { value: string; onChange: (value: string) => void; disabled: boolean }) {
+  const recorder = useRef<MediaRecorder | null>(null); const stream = useRef<MediaStream | null>(null); const chunks = useRef<Blob[]>([]); const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [recording, setRecording] = useState(false); const [uploading, setUploading] = useState(false); const [seconds, setSeconds] = useState(0); const [error, setError] = useState('');
+  function release() { stream.current?.getTracks().forEach(track => track.stop()); stream.current = null; if (timer.current) clearInterval(timer.current); timer.current = null; }
+  useEffect(() => () => release(), []);
+  async function uploadAudio(blob: Blob) {
+    if (!blob.size) { setError('音声が録音されませんでした。'); return; }
+    if (blob.size > 8 * 1024 * 1024) { setError('音声は8MB以下にしてください。短く録音してください。'); return; }
+    setUploading(true); setError('');
+    try {
+      const contentType = blob.type.split(';')[0] || 'audio/webm';
+      const response = await fetch('/api/v1/admin/free-reports/audio', { method: 'POST', headers: { 'Content-Type': contentType }, body: blob });
+      const result = await response.json(); if (!response.ok) throw new Error(result.message ?? '音声を保存できませんでした。');
+      onChange(result.url);
+    } catch (e) { setError((e as Error).message); } finally { setUploading(false); }
+  }
+  async function start() {
+    setError('');
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') { setError('このブラウザでは録音できません。音声ファイルを選択してください。'); return; }
+    try {
+      stream.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const candidates = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm']; const mimeType = candidates.find(type => MediaRecorder.isTypeSupported(type));
+      const next = new MediaRecorder(stream.current, mimeType ? { mimeType } : undefined); recorder.current = next; chunks.current = []; setSeconds(0);
+      next.ondataavailable = event => { if (event.data.size) chunks.current.push(event.data); };
+      next.onstop = () => { const blob = new Blob(chunks.current, { type: next.mimeType || mimeType || 'audio/webm' }); release(); setRecording(false); void uploadAudio(blob); };
+      next.start(1000); setRecording(true);
+      timer.current = setInterval(() => setSeconds(current => { if (current >= 299 && next.state === 'recording') next.stop(); return current + 1; }), 1000);
+    } catch { release(); setError('マイクを利用できません。ブラウザのマイク許可を確認してください。'); }
+  }
+  function stop() { if (recorder.current?.state === 'recording') recorder.current.stop(); }
+  async function selectFile(event: ChangeEvent<HTMLInputElement>) { const file = event.target.files?.[0]; event.target.value = ''; if (file) await uploadAudio(file); }
+  const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  return <div className="audio-input"><div className="audio-input-actions">{recording ? <button type="button" className="button recording" onClick={stop}><Square size={17} /> 録音を終了 {clock}</button> : <button type="button" className="button" disabled={disabled || uploading} onClick={() => void start()}><Mic size={17} /> マイクで録音</button>}<label className={`button secondary audio-file-button ${disabled || recording || uploading ? 'disabled' : ''}`}><Upload size={17} /> 音声ファイルを選択<input type="file" accept="audio/*" disabled={disabled || recording || uploading} onChange={e => void selectFile(e)} /></label></div>{uploading && <p className="muted" role="status">音声を保存しています…</p>}{error && <p className="field-error" role="alert">{error}</p>}{value && <audio controls preload="metadata" src={value}>音声を再生できません。</audio>}<details><summary>外部の音声URLを使う</summary><label className="field">音声URL<input type="text" maxLength={1000} required value={value} placeholder="https://..." onChange={e => onChange(e.target.value)} /></label></details><p className="muted form-note">音声は最大8MB。マイク録音は5分で自動終了し、下書き保存前に試聴できます。</p></div>;
+}
+
+export function FreeReportManager() {
+  const [date, setDate] = useState(jstDate()); const [races, setRaces] = useState<RaceList['items']>([]); const [detail, setDetail] = useState<RaceDetail | null>(null);
+  const [draft, setDraft] = useState<Draft>({ revision: 0, upEntryId: '', upReason: '', downEntryId: '', downReason: '', audioUrl: '', reviewText: '' });
+  const [benefit, setBenefit] = useState<Benefit>({ revision: 0, title: '', description: '', videoUrl: '' });
+  const [reason, setReason] = useState(''); const [benefitReason, setBenefitReason] = useState(''); const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
+  async function loadRaces(value = date) { try { setRaces((await api<RaceList>(`admin/free-reports/races?date=${value}`)).items); } catch (e) { setError((e as Error).message); } }
+  async function open(id: string) { setError(''); try { const value = await api<RaceDetail>(`admin/free-reports/races/${id}`); setDetail(value); setDraft(value.freeReportDraft ?? { revision: 0, upEntryId: value.entries[0]?.id ?? '', upReason: '', downEntryId: value.entries[1]?.id ?? '', downReason: '', audioUrl: '', reviewText: '' }); } catch (e) { setError((e as Error).message); } }
+  useEffect(() => { void loadRaces(); api<Benefit>('admin/free-reports/benefit').then(setBenefit).catch(e => setError(e.message)); }, []);
+  useEffect(() => { void loadRaces(date); setDetail(null); }, [date]);
+  async function saveDraft(event: FormEvent) { event.preventDefault(); if (!detail) return; setBusy(true); setError(''); setMessage(''); try { const value = await api<Draft>(`admin/free-reports/races/${detail.id}/draft`, 'PATCH', { ...draft, reason }); setDraft(value); setReason(''); setMessage('無料速報の下書きを保存しました。'); await open(detail.id); await loadRaces(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
+  async function publish(kind: 'PRE_RACE' | 'POST_RACE_REVIEW') { if (!detail) return; setBusy(true); setError(''); setMessage(''); try { await api(`admin/free-reports/races/${detail.id}/publish`, 'POST', { revision: draft.revision, kind, reason }, true); setMessage(kind === 'PRE_RACE' ? '無料パドック速報を公開しました。' : 'レース後検証を公開しました。'); setReason(''); await open(detail.id); await loadRaces(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
+  async function saveBenefit(event: FormEvent) { event.preventDefault(); setBusy(true); setError(''); setMessage(''); try { const value = await api<Benefit>('admin/free-reports/benefit', 'PATCH', { ...benefit, reason: benefitReason }); setBenefit(value); setBenefitReason(''); setMessage('登録特典を保存しました。'); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
+  const active = detail?.entries.filter(entry => entry.status === 'ACTIVE') ?? [];
+  return <><div className="page-heading"><span className="eyebrow">FREE MEMBER OFFER</span><h1>無料会員向け配信</h1><p>登録特典と、毎週の無料パドック速報を管理します。</p></div>{error && <div className="notice error" role="alert">{error}</div>}{message && <div className="notice" role="status">{message}</div>}
+    <section className="panel"><div className="panel-heading"><div><span className="eyebrow">REGISTRATION BONUS</span><h2>登録直後の実例解説</h2></div><PlayCircle size={22} /></div><form className="panel-body" onSubmit={saveBenefit}><label className="field">タイトル<input value={benefit.title} maxLength={120} required onChange={e => setBenefit({ ...benefit, title: e.target.value })} /></label><label className="field">説明<textarea rows={3} value={benefit.description} maxLength={1000} required onChange={e => setBenefit({ ...benefit, description: e.target.value })} /></label><label className="field">動画URL（HTTPS）<input type="url" value={benefit.videoUrl} maxLength={1000} required placeholder="https://..." onChange={e => setBenefit({ ...benefit, videoUrl: e.target.value })} /></label><label className="field">変更理由<input value={benefitReason} maxLength={500} required onChange={e => setBenefitReason(e.target.value)} /></label><button className="button" disabled={busy}>登録特典を保存</button></form></section>
+    <section className="panel"><div className="panel-heading"><h2>対象レース</h2><label className="date-filter">開催日<input type="date" value={date} onChange={e => setDate(e.target.value)} /></label></div>{races.length ? <div className="race-list">{races.map(race => <div className="race-row" key={race.id}><div className="race-number">{race.number}<small>R</small></div><div className="race-info"><span className="muted">{race.venue} · 出走馬{race._count.entries}頭</span><h3>{race.name}</h3><small>{race.freeReportVersions[0] ? `公開済み 第${race.freeReportVersions[0].version}版` : race.freeReportDraft ? '下書きあり' : '未作成'}</small></div><button className="button secondary small" onClick={() => void open(race.id)}>編集</button></div>)}</div> : <div className="empty"><h3>対象レースがありません</h3><p>レース管理で登録した開催日を選択してください。</p></div>}</section>
+    {detail && <section className="panel" id="free-report-editor"><div className="panel-heading"><div><span className="eyebrow">{detail.venue} {detail.number}R</span><h2>{detail.name}</h2></div><span className="status-tag">下書き v{draft.revision}</span></div><form className="panel-body" onSubmit={saveDraft}><div className="two-columns"><div><label className="field">評価UP馬<select value={draft.upEntryId} required onChange={e => setDraft({ ...draft, upEntryId: e.target.value })}><option value="">選択してください</option>{active.map(entry => <option value={entry.id} key={entry.id}>{entry.number}番 {entry.horseName}</option>)}</select></label><label className="field">評価を上げた理由<textarea rows={4} maxLength={1000} required value={draft.upReason} onChange={e => setDraft({ ...draft, upReason: e.target.value })} /></label></div><div><label className="field">評価DOWN馬<select value={draft.downEntryId} required onChange={e => setDraft({ ...draft, downEntryId: e.target.value })}><option value="">選択してください</option>{active.map(entry => <option value={entry.id} key={entry.id}>{entry.number}番 {entry.horseName}</option>)}</select></label><label className="field">評価を下げた理由<textarea rows={4} maxLength={1000} required value={draft.downReason} onChange={e => setDraft({ ...draft, downReason: e.target.value })} /></label></div></div><div className="field"><span>本人音声</span><AudioInput value={draft.audioUrl} disabled={busy} onChange={audioUrl => setDraft({ ...draft, audioUrl })} /></div><label className="field">レース後の簡易検証<textarea rows={4} maxLength={2000} value={draft.reviewText} placeholder="確定結果の登録後に入力します" onChange={e => setDraft({ ...draft, reviewText: e.target.value })} /></label><label className="field">保存・公開理由<input maxLength={500} required value={reason} onChange={e => setReason(e.target.value)} /></label><div className="panel-actions"><button className="button secondary" disabled={busy || !draft.audioUrl}>下書きを保存</button><button type="button" className="button" disabled={busy || !draft.revision || !reason.trim() || new Date() >= new Date(detail.startsAt)} onClick={() => void publish('PRE_RACE')}>発走前速報を公開</button><button type="button" className="button" disabled={busy || !draft.revision || !reason.trim() || !draft.reviewText.trim() || !detail.resultVersions.length || new Date() < new Date(detail.startsAt)} onClick={() => void publish('POST_RACE_REVIEW')}>レース後検証を公開</button></div></form>{detail.freeReportVersions.length > 0 && <div className="panel-body"><h3>公開履歴</h3>{detail.freeReportVersions.map(version => <p key={version.id}>第{version.version}版 · {version.kind === 'PRE_RACE' ? '発走前速報' : 'レース後検証'} · {new Date(version.publishedAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })} JST</p>)}</div>}</section>}
+  </>;
+}
+
+export function FreeRaceReport({ raceId }: { raceId: string }) {
+  const [data, setData] = useState<{ versions: Version[] } | null>(null); const [unauthorized, setUnauthorized] = useState(false); const [error, setError] = useState('');
+  useEffect(() => { fetch(`/api/v1/races/${raceId}/free-report`, { cache: 'no-store' }).then(async response => { if (response.status === 401) { setUnauthorized(true); return null; } const value = await response.json(); if (!response.ok) throw new Error(value.message); return value; }).then(value => value && setData(value)).catch(e => setError(e.message)); }, [raceId]);
+  if (unauthorized) return <section className="panel panel-body free-report-gate" id="free-report"><h2>無料パドック速報</h2><p>無料会員登録後に、評価UP馬・DOWN馬と本人解説を確認できます。</p><div className="gate-actions"><Link className="button" href="/register">無料会員登録</Link><Link className="button secondary" href="/login">ログイン</Link></div></section>;
+  if (error) return <div className="notice error" role="alert">{error}</div>;
+  if (!data) return <p role="status">無料速報を読み込み中…</p>;
+  const pre = data.versions.find(version => version.kind === 'PRE_RACE'); const review = data.versions.find(version => version.kind === 'POST_RACE_REVIEW');
+  if (!pre) return null;
+  return <section className="panel free-race-report" id="free-report"><div className="panel-heading"><div><span className="eyebrow">FREE PADDOCK REPORT</span><h2>無料パドック速報</h2></div><span className="status-tag">第{pre.version}版</span></div><div className="panel-body"><div className="free-report-horses"><article className="free-report-horse up"><ArrowUpRight /><span>評価UP</span><h3>{pre.upHorseNumber}番 {pre.upHorseName}</h3><p>{pre.upReason}</p></article><article className="free-report-horse down"><ArrowDownRight /><span>評価DOWN</span><h3>{pre.downHorseNumber}番 {pre.downHorseName}</h3><p>{pre.downReason}</p></article></div><div className="free-report-audio"><Headphones size={20} /><div><strong>本人音声解説</strong><audio controls preload="none" src={pre.audioUrl}>音声を再生できません。</audio></div></div>{review && <div className="free-report-review"><span className="eyebrow">AFTER THE RACE</span><h3>レース後の簡易検証</h3><p>{review.reviewText}</p><small>公開：{new Date(review.publishedAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })} JST</small></div>}<p className="muted form-note">無料速報には最終本命・全頭評価・対抗・穴馬・買い目を含みません。</p></div></section>;
+}
+
+export function RegistrationBenefit() {
+  const [value, setValue] = useState<{ configured: boolean; title?: string; description?: string; videoUrl?: string } | null>(null);
+  useEffect(() => { api<{ configured: boolean; title?: string; description?: string; videoUrl?: string }>('me/free-benefit').then(setValue).catch(() => setValue({ configured: false })); }, []);
+  if (!value?.configured) return null;
+  return <section className="panel registration-benefit"><div className="panel-heading"><div><span className="eyebrow">REGISTRATION BONUS</span><h2>{value.title}</h2></div><PlayCircle size={24} /></div><div className="panel-body"><p>{value.description}</p><a className="button" href={value.videoUrl} target="_blank" rel="noreferrer">実例解説を見る <ArrowRight size={17} /></a></div></section>;
+}

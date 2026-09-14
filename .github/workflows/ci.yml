@@ -1,0 +1,71 @@
+name: Validate foundation
+on:
+  push:
+  pull_request:
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: keiba
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: keiba_test
+        ports: ['55432:5432']
+        options: >-
+          --health-cmd "pg_isready -U keiba -d keiba_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://keiba:ci-only-password@127.0.0.1:55432/keiba_test
+      AUTH_PROVIDER: local
+      APP_BASE_URL: http://localhost:3000
+      API_BASE_URL: http://127.0.0.1:4000
+      API_PORT: 4000
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.10.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Generate ephemeral test encryption key
+        run: node -e "require('fs').appendFileSync(process.env.GITHUB_ENV, 'ENCRYPTION_KEY=' + require('crypto').randomBytes(32).toString('base64') + '\n')"
+      - run: pnpm db:generate
+      - run: pnpm db:migrate
+      - run: pnpm --filter @keiba/domain build && pnpm --filter @keiba/db build
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm build
+      - run: node scripts/check-production-guard.mjs
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Start test services
+        run: |
+          mkdir -p .local
+          (cd apps/api && exec node dist/main.js) > .local/api.log 2>&1 &
+          echo $! > .local/api.pid
+          pnpm --filter @keiba/web start > .local/web.log 2>&1 &
+          node scripts/wait-services.mjs
+      - run: pnpm test:integration
+      - name: Restart API between independent test stages
+        run: |
+          api_test_pid="$(cat .local/api.pid)"
+          kill "$api_test_pid"
+          for attempt in $(seq 1 50); do
+            if ! kill -0 "$api_test_pid" 2>/dev/null; then break; fi
+            sleep 0.2
+          done
+          (cd apps/api && exec node dist/main.js) > .local/api-e2e.log 2>&1 &
+          node scripts/wait-services.mjs
+      - run: pnpm test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-failure-report
+          path: playwright-report/

@@ -1,0 +1,3 @@
+horseId,number,gate,horseName,sex,age,carriedWeight,jockey,trainer,winOdds,popularity,status
+aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1,1,1,検証用ホースA,MALE,3,57,検証騎手A,検証調教師A,3.5,1,ACTIVE
+aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2,2,2,検証用ホースB,FEMALE,3,55,検証騎手B,検証調教師B,,,ACTIVE

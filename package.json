@@ -1,0 +1,25 @@
+{
+  "name": "keiba-member-media",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.10.0",
+  "engines": { "node": ">=22.15.0" },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint . --max-warnings=0",
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:e2e": "playwright test",
+    "build": "pnpm -r build",
+    "db:generate": "pnpm --filter @keiba/db generate",
+    "db:migrate": "pnpm --filter @keiba/db migrate",
+    "db:seed": "pnpm --filter @keiba/db seed",
+    "db:backup:verify": "node scripts/backup-verify.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1", "eslint": "^9.39.1", "typescript-eslint": "^8.48.0",
+    "typescript": "^5.9.3", "tsx": "^4.20.6", "vitest": "^3.2.4",
+    "@playwright/test": "^1.56.1", "@types/node": "^22.19.0", "dotenv": "^16.6.1"
+  }
+}
