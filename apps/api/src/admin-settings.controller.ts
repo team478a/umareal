@@ -1,7 +1,7 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, Patch, Req } from '@nestjs/common';
 import { adminSettingsUpdateSchema, canManage, requiresMfa } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
-import type { SystemSetting } from '@keiba/db';
+import { resolveMailConfig, type SystemSetting } from '@keiba/db';
 import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
 import { decrypt, encrypt } from './security';
@@ -17,6 +17,7 @@ export class AdminSettingsController {
   }
 
   private view(value: SystemSetting) {
+    const mail = resolveMailConfig(value);
     const channelSecretConfigured = !!value.lineChannelSecretEncrypted;
     const channelAccessTokenConfigured = !!value.lineAccessTokenEncrypted;
     const configured = !!value.lineChannelId && channelSecretConfigured && channelAccessTokenConfigured;
@@ -69,6 +70,19 @@ export class AdminSettingsController {
         connectionStatus: effectiveComplete ? 'CONFIGURED_NOT_VERIFIED' : stripeAdminSelected ? 'INCOMPLETE' : 'NOT_CONFIGURED',
         readiness: { credentialsStored: stripeAdminSelected ? stripeSecretKeyConfigured && stripeWebhookSecretConfigured : environmentCredentials, secretsReadable: stripeAdminSelected ? stripeSecretKeyReadable && stripeWebhookSecretReadable : environmentCredentials, pricesConfigured: stripeAdminSelected ? stripePricesConfigured : environmentPrices, modeConsistent: stripeAdminSelected ? stripeModeConsistent : environmentModeConsistent, billingTransport: process.env.BILLING_TRANSPORT === 'stripe' ? 'STRIPE' : 'TEST_ONLY', externalConnectionTested: false }
       },
+      mail: {
+        source: mail.source,
+        apiKeyConfigured: mail.apiKeyConfigured,
+        from: mail.source === 'ADMIN' ? value.mailFrom : null,
+        connectionStatus: mail.complete ? 'CONFIGURED_NOT_VERIFIED' : mail.source === 'ADMIN' ? 'INCOMPLETE' : 'NOT_CONFIGURED',
+        readiness: {
+          credentialsStored: mail.apiKeyConfigured,
+          secretReadable: mail.secretReadable,
+          senderConfigured: mail.senderConfigured,
+          mailTransport: process.env.MAIL_TRANSPORT === 'resend' ? 'RESEND' : 'TEST_ONLY',
+          externalConnectionTested: false
+        }
+      },
       line: {
         channelId: value.lineChannelId, channelSecretConfigured, channelAccessTokenConfigured, connectionStatus: configured ? 'CONFIGURED_NOT_VERIFIED' : 'NOT_CONFIGURED',
         messagingReadiness: { credentialsStored: configured, secretsReadable: messagingSecretsReadable, applicationUrlReady: secureApplicationUrl, notificationWorkerReady: true, webhookSignatureVerifierReady: true, outboundTransport: process.env.NOTIFICATION_TRANSPORT === 'line' ? 'LINE' : 'TEST_ONLY', externalConnectionTested: false },
@@ -100,6 +114,7 @@ export class AdminSettingsController {
       const lineLoginChannelSecretEncrypted = input.line.loginChannelSecret ? encrypt(input.line.loginChannelSecret) : input.line.clearLoginChannelSecret ? null : before.lineLoginChannelSecretEncrypted;
       const stripeSecretKeyEncrypted = input.stripe.secretKey ? encrypt(input.stripe.secretKey) : input.stripe.clearSecretKey ? null : before.stripeSecretKeyEncrypted;
       const stripeWebhookSecretEncrypted = input.stripe.webhookSecret ? encrypt(input.stripe.webhookSecret) : input.stripe.clearWebhookSecret ? null : before.stripeWebhookSecretEncrypted;
+      const mailApiKeyEncrypted = input.mail.apiKey ? encrypt(input.mail.apiKey) : input.mail.clearApiKey ? null : before.mailApiKeyEncrypted;
       if (input.operations.lineNotificationsEnabled && (!input.line.channelId || !lineChannelSecretEncrypted || !lineAccessTokenEncrypted)) throw new BadRequestException({ code: 'LINE_CREDENTIALS_REQUIRED', message: 'LINE通知を有効にするにはChannel ID、Channel secret、Channel access tokenが必要です。' });
       if (input.operations.lineLoginEnabled && (!input.line.loginChannelId || !lineLoginChannelSecretEncrypted || !input.line.loginCallbackUrl)) throw new BadRequestException({ code: 'LINE_LOGIN_CREDENTIALS_REQUIRED', message: 'LINE Loginを有効にするにはChannel ID、Channel secret、Callback URLが必要です。' });
       const stripeComplete = !!stripeSecretKeyEncrypted && !!stripeWebhookSecretEncrypted && !!input.stripe.priceFounder && !!input.stripe.priceStandard && !!input.stripe.priceDayPass;
@@ -109,6 +124,9 @@ export class AdminSettingsController {
       catch { throw new BadRequestException({ code: 'STRIPE_CREDENTIALS_UNREADABLE', message: '保存済みStripe資格情報を読み取れません。再設定してください。' }); }
       if (stripeSecretKey && !stripeSecretKey.startsWith(input.stripe.liveMode ? 'sk_live_' : 'sk_test_')) throw new BadRequestException({ code: 'STRIPE_MODE_MISMATCH', message: 'Stripe Secret keyとテスト・本番モードが一致しません。' });
       if (process.env.BILLING_TRANSPORT === 'stripe' && input.operations.newPurchasesEnabled && (!stripeComplete || !stripeSecretKey || (process.env.NODE_ENV === 'production' && !input.stripe.liveMode))) throw new BadRequestException({ code: 'STRIPE_CONFIGURATION_REQUIRED', message: '新規購入を有効にする前に、この環境で利用できるStripe設定を完了してください。' });
+      const mail = resolveMailConfig({ mailApiKeyEncrypted, mailFrom: input.mail.from });
+      if (mailApiKeyEncrypted && !mail.secretReadable) throw new BadRequestException({ code: 'MAIL_CREDENTIALS_UNREADABLE', message: '保存済みメール資格情報を読み取れません。再設定してください。' });
+      if (process.env.MAIL_TRANSPORT === 'resend' && !mail.complete) throw new BadRequestException({ code: 'MAIL_CONFIGURATION_REQUIRED', message: 'Resend transportにはAPI keyと送信元が必要です。' });
       const after = await tx.systemSetting.update({ where: { id: 'global' }, data: {
         ...input.operations,
         registrationPauseMessage: input.registrationPauseMessage,
@@ -122,6 +140,8 @@ export class AdminSettingsController {
         stripePriceFounder: input.stripe.priceFounder,
         stripePriceStandard: input.stripe.priceStandard,
         stripePriceDayPass: input.stripe.priceDayPass,
+        mailApiKeyEncrypted,
+        mailFrom: input.mail.from,
         lineChannelId: input.line.channelId,
         lineChannelSecretEncrypted,
         lineAccessTokenEncrypted,
@@ -134,7 +154,7 @@ export class AdminSettingsController {
       } });
       await this.auth.audit(tx, req, 'SYSTEM_SETTINGS_UPDATE', 'global', input.reason, {
         before: this.view(before), after: this.view(after),
-        credentialsChanged: { channelSecret: !!input.line.channelSecret || input.line.clearChannelSecret, channelAccessToken: !!input.line.channelAccessToken || input.line.clearChannelAccessToken, loginChannelSecret: !!input.line.loginChannelSecret || input.line.clearLoginChannelSecret, stripeSecretKey: !!input.stripe.secretKey || input.stripe.clearSecretKey, stripeWebhookSecret: !!input.stripe.webhookSecret || input.stripe.clearWebhookSecret }
+        credentialsChanged: { channelSecret: !!input.line.channelSecret || input.line.clearChannelSecret, channelAccessToken: !!input.line.channelAccessToken || input.line.clearChannelAccessToken, loginChannelSecret: !!input.line.loginChannelSecret || input.line.clearLoginChannelSecret, stripeSecretKey: !!input.stripe.secretKey || input.stripe.clearSecretKey, stripeWebhookSecret: !!input.stripe.webhookSecret || input.stripe.clearWebhookSecret, mailApiKey: !!input.mail.apiKey || input.mail.clearApiKey }
       });
       return this.view(after);
     }, { timeout: 20000, maxWait: 10000 });

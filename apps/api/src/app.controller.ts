@@ -6,8 +6,7 @@ import { z } from 'zod';
 import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
 import { hashToken, verifyPassword } from './security';
-import { Prisma } from '@keiba/db';
-import { databaseRuntimeAccessRestricted } from '@keiba/db';
+import { databaseRuntimeAccessRestricted, loadMailConfig, Prisma, resolveMailConfig } from '@keiba/db';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { loadStripeConfig } from './stripe-config';
@@ -260,7 +259,7 @@ export class AppController {
     await this.staff(req, ['ADMIN', 'OPERATOR']);
     const now = new Date(); const delayedAt = new Date(now.getTime() - 60_000); const staleLeaseAt = new Date(now.getTime() - 5 * 60_000); const since = new Date(now.getTime() - 24 * 60 * 60_000);
     const [settings, failed, delayed, stuck, lastWebhook, unmatchedWebhooks] = await this.auth.db.$transaction([
-      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { emailNotificationsEnabled: true, predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: true, newPurchasesEnabled: true, maintenanceMessage: true, lineChannelId: true, lineChannelSecretEncrypted: true, lineAccessTokenEncrypted: true, updatedAt: true } }),
+      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { emailNotificationsEnabled: true, predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: true, newPurchasesEnabled: true, maintenanceMessage: true, lineChannelId: true, lineChannelSecretEncrypted: true, lineAccessTokenEncrypted: true, mailApiKeyEncrypted: true, mailFrom: true, updatedAt: true } }),
       this.auth.db.notificationDelivery.count({ where: { status: 'FAILED' } }),
       this.auth.db.notificationDelivery.count({ where: { status: 'QUEUED', attemptCount: 0, createdAt: { lt: delayedAt }, nextAttemptAt: { lte: now } } }),
       this.auth.db.notificationDelivery.count({ where: { status: 'SENDING', lockedAt: { lt: staleLeaseAt } } }),
@@ -268,9 +267,11 @@ export class AppController {
       this.auth.db.lineWebhookEvent.count({ where: { receivedAt: { gte: since }, outcome: 'UNMATCHED' } })
     ]);
     const lineConfigured = !!settings.lineChannelId && !!settings.lineChannelSecretEncrypted && !!settings.lineAccessTokenEncrypted;
+    const mailConfigured = resolveMailConfig(settings).complete;
     const issues: { code: string; severity: 'CRITICAL' | 'WARNING' | 'INFO'; title: string; detail: string; action: string; href: string }[] = [];
     if (!settings.predictionPublicationEnabled) issues.push({ code: 'PREDICTION_PAUSED', severity: 'CRITICAL', title: '予想公開が停止中', detail: '新しいプレビュー確認と公開確定が拒否されます。', action: '停止理由を確認し、復旧条件が揃った後に管理者が再開します。', href: '/admin/settings' });
     if (!settings.emailNotificationsEnabled) issues.push({ code: 'EMAIL_PAUSED', severity: 'CRITICAL', title: 'メール通知が停止中', detail: '確認済みメール会員へのレース告知と公開通知は送信されません。', action: 'メール配信基盤とキューを確認してから管理者が再開します。', href: '/admin/settings' });
+    if (settings.emailNotificationsEnabled && process.env.MAIL_TRANSPORT === 'resend' && !mailConfigured) issues.push({ code: 'EMAIL_CONFIGURATION_MISSING', severity: 'CRITICAL', title: 'メール送信設定が不足', detail: 'Resend API keyまたは送信元が未設定・読取不能です。', action: '管理者が資格情報を再設定し、外部疎通は別途確認します。', href: '/admin/settings' });
     if (!settings.lineNotificationsEnabled) issues.push({ code: 'LINE_PAUSED', severity: 'CRITICAL', title: 'LINE通知が停止中', detail: '公開情報はWebへ残りますが、通知キューは処理されません。', action: 'LINE側とキューを確認してから管理者が通知を再開します。', href: '/admin/settings' });
     if (settings.lineNotificationsEnabled && !lineConfigured) issues.push({ code: 'LINE_CONFIGURATION_MISSING', severity: 'CRITICAL', title: 'LINE通知設定が不足', detail: 'Channel ID、secret、access tokenのいずれかが未設定です。', action: '管理者が資格情報を再設定し、外部疎通は別途確認します。', href: '/admin/settings' });
     if (stuck) issues.push({ code: 'DELIVERY_STUCK', severity: 'CRITICAL', title: '送信中の通知が停滞', detail: `5分以上送信中の配送が${stuck}件あります。`, action: 'ワーカー状態を確認します。再起動後は期限切れleaseが自動回収されます。', href: '/admin/notifications' });
@@ -292,11 +293,12 @@ export class AppController {
     await this.staff(req, ['ADMIN']);
     const launchMode = resolveLaunchMode(process.env.LAUNCH_MODE);
     const capabilities = launchCapabilities(launchMode);
-    const [settings, backup, appliedMigrations, stripeConfig, databaseAccessRestricted] = await Promise.all([
+    const [settings, backup, appliedMigrations, stripeConfig, mailConfig, databaseAccessRestricted] = await Promise.all([
       this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { newRegistrationsEnabled: true, emailNotificationsEnabled: true, predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: true, lineLoginEnabled: true, newPurchasesEnabled: true, lineChannelId: true, lineChannelSecretEncrypted: true, lineAccessTokenEncrypted: true, lineLoginChannelId: true, lineLoginChannelSecretEncrypted: true, lineLoginCallbackUrl: true, updatedAt: true } }),
       readLocalBackupStatus(),
       this.auth.db.$queryRaw<Array<{ count: number }>>`SELECT count(*)::int AS count FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`.then(rows => rows[0]?.count ?? 0),
       loadStripeConfig(this.auth.db),
+      loadMailConfig(this.auth.db),
       databaseRuntimeAccessRestricted(this.auth.db)
     ]);
     type Check = { code: string; group: 'APPLICATION' | 'CONNECTIONS' | 'LEGAL_DATA' | 'OPERATIONS'; status: 'READY' | 'BLOCKED' | 'MANUAL'; title: string; evidence: string; action: string; href?: string };
@@ -310,8 +312,8 @@ export class AppController {
     add({ code: 'LINE_MESSAGING', group: 'CONNECTIONS', status: !capabilities.lineNotifications || messagingConfigured ? 'READY' : 'BLOCKED', title: 'LINE Messaging API', evidence: !capabilities.lineNotifications ? '無料会員募集モードでは対象外です。' : messagingConfigured ? '本番transportと必要な資格情報が設定済みです。' : '本番transportまたは必要な資格情報が未設定です。', action: capabilities.lineNotifications ? '管理設定を保存し、実アカウントへの送信リハーサルを行います。' : 'FULLへ切り替える前にLINE設定と送信リハーサルを完了します。', href: '/admin/settings' });
     const loginConfigured = capabilities.lineLogin && process.env.LINE_OAUTH_TRANSPORT === 'line' && !!settings.lineLoginChannelId && !!settings.lineLoginChannelSecretEncrypted && !!settings.lineLoginCallbackUrl && /^https:\/\//.test(settings.lineLoginCallbackUrl);
     add({ code: 'LINE_LOGIN', group: 'CONNECTIONS', status: !capabilities.lineLogin || loginConfigured ? 'READY' : 'BLOCKED', title: 'LINE Login', evidence: !capabilities.lineLogin ? '無料会員募集モードでは対象外です。' : loginConfigured ? '本番transportとHTTPS Callbackが設定済みです。' : '本番transport、資格情報、HTTPS Callbackのいずれかが不足しています。', action: capabilities.lineLogin ? 'LINE DevelopersのCallback URLと管理設定を一致させます。' : 'FULLへ切り替える前にLINE Loginの実アカウント試験を完了します。', href: '/admin/settings' });
-    const mailConfigured = process.env.MAIL_TRANSPORT === 'resend' && !!process.env.RESEND_API_KEY && !!process.env.MAIL_FROM;
-    add({ code: 'TRANSACTIONAL_MAIL', group: 'CONNECTIONS', status: mailConfigured ? 'READY' : 'BLOCKED', title: '確認・再設定メール', evidence: mailConfigured ? '外部メールtransportと送信元が設定済みです。' : '現在はテスト配信、または外部メール設定が不足しています。', action: '送信ドメインを認証し、登録・再設定メールを実送信で確認します。' });
+    const mailConfigured = process.env.MAIL_TRANSPORT === 'resend' && mailConfig.complete;
+    add({ code: 'TRANSACTIONAL_MAIL', group: 'CONNECTIONS', status: mailConfigured ? 'MANUAL' : 'BLOCKED', title: '確認・通知メール', evidence: mailConfigured ? `外部メールtransportと送信元が設定済みです（設定元: ${mailConfig.source === 'ADMIN' ? '管理画面' : '環境変数'}）。ライブ疎通は人による確認が必要です。` : '現在はテスト配信、または外部メール設定が不足しています。', action: mailConfigured ? '送信ドメインを認証し、登録・再設定・公開通知メールを実送信で確認します。' : '管理画面でResend API keyと送信元を設定します。', href: '/admin/settings' });
     const stripeConfigured = capabilities.billing && process.env.BILLING_TRANSPORT === 'stripe' && stripeConfig.usable;
     add({ code: 'EXTERNAL_BILLING', group: 'CONNECTIONS', status: !capabilities.billing ? 'READY' : stripeConfigured ? 'MANUAL' : 'BLOCKED', title: '外部決済', evidence: !capabilities.billing ? '無料会員募集モードでは購入機能を停止しています。' : stripeConfigured ? `Stripe Checkoutと署名付きWebhookの設定があります（設定元: ${stripeConfig.source === 'ADMIN' ? '管理画面' : '環境変数'}）。ライブ疎通は人による確認が必要です。` : '現在はローカル決済試験、またはStripe設定が不足・不整合です。', action: !capabilities.billing ? 'FULLへ切り替える前に本番決済リハーサルを完了します。' : stripeConfigured ? 'テスト環境で決済成功・重複Webhook・金額不一致を確認します。' : '管理画面でStripe資格情報、動作モード、3プランのPrice IDを設定します。', href: '/admin/settings' });
     const legalReady = legalDocumentReleaseErrors().length === 0;

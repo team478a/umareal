@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import { billingSettingsSchema } from './billing';
 
+const mailFromSchema = z.string().trim().min(3).max(320).refine(value => {
+  if (value.includes('\r') || value.includes('\n')) return false;
+  const displayMatch = value.match(/^[^<>]{1,100}\s*<([^<>\s]+)>$/);
+  if (displayMatch) return z.string().email().safeParse(displayMatch[1]).success;
+  return !/[<>]/.test(value) && z.string().email().safeParse(value).success;
+}, '送信元はメールアドレス、または「表示名 <メールアドレス>」で入力してください。');
+
 export const adminSettingsUpdateSchema = z.object({
   revision: z.number().int().positive(),
   reason: z.string().trim().min(1).max(500),
@@ -30,6 +37,13 @@ export const adminSettingsUpdateSchema = z.object({
     priceStandard: z.string().trim().regex(/^price_[A-Za-z0-9]+$/).max(100).nullable(),
     priceDayPass: z.string().trim().regex(/^price_[A-Za-z0-9]+$/).max(100).nullable()
   }).strict(),
+  mail: z.object({
+    apiKey: z.string().trim().min(10).max(256).regex(/^re_[A-Za-z0-9_-]+$/).optional(),
+    from: mailFromSchema.nullable(),
+    clearApiKey: z.boolean()
+  }).strict().superRefine((value, context) => {
+    if (value.apiKey && value.clearApiKey) context.addIssue({ code: 'custom', path: ['clearApiKey'], message: 'API keyの入力と削除は同時に指定できません。' });
+  }),
   line: z.object({
     channelId: z.string().trim().max(100).nullable(),
     channelSecret: z.string().trim().min(16).max(256).optional(),

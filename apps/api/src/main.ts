@@ -9,7 +9,7 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { rateLimit } from 'express-rate-limit';
 import { ZodError } from 'zod';
-import { databaseRuntimeAccessRestricted, Prisma } from '@keiba/db';
+import { databaseRuntimeAccessRestricted, loadMailConfig, Prisma } from '@keiba/db';
 import { launchCapabilities, legalDocumentReleaseErrors, resolveLaunchMode } from '@keiba/domain';
 import { AppController } from './app.controller';
 import { AuthController } from './auth.controller';
@@ -99,6 +99,10 @@ async function main() {
   if (process.env.NODE_ENV === 'production' && !await databaseRuntimeAccessRestricted(app.get(DbService))) {
     await app.close();
     throw new Error('Production requires a restricted database runtime role');
+  }
+  if (process.env.NODE_ENV === 'production' && !(await loadMailConfig(app.get(DbService))).complete) {
+    await app.close();
+    throw new Error('Production requires a complete admin or environment mail configuration');
   }
   app.setGlobalPrefix('api/v1');
   app.use(helmet());
