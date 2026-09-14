@@ -20,6 +20,8 @@ model User {
   authSubject            String?                  @unique
   email                  String?                  @unique
   emailVerifiedAt        DateTime?                @db.Timestamptz(3)
+  emailDeliveryDisabledAt DateTime?               @db.Timestamptz(3)
+  emailDeliveryDisabledReason String?
   registrationMethod     String                   @default("EMAIL")
   displayName            String
   role                   Role                     @default(MEMBER)
@@ -238,6 +240,22 @@ model LineWebhookEvent {
 
   @@index([receivedAt])
   @@map("line_webhook_events")
+}
+
+model EmailWebhookEvent {
+  id              String   @id @default(uuid()) @db.Uuid
+  providerEventId String   @unique
+  providerEmailId String
+  eventType       String
+  occurredAt      DateTime @db.Timestamptz(3)
+  recipientCount  Int
+  matchedCount    Int
+  disabledCount   Int
+  outcome         String
+  receivedAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([receivedAt])
+  @@map("email_webhook_events")
 }
 
 model Entitlement {
@@ -903,6 +921,7 @@ model SystemSetting {
   stripePriceStandard             String?
   stripePriceDayPass              String?
   mailApiKeyEncrypted             String?
+  mailWebhookSecretEncrypted      String?
   mailFrom                        String?
   updatedBy                       String?  @db.Uuid
   updatedAt                       DateTime @default(now()) @db.Timestamptz(3)

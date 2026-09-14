@@ -39,10 +39,13 @@ export const adminSettingsUpdateSchema = z.object({
   }).strict(),
   mail: z.object({
     apiKey: z.string().trim().min(10).max(256).regex(/^re_[A-Za-z0-9_-]+$/).optional(),
+    webhookSecret: z.string().trim().min(16).max(256).regex(/^whsec_[A-Za-z0-9_+/=-]+$/).optional(),
     from: mailFromSchema.nullable(),
-    clearApiKey: z.boolean()
+    clearApiKey: z.boolean(),
+    clearWebhookSecret: z.boolean()
   }).strict().superRefine((value, context) => {
     if (value.apiKey && value.clearApiKey) context.addIssue({ code: 'custom', path: ['clearApiKey'], message: 'API keyの入力と削除は同時に指定できません。' });
+    if (value.webhookSecret && value.clearWebhookSecret) context.addIssue({ code: 'custom', path: ['clearWebhookSecret'], message: 'Webhook secretの入力と削除は同時に指定できません。' });
   }),
   line: z.object({
     channelId: z.string().trim().max(100).nullable(),

@@ -34,7 +34,7 @@ function csvCell(value: string | number) {
 @Controller()
 export class AppController {
   constructor(@Inject(AuthService) private readonly auth: AuthService) {}
-  @Get('health') async health() { await this.auth.db.$queryRaw`SELECT 1`; return { status: 'ok', phase: '6n-free-registration-launch' }; }
+  @Get('health') async health() { await this.auth.db.$queryRaw`SELECT 1`; return { status: 'ok', phase: '6r-resend-webhooks' }; }
   @Get('me') async me(@Req() req: AppRequest) {
     const identity = await this.auth.authenticate(req);
     const user = await this.auth.db.user.findUniqueOrThrow({ where: { id: identity.id }, include: { preferences: true, lineAccount: true, entitlements: { where: { revokedAt: null, endsAt: { gt: new Date() } } }, consents: { orderBy: { acceptedAt: 'desc' } } } });
@@ -44,9 +44,11 @@ export class AppController {
       articles: user.preferences?.articles ?? false, billing: user.preferences?.billing ?? true
     };
     const lineNotificationState = !user.lineAccount || user.lineAccount.unlinkedAt ? 'NOT_LINKED' : user.lineAccount.notificationDisabledAt ? 'BLOCKED' : !preferences.predictions ? 'DISABLED' : 'READY';
+    const emailNotificationState = user.emailDeliveryDisabledAt ? 'BLOCKED' : !user.emailVerifiedAt ? 'UNVERIFIED' : !preferences.emailEnabled ? 'DISABLED' : 'READY';
     return { id: user.id, email: user.email, emailVerified: !!user.emailVerifiedAt, hasPassword: !!user.passwordHash || (process.env.AUTH_PROVIDER === 'supabase' && !!user.authSubject), registrationMethod: user.registrationMethod, displayName: user.displayName, role: user.role, aal: identity.aal, mfaEnabled: !!user.mfaSecret || !!user.externalMfaFactorId || identity.aal === 2,
       mfaRequired: requiresMfa(user.role), preferences, lineLinked: !!user.lineAccount && !user.lineAccount.unlinkedAt,
       lineNotificationState, lineNotificationReady: lineNotificationState === 'READY',
+      emailNotificationState, emailNotificationReady: emailNotificationState === 'READY', emailDeliveryDisabledAt: user.emailDeliveryDisabledAt, emailDeliveryDisabledReason: user.emailDeliveryDisabledReason,
       entitlements: user.entitlements.map(e => ({ planCode: e.planCode, startsAt: e.startsAt, endsAt: e.endsAt, raceDate: e.raceDate })),
       consents: user.consents.map(c => ({ documentType: c.documentType, version: c.version, acceptedAt: c.acceptedAt })) };
   }
@@ -54,6 +56,8 @@ export class AppController {
     const identity = await this.auth.authenticate(req);
     const input = preferencesSchema.parse(body);
     return this.auth.db.$transaction(async tx => {
+      const user = await tx.user.findUniqueOrThrow({ where: { id: identity.id }, select: { emailDeliveryDisabledAt: true } });
+      if (input.emailEnabled && user.emailDeliveryDisabledAt) throw new ConflictException({ code: 'EMAIL_DELIVERY_BLOCKED', message: '配信先で受信拒否が確認されたため、メール通知を再開できません。メールアドレスを変更してください。' });
       const before = await tx.notificationPreference.findUnique({ where: { userId: identity.id } });
       const next = await tx.notificationPreference.upsert({ where: { userId: identity.id }, create: { userId: identity.id, ...input }, update: input });
       await this.auth.audit(tx, req, 'PREFERENCES_UPDATE', identity.id, '通知設定の変更', { before, after: input });
@@ -126,7 +130,8 @@ export class AppController {
     return { items, total, page, limit, filters: { date, publication, venue: venue ?? null, venues: venueRows.map(item => item.venue) } };
   }
   @Get('announcements') async announcements() {
-    const rows = await this.auth.db.raceAnnouncement.findMany({ where: { race: { startsAt: { gt: new Date(Date.now() - 6 * 3600000) }, status: { notIn: ['CANCELLED'] } } }, include: { race: true }, orderBy: [{ publishedAt: 'desc' }, { id: 'asc' }], take: 50 });
+    const now = new Date();
+    const rows = await this.auth.db.raceAnnouncement.findMany({ where: { publishedAt: { lte: now }, race: { startsAt: { gt: new Date(now.getTime() - 6 * 3600000) }, status: { notIn: ['CANCELLED'] } } }, include: { race: true }, orderBy: [{ publishedAt: 'desc' }, { id: 'asc' }], take: 50 });
     const seen = new Set<string>();
     const items = rows.filter(row => { if (seen.has(row.raceId)) return false; seen.add(row.raceId); return true; }).slice(0, 10);
     return { items: items.map(row => ({ id: row.id, version: row.version, publishedAt: row.publishedAt, race: { id: row.race.id, raceDate: row.race.raceDate, venue: row.race.venue, number: row.race.number, name: row.race.name, startsAt: row.race.startsAt } })) };
@@ -258,20 +263,22 @@ export class AppController {
   @Get('admin/incidents') async incidents(@Req() req: AppRequest) {
     await this.staff(req, ['ADMIN', 'OPERATOR']);
     const now = new Date(); const delayedAt = new Date(now.getTime() - 60_000); const staleLeaseAt = new Date(now.getTime() - 5 * 60_000); const since = new Date(now.getTime() - 24 * 60 * 60_000);
-    const [settings, failed, delayed, stuck, lastWebhook, unmatchedWebhooks] = await this.auth.db.$transaction([
-      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { emailNotificationsEnabled: true, predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: true, newPurchasesEnabled: true, maintenanceMessage: true, lineChannelId: true, lineChannelSecretEncrypted: true, lineAccessTokenEncrypted: true, mailApiKeyEncrypted: true, mailFrom: true, updatedAt: true } }),
+    const [settings, failed, delayed, stuck, lastWebhook, unmatchedWebhooks, emailFailures, emailProviderFailures] = await this.auth.db.$transaction([
+      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { emailNotificationsEnabled: true, predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: true, newPurchasesEnabled: true, maintenanceMessage: true, lineChannelId: true, lineChannelSecretEncrypted: true, lineAccessTokenEncrypted: true, mailApiKeyEncrypted: true, mailWebhookSecretEncrypted: true, mailFrom: true, updatedAt: true } }),
       this.auth.db.notificationDelivery.count({ where: { status: 'FAILED' } }),
       this.auth.db.notificationDelivery.count({ where: { status: 'QUEUED', attemptCount: 0, createdAt: { lt: delayedAt }, nextAttemptAt: { lte: now } } }),
       this.auth.db.notificationDelivery.count({ where: { status: 'SENDING', lockedAt: { lt: staleLeaseAt } } }),
       this.auth.db.lineWebhookEvent.findFirst({ orderBy: [{ receivedAt: 'desc' }, { id: 'asc' }], select: { receivedAt: true, eventType: true, outcome: true } }),
-      this.auth.db.lineWebhookEvent.count({ where: { receivedAt: { gte: since }, outcome: 'UNMATCHED' } })
+      this.auth.db.lineWebhookEvent.count({ where: { receivedAt: { gte: since }, outcome: 'UNMATCHED' } }),
+      this.auth.db.emailWebhookEvent.count({ where: { receivedAt: { gte: since }, eventType: { in: ['email.bounced', 'email.complained', 'email.suppressed'] } } }),
+      this.auth.db.emailWebhookEvent.count({ where: { receivedAt: { gte: since }, eventType: 'email.failed' } })
     ]);
     const lineConfigured = !!settings.lineChannelId && !!settings.lineChannelSecretEncrypted && !!settings.lineAccessTokenEncrypted;
     const mailConfigured = resolveMailConfig(settings).complete;
     const issues: { code: string; severity: 'CRITICAL' | 'WARNING' | 'INFO'; title: string; detail: string; action: string; href: string }[] = [];
     if (!settings.predictionPublicationEnabled) issues.push({ code: 'PREDICTION_PAUSED', severity: 'CRITICAL', title: '予想公開が停止中', detail: '新しいプレビュー確認と公開確定が拒否されます。', action: '停止理由を確認し、復旧条件が揃った後に管理者が再開します。', href: '/admin/settings' });
     if (!settings.emailNotificationsEnabled) issues.push({ code: 'EMAIL_PAUSED', severity: 'CRITICAL', title: 'メール通知が停止中', detail: '確認済みメール会員へのレース告知と公開通知は送信されません。', action: 'メール配信基盤とキューを確認してから管理者が再開します。', href: '/admin/settings' });
-    if (settings.emailNotificationsEnabled && process.env.MAIL_TRANSPORT === 'resend' && !mailConfigured) issues.push({ code: 'EMAIL_CONFIGURATION_MISSING', severity: 'CRITICAL', title: 'メール送信設定が不足', detail: 'Resend API keyまたは送信元が未設定・読取不能です。', action: '管理者が資格情報を再設定し、外部疎通は別途確認します。', href: '/admin/settings' });
+    if (settings.emailNotificationsEnabled && process.env.MAIL_TRANSPORT === 'resend' && !mailConfigured) issues.push({ code: 'EMAIL_CONFIGURATION_MISSING', severity: 'CRITICAL', title: 'メール送信設定が不足', detail: 'Resend API key、送信元、Webhook signing secretのいずれかが未設定・読取不能です。', action: '管理者が資格情報を再設定し、外部疎通は別途確認します。', href: '/admin/settings' });
     if (!settings.lineNotificationsEnabled) issues.push({ code: 'LINE_PAUSED', severity: 'CRITICAL', title: 'LINE通知が停止中', detail: '公開情報はWebへ残りますが、通知キューは処理されません。', action: 'LINE側とキューを確認してから管理者が通知を再開します。', href: '/admin/settings' });
     if (settings.lineNotificationsEnabled && !lineConfigured) issues.push({ code: 'LINE_CONFIGURATION_MISSING', severity: 'CRITICAL', title: 'LINE通知設定が不足', detail: 'Channel ID、secret、access tokenのいずれかが未設定です。', action: '管理者が資格情報を再設定し、外部疎通は別途確認します。', href: '/admin/settings' });
     if (stuck) issues.push({ code: 'DELIVERY_STUCK', severity: 'CRITICAL', title: '送信中の通知が停滞', detail: `5分以上送信中の配送が${stuck}件あります。`, action: 'ワーカー状態を確認します。再起動後は期限切れleaseが自動回収されます。', href: '/admin/notifications' });
@@ -279,11 +286,13 @@ export class AppController {
     if (delayed) issues.push({ code: 'DELIVERY_DELAYED', severity: 'WARNING', title: '通知開始が60秒を超過', detail: `初回処理待ちの配送が${delayed}件あります。`, action: 'ワーカー稼働と通知停止設定を確認します。', href: '/admin/notifications' });
     if (!settings.csvImportEnabled) issues.push({ code: 'CSV_PAUSED', severity: 'WARNING', title: 'CSV取込が停止中', detail: '新しい差分確認と取込確定が拒否されます。', action: '取込元と停止理由を確認し、必要な場合だけ管理者が再開します。', href: '/admin/settings' });
     if (unmatchedWebhooks) issues.push({ code: 'WEBHOOK_UNMATCHED', severity: 'WARNING', title: '未照合のLINE Webhook', detail: `24時間以内に会員と照合できないWebhookが${unmatchedWebhooks}件あります。`, action: 'Webhook受信履歴とLINE連携状態を確認します。', href: '/admin/notifications' });
+    if (emailFailures) issues.push({ code: 'EMAIL_RECIPIENT_REJECTED', severity: 'WARNING', title: 'メール受信拒否を検出', detail: `24時間以内にバウンス・苦情・配信抑止を${emailFailures}件受信しました。`, action: '停止された会員とイベント履歴を確認します。', href: '/admin/notifications' });
+    if (emailProviderFailures) issues.push({ code: 'EMAIL_PROVIDER_FAILURE', severity: 'CRITICAL', title: 'メール配信基盤の失敗', detail: `24時間以内にResendの配信失敗を${emailProviderFailures}件受信しました。`, action: 'Resendのドメイン、API key、利用上限、障害情報を確認します。', href: '/admin/notifications' });
     if (settings.maintenanceMessage.trim()) issues.push({ code: 'MAINTENANCE_MESSAGE_ACTIVE', severity: 'INFO', title: 'メンテナンス案内を設定中', detail: settings.maintenanceMessage, action: '案内内容と現在の障害状態が一致しているか確認します。', href: '/admin/settings' });
     const critical = issues.filter(issue => issue.severity === 'CRITICAL').length; const warning = issues.filter(issue => issue.severity === 'WARNING').length;
     const status = critical ? 'INCIDENT' : warning ? 'DEGRADED' : 'NORMAL';
-    const publicMessage = !settings.predictionPublicationEnabled ? '現在、予想情報の公開準備を確認しています。公開が通常より遅れる可能性があります。状況が確定次第、Web会員ページでご案内します。' : !settings.emailNotificationsEnabled || !settings.lineNotificationsEnabled || !lineConfigured || stuck || failed || delayed ? '現在、通知の配信に遅れが発生しています。公開済みの情報はWeb会員ページでご確認いただけます。復旧後に改めてご案内します。' : '現在、確認されている公開・通知障害はありません。';
-    return { generatedAt: now, status, counts: { critical, warning, total: issues.length }, issues, publicMessage, monitoring: { failedDeliveries: failed, delayedDeliveries: delayed, stuckDeliveries: stuck, unmatchedWebhooks24h: unmatchedWebhooks, lastWebhookAt: lastWebhook?.receivedAt ?? null, lastWebhookOutcome: lastWebhook?.outcome ?? null, settingsUpdatedAt: settings.updatedAt, newPurchasesEnabled: settings.newPurchasesEnabled } };
+    const publicMessage = !settings.predictionPublicationEnabled ? '現在、予想情報の公開準備を確認しています。公開が通常より遅れる可能性があります。状況が確定次第、Web会員ページでご案内します。' : !settings.emailNotificationsEnabled || !settings.lineNotificationsEnabled || !lineConfigured || stuck || failed || delayed || emailProviderFailures ? '現在、通知の配信に遅れが発生しています。公開済みの情報はWeb会員ページでご確認いただけます。復旧後に改めてご案内します。' : '現在、確認されている公開・通知障害はありません。';
+    return { generatedAt: now, status, counts: { critical, warning, total: issues.length }, issues, publicMessage, monitoring: { failedDeliveries: failed, delayedDeliveries: delayed, stuckDeliveries: stuck, unmatchedWebhooks24h: unmatchedWebhooks, emailRecipientFailures24h: emailFailures, emailProviderFailures24h: emailProviderFailures, lastWebhookAt: lastWebhook?.receivedAt ?? null, lastWebhookOutcome: lastWebhook?.outcome ?? null, settingsUpdatedAt: settings.updatedAt, newPurchasesEnabled: settings.newPurchasesEnabled } };
   }
   @Get('admin/backups/status') async backupStatus(@Req() req: AppRequest) {
     await this.staff(req, ['ADMIN']);
@@ -313,7 +322,7 @@ export class AppController {
     const loginConfigured = capabilities.lineLogin && process.env.LINE_OAUTH_TRANSPORT === 'line' && !!settings.lineLoginChannelId && !!settings.lineLoginChannelSecretEncrypted && !!settings.lineLoginCallbackUrl && /^https:\/\//.test(settings.lineLoginCallbackUrl);
     add({ code: 'LINE_LOGIN', group: 'CONNECTIONS', status: !capabilities.lineLogin || loginConfigured ? 'READY' : 'BLOCKED', title: 'LINE Login', evidence: !capabilities.lineLogin ? '無料会員募集モードでは対象外です。' : loginConfigured ? '本番transportとHTTPS Callbackが設定済みです。' : '本番transport、資格情報、HTTPS Callbackのいずれかが不足しています。', action: capabilities.lineLogin ? 'LINE DevelopersのCallback URLと管理設定を一致させます。' : 'FULLへ切り替える前にLINE Loginの実アカウント試験を完了します。', href: '/admin/settings' });
     const mailConfigured = process.env.MAIL_TRANSPORT === 'resend' && mailConfig.complete;
-    add({ code: 'TRANSACTIONAL_MAIL', group: 'CONNECTIONS', status: mailConfigured ? 'MANUAL' : 'BLOCKED', title: '確認・通知メール', evidence: mailConfigured ? `外部メールtransportと送信元が設定済みです（設定元: ${mailConfig.source === 'ADMIN' ? '管理画面' : '環境変数'}）。ライブ疎通は人による確認が必要です。` : '現在はテスト配信、または外部メール設定が不足しています。', action: mailConfigured ? '送信ドメインを認証し、登録・再設定・公開通知メールを実送信で確認します。' : '管理画面でResend API keyと送信元を設定します。', href: '/admin/settings' });
+    add({ code: 'TRANSACTIONAL_MAIL', group: 'CONNECTIONS', status: mailConfigured ? 'MANUAL' : 'BLOCKED', title: '確認・通知メール', evidence: mailConfigured ? `外部メールtransport、送信元、署名付き配信失敗Webhookが設定済みです（設定元: ${mailConfig.source === 'ADMIN' ? '管理画面' : '環境変数'}）。ライブ疎通は人による確認が必要です。` : '現在はテスト配信、または外部メール・Webhook設定が不足しています。', action: mailConfigured ? '送信ドメインを認証し、登録・再設定・公開通知・バウンス停止を実送信で確認します。' : '管理画面でResend API key、送信元、Webhook signing secretを設定します。', href: '/admin/settings' });
     const stripeConfigured = capabilities.billing && process.env.BILLING_TRANSPORT === 'stripe' && stripeConfig.usable;
     add({ code: 'EXTERNAL_BILLING', group: 'CONNECTIONS', status: !capabilities.billing ? 'READY' : stripeConfigured ? 'MANUAL' : 'BLOCKED', title: '外部決済', evidence: !capabilities.billing ? '無料会員募集モードでは購入機能を停止しています。' : stripeConfigured ? `Stripe Checkoutと署名付きWebhookの設定があります（設定元: ${stripeConfig.source === 'ADMIN' ? '管理画面' : '環境変数'}）。ライブ疎通は人による確認が必要です。` : '現在はローカル決済試験、またはStripe設定が不足・不整合です。', action: !capabilities.billing ? 'FULLへ切り替える前に本番決済リハーサルを完了します。' : stripeConfigured ? 'テスト環境で決済成功・重複Webhook・金額不一致を確認します。' : '管理画面でStripe資格情報、動作モード、3プランのPrice IDを設定します。', href: '/admin/settings' });
     const legalReady = legalDocumentReleaseErrors().length === 0;

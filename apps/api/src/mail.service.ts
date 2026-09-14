@@ -21,7 +21,7 @@ export class MailService {
     }
     if (transport !== 'resend') throw new ServiceUnavailableException({ code: 'MAIL_CONFIGURATION_INVALID', message: 'メールを送信できませんでした。' });
     const config = await loadMailConfig(this.db);
-    if (!config.complete || !config.apiKey || !config.from) throw new ServiceUnavailableException({ code: 'MAIL_CONFIGURATION_INVALID', message: 'メールを送信できませんでした。' });
+    if (!config.sendingComplete || !config.apiKey || !config.from) throw new ServiceUnavailableException({ code: 'MAIL_CONFIGURATION_INVALID', message: 'メールを送信できませんでした。' });
     const subject = input.kind === 'PASSWORD_RESET' ? 'パスワード再設定のご案内' : input.kind === 'ADD_FALLBACK' ? '予備メールアドレスの確認' : '無料会員登録の確認';
     let response: Response;
     try {

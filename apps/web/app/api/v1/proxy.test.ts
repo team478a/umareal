@@ -5,10 +5,16 @@ describe('same-origin API proxy', () => {
   it('forwards provider signatures and drops arbitrary request headers', () => {
     const headers = proxyRequestHeaders(new Headers({
       'stripe-signature': 'stripe-signature-value',
+      'svix-id': 'message-id',
+      'svix-timestamp': '1234567890',
+      'svix-signature': 'v1,signature',
       'x-line-signature': 'line-signature-value',
       'x-untrusted-forwarded-header': 'must-not-pass'
     }));
     expect(headers.get('stripe-signature')).toBe('stripe-signature-value');
+    expect(headers.get('svix-id')).toBe('message-id');
+    expect(headers.get('svix-timestamp')).toBe('1234567890');
+    expect(headers.get('svix-signature')).toBe('v1,signature');
     expect(headers.get('x-line-signature')).toBe('line-signature-value');
     expect(headers.has('x-untrusted-forwarded-header')).toBe(false);
   });

@@ -21,6 +21,7 @@ describe('audited administration settings', () => {
     const channelSecret = '0123456789abcdef0123456789abcdef'; const channelAccessToken = `test-token-${'x'.repeat(40)}`; const loginChannelSecret = 'abcdef0123456789abcdef0123456789';
     const stripeSecretKey = `sk_test_${'x'.repeat(32)}`; const stripeWebhookSecret = `whsec_${'y'.repeat(32)}`;
     const mailApiKey = `re_${'m'.repeat(32)}`;
+    const mailWebhookSecret = `whsec_${'w'.repeat(32)}`;
     const stoppedBody = {
       revision: initial.body.revision, reason: '緊急停止とLINE設定の結合試験',
       operations: { newRegistrationsEnabled: false, emailNotificationsEnabled: false, predictionPublicationEnabled: false, csvImportEnabled: false, lineNotificationsEnabled: true, lineLoginEnabled: true, newPurchasesEnabled: false },
@@ -28,7 +29,7 @@ describe('audited administration settings', () => {
       maintenanceMessage: '結合試験中', notificationPolicy: { maxAttempts: 4, baseDelaySeconds: 45 },
       billing: { founderSalesEnabled: false, founderPriceYen: 1980, standardPriceYen: 2980, dayPassPriceYen: 980, founderSalesLimit: 100, billingGraceDays: 0 },
       stripe: { liveMode: false, secretKey: stripeSecretKey, webhookSecret: stripeWebhookSecret, clearSecretKey: false, clearWebhookSecret: false, priceFounder: 'price_Founder123', priceStandard: 'price_Standard123', priceDayPass: 'price_DayPass123' },
-      mail: { apiKey: mailApiKey, from: '競馬会員メディア <notice@example.test>', clearApiKey: false },
+      mail: { apiKey: mailApiKey, webhookSecret: mailWebhookSecret, from: '競馬会員メディア <notice@example.test>', clearApiKey: false, clearWebhookSecret: false },
       line: { channelId: '1234567890', channelSecret, channelAccessToken, clearChannelSecret: false, clearChannelAccessToken: false, loginChannelId: '9876543210', loginChannelSecret, loginCallbackUrl: 'https://example.test/api/v1/auth/line/callback', clearLoginChannelSecret: false }
     };
     const stopped = await admin.call('admin/settings', 'PATCH', stoppedBody); expect(stopped.status, JSON.stringify(stopped.body)).toBe(200);
@@ -38,15 +39,16 @@ describe('audited administration settings', () => {
     expect(stopped.body.line.loginReadiness).toMatchObject({ credentialsStored: true, secretReadable: true, callbackUrlConfigured: true, oauthCallbackHandlerReady: true, oauthTransport: 'TEST_ONLY', externalConnectionTested: false });
     expect(stopped.body.stripe).toMatchObject({ source: 'ADMIN', secretKeyConfigured: true, webhookSecretConfigured: true, connectionStatus: 'CONFIGURED_NOT_VERIFIED' });
     expect(stopped.body.stripe.readiness).toMatchObject({ credentialsStored: true, secretsReadable: true, pricesConfigured: true, modeConsistent: true, billingTransport: 'TEST_ONLY', externalConnectionTested: false });
-    expect(stopped.body.mail).toMatchObject({ source: 'ADMIN', apiKeyConfigured: true, from: '競馬会員メディア <notice@example.test>', connectionStatus: 'CONFIGURED_NOT_VERIFIED' });
-    expect(stopped.body.mail.readiness).toMatchObject({ credentialsStored: true, secretReadable: true, senderConfigured: true, mailTransport: 'TEST_ONLY', externalConnectionTested: false });
-    expect(JSON.stringify(stopped.body)).not.toContain(channelSecret); expect(JSON.stringify(stopped.body)).not.toContain(channelAccessToken); expect(JSON.stringify(stopped.body)).not.toContain(loginChannelSecret); expect(JSON.stringify(stopped.body)).not.toContain(stripeSecretKey); expect(JSON.stringify(stopped.body)).not.toContain(stripeWebhookSecret); expect(JSON.stringify(stopped.body)).not.toContain(mailApiKey);
+    expect(stopped.body.mail).toMatchObject({ source: 'ADMIN', apiKeyConfigured: true, webhookSecretConfigured: true, from: '競馬会員メディア <notice@example.test>', connectionStatus: 'CONFIGURED_NOT_VERIFIED' });
+    expect(stopped.body.mail.readiness).toMatchObject({ credentialsStored: true, secretReadable: true, webhookSecretStored: true, webhookSecretReadable: true, senderConfigured: true, webhookReceiverReady: true, mailTransport: 'TEST_ONLY', externalConnectionTested: false });
+    expect(JSON.stringify(stopped.body)).not.toContain(channelSecret); expect(JSON.stringify(stopped.body)).not.toContain(channelAccessToken); expect(JSON.stringify(stopped.body)).not.toContain(loginChannelSecret); expect(JSON.stringify(stopped.body)).not.toContain(stripeSecretKey); expect(JSON.stringify(stopped.body)).not.toContain(stripeWebhookSecret); expect(JSON.stringify(stopped.body)).not.toContain(mailApiKey); expect(JSON.stringify(stopped.body)).not.toContain(mailWebhookSecret);
     const stored = await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' } });
     expect(stored.lineChannelSecretEncrypted).not.toContain(channelSecret); expect(stored.lineAccessTokenEncrypted).not.toContain(channelAccessToken); expect(stored.lineLoginChannelSecretEncrypted).not.toContain(loginChannelSecret);
     expect(stored.stripeSecretKeyEncrypted).not.toContain(stripeSecretKey); expect(stored.stripeWebhookSecretEncrypted).not.toContain(stripeWebhookSecret);
     expect(stored.mailApiKeyEncrypted).not.toContain(mailApiKey);
+    expect(stored.mailWebhookSecretEncrypted).not.toContain(mailWebhookSecret);
     const audit = await db.auditLog.findFirstOrThrow({ where: { action: 'SYSTEM_SETTINGS_UPDATE', targetId: 'global' }, orderBy: { createdAt: 'desc' } });
-    expect(JSON.stringify(audit.details)).not.toContain(channelSecret); expect(JSON.stringify(audit.details)).not.toContain(channelAccessToken); expect(JSON.stringify(audit.details)).not.toContain(loginChannelSecret); expect(JSON.stringify(audit.details)).not.toContain(stripeSecretKey); expect(JSON.stringify(audit.details)).not.toContain(stripeWebhookSecret); expect(JSON.stringify(audit.details)).not.toContain(mailApiKey);
+    expect(JSON.stringify(audit.details)).not.toContain(channelSecret); expect(JSON.stringify(audit.details)).not.toContain(channelAccessToken); expect(JSON.stringify(audit.details)).not.toContain(loginChannelSecret); expect(JSON.stringify(audit.details)).not.toContain(stripeSecretKey); expect(JSON.stringify(audit.details)).not.toContain(stripeWebhookSecret); expect(JSON.stringify(audit.details)).not.toContain(mailApiKey); expect(JSON.stringify(audit.details)).not.toContain(mailWebhookSecret);
 
     const publicConfig = await new Client().call('auth/config');
     expect(publicConfig.body.registration).toEqual({ enabled: false, message: stoppedBody.registrationPauseMessage });
@@ -69,7 +71,7 @@ describe('audited administration settings', () => {
       ...stoppedBody, revision: stopped.body.revision, reason: '結合試験後に通常運用へ復帰',
       operations: { newRegistrationsEnabled: true, emailNotificationsEnabled: true, predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: false, lineLoginEnabled: false, newPurchasesEnabled: false },
       registrationPauseMessage: '',
-      maintenanceMessage: '', stripe: { liveMode: false, clearSecretKey: true, clearWebhookSecret: true, priceFounder: null, priceStandard: null, priceDayPass: null }, mail: { from: null, clearApiKey: true }, line: { channelId: null, clearChannelSecret: true, clearChannelAccessToken: true, loginChannelId: null, loginCallbackUrl: null, clearLoginChannelSecret: true }
+      maintenanceMessage: '', stripe: { liveMode: false, clearSecretKey: true, clearWebhookSecret: true, priceFounder: null, priceStandard: null, priceDayPass: null }, mail: { from: null, clearApiKey: true, clearWebhookSecret: true }, line: { channelId: null, clearChannelSecret: true, clearChannelAccessToken: true, loginChannelId: null, loginCallbackUrl: null, clearLoginChannelSecret: true }
     });
     expect(restored.status).toBe(200); expect(restored.body.line.connectionStatus).toBe('NOT_CONFIGURED');
     expect(restored.body.stripe.connectionStatus).toBe('NOT_CONFIGURED');

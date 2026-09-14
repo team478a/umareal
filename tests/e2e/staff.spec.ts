@@ -81,6 +81,7 @@ test('administrator must complete MFA before viewing member management', async (
   await page.getByLabel('Stripe 通常会員 Price ID').fill('price_StandardE2E');
   await page.getByLabel('Stripe 1日利用 Price ID').fill('price_DayPassE2E');
   await page.getByLabel('Resend API key', { exact: true }).fill(`re_${'m'.repeat(32)}`);
+  await page.getByLabel('Resend Webhook signing secret').fill(`whsec_${'w'.repeat(32)}`);
   await page.getByLabel('メール送信元').fill('競馬会員メディア <notice@example.test>');
   await page.getByLabel('通知の最大試行回数').fill('4');
   await page.getByLabel('管理設定の変更理由').fill('管理画面のE2E確認');
@@ -96,7 +97,9 @@ test('administrator must complete MFA before viewing member management', async (
   await expect(page.getByLabel('Stripe接続準備').getByText('Price ID')).toHaveClass(/ready/);
   await expect(page.getByLabel('Stripe接続準備').getByText('モード整合')).toHaveClass(/ready/);
   await expect(page.getByLabel('メール配信接続準備').getByText('API keyの保存')).toHaveClass(/ready/);
-  await expect(page.getByLabel('メール配信接続準備').getByText('暗号化データの検証')).toHaveClass(/ready/);
+  await expect(page.getByLabel('メール配信接続準備').getByText('API keyの復号')).toHaveClass(/ready/);
+  await expect(page.getByLabel('メール配信接続準備').getByText('Webhook署名鍵')).toHaveClass(/ready/);
+  await expect(page.getByLabel('メール配信接続準備').getByText('Webhook受信処理')).toHaveClass(/ready/);
   await expect(page.getByLabel('メール配信接続準備').getByText('送信元')).toHaveClass(/ready/);
   await page.goto('/admin');
   await page.screenshot({ path: testInfo.outputPath('admin.png'), fullPage: true });

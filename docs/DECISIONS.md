@@ -452,6 +452,15 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 | 本番接続前 | LINE Messaging API資格情報のライブ疎通と実送信リハーサル | 実装は完了。送信先と時間を決め、管理者立会いで別途実施 |
 | 本番接続前 | LINE Login資格情報のライブ疎通と実アカウント試験 | OAuth実装は完了。Callback URLと同一Provider構成を確認して別途実施 |
 
+## Phase 6R: Resend配信失敗Webhook
+
+- Resend Webhookは生のHTTP本文と`svix-id`、`svix-timestamp`、`svix-signature`をSvix公式ライブラリで検証する。signing secretはAPI keyと同じ暗号化方式で管理し、画面・API・監査詳細へ値を返さない。
+- `email.bounced`、`email.complained`、`email.suppressed`は恒久的な配信不達・苦情・Provider抑止として、照合した会員の公開通知メールを自動停止する。アカウントや認証メール機能そのものは停止しない。
+- `email.failed`は送信ドメイン、API key、利用上限など送信者側の原因も含むため、受信者単位の自動停止には使わない。`email.delivery_delayed`も一時状態として記録だけ行う。
+- Resendは少なくとも一回の配送で順序も保証しないため、`svix-id`をDBで一意にし、Webhook履歴は追記専用にする。後着した成功系イベントによる自動解除は行わない。本人が受信可能な状態にしたことを確認後、AAL2管理者だけが理由付きで解除できる。解除時も本人の`emailEnabled`は無効のままにする。
+- Webhook履歴にはProvider event ID、email ID、種別、時刻、宛先・照合・停止の件数と結果だけを保存する。Provider本文、件名、送信元、メール本文は保存しない。管理者は最近の集計と停止会員を通知運用画面で確認する。
+- 本番`MAIL_TRANSPORT=resend`では送信用設定に加えWebhook signing secretも必須とする。workerには送信用設定だけを渡せるが、APIは署名付き受信まで準備できなければ起動を拒否する。
+
 ## 制約と残課題
 
 レート制限はAPIプロセス内のストア。複数インスタンス運用前に共有ストアへ移行する。MFA復旧や退会・個人情報削除と監査保持の分離も本番前の課題。DB所有者はトリガーを無効化できるため、Phase 6Mの権限分離を本番DBで実行し、検証に合格したruntime接続だけを常駐サービスへ設定する。
@@ -466,3 +475,6 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 - [LINE Login Web連携](https://developers.line.biz/en/docs/line-login/integrate-line-login/)
 - [LINE Login PKCE](https://developers.line.biz/en/docs/line-login/integrate-pkce/)
 - [LINE ID token](https://developers.line.biz/en/docs/line-login/verify-id-token/)
+- [Resend Webhookの受信と再試行](https://resend.com/docs/webhooks/introduction)
+- [Resend Webhook署名検証](https://resend.com/docs/webhooks/verify-webhooks-requests)
+- [Resendメールイベント種別](https://resend.com/docs/webhooks/event-types)

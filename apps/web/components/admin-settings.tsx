@@ -15,9 +15,9 @@ type Settings = {
     readiness: { credentialsStored: boolean; secretsReadable: boolean; pricesConfigured: boolean; modeConsistent: boolean; billingTransport: 'TEST_ONLY' | 'STRIPE'; externalConnectionTested: boolean };
   };
   mail: {
-    source: 'ADMIN' | 'ENVIRONMENT'; apiKeyConfigured: boolean; from: string | null;
+    source: 'ADMIN' | 'ENVIRONMENT'; apiKeyConfigured: boolean; webhookSecretConfigured: boolean; from: string | null;
     connectionStatus: 'NOT_CONFIGURED' | 'INCOMPLETE' | 'CONFIGURED_NOT_VERIFIED';
-    readiness: { credentialsStored: boolean; secretReadable: boolean; senderConfigured: boolean; mailTransport: 'TEST_ONLY' | 'RESEND'; externalConnectionTested: boolean };
+    readiness: { credentialsStored: boolean; secretReadable: boolean; webhookSecretStored: boolean; webhookSecretReadable: boolean; senderConfigured: boolean; webhookReceiverReady: boolean; mailTransport: 'TEST_ONLY' | 'RESEND'; externalConnectionTested: boolean };
   };
   line: {
     channelId: string | null; channelSecretConfigured: boolean; channelAccessTokenConfigured: boolean; connectionStatus: 'NOT_CONFIGURED' | 'CONFIGURED_NOT_VERIFIED';
@@ -43,6 +43,7 @@ export function AdminSettings() {
   const [stripeSecretKey, setStripeSecretKey] = useState(''); const [stripeWebhookSecret, setStripeWebhookSecret] = useState('');
   const [clearStripeSecretKey, setClearStripeSecretKey] = useState(false); const [clearStripeWebhookSecret, setClearStripeWebhookSecret] = useState(false);
   const [mailApiKey, setMailApiKey] = useState(''); const [clearMailApiKey, setClearMailApiKey] = useState(false);
+  const [mailWebhookSecret, setMailWebhookSecret] = useState(''); const [clearMailWebhookSecret, setClearMailWebhookSecret] = useState(false);
   const [reason, setReason] = useState(''); const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
   useEffect(() => { request<Settings>().then(setSettings).catch(error => setError(error.message)); }, []);
   function operation(key: keyof Settings['operations'], value: boolean) { setSettings(current => current ? { ...current, operations: { ...current.operations, [key]: value } } : current); }
@@ -57,13 +58,13 @@ export function AdminSettings() {
           clearSecretKey: clearStripeSecretKey, clearWebhookSecret: clearStripeWebhookSecret,
           priceFounder: settings.stripe.priceFounder || null, priceStandard: settings.stripe.priceStandard || null, priceDayPass: settings.stripe.priceDayPass || null
         },
-        mail: { ...(mailApiKey ? { apiKey: mailApiKey } : {}), from: settings.mail.from || null, clearApiKey: clearMailApiKey },
+        mail: { ...(mailApiKey ? { apiKey: mailApiKey } : {}), ...(mailWebhookSecret ? { webhookSecret: mailWebhookSecret } : {}), from: settings.mail.from || null, clearApiKey: clearMailApiKey, clearWebhookSecret: clearMailWebhookSecret },
         line: {
           channelId: settings.line.channelId || null, ...(channelSecret ? { channelSecret } : {}), ...(channelAccessToken ? { channelAccessToken } : {}), clearChannelSecret: clearSecret, clearChannelAccessToken: clearToken,
           loginChannelId: settings.line.loginChannelId || null, ...(loginChannelSecret ? { loginChannelSecret } : {}), loginCallbackUrl: settings.line.loginCallbackUrl || null, clearLoginChannelSecret: clearLoginSecret
         }
       });
-      setSettings(updated); setChannelSecret(''); setChannelAccessToken(''); setLoginChannelSecret(''); setStripeSecretKey(''); setStripeWebhookSecret(''); setMailApiKey(''); setClearSecret(false); setClearToken(false); setClearLoginSecret(false); setClearStripeSecretKey(false); setClearStripeWebhookSecret(false); setClearMailApiKey(false); setReason(''); setMessage('管理設定を保存しました。');
+      setSettings(updated); setChannelSecret(''); setChannelAccessToken(''); setLoginChannelSecret(''); setStripeSecretKey(''); setStripeWebhookSecret(''); setMailApiKey(''); setMailWebhookSecret(''); setClearSecret(false); setClearToken(false); setClearLoginSecret(false); setClearStripeSecretKey(false); setClearStripeWebhookSecret(false); setClearMailApiKey(false); setClearMailWebhookSecret(false); setReason(''); setMessage('管理設定を保存しました。');
     } catch (error) { setError((error as Error).message); } finally { setBusy(false); }
   }
   if (!settings) return <><div className="page-heading"><span className="eyebrow">ADMINISTRATION</span><h1>運用・連携設定</h1></div><p role={error ? 'alert' : 'status'}>{error || '読み込み中…'}</p></>;
@@ -99,10 +100,10 @@ export function AdminSettings() {
         <div className="credential-actions"><label><input type="checkbox" checked={clearStripeSecretKey} onChange={event => { setClearStripeSecretKey(event.target.checked); if (event.target.checked) setStripeSecretKey(''); }} />保存済みSecret keyを削除</label><label><input type="checkbox" checked={clearStripeWebhookSecret} onChange={event => { setClearStripeWebhookSecret(event.target.checked); if (event.target.checked) setStripeWebhookSecret(''); }} />保存済みWebhook secretを削除</label></div>
       </div></section>
       <section className="panel"><div className="panel-heading"><div><span className="eyebrow">EMAIL DELIVERY</span><h2>メール配信連携</h2></div><span className={`status-tag ${settings.mail.connectionStatus === 'CONFIGURED_NOT_VERIFIED' ? '' : 'warning'}`}>{settings.mail.connectionStatus === 'CONFIGURED_NOT_VERIFIED' ? '設定済み・未疎通' : settings.mail.connectionStatus === 'INCOMPLETE' ? '設定不足' : '未設定'}</span></div><div className="panel-body">
-        <div className="notice">Resend API keyは暗号化して保存し、保存後は画面やAPIへ返しません。現在の設定元は{settings.mail.source === 'ADMIN' ? '管理画面' : '環境変数'}です。管理画面へ移行する場合はAPI keyと送信元をまとめて入力してください。</div>
-        <div className="readiness-grid" aria-label="メール配信接続準備"><span className={settings.mail.readiness.credentialsStored ? 'ready' : ''}>API keyの保存</span><span className={settings.mail.readiness.secretReadable ? 'ready' : ''}>暗号化データの検証</span><span className={settings.mail.readiness.senderConfigured ? 'ready' : ''}>送信元</span><span className={settings.mail.readiness.mailTransport === 'RESEND' ? 'ready' : ''}>{settings.mail.readiness.mailTransport === 'RESEND' ? 'Resend transport' : 'テストtransport'}</span><span>外部疎通は未実施</span></div>
-        <div className="two-columns"><label className="field">Resend API key<input aria-label="Resend API key" type="password" autoComplete="new-password" value={mailApiKey} onChange={event => { setMailApiKey(event.target.value); setClearMailApiKey(false); }} placeholder={settings.mail.apiKeyConfigured ? '保存済み（変更時のみ入力）' : 're_…'} /></label><label className="field">送信元<input aria-label="メール送信元" value={settings.mail.from ?? ''} maxLength={320} onChange={event => setSettings({ ...settings, mail: { ...settings.mail, from: event.target.value || null } })} placeholder="競馬会員メディア <notice@example.com>" /></label></div>
-        <div className="credential-actions"><label><input type="checkbox" checked={clearMailApiKey} onChange={event => { setClearMailApiKey(event.target.checked); if (event.target.checked) setMailApiKey(''); }} />保存済みResend API keyを削除</label></div>
+        <div className="notice">Resend API keyとWebhook signing secretは暗号化して保存し、保存後は画面やAPIへ返しません。現在の設定元は{settings.mail.source === 'ADMIN' ? '管理画面' : '環境変数'}です。管理画面へ移行する場合は3項目をまとめて入力してください。</div>
+        <div className="readiness-grid" aria-label="メール配信接続準備"><span className={settings.mail.readiness.credentialsStored ? 'ready' : ''}>API keyの保存</span><span className={settings.mail.readiness.secretReadable ? 'ready' : ''}>API keyの復号</span><span className={settings.mail.readiness.webhookSecretStored && settings.mail.readiness.webhookSecretReadable ? 'ready' : ''}>Webhook署名鍵</span><span className={settings.mail.readiness.senderConfigured ? 'ready' : ''}>送信元</span><span className={settings.mail.readiness.webhookReceiverReady ? 'ready' : ''}>Webhook受信処理</span><span className={settings.mail.readiness.mailTransport === 'RESEND' ? 'ready' : ''}>{settings.mail.readiness.mailTransport === 'RESEND' ? 'Resend transport' : 'テストtransport'}</span><span>外部疎通は未実施</span></div>
+        <div className="two-columns"><label className="field">Resend API key<input aria-label="Resend API key" type="password" autoComplete="new-password" value={mailApiKey} onChange={event => { setMailApiKey(event.target.value); setClearMailApiKey(false); }} placeholder={settings.mail.apiKeyConfigured ? '保存済み（変更時のみ入力）' : 're_…'} /></label><label className="field">Webhook signing secret<input aria-label="Resend Webhook signing secret" type="password" autoComplete="new-password" value={mailWebhookSecret} onChange={event => { setMailWebhookSecret(event.target.value); setClearMailWebhookSecret(false); }} placeholder={settings.mail.webhookSecretConfigured ? '保存済み（変更時のみ入力）' : 'whsec_…'} /></label></div><label className="field">送信元<input aria-label="メール送信元" value={settings.mail.from ?? ''} maxLength={320} onChange={event => setSettings({ ...settings, mail: { ...settings.mail, from: event.target.value || null } })} placeholder="競馬会員メディア <notice@example.com>" /></label>
+        <div className="credential-actions"><label><input type="checkbox" checked={clearMailApiKey} onChange={event => { setClearMailApiKey(event.target.checked); if (event.target.checked) setMailApiKey(''); }} />保存済みResend API keyを削除</label><label><input type="checkbox" checked={clearMailWebhookSecret} onChange={event => { setClearMailWebhookSecret(event.target.checked); if (event.target.checked) setMailWebhookSecret(''); }} />保存済みWebhook signing secretを削除</label></div>
       </div></section>
       <section className="panel"><div className="panel-heading"><div><span className="eyebrow">LINE MESSAGING API</span><h2>LINE連携</h2></div><span className={`status-tag ${settings.line.connectionStatus === 'NOT_CONFIGURED' ? 'warning' : ''}`}>{settings.line.connectionStatus === 'NOT_CONFIGURED' ? '未設定' : '設定済み・未疎通'}</span></div><div className="panel-body">
         <div className="notice">Channel secretとChannel access tokenは暗号化して保存し、保存後は画面やAPIへ返しません。</div>

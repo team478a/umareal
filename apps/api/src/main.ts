@@ -31,6 +31,7 @@ import { MemberNotificationsController } from './member-notifications.controller
 import { AdminFreeReportsController, MemberFreeReportsController } from './free-reports.controller';
 import { PublicationSchedulesController } from './publication-schedules.controller';
 import { SupabaseAuthService } from './supabase-auth.service';
+import { ResendWebhookController } from './resend-webhook.controller';
 config({ path: resolve(process.cwd(), '../../.env'), quiet: true });
 
 @Catch()
@@ -53,7 +54,7 @@ class ErrorFilter implements ExceptionFilter {
     res.status(status).json({ code, message, requestId: req.requestId, details });
   }
 }
-@Module({ controllers: [AuthController, AppController, RacesController, AssessmentsController, PredictionsController, AdminSettingsController, NotificationsController, MemberNotificationsController, AdminFreeReportsController, MemberFreeReportsController, PublicationSchedulesController, LineWebhookController, LineLoginController, ResultsController, BillingController], providers: [DbService, AuthService, SupabaseAuthService, LineLoginService, MailService] })
+@Module({ controllers: [AuthController, AppController, RacesController, AssessmentsController, PredictionsController, AdminSettingsController, NotificationsController, MemberNotificationsController, AdminFreeReportsController, MemberFreeReportsController, PublicationSchedulesController, LineWebhookController, ResendWebhookController, LineLoginController, ResultsController, BillingController], providers: [DbService, AuthService, SupabaseAuthService, LineLoginService, MailService] })
 class AppModule {}
 
 async function main() {
@@ -111,7 +112,7 @@ async function main() {
     req.requestId = randomUUID();
     res.setHeader('X-Request-Id', req.requestId);
     res.setHeader('Cache-Control', 'no-store');
-    const providerWebhook = req.method === 'POST' && ['/api/v1/webhooks/line', '/api/v1/webhooks/stripe'].includes(req.originalUrl.split('?')[0]);
+    const providerWebhook = req.method === 'POST' && ['/api/v1/webhooks/line', '/api/v1/webhooks/stripe', '/api/v1/webhooks/resend'].includes(req.originalUrl.split('?')[0]);
     if (!providerWebhook && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers.origin !== process.env.APP_BASE_URL) {
       res.status(403).json({ code: 'ORIGIN_REJECTED', message: '許可されていない送信元です。', requestId: req.requestId }); return;
     }
@@ -121,6 +122,7 @@ async function main() {
   app.use('/api/v1/auth', rateLimit({ windowMs: 60000, limit: authRateLimit, standardHeaders: 'draft-8', legacyHeaders: false, handler }));
   app.use('/api/v1/webhooks/line', rateLimit({ windowMs: 60000, limit: 300 * localRateMultiplier, standardHeaders: 'draft-8', legacyHeaders: false, handler }));
   app.use('/api/v1/webhooks/stripe', rateLimit({ windowMs: 60000, limit: 300 * localRateMultiplier, standardHeaders: 'draft-8', legacyHeaders: false, handler }));
+  app.use('/api/v1/webhooks/resend', rateLimit({ windowMs: 60000, limit: 300 * localRateMultiplier, standardHeaders: 'draft-8', legacyHeaders: false, handler }));
   app.use('/api/v1/admin', rateLimit({ windowMs: 60000, limit: 200 * localRateMultiplier, standardHeaders: 'draft-8', legacyHeaders: false, handler }));
   app.use('/api/v1/expert', rateLimit({ windowMs: 60000, limit: 300 * localRateMultiplier, standardHeaders: 'draft-8', legacyHeaders: false, handler }));
   app.useGlobalFilters(new ErrorFilter());

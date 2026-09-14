@@ -22,7 +22,7 @@
 | /admin/free-reports | 登録特典動画、評価UP/DOWN各1頭、本人音声、レース後検証の下書き・公開履歴 | ADMIN+AAL2/OPERATOR |
 | /admin/publication-schedules | 対象レース告知・無料速報の予約、取消、公開遅延・予約失敗・通知失敗アラート | ADMIN+AAL2/OPERATOR |
 | /admin/settings | LINE・Stripe資格情報、料金、通知再試行方針、緊急停止 | ADMIN+AAL2。OPERATORはAPIで状態のみ閲覧可 |
-| /admin/notifications | 配送状態、試行履歴、状態フィルター、理由付き再送 | ADMIN+AAL2/OPERATOR |
+| /admin/notifications | 配送状態、試行履歴、状態フィルター、理由付き再送、Resend配信拒否履歴と停止解除 | ADMIN+AAL2/OPERATOR（停止解除はADMIN+AAL2） |
 | /admin/incidents | 公開・取込・通知の停止、通知遅延・失敗・停滞、初動から復旧までの手順、会員向け案内文案 | ADMIN+AAL2/OPERATOR |
 | /admin/backups | 最終バックアップ・隔離復元結果、ハッシュ、件数照合、実施手順 | ADMIN+AAL2 |
 | /admin/readiness | 本番準備の確認済み・要対応・人による確認、根拠と対応先 | ADMIN+AAL2 |

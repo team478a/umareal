@@ -36,6 +36,7 @@
 | `SUPABASE_URL` | API | 本番Supabase projectのHTTPS URL |
 | `SUPABASE_ANON_KEY` | API | Auth REST API用anon key。ブラウザーへは渡さずprivate APIで使用 |
 | `RESEND_API_KEY` | API、worker | 初回起動用。管理画面設定がない場合だけ使う認証済み送信ドメインのkey |
+| `RESEND_WEBHOOK_SECRET` | API | 初回起動用。Resend Webhook endpointのsigning secret。管理画面設定がない場合だけ使う |
 | `MAIL_FROM` | API、worker | 初回起動用。管理画面設定がない場合だけ使う認証済みドメインのFromアドレス |
 | `JOB_SECRET` | API | 32byte以上のランダム値 |
 | `SENTRY_DSN` | API | 本番プロジェクトの監視先 |

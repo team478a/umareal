@@ -8,7 +8,7 @@ LINEまたは確認済みメールによる無料会員登録、ログイン、�
 
 LINE登録はOAuth完了後に15分有効の使い切りgrantを発行し、成人確認と版付き規約・プライバシー同意を保存して完了する。既存LINE subjectは新規会員へ再割当しない。LINE登録者は有料申込またはLINE解除の前に、予備メールと12文字以上のパスワードを確認する。
 
-メール登録と予備メール確認は30分有効の使い切りURLを使う。`MAIL_TRANSPORT=test` は `.local/mail` にだけ出力し、本番起動を拒否する。`MAIL_TRANSPORT=resend` では管理画面または環境変数に完全なResend API keyと送信元が必要。資格情報、URL token、レスポンス本文をログへ出さない。
+メール登録と予備メール確認は30分有効の使い切りURLを使う。`MAIL_TRANSPORT=test` は `.local/mail` にだけ出力し、本番起動を拒否する。`MAIL_TRANSPORT=resend` では管理画面または環境変数に完全なResend API key、送信元、Webhook signing secretが必要。資格情報、URL token、レスポンス本文をログへ出さない。
 
 ## 会員の利用準備
 
@@ -81,7 +81,9 @@ Phase 3Bは外部LINEへ接続せずtest transportで配送状態を検証する
 
 `NOTIFICATION_TRANSPORT=line` でワーカーは管理画面に暗号化保存したChannel access tokenを読み、固定のLINE push APIへ送信する。資格情報や送信先を標準出力へ出さない。`test` はローカル検証専用である。`LAUNCH_MODE=FREE_REGISTRATION` の本番ではLINE transportの`disabled`を必須にし、workerはLINE配送を展開せず、予約公開とメール配送を処理する。`FULL` の本番はLINE transportの`line`を必須にする。ライブ切替前に通知キューと対象会員を確認し、意図しない一斉送信がない時間帯に行う。
 
-メール公開通知は `MAIL_TRANSPORT=resend` で有効にする。初回起動はAPIとworkerに同じ `RESEND_API_KEY` と `MAIL_FROM` を設定し、初回管理者の準備後は `/admin/settings` からAPI keyと送信元を暗号化保存できる。管理設定が一項目でもあれば環境変数と混在させず、APIの認証メールとworkerの公開通知が同じ設定を使用する。workerは確認済みメール、本人のメール全体・カテゴリ設定、有料公開の権限を送信直前にも確認する。管理画面の「メール通知」は緊急停止であり、停止中に作られた新規eventは再開後に処理される。初回有効化前に `/admin/notifications?channel=EMAIL` で対象件数を確認する。既存eventはPhase 6P移行時に展開済みとなり、過去分は送信されない。
+メール公開通知は `MAIL_TRANSPORT=resend` で有効にする。初回起動はAPIとworkerに同じ `RESEND_API_KEY` と `MAIL_FROM`、APIに`RESEND_WEBHOOK_SECRET`を設定し、初回管理者の準備後は `/admin/settings` から3項目を暗号化保存できる。管理設定が一項目でもあれば環境変数と混在させず、APIの認証メールとworkerの公開通知が同じ設定を使用する。workerは確認済みメール、本人のメール全体・カテゴリ設定、配信拒否状態、有料公開の権限を送信直前にも確認する。管理画面の「メール通知」は緊急停止であり、停止中に作られた新規eventは再開後に処理される。初回有効化前に `/admin/notifications?channel=EMAIL` で対象件数を確認する。既存eventはPhase 6P移行時に展開済みとなり、過去分は送信されない。
+
+ResendでWebhook URLを`https://<公開ドメイン>/api/v1/webhooks/resend`に設定し、`email.bounced`、`email.complained`、`email.suppressed`、`email.failed`、`email.delivery_delayed`を購読する。署名検証後、前3種は照合した会員の公開通知メールを自動停止する。`email.failed`と遅延は送信者設定・上限・一時障害の可能性があるため会員を停止せず、`/admin/incidents`と`/admin/notifications`で確認する。Webhookは重複し得るため`svix-id`で冪等化し、配信順序に依存した自動解除は行わない。本人が受信可能な状態にしたことを確認後、AAL2管理者が理由付きで停止を解除する。解除時も本人の通知設定は無効のままとし、本人が明示的に再開する。
 
 Webhook URLは `{API公開URL}/api/v1/webhooks/line`。LINE Developers側でWebhook再送を有効にできるが、アプリは `webhookEventId` で重複を拒否する。管理画面の通知運用で最終受信、24時間件数、未照合、通知不可アカウントを確認する。初回送信から24時間を越えた配送は同じリトライキーの保証期間外になるため再送しない。
 

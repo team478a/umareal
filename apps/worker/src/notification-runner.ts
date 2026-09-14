@@ -66,7 +66,7 @@ async function expandEvents(db: PrismaClient, limit: number, channel: DeliveryCh
       const paidFilter = event.version?.visibility === 'PAID' ? { entitlements: { some: { revokedAt: null, startsAt: { lte: now }, endsAt: { gt: now }, OR: [{ raceDate: null }, { raceDate: race.raceDate }] } } } : {};
       const channelFilter = channel === 'LINE'
         ? { lineAccount: { is: { notificationDisabledAt: null, unlinkedAt: null } }, preferences: { is: preference } }
-        : { email: { not: null }, emailVerifiedAt: { not: null }, preferences: { is: { emailEnabled: true, ...preference } } };
+        : { email: { not: null }, emailVerifiedAt: { not: null }, emailDeliveryDisabledAt: null, preferences: { is: { emailEnabled: true, ...preference } } };
       const recipients = await tx.user.findMany({ where: { disabledAt: null, ...channelFilter, ...paidFilter }, select: { id: true } });
       const targetVersion = event.version?.version ?? event.announcement?.version ?? event.freeReportVersion!.version;
       if (recipients.length) await tx.notificationDelivery.createMany({ data: recipients.map(recipient => ({ eventId: event.id, userId: recipient.id, channel, idempotencyKey: notificationIdempotencyKey({ eventType: event.eventType, targetId: race.id, recipientId: recipient.id, version: targetVersion, channel }) })), skipDuplicates: true });
@@ -127,7 +127,7 @@ async function runChannelBatch(input: { db: PrismaClient; channel: DeliveryChann
     const entitlementActive = !version || version.visibility === 'FREE' || delivery.user.entitlements.some(item => !item.revokedAt && item.startsAt <= startedAt && item.endsAt > startedAt && (!item.raceDate || item.raceDate === race.raceDate));
     const channelSkipCode = channel === 'LINE'
       ? !delivery.user.lineAccount || delivery.user.lineAccount.unlinkedAt ? 'LINE_UNLINKED' : delivery.user.lineAccount.notificationDisabledAt ? 'LINE_BLOCKED' : null
-      : !delivery.user.email ? 'EMAIL_MISSING' : !delivery.user.emailVerifiedAt ? 'EMAIL_UNVERIFIED' : delivery.user.preferences?.emailEnabled === false ? 'EMAIL_DISABLED' : null;
+      : !delivery.user.email ? 'EMAIL_MISSING' : !delivery.user.emailVerifiedAt ? 'EMAIL_UNVERIFIED' : delivery.user.emailDeliveryDisabledAt ? 'EMAIL_BLOCKED' : delivery.user.preferences?.emailEnabled === false ? 'EMAIL_DISABLED' : null;
     const skipCode = delivery.user.disabledAt ? 'USER_DISABLED' : channelSkipCode ?? (!preferenceEnabled ? 'PREFERENCE_DISABLED' : !entitlementActive ? 'ENTITLEMENT_INACTIVE' : null);
     const attemptNumber = delivery.attemptCount + 1;
     if (skipCode) {

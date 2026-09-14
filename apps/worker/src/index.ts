@@ -36,7 +36,7 @@ async function main() {
       let emailTransport: NotificationTransport = new TestNotificationTransport();
       if (mailTransportName === 'resend') {
         const mailConfig = await loadMailConfig(db);
-        if (!mailConfig.complete || !mailConfig.apiKey || !mailConfig.from) throw new Error('Resend email transport requires a complete admin or environment configuration');
+        if (!mailConfig.sendingComplete || !mailConfig.apiKey || !mailConfig.from) throw new Error('Resend email transport requires a complete admin or environment configuration');
         emailTransport = new ResendEmailTransport(mailConfig.apiKey, mailConfig.from);
       }
       const schedules = await runPublicationSchedules({ db });

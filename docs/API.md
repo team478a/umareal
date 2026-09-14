@@ -17,7 +17,7 @@
 | POST | /auth/mfa/enroll | ログイン必須。localは暗号化したTOTP secret、SupabaseはAuth側の未確認TOTP factorを作成。登録済みは再登録不可 |
 | POST | /auth/mfa/verify | code、Supabase初回だけfactorId。challenge検証後にセッションをAAL2へ昇格。localは使用済み時刻ステップも拒否 |
 | GET | /me | 本人の会員・通知・同意・有限期間権限。秘密情報を選択除外 |
-| PATCH | /me/preferences | 本人。predictions/changes/articles/billing（boolean） |
+| PATCH | /me/preferences | 本人。emailEnabled/predictions/changes/articles/billing（boolean）。配信拒否検出後のemailEnabled再開は拒否 |
 | GET | /me/notifications | 本人。会員登録後に発生した対象レース告知と閲覧権限内の予想公開履歴。`page`、`limit`、`unread` |
 | POST | /me/notifications/:eventId/read | 本人。閲覧可能なお知らせを冪等に既読化 |
 | GET | /races | 全員。`date`、`venue`、`publication=ALL\|ANNOUNCED\|PUBLISHED\|UNPUBLISHED`、ページネーション。予想本文を含めない |
@@ -47,6 +47,8 @@
 | PATCH | /admin/settings | ADMIN+AAL2。revisionと理由必須。メール・LINE・Stripe資格情報、料金、通知方針、緊急停止を更新 |
 | GET | /admin/notifications | ADMIN+AAL2またはOPERATOR。受信者単位の配送、試行履歴、状態別件数。page/limit/status/channel（EMAILまたはLINE） |
 | POST | /admin/notifications/:notificationId/retry | ADMIN+AAL2またはOPERATOR。FAILED配送を理由付きで再送待ちへ戻し監査 |
+| POST | /admin/notifications/email-blocks/:userId/release | ADMIN+AAL2。受信可能になったことを確認後、理由付きで配信拒否停止を解除。本人のemailEnabledは自動再開しない |
+| POST | /webhooks/resend | Resend署名必須。バウンス・苦情・配信抑止を追記記録し、照合会員の公開通知メールを停止 |
 | POST | /webhooks/line | LINE署名必須。follow/unfollowを冪等受付し、連携済みアカウントの通知可否を更新 |
 | POST | /auth/line/start | REGISTER、LOGIN、LINKのstate・nonce・PKCE付きOAuthフローを開始。REGISTERのみ任意のacquisitionをサーバー内フローへ固定 |
 | GET | /auth/line/callback | code/stateを使い切り、ID tokenを検証して15分の登録grant発行、連携、またはログイン |
@@ -88,7 +90,7 @@ HTTP 400=入力不正、401=未認証、403=権限/MFA/Origin不正、404=対象
 
 `GET /admin/settings` はMessaging APIとLINE LoginのChannel ID、Callback URL、各秘密値が設定済みかだけを返す。秘密値そのもの、暗号文、末尾文字は返さない。`PATCH` の空欄は保存済み秘密値を維持し、削除は専用booleanで明示する。秘密値はAES-256-GCMで暗号化し、監査ログには変更の有無だけを記録する。
 
-Resend API keyと送信元も同じAPIで管理する。API keyは暗号化し、設定済み・復号可能だけを返す。管理設定のどちらか一項目でも存在する場合はDB設定一式を優先し、環境変数と混在させない。管理設定がない場合だけ`RESEND_API_KEY`と`MAIL_FROM`を初回起動用の代替として使用する。外部疎通は状態表示に含めず、本番接続時に別途確認する。
+Resend API key、送信元、Webhook signing secretも同じAPIで管理する。secretは暗号化し、設定済み・復号可能だけを返す。管理設定のいずれか一項目でも存在する場合はDB設定一式を優先し、環境変数と混在させない。管理設定がない場合だけ`RESEND_API_KEY`、`MAIL_FROM`、`RESEND_WEBHOOK_SECRET`を初回起動用の代替として使用する。外部疎通は状態表示に含めず、本番接続時に別途確認する。
 
 StripeもSecret keyとWebhook secretは同じ暗号化方式で保存し、設定済み・復号可能だけを返す。Price IDは管理画面へ返す。管理設定が1項目でも存在する場合はDB設定一式を優先し、環境変数と混在させない。Secret keyのtest/live接頭辞、選択モード、3つのPrice IDを照合し、不完全な状態ではStripe購入とWebhook処理を開始しない。
 

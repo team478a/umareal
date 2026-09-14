@@ -41,6 +41,8 @@ services:
         value: resend
       - key: RESEND_API_KEY
         sync: false
+      - key: RESEND_WEBHOOK_SECRET
+        sync: false
       - key: MAIL_FROM
         sync: false
       - key: JOB_SECRET

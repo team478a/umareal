@@ -143,7 +143,7 @@ export class AuthController {
       if (!verification || verification.usedAt || verification.expiresAt <= now || verification.user.disabledAt) throw new BadRequestException({ code: 'EMAIL_VERIFICATION_INVALID', message: '確認リンクが無効、または期限切れです。' });
       const consumed = await tx.emailVerification.updateMany({ where: { id: verification.id, usedAt: null, expiresAt: { gt: now } }, data: { usedAt: now } });
       if (consumed.count !== 1) throw new BadRequestException({ code: 'EMAIL_VERIFICATION_INVALID', message: '確認リンクはすでに使用されています。' });
-      const data = verification.purpose === 'ADD_FALLBACK' ? { email: verification.email, emailVerifiedAt: now, passwordHash: verification.passwordHash! } : { emailVerifiedAt: now };
+      const data = verification.purpose === 'ADD_FALLBACK' ? { email: verification.email, emailVerifiedAt: now, passwordHash: verification.passwordHash!, emailDeliveryDisabledAt: null, emailDeliveryDisabledReason: null } : { emailVerifiedAt: now };
       const user = await tx.user.update({ where: { id: verification.userId }, data }); req.auth = { id: user.id, role: user.role, aal: 1, user };
       await tx.emailVerification.updateMany({ where: { userId: user.id, usedAt: null }, data: { usedAt: now } });
       await this.auth.audit(tx, req, verification.purpose === 'ADD_FALLBACK' ? 'FALLBACK_EMAIL_VERIFIED' : 'EMAIL_VERIFIED', user.id, 'メールアドレス確認完了');

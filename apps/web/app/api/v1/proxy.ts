@@ -6,6 +6,9 @@ const forwardedRequestHeaderNames = [
   'idempotency-key',
   'range',
   'stripe-signature',
+  'svix-id',
+  'svix-timestamp',
+  'svix-signature',
   'x-line-signature'
 ] as const;
 

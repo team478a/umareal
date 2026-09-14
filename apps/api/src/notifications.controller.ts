@@ -23,7 +23,7 @@ export class NotificationsController {
     const where: Prisma.NotificationDeliveryWhereInput = { ...(status ? { status } : {}), ...(channel ? { channel } : {}) };
     const countWhere = channel ? Prisma.sql`WHERE channel = ${channel}` : Prisma.empty;
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const [items, total, counts, lastWebhook, receivedWebhooks, unmatchedWebhooks, blockedAccounts] = await this.auth.db.$transaction([
+    const [items, total, counts, lastWebhook, receivedWebhooks, unmatchedWebhooks, blockedAccounts, lastEmailWebhook, emailReceived24h, emailAction24h, blockedEmailAccounts, recentEmailWebhooks, blockedEmailMembers] = await this.auth.db.$transaction([
       this.auth.db.notificationDelivery.findMany({
         where, skip: (page - 1) * limit, take: limit, orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
         select: {
@@ -38,9 +38,15 @@ export class NotificationsController {
       this.auth.db.lineWebhookEvent.findFirst({ orderBy: [{ receivedAt: 'desc' }, { id: 'asc' }], select: { receivedAt: true, eventType: true, outcome: true } }),
       this.auth.db.lineWebhookEvent.count({ where: { receivedAt: { gte: since } } }),
       this.auth.db.lineWebhookEvent.count({ where: { receivedAt: { gte: since }, outcome: 'UNMATCHED' } }),
-      this.auth.db.lineAccount.count({ where: { notificationDisabledAt: { not: null } } })
+      this.auth.db.lineAccount.count({ where: { notificationDisabledAt: { not: null } } }),
+      this.auth.db.emailWebhookEvent.findFirst({ orderBy: [{ receivedAt: 'desc' }, { id: 'asc' }], select: { receivedAt: true, eventType: true, outcome: true } }),
+      this.auth.db.emailWebhookEvent.count({ where: { receivedAt: { gte: since } } }),
+      this.auth.db.emailWebhookEvent.count({ where: { receivedAt: { gte: since }, eventType: { in: ['email.bounced', 'email.complained', 'email.suppressed', 'email.failed'] } } }),
+      this.auth.db.user.count({ where: { emailDeliveryDisabledAt: { not: null } } }),
+      this.auth.db.emailWebhookEvent.findMany({ orderBy: [{ receivedAt: 'desc' }, { id: 'asc' }], take: 20, select: { id: true, eventType: true, occurredAt: true, receivedAt: true, recipientCount: true, matchedCount: true, disabledCount: true, outcome: true } }),
+      this.auth.db.user.findMany({ where: { emailDeliveryDisabledAt: { not: null } }, orderBy: [{ emailDeliveryDisabledAt: 'desc' }, { id: 'asc' }], take: 20, select: { id: true, displayName: true, email: true, emailDeliveryDisabledAt: true, emailDeliveryDisabledReason: true } })
     ]);
-    return { items, total, page, limit, channel: channel ?? null, counts: Object.fromEntries(counts.map(item => [item.status, Number(item.count)])), webhook: { lastReceivedAt: lastWebhook?.receivedAt ?? null, lastEventType: lastWebhook?.eventType ?? null, lastOutcome: lastWebhook?.outcome ?? null, received24h: receivedWebhooks, unmatched24h: unmatchedWebhooks, blockedAccounts } };
+    return { items, total, page, limit, channel: channel ?? null, counts: Object.fromEntries(counts.map(item => [item.status, Number(item.count)])), webhook: { lastReceivedAt: lastWebhook?.receivedAt ?? null, lastEventType: lastWebhook?.eventType ?? null, lastOutcome: lastWebhook?.outcome ?? null, received24h: receivedWebhooks, unmatched24h: unmatchedWebhooks, blockedAccounts }, emailWebhook: { lastReceivedAt: lastEmailWebhook?.receivedAt ?? null, lastEventType: lastEmailWebhook?.eventType ?? null, lastOutcome: lastEmailWebhook?.outcome ?? null, received24h: emailReceived24h, actionRequired24h: emailAction24h, blockedAccounts: blockedEmailAccounts, recent: recentEmailWebhooks, blockedMembers: blockedEmailMembers } };
   }
 
   @Post(':notificationId/retry')
@@ -57,6 +63,22 @@ export class NotificationsController {
       await tx.notificationEvent.update({ where: { id: delivery.eventId }, data: { status: 'RETRIED', updatedAt: new Date() } });
       await tx.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: 'NOTIFICATION_RETRY_REQUEST', targetType: 'NOTIFICATION_DELIVERY', targetId: delivery.id, reason: input.reason, details: { eventId: delivery.eventId, channel: delivery.channel, previousStatus: delivery.status, attemptCount: delivery.attemptCount, manualRetryCount: updated.manualRetryCount }, requestId: req.requestId } });
       return { id: updated.id, status: updated.status, manualRetryCount: updated.manualRetryCount, nextAttemptAt: updated.nextAttemptAt };
+    });
+  }
+
+  @Post('email-blocks/:userId/release')
+  async releaseEmailBlock(@Param('userId') userId: string, @Body() body: unknown, @Req() req: AppRequest) {
+    const actor = await this.staff(req, ['ADMIN']);
+    z.string().uuid().parse(userId);
+    const input = notificationRetrySchema.parse(body);
+    return this.auth.db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`email-block:${userId}`}))::text`;
+      const user = await tx.user.findUnique({ where: { id: userId }, select: { id: true, emailDeliveryDisabledAt: true, emailDeliveryDisabledReason: true } });
+      if (!user) throw new NotFoundException({ code: 'USER_NOT_FOUND', message: '会員が見つかりません。' });
+      if (!user.emailDeliveryDisabledAt) throw new BadRequestException({ code: 'EMAIL_DELIVERY_NOT_BLOCKED', message: 'この会員のメール通知は配信拒否で停止されていません。' });
+      await tx.user.update({ where: { id: user.id }, data: { emailDeliveryDisabledAt: null, emailDeliveryDisabledReason: null } });
+      await tx.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: 'EMAIL_DELIVERY_BLOCK_RELEASE', targetType: 'USER', targetId: user.id, reason: input.reason, details: { previousReason: user.emailDeliveryDisabledReason, previousDisabledAt: user.emailDeliveryDisabledAt }, requestId: req.requestId } });
+      return { userId: user.id, emailNotificationState: 'DISABLED', emailEnabled: false };
     });
   }
 }
