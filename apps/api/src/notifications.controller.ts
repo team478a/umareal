@@ -1,8 +1,8 @@
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req } from '@nestjs/common';
-import { canManage, notificationListQuerySchema, notificationRetrySchema, requiresMfa } from '@keiba/domain';
+import { buildPredictionLineMessage, canManage, notificationListQuerySchema, notificationRetrySchema, requiresMfa } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
-import { Prisma } from '@keiba/db';
+import { notificationRecipientWhere, Prisma } from '@keiba/db';
 import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
 
@@ -14,6 +14,49 @@ export class NotificationsController {
     const actor = await this.auth.authenticate(req);
     if (!canManage(actor, roles)) throw new ForbiddenException({ code: requiresMfa(actor.role) && actor.aal !== 2 ? 'MFA_REQUIRED' : 'FORBIDDEN', message: '通知運用の権限と二段階認証を確認してください。' });
     return actor;
+  }
+
+  @Get('previews/race-announcement')
+  async previewRaceAnnouncement(@Req() req: AppRequest, @Query() query: unknown) {
+    await this.staff(req, ['ADMIN', 'OPERATOR']);
+    const input = z.object({ raceId: z.string().uuid(), scheduledAt: z.coerce.date().optional() }).parse(query);
+    const generatedAt = new Date();
+    const [race, settings] = await this.auth.db.$transaction([
+      this.auth.db.race.findUnique({
+        where: { id: input.raceId },
+        select: { id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true, status: true, announcements: { orderBy: { version: 'desc' }, take: 1, select: { version: true } } }
+      }),
+      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { lineNotificationsEnabled: true, emailNotificationsEnabled: true } })
+    ]);
+    if (!race) throw new NotFoundException({ code: 'RACE_NOT_FOUND', message: 'レースが見つかりません。' });
+    const plannedAt = input.scheduledAt ?? generatedAt;
+    if (input.scheduledAt && input.scheduledAt <= generatedAt) throw new BadRequestException({ code: 'PREVIEW_SCHEDULE_IN_PAST', message: '現在より後の配信予定時刻を指定してください。' });
+    if (plannedAt >= race.startsAt || ['FINISHED', 'CANCELLED'].includes(race.status)) throw new BadRequestException({ code: 'PREVIEW_AFTER_DEADLINE', message: '発走時刻より前の開催中レースだけ確認できます。' });
+
+    const lineFilter = notificationRecipientWhere({ channel: 'LINE', eventType: 'RACE_ANNOUNCED', visibility: 'FREE', raceDate: race.raceDate, now: generatedAt });
+    const emailFilter = notificationRecipientWhere({ channel: 'EMAIL', eventType: 'RACE_ANNOUNCED', visibility: 'FREE', raceDate: race.raceDate, now: generatedAt });
+    const [lineEligible, emailEligible, bothEligible] = await this.auth.db.$transaction([
+      this.auth.db.user.count({ where: lineFilter }),
+      this.auth.db.user.count({ where: emailFilter }),
+      this.auth.db.user.count({ where: { AND: [lineFilter, emailFilter] } })
+    ]);
+    const version = (race.announcements[0]?.version ?? 0) + 1;
+    const message = buildPredictionLineMessage({ eventType: 'RACE_ANNOUNCED', raceId: race.id, raceDate: race.raceDate, venue: race.venue, raceNumber: race.number, raceName: race.name, version, visibility: 'FREE', appBaseUrl: process.env.APP_BASE_URL ?? 'http://127.0.0.1:3000' });
+    const lineScheduled = settings.lineNotificationsEnabled ? lineEligible : 0;
+    const emailScheduled = settings.emailNotificationsEnabled ? emailEligible : 0;
+    const uniqueScheduled = lineScheduled + emailScheduled - (settings.lineNotificationsEnabled && settings.emailNotificationsEnabled ? bothEligible : 0);
+    return {
+      eventType: 'RACE_ANNOUNCED', generatedAt, plannedAt, timing: input.scheduledAt ? 'SCHEDULED' : 'IMMEDIATE', version,
+      race: { id: race.id, raceDate: race.raceDate, venue: race.venue, number: race.number, name: race.name, startsAt: race.startsAt },
+      audience: {
+        uniqueMembers: uniqueScheduled,
+        totalDeliveries: lineScheduled + emailScheduled,
+        duplicateChannelMembers: settings.lineNotificationsEnabled && settings.emailNotificationsEnabled ? bothEligible : 0,
+        line: { enabled: settings.lineNotificationsEnabled, eligibleRecipients: lineEligible, scheduledDeliveries: lineScheduled },
+        email: { enabled: settings.emailNotificationsEnabled, eligibleRecipients: emailEligible, scheduledDeliveries: emailScheduled }
+      },
+      message
+    };
   }
 
   @Get()

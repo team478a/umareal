@@ -4,3 +4,5 @@ export { encryptSecret, decryptSecret } from './secret-box';
 export { databaseRuntimeAccessRestricted } from './runtime-access';
 export { loadMailConfig, resolveMailConfig } from './mail-config';
 export type { MailRuntimeConfig } from './mail-config';
+export { notificationRecipientWhere } from './notification-audience';
+export type { NotificationAudienceInput } from './notification-audience';

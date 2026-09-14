@@ -24,7 +24,10 @@ test('register a race, import entries with preview, and see it as the assigned e
   await expect(page.getByRole('status')).toContainText('レース情報を保存しました。');
   const announcement = page.locator('.announcement-quick-row').filter({ hasText: name });
   await announcement.getByLabel(`${name}の告知理由`).fill('スマートフォン告知の画面試験');
-  await announcement.getByRole('button', { name: '告知する' }).click();
+  await announcement.getByRole('button', { name: '配信内容を確認' }).click();
+  await expect(announcement.getByRole('heading', { name: '配信前確認' })).toBeVisible();
+  await expect(announcement.getByText('送信本文')).toBeVisible();
+  await announcement.getByRole('button', { name: 'この内容で告知する' }).click();
   await expect(page.getByRole('status')).toContainText('告知しました');
   const createdRace = await db.race.findFirstOrThrow({ where: { name } });
   expect(await db.raceAnnouncement.count({ where: { raceId: createdRace.id } })).toBe(1);

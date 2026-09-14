@@ -49,6 +49,7 @@
 | GET | /admin/settings | ADMIN+AAL2またはOPERATOR。秘密値を除く運用・メール・LINE・Stripe設定と接続準備状態 |
 | PATCH | /admin/settings | ADMIN+AAL2。revisionと理由必須。メール・LINE・Stripe資格情報、料金、通知方針、緊急停止を更新 |
 | GET | /admin/notifications | ADMIN+AAL2またはOPERATOR。受信者単位の配送、試行履歴、状態別件数。page/limit/status/channel（EMAILまたはLINE） |
+| GET | /admin/notifications/previews/race-announcement | ADMIN+AAL2またはOPERATOR。raceIdと任意のscheduledAtから、告知の次版、対象会員数、チャネル別候補・予定配送数、本文、配信時刻を返す。会員識別情報は返さず、データは変更しない |
 | POST | /admin/notifications/:notificationId/retry | ADMIN+AAL2またはOPERATOR。FAILED配送を理由付きで再送待ちへ戻し監査 |
 | POST | /admin/notifications/email-blocks/:userId/release | ADMIN+AAL2。受信可能になったことを確認後、理由付きで配信拒否停止を解除。本人のemailEnabledは自動再開しない |
 | POST | /webhooks/resend | Resend署名必須。バウンス・苦情・配信抑止を追記記録し、照合会員の公開通知メールを停止 |

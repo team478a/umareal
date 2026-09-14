@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { buildPredictionLineMessage, notificationIdempotencyKey, retryDelayMs } from '@keiba/domain';
 import type { LineTextMessage } from '@keiba/domain';
-import { PrismaClient } from '@keiba/db';
+import { notificationRecipientWhere, PrismaClient } from '@keiba/db';
 
 export type DeliveryChannel = 'LINE' | 'EMAIL';
 export type DeliveryOutcome =
@@ -61,13 +61,8 @@ async function expandEvents(db: PrismaClient, limit: number, channel: DeliveryCh
       const event = await tx.notificationEvent.findUniqueOrThrow({ where: { id: candidate.id }, include: { version: { include: { prediction: { include: { race: true } } } }, announcement: { include: { race: true } }, freeReportVersion: { include: { race: true } } } });
       const race = event.version?.prediction.race ?? event.announcement?.race ?? event.freeReportVersion?.race;
       if (!race) throw new Error('Notification event target is missing');
-      const preference = event.eventType === 'PREDICTION_CORRECTED' ? { changes: true } : { predictions: true };
       const now = new Date();
-      const paidFilter = event.version?.visibility === 'PAID' ? { entitlements: { some: { revokedAt: null, startsAt: { lte: now }, endsAt: { gt: now }, OR: [{ raceDate: null }, { raceDate: race.raceDate }] } } } : {};
-      const channelFilter = channel === 'LINE'
-        ? { lineAccount: { is: { notificationDisabledAt: null, unlinkedAt: null } }, preferences: { is: preference } }
-        : { email: { not: null }, emailVerifiedAt: { not: null }, emailDeliveryDisabledAt: null, preferences: { is: { emailEnabled: true, ...preference } } };
-      const recipients = await tx.user.findMany({ where: { disabledAt: null, ...channelFilter, ...paidFilter }, select: { id: true } });
+      const recipients = await tx.user.findMany({ where: notificationRecipientWhere({ channel, eventType: event.eventType, visibility: (event.version?.visibility ?? 'FREE') as 'FREE' | 'PAID', raceDate: race.raceDate, now }), select: { id: true } });
       const targetVersion = event.version?.version ?? event.announcement?.version ?? event.freeReportVersion!.version;
       if (recipients.length) await tx.notificationDelivery.createMany({ data: recipients.map(recipient => ({ eventId: event.id, userId: recipient.id, channel, idempotencyKey: notificationIdempotencyKey({ eventType: event.eventType, targetId: race.id, recipientId: recipient.id, version: targetVersion, channel }) })), skipDuplicates: true });
       await tx.notificationEvent.update({ where: { id: event.id }, data: { [marker]: now, updatedAt: now } });
