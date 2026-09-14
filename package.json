@@ -18,6 +18,8 @@
     "db:migrate": "pnpm --filter @keiba/db migrate",
     "db:seed": "pnpm --filter @keiba/db seed",
     "admin:bootstrap": "pnpm --filter @keiba/db build && node scripts/bootstrap-admin.mjs",
+    "db:access:configure": "pnpm --filter @keiba/db build && node scripts/db-runtime-role.mjs configure",
+    "db:access:verify": "pnpm --filter @keiba/db build && node scripts/db-runtime-role.mjs verify",
     "db:backup:verify": "node scripts/backup-verify.mjs"
   },
   "devDependencies": {

@@ -20,7 +20,7 @@
 - APIはホスティング基盤の `PORT` を優先し、本番では `0.0.0.0` にbindする。
 - Webの `/health` はprivate APIとDBまで到達できた場合だけ200を返す。
 - Next.jsのAPI中継はCookie、認証、Range、冪等キーに加え、`Stripe-Signature` と `x-line-signature` を許可リストで転送する。
-- DBマイグレーションはAPIの配備前コマンド `pnpm db:migrate` で実行する。
+- DBマイグレーションは常駐サービスと分けた保護実行環境から、所有者接続で `pnpm db:migrate` を実行する。APIとworkerにはruntime接続だけを渡す。
 - ワーカーはSIGTERM/SIGINTを受けると新しい処理ループへ進まず、DB接続を閉じる。
 - GitHub Actionsが成功したコミットだけを自動配備対象にする。
 
@@ -75,15 +75,16 @@ MFA端末紛失時のfactor解除・本人確認・再登録は、復旧責任�
 
 ## 独自ドメイン設定の順序
 
-1. RenderでこのGitHubリポジトリのBlueprintを選び、各リソースと本番用secretを作成する。
-2. 一時URLで `/health` が200を返し、GitHub Actions、マイグレーション、API、workerの起動を確認する。
-3. `umareal-web` に独自ドメインを追加する。
-4. Renderが表示するA/CNAMEと所有確認用DNSレコードをドメイン管理会社へ登録する。固定値を推測して入力しない。
-5. Renderでドメイン検証とTLS証明書発行を確認する。
-6. `APP_BASE_URL` と `ADMIN_BASE_URL` を独自ドメインへ更新して再配備する。
-7. LINE Login Callback、LINE Messaging Webhook、Stripe Webhook、Resend送信ドメインを独自ドメインへ揃える。
-8. `/admin/readiness` の自動判定と人による確認を完了し、登録・ログイン・メール・LINE・決済を少人数でリハーサルする。
-9. 独自ドメインを公開導線へ載せる。Renderの一時サブドメインを無効にする場合は、独自ドメインでの復旧確認後に行う。
+1. RenderでこのGitHubリポジトリのBlueprintを選び、各リソースと本番用secretを作成する。APIとworkerの `DATABASE_URL` は自動入力せず、runtime接続を設定する。
+2. `docs/DATABASE_ACCESS.md` に従い、所有者接続でマイグレーションを実行し、runtimeロールを構成・検証する。所有者接続をAPI・workerに保存しない。
+3. 一時URLで `/health` が200を返し、GitHub Actions、API、workerの起動を確認する。
+4. `umareal-web` に独自ドメインを追加する。
+5. Renderが表示するA/CNAMEと所有確認用DNSレコードをドメイン管理会社へ登録する。固定値を推測して入力しない。
+6. Renderでドメイン検証とTLS証明書発行を確認する。
+7. `APP_BASE_URL` と `ADMIN_BASE_URL` を独自ドメインへ更新して再配備する。
+8. LINE Login Callback、LINE Messaging Webhook、Stripe Webhook、Resend送信ドメインを独自ドメインへ揃える。
+9. `/admin/readiness` の自動判定と人による確認を完了し、登録・ログイン・メール・LINE・決済を少人数でリハーサルする。
+10. 独自ドメインを公開導線へ載せる。Renderの一時サブドメインを無効にする場合は、独自ドメインでの復旧確認後に行う。
 
 ## 現在の公開ブロッカー
 
@@ -91,7 +92,7 @@ MFA端末紛失時のfactor解除・本人確認・再登録は、復旧責任�
 
 1. Supabase認証、初回管理者bootstrap、TOTP MFA経路は実装済みだが、本番project、Redirect URL、SMTPを使った登録・メール確認・ログイン・更新・ログアウト・AAL2の実環境試験が未実施である。MFA端末紛失時の復旧手順も未確定である。
 2. 利用規約とプライバシーポリシーは `draft-v1` であり、正式同意として扱えない。本文・版・施行日・公開状態が揃うまでproduction APIも起動を拒否する。反映手順は `docs/LEGAL_RELEASE.md` に記載した。
-3. 個人情報の保持・匿名化、マイグレーション所有者とアプリDB権限の分離、本番バックアップの保持と復元責任者が未確定である。
+3. 個人情報の保持・匿名化と、本番バックアップの保持・復元責任者が未確定である。DB権限分離の実装は完了したが、本番DBでのruntimeロール構成と検証は未実施である。
 4. LINE、Stripe、Supabase SMTP、監視のライブ資格情報と実環境試験が未実施である。
 5. APIのレート制限はプロセス内保存である。初期はAPIを1インスタンスに固定し、複数インスタンス化の前に共有ストアへ移す。
 

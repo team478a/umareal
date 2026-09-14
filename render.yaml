@@ -6,7 +6,6 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     dockerCommand: pnpm --filter @keiba/api start
-    preDeployCommand: pnpm db:migrate
     autoDeployTrigger: checksPass
     maxShutdownDelaySeconds: 30
     envVars:
@@ -15,13 +14,7 @@ services:
       - key: PORT
         value: 10000
       - key: DATABASE_URL
-        fromDatabase:
-          name: umareal-db
-          property: connectionString
-      - key: DIRECT_DATABASE_URL
-        fromDatabase:
-          name: umareal-db
-          property: connectionString
+        sync: false
       - key: AUTH_PROVIDER
         value: supabase
       - key: APP_BASE_URL
@@ -91,9 +84,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        fromDatabase:
-          name: umareal-db
-          property: connectionString
+        sync: false
       - key: APP_BASE_URL
         sync: false
       - key: ENCRYPTION_KEY
@@ -105,6 +96,6 @@ databases:
   - name: umareal-db
     region: singapore
     databaseName: umareal
-    user: umareal_app
+    user: umareal_migration
     postgresMajorVersion: "16"
     ipAllowList: []

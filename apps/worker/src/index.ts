@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import { config } from 'dotenv';
-import { PrismaClient } from '@keiba/db';
+import { databaseRuntimeAccessRestricted, PrismaClient } from '@keiba/db';
 import { decryptSecret } from '@keiba/db';
 import { runNotificationBatch, TestNotificationTransport } from './notification-runner';
 import { runPublicationSchedules } from './publication-scheduler';
@@ -20,6 +20,7 @@ async function main() {
   process.once('SIGTERM', requestStop);
   process.once('SIGINT', requestStop);
   try {
+    if (process.env.NODE_ENV === 'production' && !await databaseRuntimeAccessRestricted(db)) throw new Error('Production requires a restricted database runtime role');
     const transport = transportName === 'line'
       ? new LineMessagingTransport(decryptSecret((await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { lineAccessTokenEncrypted: true } })).lineAccessTokenEncrypted ?? ''))
       : new TestNotificationTransport();

@@ -9,7 +9,7 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { rateLimit } from 'express-rate-limit';
 import { ZodError } from 'zod';
-import { Prisma } from '@keiba/db';
+import { databaseRuntimeAccessRestricted, Prisma } from '@keiba/db';
 import { legalDocumentReleaseErrors } from '@keiba/domain';
 import { AppController } from './app.controller';
 import { AuthController } from './auth.controller';
@@ -88,6 +88,10 @@ async function main() {
   const localRateMultiplier = provider === 'local' ? Number(process.env.LOCAL_RATE_LIMIT_MULTIPLIER ?? 1) : 1;
   if (!Number.isInteger(localRateMultiplier) || localRateMultiplier < 1 || localRateMultiplier > 10) throw new Error('Invalid LOCAL_RATE_LIMIT_MULTIPLIER');
   const app = await NestFactory.create(AppModule, { logger: ['error', 'warn'], rawBody: true });
+  if (process.env.NODE_ENV === 'production' && !await databaseRuntimeAccessRestricted(app.get(DbService))) {
+    await app.close();
+    throw new Error('Production requires a restricted database runtime role');
+  }
   app.setGlobalPrefix('api/v1');
   app.use(helmet());
   app.use(cookieParser());

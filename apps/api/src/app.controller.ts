@@ -7,6 +7,7 @@ import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
 import { hashToken, verifyPassword } from './security';
 import { Prisma } from '@keiba/db';
+import { databaseRuntimeAccessRestricted } from '@keiba/db';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { loadStripeConfig } from './stripe-config';
@@ -287,11 +288,12 @@ export class AppController {
   }
   @Get('admin/readiness') async readiness(@Req() req: AppRequest) {
     await this.staff(req, ['ADMIN']);
-    const [settings, backup, appliedMigrations, stripeConfig] = await Promise.all([
+    const [settings, backup, appliedMigrations, stripeConfig, databaseAccessRestricted] = await Promise.all([
       this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: true, lineLoginEnabled: true, newPurchasesEnabled: true, lineChannelId: true, lineChannelSecretEncrypted: true, lineAccessTokenEncrypted: true, lineLoginChannelId: true, lineLoginChannelSecretEncrypted: true, lineLoginCallbackUrl: true, updatedAt: true } }),
       readLocalBackupStatus(),
       this.auth.db.$queryRaw<Array<{ count: number }>>`SELECT count(*)::int AS count FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`.then(rows => rows[0]?.count ?? 0),
-      loadStripeConfig(this.auth.db)
+      loadStripeConfig(this.auth.db),
+      databaseRuntimeAccessRestricted(this.auth.db)
     ]);
     type Check = { code: string; group: 'APPLICATION' | 'CONNECTIONS' | 'LEGAL_DATA' | 'OPERATIONS'; status: 'READY' | 'BLOCKED' | 'MANUAL'; title: string; evidence: string; action: string; href?: string };
     const checks: Check[] = [];
@@ -311,6 +313,7 @@ export class AppController {
     const legalReady = legalDocumentReleaseErrors().length === 0;
     add({ code: 'LEGAL_DOCUMENTS', group: 'LEGAL_DATA', status: legalReady ? 'READY' : 'BLOCKED', title: '利用規約・プライバシー', evidence: legalReady ? '正式版の文書バージョンを使用しています。' : `同意文書は開発版（${consentVersions.terms} / ${consentVersions.privacy}）です。`, action: '正式文書を確定し、バージョンを更新して同意を取得します。' });
     add({ code: 'DATA_RETENTION', group: 'LEGAL_DATA', status: 'BLOCKED', title: '個人情報の保持・匿名化', evidence: '退会処理はdevelopment-v1方針で履歴を保持しています。', action: '保持期間、匿名化範囲、開示・削除請求、再登録の扱いを確定します。', href: '/admin/account-closures' });
+    add({ code: 'DATABASE_LEAST_PRIVILEGE', group: 'LEGAL_DATA', status: databaseAccessRestricted ? 'READY' : 'BLOCKED', title: 'DB実行権限の分離', evidence: databaseAccessRestricted ? 'API接続はCRUD限定で、所有権、DDL、TRUNCATE、トリガー操作権限を持ちません。' : '現在のAPI接続は所有者または必要以上のDB権限を持っています。', action: '`pnpm db:access:configure` でruntimeロールを構成し、APIとworkerにruntime接続だけを設定します。' });
     const backupFresh = backup.status === 'VERIFIED' && backup.migrations === appliedMigrations && Date.now() - new Date(backup.verifiedAt).getTime() <= 7 * 86400000;
     add({ code: 'LOCAL_RESTORE_TEST', group: 'OPERATIONS', status: backupFresh ? 'READY' : 'BLOCKED', title: 'ローカル復元試験', evidence: backupFresh ? `${backup.migrations}件のマイグレーションを含む隔離復元を7日以内に確認済みです。` : '現在のDB構成について、7日以内の正常な隔離復元結果がありません。', action: '開発端末で復元検証を実行します。', href: '/admin/backups' });
     add({ code: 'PRODUCTION_BACKUP', group: 'OPERATIONS', status: 'MANUAL', title: '本番バックアップ運用', evidence: '暗号化、別拠点保管、保持世代、RPO/RTOは未確認です。', action: 'DB基盤のバックアップ設定と定期復元試験の責任者を確認します。', href: '/admin/backups' });

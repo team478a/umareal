@@ -55,3 +55,15 @@ const bootstrap = spawnSync(process.execPath, ['scripts/bootstrap-admin.mjs'], {
 });
 if (bootstrap.status === 0 || !bootstrap.stderr.includes('Set BOOTSTRAP_CONFIRM=CREATE_FIRST_ADMIN')) throw new Error('Initial administrator bootstrap did not require explicit one-time confirmation');
 console.info('PASS: initial administrator bootstrap requires explicit one-time confirmation.');
+const databaseRole = spawnSync(process.execPath, ['scripts/db-runtime-role.mjs', 'configure'], {
+  cwd: resolve('.'), env: { ...process.env, DATABASE_ADMIN_URL: 'postgresql://owner:secret@example.test/app', DATABASE_RUNTIME_URL: 'postgresql://runtime:secret@example.test/app', DB_ROLE_CONFIRM: '' },
+  encoding: 'utf8', timeout: 10000, windowsHide: true
+});
+if (databaseRole.status === 0 || !databaseRole.stderr.includes('Set DB_ROLE_CONFIRM=CONFIGURE_RUNTIME_ROLE')) throw new Error('Database role configuration did not require explicit one-time confirmation');
+console.info('PASS: database role configuration requires explicit one-time confirmation.');
+const workerDatabaseRole = spawnSync(process.execPath, ['dist/index.js', '--once'], {
+  cwd: resolve('apps/worker'), env: { ...process.env, NODE_ENV: 'production', NOTIFICATION_TRANSPORT: 'line' },
+  encoding: 'utf8', timeout: 10000, windowsHide: true
+});
+if (workerDatabaseRole.status === 0 || !workerDatabaseRole.stderr.includes('Production requires a restricted database runtime role')) throw new Error('Production worker database guard did not reject the owner connection');
+console.info('PASS: production worker refuses a database owner connection.');
