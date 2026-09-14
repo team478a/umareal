@@ -90,6 +90,7 @@ export class LineLoginController {
       ] } } });
       req.auth = { id: user.id, role: user.role, aal: 1, user };
       await this.auth.audit(tx, req, 'LINE_REGISTER', user.id, 'LINE無料会員登録', { subjectHash: grant.subjectHash });
+      await this.auth.journey(tx, user.id, 'LINE_GUIDANCE_VIEWED');
       return { user, session: await this.auth.session(tx, user.id) };
     });
     sessionCookie(res, result.session); return { user: { id: result.user.id, displayName: result.user.displayName, role: result.user.role } };

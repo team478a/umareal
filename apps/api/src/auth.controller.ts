@@ -93,7 +93,10 @@ export class AuthController {
       if (result.session) {
         externalCookies(res, result.session);
         res.clearCookie('keiba_pkce_verifier', externalCookieOptions()); res.clearCookie('keiba_auth_flow', externalCookieOptions());
-        await this.auth.db.user.updateMany({ where: { id: user.id, emailVerifiedAt: null }, data: { emailVerifiedAt: new Date() } });
+        await this.auth.db.$transaction(async tx => {
+          await tx.user.updateMany({ where: { id: user.id, emailVerifiedAt: null }, data: { emailVerifiedAt: new Date() } });
+          await this.auth.journey(tx, user.id, 'FIRST_LOGIN');
+        });
       }
       res.clearCookie('keiba_session', { httpOnly: true, sameSite: 'lax', path: '/' });
       return { user: publicUser(user), requiresEmailVerification: !result.session };
@@ -160,6 +163,7 @@ export class AuthController {
       req.auth = { id: user.id, role: user.role, aal: 1, user };
       await this.auth.db.$transaction(async tx => {
         if (!user.emailVerifiedAt && (session.user.email_confirmed_at || session.user.confirmed_at)) await tx.user.update({ where: { id: user.id }, data: { emailVerifiedAt: new Date(session.user.email_confirmed_at ?? session.user.confirmed_at!) } });
+        await this.auth.journey(tx, user.id, 'FIRST_LOGIN');
         await this.auth.audit(tx, req, 'LOGIN', user.id, 'Supabaseログイン');
       });
       externalCookies(res, session);
@@ -197,6 +201,7 @@ export class AuthController {
       req.auth = { id: user.id, role: user.role, aal: 1, user };
       await this.auth.db.$transaction(async tx => {
         if (!user.emailVerifiedAt && (session.user.email_confirmed_at || session.user.confirmed_at)) await tx.user.update({ where: { id: user.id }, data: { emailVerifiedAt: new Date(session.user.email_confirmed_at ?? session.user.confirmed_at!) } });
+        await this.auth.journey(tx, user.id, 'FIRST_LOGIN');
         await this.auth.audit(tx, req, flow === 'recovery' ? 'PASSWORD_RECOVERY_VERIFIED' : 'EMAIL_VERIFIED', user.id, flow === 'recovery' ? 'Supabaseパスワード再設定本人確認' : 'Supabaseメールアドレス確認完了');
       });
       externalCookies(res, session);

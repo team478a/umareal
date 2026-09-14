@@ -12,7 +12,8 @@ import { resolve } from 'node:path';
 import { loadStripeConfig } from './stripe-config';
 
 const pagination = z.object({ page: z.coerce.number().int().min(1).max(10000).default(1), limit: z.coerce.number().int().min(1).max(50).default(20) });
-const journeyEventSchema = z.object({ eventType: z.enum(['PLAN_VIEWED', 'CHECKOUT_REVIEWED']) }).strict();
+const journeyEventSchema = z.object({ eventType: z.enum(['LINE_GUIDANCE_VIEWED', 'PLAN_VIEWED', 'CHECKOUT_REVIEWED']) }).strict();
+const onboardingFunnelQuerySchema = z.object({ days: z.coerce.number().int().min(1).max(365).default(30), source: z.string().trim().min(1).max(100).optional() }).strict();
 const verifiedBackupSchema = z.object({ status: z.literal('VERIFIED'), verifiedAt: z.string().datetime(), backupId: z.string().regex(/^keiba-physical-\d{14}$/), format: z.literal('postgresql-physical-directory'), postgresMajor: z.literal(16), encrypted: z.literal(false), sha256: z.string().regex(/^[a-f0-9]{64}$/), sizeBytes: z.number().int().positive(), fileCount: z.number().int().positive(), migrations: z.number().int().nonnegative(), requiredTriggers: z.number().int().nonnegative(), restoredDatabaseRemoved: z.literal(true), counts: z.object({ users: z.number().int().nonnegative(), races: z.number().int().nonnegative(), predictionVersions: z.number().int().nonnegative(), freeReportVersions: z.number().int().nonnegative(), audioAssets: z.number().int().nonnegative(), publicationSchedules: z.number().int().nonnegative(), memberAcquisitions: z.number().int().nonnegative(), acquisitionCampaigns: z.number().int().nonnegative(), auditLogs: z.number().int().nonnegative(), notificationEvents: z.number().int().nonnegative() }).strict() }).strict();
 const failedBackupSchema = z.object({ status: z.literal('FAILED'), attemptedAt: z.string().datetime(), errorCode: z.literal('BACKUP_VERIFY_FAILED'), backupId: z.string().regex(/^keiba-physical-\d{14}$/).nullable(), restoredDatabaseRemoved: z.boolean() }).strict();
 const closeAccountSchema = z.object({ reasonCode: z.enum(['SERVICE_NO_LONGER_NEEDED', 'PRICE', 'CONTENT', 'OTHER']), confirmation: z.literal('退会する'), currentPassword: z.string().max(128).optional() }).strict();
@@ -34,7 +35,7 @@ function csvCell(value: string | number) {
 @Controller()
 export class AppController {
   constructor(@Inject(AuthService) private readonly auth: AuthService) {}
-  @Get('health') async health() { await this.auth.db.$queryRaw`SELECT 1`; return { status: 'ok', phase: '6r-resend-webhooks' }; }
+  @Get('health') async health() { await this.auth.db.$queryRaw`SELECT 1`; return { status: 'ok', phase: '6s-member-onboarding-funnel' }; }
   @Get('me') async me(@Req() req: AppRequest) {
     const identity = await this.auth.authenticate(req);
     const user = await this.auth.db.user.findUniqueOrThrow({ where: { id: identity.id }, include: { preferences: true, lineAccount: true, entitlements: { where: { revokedAt: null, endsAt: { gt: new Date() } } }, consents: { orderBy: { acceptedAt: 'desc' } } } });
@@ -112,9 +113,9 @@ export class AppController {
     const identity = await this.auth.authenticate(req);
     if (identity.role !== 'MEMBER') throw new ForbiddenException({ code: 'MEMBER_REQUIRED', message: '会員向けの操作です。' });
     const { eventType } = journeyEventSchema.parse(body);
-    const event = await this.auth.db.memberJourneyEvent.upsert({
-      where: { userId_eventType: { userId: identity.id, eventType } },
-      create: { userId: identity.id, eventType }, update: {}, select: { eventType: true, occurredAt: true }
+    const event = await this.auth.db.$transaction(async tx => {
+      await this.auth.journey(tx, identity.id, 'FIRST_LOGIN');
+      return this.auth.journey(tx, identity.id, eventType);
     });
     return { ...event, recorded: true };
   }
@@ -239,6 +240,45 @@ export class AppController {
       this.acquisitionBreakdown(since), this.auth.db.user.count({ where: { role: 'MEMBER', acquisition: null } })
     ]);
     return { days, since, legacyMembers, breakdown, campaigns: campaigns.map(campaign => ({ ...campaign, registrationUrl: this.campaignUrl(campaign) })) };
+  }
+  @Get('admin/onboarding-funnel') async onboardingFunnel(@Req() req: AppRequest, @Query() query: unknown) {
+    await this.staff(req, ['ADMIN']);
+    const { days, source } = onboardingFunnelQuerySchema.parse(query);
+    const since = new Date(Date.now() - days * 86400000);
+    const where: Prisma.UserWhereInput = {
+      role: 'MEMBER', createdAt: { gte: since },
+      ...(source ? { acquisition: { is: { source } } } : {})
+    };
+    const stageWhere = (extra: Prisma.UserWhereInput = {}) => ({ AND: [where, extra] } satisfies Prisma.UserWhereInput);
+    const count = (extra: Prisma.UserWhereInput = {}) => this.auth.db.user.count({ where: stageWhere(extra) });
+    const identityReadyWhere: Prisma.UserWhereInput = { OR: [{ emailVerifiedAt: { not: null } }, { registrationMethod: 'LINE' }] };
+    const firstLoginWhere: Prisma.UserWhereInput = { AND: [identityReadyWhere, { OR: [{ journeyEvents: { some: { eventType: 'FIRST_LOGIN' } } }, { lineAccount: { isNot: null } }] }] };
+    const lineGuidanceWhere: Prisma.UserWhereInput = { AND: [firstLoginWhere, { OR: [{ journeyEvents: { some: { eventType: 'LINE_GUIDANCE_VIEWED' } } }, { lineAccount: { isNot: null } }] }] };
+    const [registered, identityReady, firstLogin, lineGuidanceViewed, lineReady, paid, sources, tracking] = await Promise.all([
+      count(),
+      count(identityReadyWhere),
+      count(firstLoginWhere),
+      count(lineGuidanceWhere),
+      count({ AND: [lineGuidanceWhere, { lineAccount: { is: { unlinkedAt: null, notificationDisabledAt: null } }, preferences: { is: { predictions: true } } }] }),
+      count({ paymentTransactions: { some: { status: 'SUCCEEDED' } } }),
+      this.auth.db.memberAcquisition.findMany({ where: { user: { role: 'MEMBER' } }, distinct: ['source'], orderBy: { source: 'asc' }, select: { source: true } }),
+      this.auth.db.memberJourneyEvent.findFirst({ where: { eventType: { in: ['FIRST_LOGIN', 'LINE_GUIDANCE_VIEWED'] }, user: { role: 'MEMBER' } }, orderBy: { occurredAt: 'asc' }, select: { occurredAt: true } })
+    ]);
+    const values = [registered, identityReady, firstLogin, lineGuidanceViewed, lineReady];
+    const labels = ['無料登録', '本人確認', '初回ログイン', 'LINE案内到達', 'LINE受信準備'];
+    const stages = values.map((value, index) => ({
+      key: ['REGISTERED', 'IDENTITY_READY', 'FIRST_LOGIN', 'LINE_GUIDANCE_VIEWED', 'LINE_READY'][index],
+      label: labels[index], value,
+      rateFromRegistered: registered ? Math.round(value / registered * 1000) / 10 : 0,
+      dropOffFromPrevious: index === 0 ? 0 : Math.max(0, values[index - 1] - value),
+      rateFromPrevious: index === 0 ? 100 : values[index - 1] ? Math.round(value / values[index - 1] * 1000) / 10 : 0
+    }));
+    return {
+      days, since, source: source ?? null, sources: sources.map(item => item.source), stages, paid,
+      lineAvailable: launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).lineNotifications,
+      trackingStartsAt: tracking?.occurredAt ?? null,
+      generatedAt: new Date()
+    };
   }
   @Post('admin/acquisition/campaigns') async createAcquisitionCampaign(@Req() req: AppRequest, @Body() body: unknown) {
     const actor = await this.staff(req, ['ADMIN']); const input = acquisitionCampaignCreateSchema.parse(body);

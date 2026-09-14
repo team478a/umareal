@@ -26,6 +26,7 @@
 | GET | /expert/races | EXPERT+AAL2（担当のみ）またはADMIN+AAL2。最大50件の初期一覧 |
 | GET | /expert/races/:raceId/workspace | 担当EXPERT+AAL2またはADMIN+AAL2。入力は無効 |
 | GET | /admin/summary | ADMIN+AAL2またはOPERATOR。会員ファネルと直近30日の流入元・媒体・キャンペーン別登録/有料化を含む |
+| GET | /admin/onboarding-funnel | ADMIN+AAL2。`days=1..365`と任意の`source`で登録コホートを絞り、本人確認、初回ログイン、LINE案内、LINE受信準備の人数・率・前段階からの未到達数を返す。個人情報は返さない |
 | GET | /admin/acquisition | ADMIN+AAL2。集計日数、発行済みキャンペーンURL、流入別登録・有料化集計 |
 | POST | /admin/acquisition/campaigns | ADMIN+AAL2。理由付きで一意コードの登録URLを発行し監査 |
 | GET | /admin/acquisition/export.csv | ADMIN+AAL2。`days=1..365`の個人情報を含まない流入別集計CSV |
@@ -36,7 +37,7 @@
 | GET | /me/closure | 本人。退会可否、契約・1日利用の阻害要因、保持対象を返す |
 | POST | /me/close | MEMBER本人。確認文言と、パスワード設定済みなら現在のパスワードが必須。セッション、通知、LINE、閲覧権限を停止し退会記録を追記 |
 | GET | /admin/account-closures | ADMIN+AAL2。退会処理済み会員と保持方針バージョンをページング表示 |
-| POST | /me/journey | MEMBER本人。`PLAN_VIEWED`または`CHECKOUT_REVIEWED`の初回到達を冪等記録 |
+| POST | /me/journey | MEMBER本人。`LINE_GUIDANCE_VIEWED`、`PLAN_VIEWED`または`CHECKOUT_REVIEWED`の初回到達を冪等記録。初回ログインは認証成功時にサーバーが記録 |
 | POST | /billing/checkout | 本人。月額申込。test transportはローカル即時確定、stripe transportはCheckout URLを返し権限をまだ付与しない |
 | POST | /billing/day-pass | 本人。JST開催日の1日利用。stripe transportでは署名済みWebhook後だけ有効化 |
 | POST | /webhooks/stripe | Stripe署名必須。Checkout申込、会員、金額、通貨、動作モードを照合し、契約・支払・有限期間権限を冪等作成 |

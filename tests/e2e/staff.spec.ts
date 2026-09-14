@@ -65,6 +65,15 @@ test('administrator must complete MFA before viewing member management', async (
   await page.getByLabel('集計期間').selectOption('90');
   await expect(page.getByRole('link', { name: 'CSV出力' })).toHaveAttribute('href', '/api/v1/admin/acquisition/export.csv?days=90');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.goto('/admin/onboarding-funnel');
+  await expect(page.getByRole('heading', { name: '無料会員 登録ファネル', exact: true })).toBeVisible();
+  await page.getByLabel('集計期間').selectOption('90');
+  await page.getByLabel('流入元').selectOption('staff-e2e');
+  await expect(page.getByRole('heading', { name: '90日以内に登録した会員', exact: true })).toBeVisible();
+  await expect(page.locator('.onboarding-funnel-list')).toContainText('初回ログイン');
+  await expect(page.locator('.onboarding-funnel-list')).toContainText('LINE案内到達');
+  await expect(page.locator('.onboarding-funnel-list')).toContainText('未到達');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.goto('/admin');
   await expect(page.getByRole('heading', { name: '運用メニュー', exact: true })).toBeVisible();
   await page.getByRole('main').getByRole('link', { name: '運用・連携設定 LINE、通知方針、緊急停止を管理' }).click();

@@ -55,7 +55,15 @@ export class AuthService {
   async session(tx: Prisma.TransactionClient, userId: string, aal = 1) {
     const token = newToken();
     await tx.session.create({ data: { tokenHash: hashToken(token), userId, aal, expiresAt: new Date(Date.now() + 8 * 3600000) } });
+    await this.journey(tx, userId, 'FIRST_LOGIN');
     return token;
+  }
+  async journey(tx: Prisma.TransactionClient, userId: string, eventType: 'FIRST_LOGIN' | 'LINE_GUIDANCE_VIEWED' | 'PLAN_VIEWED' | 'CHECKOUT_REVIEWED') {
+    await tx.memberJourneyEvent.createMany({ data: [{ userId, eventType }], skipDuplicates: true });
+    return tx.memberJourneyEvent.findUniqueOrThrow({
+      where: { userId_eventType: { userId, eventType } },
+      select: { eventType: true, occurredAt: true }
+    });
   }
   audit(tx: Prisma.TransactionClient, req: AppRequest, action: string, targetId: string, reason: string, details: Prisma.InputJsonValue = {}) {
     return tx.auditLog.create({ data: { actorId: req.auth?.id, actorRole: req.auth?.role, action, targetType: 'USER', targetId, reason, details, requestId: req.requestId } });
