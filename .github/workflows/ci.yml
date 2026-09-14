@@ -43,6 +43,8 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm build
+      - name: Build production container image
+        run: docker build --tag umareal:ci .
       - run: node scripts/check-production-guard.mjs
       - run: pnpm exec playwright install --with-deps chromium
       - name: Start test services
