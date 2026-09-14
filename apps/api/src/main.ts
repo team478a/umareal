@@ -10,6 +10,7 @@ import cookieParser from 'cookie-parser';
 import { rateLimit } from 'express-rate-limit';
 import { ZodError } from 'zod';
 import { Prisma } from '@keiba/db';
+import { legalDocumentReleaseErrors } from '@keiba/domain';
 import { AppController } from './app.controller';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
@@ -78,6 +79,10 @@ async function main() {
   if (process.env.NODE_ENV === 'production' && process.env.STRIPE_LIVE_MODE !== 'true') throw new Error('Production requires Stripe live mode');
   if (!['test', 'resend'].includes(process.env.MAIL_TRANSPORT ?? '')) throw new Error('Set MAIL_TRANSPORT explicitly');
   if (process.env.NODE_ENV === 'production' && process.env.MAIL_TRANSPORT !== 'resend') throw new Error('Production requires an external mail transport');
+  if (process.env.NODE_ENV === 'production') {
+    const legalErrors = legalDocumentReleaseErrors();
+    if (legalErrors.length) throw new Error(`Production requires published legal documents: ${legalErrors.join('; ')}`);
+  }
   const authRateLimit = Number(process.env.AUTH_RATE_LIMIT ?? 60);
   if (!Number.isInteger(authRateLimit) || authRateLimit < 1 || authRateLimit > 1000 || (process.env.NODE_ENV === 'production' && authRateLimit > 60)) throw new Error('Invalid AUTH_RATE_LIMIT');
   const localRateMultiplier = provider === 'local' ? Number(process.env.LOCAL_RATE_LIMIT_MULTIPLIER ?? 1) : 1;

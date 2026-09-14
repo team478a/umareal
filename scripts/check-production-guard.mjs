@@ -37,6 +37,12 @@ const mail = spawnSync(process.execPath, ['dist/main.js'], {
 });
 if (mail.status === 0 || !mail.stderr.includes('Production requires an external mail transport')) throw new Error('Production mail guard did not reject test mode');
 console.info('PASS: compiled API refuses the local mail test transport in production.');
+const legalDocuments = spawnSync(process.execPath, ['dist/main.js'], {
+  cwd: resolve('apps/api'), env: { ...process.env, ...productionBase, NODE_ENV: 'production', AUTH_PROVIDER: 'supabase', NOTIFICATION_TRANSPORT: 'line', LINE_OAUTH_TRANSPORT: 'line', BILLING_TRANSPORT: 'stripe', STRIPE_LIVE_MODE: 'true', MAIL_TRANSPORT: 'resend' },
+  encoding: 'utf8', timeout: 10000, windowsHide: true
+});
+if (legalDocuments.status === 0 || !legalDocuments.stderr.includes('Production requires published legal documents')) throw new Error('Production legal-document guard did not reject draft documents');
+console.info('PASS: compiled API refuses draft legal documents in production.');
 const backup = spawnSync(process.execPath, ['scripts/backup-verify.mjs'], {
   cwd: resolve('.'), env: { ...process.env, NODE_ENV: 'production', AUTH_PROVIDER: 'local' },
   encoding: 'utf8', timeout: 10000, windowsHide: true

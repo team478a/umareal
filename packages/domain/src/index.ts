@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { acquisitionSchema } from './acquisition';
+import { consentVersions } from './legal';
 export * from './races';
 export * from './assessments';
 export * from './predictions';
@@ -12,11 +13,11 @@ export * from './results';
 export * from './billing';
 export * from './free-report';
 export * from './publication-schedule';
+export * from './legal';
 
 export const roles = ['MEMBER', 'EXPERT', 'EDITOR', 'OPERATOR', 'ADMIN'] as const;
 export type Role = typeof roles[number];
 export type Identity = { id: string; role: Role; aal: 1 | 2 };
-export const consentVersions = { terms: 'draft-v1', privacy: 'draft-v1' } as const;
 export const registrationSchema = z.object({
   email: z.string().trim().email().max(254).transform(v => v.toLowerCase()),
   password: z.string().min(12).max(128),

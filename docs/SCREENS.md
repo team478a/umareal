@@ -31,6 +31,6 @@
 | /admin/billing | 契約期間・猶予、1日利用、支払履歴、外部決済申込、Stripe Webhook受信、test時のみローカル失敗/回復試験 | ADMIN+AAL2 |
 | /admin/users | 会員一覧 | ADMIN+AAL2 |
 | /admin/audit | 操作履歴 | ADMIN+AAL2 |
-| /terms、/privacy | 開発用文書 | 全員 |
+| /terms、/privacy | コード管理された版付き法務文書。現在は開発用 | 全員 |
 
 LINE認証→成人・規約同意→無料会員、またはメール入力→確認URL→無料会員。管理者/専門家はログイン→セキュリティ→TOTP確認→担当/管理画面。画面の分岐と独立にAPIでも権限を確認する。

@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, assessmentSchema, canEditRace, canManage, consentVersions, jstDate, paddockComplete, preferencesSchema, requiresMfa } from '@keiba/domain';
+import { acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, assessmentSchema, canEditRace, canManage, consentVersions, jstDate, legalDocumentReleaseErrors, paddockComplete, preferencesSchema, requiresMfa } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -308,7 +308,7 @@ export class AppController {
     add({ code: 'TRANSACTIONAL_MAIL', group: 'CONNECTIONS', status: mailConfigured ? 'READY' : 'BLOCKED', title: '確認・再設定メール', evidence: mailConfigured ? '外部メールtransportと送信元が設定済みです。' : '現在はテスト配信、または外部メール設定が不足しています。', action: '送信ドメインを認証し、登録・再設定メールを実送信で確認します。' });
     const stripeConfigured = process.env.BILLING_TRANSPORT === 'stripe' && stripeConfig.usable;
     add({ code: 'EXTERNAL_BILLING', group: 'CONNECTIONS', status: stripeConfigured ? 'MANUAL' : 'BLOCKED', title: '外部決済', evidence: stripeConfigured ? `Stripe Checkoutと署名付きWebhookの設定があります（設定元: ${stripeConfig.source === 'ADMIN' ? '管理画面' : '環境変数'}）。ライブ疎通は人による確認が必要です。` : '現在はローカル決済試験、またはStripe設定が不足・不整合です。', action: stripeConfigured ? 'テスト環境で決済成功・重複Webhook・金額不一致を確認します。' : '管理画面でStripe資格情報、動作モード、3プランのPrice IDを設定します。', href: '/admin/settings' });
-    const legalReady = !consentVersions.terms.startsWith('draft') && !consentVersions.privacy.startsWith('draft');
+    const legalReady = legalDocumentReleaseErrors().length === 0;
     add({ code: 'LEGAL_DOCUMENTS', group: 'LEGAL_DATA', status: legalReady ? 'READY' : 'BLOCKED', title: '利用規約・プライバシー', evidence: legalReady ? '正式版の文書バージョンを使用しています。' : `同意文書は開発版（${consentVersions.terms} / ${consentVersions.privacy}）です。`, action: '正式文書を確定し、バージョンを更新して同意を取得します。' });
     add({ code: 'DATA_RETENTION', group: 'LEGAL_DATA', status: 'BLOCKED', title: '個人情報の保持・匿名化', evidence: '退会処理はdevelopment-v1方針で履歴を保持しています。', action: '保持期間、匿名化範囲、開示・削除請求、再登録の扱いを確定します。', href: '/admin/account-closures' });
     const backupFresh = backup.status === 'VERIFIED' && backup.migrations === appliedMigrations && Date.now() - new Date(backup.verifiedAt).getTime() <= 7 * 86400000;
