@@ -1,14 +1,44 @@
-import { Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { loadMailConfig } from '@keiba/db';
+import { loadMailConfig, Prisma } from '@keiba/db';
 import { DbService } from './db.service';
+import { hashToken, newToken } from './security';
 
 type MailKind = 'VERIFY_EMAIL' | 'ADD_FALLBACK' | 'PASSWORD_RESET';
 
 @Injectable()
 export class MailService {
   constructor(@Inject(DbService) private readonly db: DbService) {}
+
+  async sendVerification(input: { userId: string; email: string; purpose: 'REGISTRATION' | 'ADD_FALLBACK'; passwordHash?: string }) {
+    const token = newToken(); const expiresInMinutes = 30; const now = new Date();
+    const verification = await this.db.$transaction(async tx => {
+      await tx.emailVerification.updateMany({ where: { userId: input.userId, purpose: input.purpose, usedAt: null }, data: { usedAt: now } });
+      return tx.emailVerification.create({ data: { userId: input.userId, tokenHash: hashToken(token), purpose: input.purpose, email: input.email, passwordHash: input.passwordHash, expiresAt: new Date(now.getTime() + expiresInMinutes * 60000) } });
+    });
+    await this.send({ userId: input.userId, to: input.email, kind: input.purpose === 'REGISTRATION' ? 'VERIFY_EMAIL' : 'ADD_FALLBACK', url: `${process.env.APP_BASE_URL}/verify-email?token=${token}`, expiresInMinutes, idempotencyKey: verification.id });
+    return { sentAt: verification.createdAt, expiresAt: verification.expiresAt };
+  }
+
+  async resendRegistrationForAdmin(userId: string, minimumIntervalMs = 5 * 60000) {
+    const token = newToken(); const expiresInMinutes = 30; const now = new Date();
+    const result = await this.db.$transaction(async tx => {
+      await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "users" WHERE "id" = ${userId}::uuid FOR UPDATE`);
+      const user = await tx.user.findUnique({ where: { id: userId }, select: { id: true, email: true, emailVerifiedAt: true, disabledAt: true, registrationMethod: true } });
+      if (!user || !user.email || user.registrationMethod !== 'EMAIL' || user.disabledAt) throw new NotFoundException({ code: 'REGISTRATION_FOLLOWUP_NOT_FOUND', message: '対象の確認待ち会員が見つかりません。' });
+      if (user.emailVerifiedAt) throw new ConflictException({ code: 'EMAIL_ALREADY_VERIFIED', message: 'この会員はすでにメール確認済みです。' });
+      const latest = await tx.emailVerification.findFirst({ where: { userId, purpose: 'REGISTRATION' }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { createdAt: true } });
+      if (latest && latest.createdAt.getTime() + minimumIntervalMs > now.getTime()) {
+        throw new ConflictException({ code: 'VERIFICATION_RESEND_COOLDOWN', message: '直前に確認メールを送信しています。5分後に再度お試しください。', availableAt: new Date(latest.createdAt.getTime() + minimumIntervalMs).toISOString() });
+      }
+      await tx.emailVerification.updateMany({ where: { userId, purpose: 'REGISTRATION', usedAt: null }, data: { usedAt: now } });
+      const verification = await tx.emailVerification.create({ data: { userId, tokenHash: hashToken(token), purpose: 'REGISTRATION', email: user.email, expiresAt: new Date(now.getTime() + expiresInMinutes * 60000) } });
+      return { email: user.email, verification };
+    });
+    await this.send({ userId, to: result.email, kind: 'VERIFY_EMAIL', url: `${process.env.APP_BASE_URL}/verify-email?token=${token}`, expiresInMinutes, idempotencyKey: result.verification.id });
+    return { sentAt: result.verification.createdAt, expiresAt: result.verification.expiresAt };
+  }
 
   async send(input: { userId: string; to: string; kind: MailKind; url: string; expiresInMinutes: number; idempotencyKey: string }) {
     const transport = process.env.MAIL_TRANSPORT;

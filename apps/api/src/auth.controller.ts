@@ -39,14 +39,6 @@ const otp = (secret: string, email: string) => new TOTP({ issuer: '競馬会員�
 @Controller('auth')
 export class AuthController {
   constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(SupabaseAuthService) private readonly supabase: SupabaseAuthService, @Inject(MailService) private readonly mail: MailService) {}
-  private async sendVerification(userId: string, email: string, purpose: 'REGISTRATION' | 'ADD_FALLBACK', passwordHash?: string) {
-    const token = newToken(), expiresInMinutes = 30;
-    const verification = await this.auth.db.$transaction(async tx => {
-      await tx.emailVerification.updateMany({ where: { userId, purpose, usedAt: null }, data: { usedAt: new Date() } });
-      return tx.emailVerification.create({ data: { userId, tokenHash: hashToken(token), purpose, email, passwordHash, expiresAt: new Date(Date.now() + expiresInMinutes * 60000) } });
-    });
-    await this.mail.send({ userId, to: email, kind: purpose === 'REGISTRATION' ? 'VERIFY_EMAIL' : 'ADD_FALLBACK', url: `${process.env.APP_BASE_URL}/verify-email?token=${token}`, expiresInMinutes, idempotencyKey: verification.id });
-  }
   @Get('config') async config() {
     const mode = resolveLaunchMode(process.env.LAUNCH_MODE);
     const capabilities = launchCapabilities(mode);
@@ -116,7 +108,7 @@ export class AuthController {
       return user;
     });
     res.clearCookie('keiba_session', { httpOnly: true, sameSite: 'lax', path: '/' });
-    await this.sendVerification(user.id, input.email, 'REGISTRATION');
+    await this.mail.sendVerification({ userId: user.id, email: input.email, purpose: 'REGISTRATION' });
     return { user: publicUser(user), requiresEmailVerification: true };
   }
   @Post('email/resend') async resendVerification(@Body() body: unknown, @Res({ passthrough: true }) res: Response) {
@@ -128,14 +120,14 @@ export class AuthController {
     }
     this.auth.ensureLocal();
     const user = await this.auth.db.user.findUnique({ where: { email } });
-    if (user && !user.emailVerifiedAt && !user.disabledAt) await this.sendVerification(user.id, email, 'REGISTRATION');
+    if (user && !user.emailVerifiedAt && !user.disabledAt) await this.mail.sendVerification({ userId: user.id, email, purpose: 'REGISTRATION' });
     return { message: '確認が必要なメールアドレスの場合、案内を送信しました。' };
   }
   @Post('email/fallback') async addFallback(@Body() body: unknown, @Req() req: AppRequest) {
     this.auth.ensureLocal(); const actor = await this.auth.authenticate(req); const input = fallbackEmailSchema.parse(body);
     if (actor.user.emailVerifiedAt && actor.user.passwordHash) throw new ConflictException({ code: 'FALLBACK_ALREADY_CONFIGURED', message: '確認済みメールアドレスは設定済みです。' });
     if (await this.auth.db.user.findFirst({ where: { email: input.email, id: { not: actor.id } } })) throw new ConflictException({ code: 'EMAIL_ALREADY_USED', message: 'このメールアドレスは使用できません。' });
-    const passwordHash = await hashPassword(input.password); await this.sendVerification(actor.id, input.email, 'ADD_FALLBACK', passwordHash);
+    const passwordHash = await hashPassword(input.password); await this.mail.sendVerification({ userId: actor.id, email: input.email, purpose: 'ADD_FALLBACK', passwordHash });
     await this.auth.db.$transaction(async tx => this.auth.audit(tx, req, 'FALLBACK_EMAIL_REQUEST', actor.id, '予備メールアドレス確認を開始'));
     return { message: '確認メールを送信しました。' };
   }

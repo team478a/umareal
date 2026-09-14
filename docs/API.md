@@ -27,6 +27,8 @@
 | GET | /expert/races/:raceId/workspace | 担当EXPERT+AAL2またはADMIN+AAL2。入力は無効 |
 | GET | /admin/summary | ADMIN+AAL2またはOPERATOR。会員ファネルと直近30日の流入元・媒体・キャンペーン別登録/有料化を含む |
 | GET | /admin/onboarding-funnel | ADMIN+AAL2。`days=1..365`と任意の`source`で登録コホートを絞り、本人確認、初回ログイン、LINE案内、LINE受信準備の人数・率・前段階からの未到達数を返す。個人情報は返さない |
+| GET | /admin/registration-followups | ADMIN+AAL2。メール確認待ちの有効な無料会員を`status=ALL\|RECENT\|OVERDUE`とpage/limitで取得。確認メールの送信時刻と再送可否を返し、tokenやpassword hashは返さない |
+| POST | /admin/registration-followups/:userId/resend | ADMIN+AAL2。ローカル認証だけで利用可能。`reason`必須。確認メールを再発行して監査へ追記し、同じ会員への5分以内の再送を409で拒否 |
 | GET | /admin/acquisition | ADMIN+AAL2。集計日数、発行済みキャンペーンURL、流入別登録・有料化集計 |
 | POST | /admin/acquisition/campaigns | ADMIN+AAL2。理由付きで一意コードの登録URLを発行し監査 |
 | GET | /admin/acquisition/export.csv | ADMIN+AAL2。`days=1..365`の個人情報を含まない流入別集計CSV |

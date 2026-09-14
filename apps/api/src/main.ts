@@ -32,6 +32,7 @@ import { AdminFreeReportsController, MemberFreeReportsController } from './free-
 import { PublicationSchedulesController } from './publication-schedules.controller';
 import { SupabaseAuthService } from './supabase-auth.service';
 import { ResendWebhookController } from './resend-webhook.controller';
+import { RegistrationFollowupsController } from './registration-followups.controller';
 config({ path: resolve(process.cwd(), '../../.env'), quiet: true });
 
 @Catch()
@@ -54,7 +55,7 @@ class ErrorFilter implements ExceptionFilter {
     res.status(status).json({ code, message, requestId: req.requestId, details });
   }
 }
-@Module({ controllers: [AuthController, AppController, RacesController, AssessmentsController, PredictionsController, AdminSettingsController, NotificationsController, MemberNotificationsController, AdminFreeReportsController, MemberFreeReportsController, PublicationSchedulesController, LineWebhookController, ResendWebhookController, LineLoginController, ResultsController, BillingController], providers: [DbService, AuthService, SupabaseAuthService, LineLoginService, MailService] })
+@Module({ controllers: [AuthController, AppController, RacesController, AssessmentsController, PredictionsController, AdminSettingsController, NotificationsController, MemberNotificationsController, AdminFreeReportsController, MemberFreeReportsController, PublicationSchedulesController, LineWebhookController, ResendWebhookController, RegistrationFollowupsController, LineLoginController, ResultsController, BillingController], providers: [DbService, AuthService, SupabaseAuthService, LineLoginService, MailService] })
 class AppModule {}
 
 async function main() {
