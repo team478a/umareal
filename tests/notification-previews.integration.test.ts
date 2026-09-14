@@ -38,7 +38,7 @@ describe('race announcement delivery preview', () => {
     const response = await admin.call(`admin/notifications/previews/race-announcement?raceId=${raceId}&scheduledAt=${encodeURIComponent(plannedAt)}`);
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
-      eventType: 'RACE_ANNOUNCED', timing: 'SCHEDULED', version: 1,
+      eventType: 'RACE_ANNOUNCED', contentLabel: '対象レース告知', timing: 'SCHEDULED', version: 1,
       audience: { uniqueMembers: unique, totalDeliveries: lineScheduled + emailScheduled, duplicateChannelMembers: settings.lineNotificationsEnabled && settings.emailNotificationsEnabled ? both : 0, line: { enabled: settings.lineNotificationsEnabled, eligibleRecipients: line, scheduledDeliveries: lineScheduled }, email: { enabled: settings.emailNotificationsEnabled, eligibleRecipients: email, scheduledDeliveries: emailScheduled } },
       message: { type: 'text' }
     });

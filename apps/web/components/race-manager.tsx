@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
 import { ArrowRight, Eye, FileUp, Plus, RefreshCw } from 'lucide-react';
 import { entryHeaders, entryStatuses, jstDate, raceHeaders, raceStatuses, venues, type EntryInput, type ImportKind, type RaceInput } from '@keiba/domain';
-import { NotificationPreview, type RaceAnnouncementPreview } from './notification-preview';
+import { NotificationPreview, type NotificationPreviewData } from './notification-preview';
 
 type Entry = Omit<EntryInput, 'carriedWeight' | 'winOdds'> & { id: string; carriedWeight: string | number; winOdds: string | number | null };
 type Race = Omit<RaceInput, 'expertId'> & { id: string; revision: number; entries?: Entry[]; announcements?: { id: string; version: number; publishedAt: string }[]; assignments: { userId: string; user?: { displayName: string } }[]; _count?: { entries: number } };
@@ -42,14 +42,14 @@ export function RaceManager() {
   const [selected, setSelected] = useState<Race | null>(null); const [editing, setEditing] = useState(false); const [entry, setEntry] = useState<Entry | null>(null);
   const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
   const [announcementReasons, setAnnouncementReasons] = useState<Record<string, string>>({});
-  const [announcementPreview, setAnnouncementPreview] = useState<RaceAnnouncementPreview | null>(null); const [previewBusy, setPreviewBusy] = useState('');
+  const [announcementPreview, setAnnouncementPreview] = useState<NotificationPreviewData | null>(null); const [previewBusy, setPreviewBusy] = useState('');
   const load = useCallback(async () => {
     try { const [r, d, e] = await Promise.all([request<{ items: Race[]; total: number }>(`races?date=${date}&page=${page}`), request<{ items: Day[]; total: number }>(`race-days?page=${dayPage}`), loadExperts()]); setRaces(r.items); setTotal(r.total); setDays(d.items); setDayTotal(d.total); setExperts(e.items); }
     catch (e) { setError((e as Error).message); }
   }, [date, page, dayPage]);
   useEffect(() => { void load(); }, [load]);
   async function open(id: string) { setError(''); try { setSelected(await request<Race>(`races/${id}`)); setEntry(null); setEditing(true); } catch (e) { setError((e as Error).message); } }
-  async function previewAnnouncement(race: Race) { setPreviewBusy(race.id); setError(''); setMessage(''); try { setAnnouncementPreview(await request<RaceAnnouncementPreview>(`notifications/previews/race-announcement?raceId=${race.id}`)); } catch (e) { setError((e as Error).message); } finally { setPreviewBusy(''); } }
+  async function previewAnnouncement(race: Race) { setPreviewBusy(race.id); setError(''); setMessage(''); try { setAnnouncementPreview(await request<NotificationPreviewData>(`notifications/previews/race-announcement?raceId=${race.id}`)); } catch (e) { setError((e as Error).message); } finally { setPreviewBusy(''); } }
   async function announce(race: Race) { const reason = announcementReasons[race.id]?.trim(); if (!reason) { setError('告知理由を入力してください。'); return; } setBusy(true); setError(''); setMessage(''); try { const result = await request<{ version: number }>(`races/${race.id}/announce`, 'POST', { reason }); setAnnouncementReasons({ ...announcementReasons, [race.id]: '' }); setAnnouncementPreview(null); setMessage(`${race.venue} ${race.number}Rを告知しました（第${result.version}版）。`); await load(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
   async function saveDay(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError(''); const form = new FormData(event.currentTarget);

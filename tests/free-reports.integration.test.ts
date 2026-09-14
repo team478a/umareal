@@ -48,6 +48,16 @@ describe('LP free member offer', () => {
     expect(beforePublish.status).toBe(404);
     const saved = await target.adminClient.call(`admin/free-reports/races/${target.race.id}/draft`, 'PATCH', { revision: 0, upEntryId: target.up.id, upReason: '踏み込みが力強くなりました。', downEntryId: target.down.id, downReason: '発汗が目立ちます。', audioUrl: upload.url, reviewText: '', reason: '無料速報の結合試験' });
     expect(saved.status).toBe(200); expect(saved.body.revision).toBe(1);
+    const beforePreview = await Promise.all([db.freeReportVersion.count({ where: { raceId: target.race.id } }), db.notificationEvent.count({ where: { freeReportVersion: { raceId: target.race.id } } })]);
+    const preview = await target.adminClient.call(`admin/notifications/previews/free-report?raceId=${target.race.id}&kind=PRE_RACE&revision=1&scheduledAt=${encodeURIComponent('2098-09-13T14:30:00+09:00')}`);
+    expect(preview.status).toBe(200);
+    expect(preview.body).toMatchObject({ eventType: 'FREE_REPORT_PUBLISHED', contentLabel: '無料パドック速報', kind: 'PRE_RACE', draftRevision: 1, timing: 'SCHEDULED', version: 1 });
+    expect(preview.body.audience.line.scheduledDeliveries).toBeGreaterThanOrEqual(1);
+    expect(preview.body.message.text).toContain('無料パドック速報を公開しました');
+    expect(preview.body.message.text).not.toContain(target.up.horseName);
+    expect(await Promise.all([db.freeReportVersion.count({ where: { raceId: target.race.id } }), db.notificationEvent.count({ where: { freeReportVersion: { raceId: target.race.id } } })])).toEqual(beforePreview);
+    const stalePreview = await target.adminClient.call(`admin/notifications/previews/free-report?raceId=${target.race.id}&kind=PRE_RACE&revision=2`);
+    expect(stalePreview.status).toBe(409); expect(stalePreview.body.code).toBe('FREE_REPORT_DRAFT_CONFLICT');
     const published = await target.adminClient.call(`admin/free-reports/races/${target.race.id}/publish`, 'POST', { revision: 1, kind: 'PRE_RACE', reason: '会員へ公開' }, undefined, { 'Idempotency-Key': randomUUID() });
     expect(published.status).toBe(201); expect(published.body.kind).toBe('PRE_RACE');
     const memberView = await target.memberClient.call(`races/${target.race.id}/free-report`);
@@ -93,6 +103,11 @@ describe('LP free member offer', () => {
     await db.raceResultVersion.create({ data: { raceId: target.race.id, version: 1, sourceRevision: 1, ruleVersion: 'TEST_V1', entriesSnapshot: [], payoutsSnapshot: [], reason: '無料速報検証用の確定結果', confirmedBy: target.admin.user.id } });
     const saved = await target.adminClient.call(`admin/free-reports/races/${target.race.id}/draft`, 'PATCH', { revision: 1, ...base, reviewText: '評価UP馬は2着。状態評価どおり力を出しました。', reason: '確定結果を検証' });
     expect(saved.body.revision).toBe(2);
+    const beforePreview = await Promise.all([db.freeReportVersion.count({ where: { raceId: target.race.id } }), db.notificationEvent.count({ where: { freeReportVersion: { raceId: target.race.id } } })]);
+    const preview = await target.adminClient.call(`admin/notifications/previews/free-report?raceId=${target.race.id}&kind=POST_RACE_REVIEW&revision=2`);
+    expect(preview.status).toBe(200); expect(preview.body).toMatchObject({ eventType: 'FREE_REPORT_REVIEW_PUBLISHED', contentLabel: 'レース後検証', kind: 'POST_RACE_REVIEW', timing: 'IMMEDIATE', version: 2 });
+    expect(preview.body.message.text).toContain('無料速報のレース後検証を公開しました');
+    expect(await Promise.all([db.freeReportVersion.count({ where: { raceId: target.race.id } }), db.notificationEvent.count({ where: { freeReportVersion: { raceId: target.race.id } } })])).toEqual(beforePreview);
     const published = await target.adminClient.call(`admin/free-reports/races/${target.race.id}/publish`, 'POST', { revision: 2, kind: 'POST_RACE_REVIEW', reason: '結果確認後に公開' }, undefined, { 'Idempotency-Key': randomUUID() });
     expect(published.status).toBe(201); expect(published.body.kind).toBe('POST_RACE_REVIEW');
     const view = await target.memberClient.call(`races/${target.race.id}/free-report`);

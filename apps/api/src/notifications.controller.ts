@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req } from '@nestjs/common';
 import { buildPredictionLineMessage, canManage, notificationListQuerySchema, notificationRetrySchema, requiresMfa } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
@@ -16,45 +16,96 @@ export class NotificationsController {
     return actor;
   }
 
+  private async audience(eventType: string, raceDate: string, now: Date) {
+    const [settings, lineEligible, emailEligible, bothEligible] = await this.auth.db.$transaction([
+      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { lineNotificationsEnabled: true, emailNotificationsEnabled: true } }),
+      this.auth.db.user.count({ where: notificationRecipientWhere({ channel: 'LINE', eventType, visibility: 'FREE', raceDate, now }) }),
+      this.auth.db.user.count({ where: notificationRecipientWhere({ channel: 'EMAIL', eventType, visibility: 'FREE', raceDate, now }) }),
+      this.auth.db.user.count({ where: { AND: [
+        notificationRecipientWhere({ channel: 'LINE', eventType, visibility: 'FREE', raceDate, now }),
+        notificationRecipientWhere({ channel: 'EMAIL', eventType, visibility: 'FREE', raceDate, now })
+      ] } })
+    ]);
+    const lineScheduled = settings.lineNotificationsEnabled ? lineEligible : 0;
+    const emailScheduled = settings.emailNotificationsEnabled ? emailEligible : 0;
+    const duplicateChannelMembers = settings.lineNotificationsEnabled && settings.emailNotificationsEnabled ? bothEligible : 0;
+    return {
+      uniqueMembers: lineScheduled + emailScheduled - duplicateChannelMembers,
+      totalDeliveries: lineScheduled + emailScheduled,
+      duplicateChannelMembers,
+      line: { enabled: settings.lineNotificationsEnabled, eligibleRecipients: lineEligible, scheduledDeliveries: lineScheduled },
+      email: { enabled: settings.emailNotificationsEnabled, eligibleRecipients: emailEligible, scheduledDeliveries: emailScheduled }
+    };
+  }
+
   @Get('previews/race-announcement')
   async previewRaceAnnouncement(@Req() req: AppRequest, @Query() query: unknown) {
     await this.staff(req, ['ADMIN', 'OPERATOR']);
     const input = z.object({ raceId: z.string().uuid(), scheduledAt: z.coerce.date().optional() }).parse(query);
     const generatedAt = new Date();
-    const [race, settings] = await this.auth.db.$transaction([
-      this.auth.db.race.findUnique({
-        where: { id: input.raceId },
-        select: { id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true, status: true, announcements: { orderBy: { version: 'desc' }, take: 1, select: { version: true } } }
-      }),
-      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { lineNotificationsEnabled: true, emailNotificationsEnabled: true } })
-    ]);
+    const race = await this.auth.db.race.findUnique({
+      where: { id: input.raceId },
+      select: { id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true, status: true, announcements: { orderBy: { version: 'desc' }, take: 1, select: { version: true } } }
+    });
     if (!race) throw new NotFoundException({ code: 'RACE_NOT_FOUND', message: 'レースが見つかりません。' });
     const plannedAt = input.scheduledAt ?? generatedAt;
     if (input.scheduledAt && input.scheduledAt <= generatedAt) throw new BadRequestException({ code: 'PREVIEW_SCHEDULE_IN_PAST', message: '現在より後の配信予定時刻を指定してください。' });
     if (plannedAt >= race.startsAt || ['FINISHED', 'CANCELLED'].includes(race.status)) throw new BadRequestException({ code: 'PREVIEW_AFTER_DEADLINE', message: '発走時刻より前の開催中レースだけ確認できます。' });
 
-    const lineFilter = notificationRecipientWhere({ channel: 'LINE', eventType: 'RACE_ANNOUNCED', visibility: 'FREE', raceDate: race.raceDate, now: generatedAt });
-    const emailFilter = notificationRecipientWhere({ channel: 'EMAIL', eventType: 'RACE_ANNOUNCED', visibility: 'FREE', raceDate: race.raceDate, now: generatedAt });
-    const [lineEligible, emailEligible, bothEligible] = await this.auth.db.$transaction([
-      this.auth.db.user.count({ where: lineFilter }),
-      this.auth.db.user.count({ where: emailFilter }),
-      this.auth.db.user.count({ where: { AND: [lineFilter, emailFilter] } })
-    ]);
     const version = (race.announcements[0]?.version ?? 0) + 1;
     const message = buildPredictionLineMessage({ eventType: 'RACE_ANNOUNCED', raceId: race.id, raceDate: race.raceDate, venue: race.venue, raceNumber: race.number, raceName: race.name, version, visibility: 'FREE', appBaseUrl: process.env.APP_BASE_URL ?? 'http://127.0.0.1:3000' });
-    const lineScheduled = settings.lineNotificationsEnabled ? lineEligible : 0;
-    const emailScheduled = settings.emailNotificationsEnabled ? emailEligible : 0;
-    const uniqueScheduled = lineScheduled + emailScheduled - (settings.lineNotificationsEnabled && settings.emailNotificationsEnabled ? bothEligible : 0);
     return {
-      eventType: 'RACE_ANNOUNCED', generatedAt, plannedAt, timing: input.scheduledAt ? 'SCHEDULED' : 'IMMEDIATE', version,
+      eventType: 'RACE_ANNOUNCED', contentLabel: '対象レース告知', generatedAt, plannedAt, timing: input.scheduledAt ? 'SCHEDULED' : 'IMMEDIATE', version,
       race: { id: race.id, raceDate: race.raceDate, venue: race.venue, number: race.number, name: race.name, startsAt: race.startsAt },
-      audience: {
-        uniqueMembers: uniqueScheduled,
-        totalDeliveries: lineScheduled + emailScheduled,
-        duplicateChannelMembers: settings.lineNotificationsEnabled && settings.emailNotificationsEnabled ? bothEligible : 0,
-        line: { enabled: settings.lineNotificationsEnabled, eligibleRecipients: lineEligible, scheduledDeliveries: lineScheduled },
-        email: { enabled: settings.emailNotificationsEnabled, eligibleRecipients: emailEligible, scheduledDeliveries: emailScheduled }
-      },
+      audience: await this.audience('RACE_ANNOUNCED', race.raceDate, generatedAt),
+      message
+    };
+  }
+
+  @Get('previews/free-report')
+  async previewFreeReport(@Req() req: AppRequest, @Query() query: unknown) {
+    await this.staff(req, ['ADMIN', 'OPERATOR']);
+    const input = z.object({
+      raceId: z.string().uuid(),
+      kind: z.enum(['PRE_RACE', 'POST_RACE_REVIEW']),
+      revision: z.coerce.number().int().positive(),
+      scheduledAt: z.coerce.date().optional()
+    }).parse(query);
+    const generatedAt = new Date();
+    if (input.scheduledAt && input.scheduledAt <= generatedAt) throw new BadRequestException({ code: 'PREVIEW_SCHEDULE_IN_PAST', message: '現在より後の配信予定時刻を指定してください。' });
+    if (input.kind === 'POST_RACE_REVIEW' && input.scheduledAt) throw new BadRequestException({ code: 'FREE_REPORT_REVIEW_SCHEDULE_UNSUPPORTED', message: 'レース後検証は即時公開で確認してください。' });
+    const race = await this.auth.db.race.findUnique({ where: { id: input.raceId }, select: {
+      id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true, status: true,
+      entries: { select: { id: true, status: true } },
+      freeReportDraft: { select: { revision: true, upEntryId: true, downEntryId: true, reviewText: true } },
+      freeReportVersions: { orderBy: { version: 'desc' }, select: { version: true, kind: true } },
+      resultVersions: { take: 1, select: { id: true } }
+    } });
+    if (!race || !race.freeReportDraft) throw new NotFoundException({ code: 'FREE_REPORT_DRAFT_NOT_FOUND', message: '無料速報の下書きを保存してください。' });
+    if (race.freeReportDraft.revision !== input.revision) throw new ConflictException({ code: 'FREE_REPORT_DRAFT_CONFLICT', message: '無料速報が変更されています。再確認してください。' });
+    const plannedAt = input.scheduledAt ?? generatedAt;
+    const latestPre = race.freeReportVersions.find(version => version.kind === 'PRE_RACE');
+    if (input.kind === 'PRE_RACE' && (plannedAt >= race.startsAt || ['FINISHED', 'CANCELLED'].includes(race.status))) throw new ConflictException({ code: 'FREE_REPORT_PRE_RACE_CLOSED', message: '発走後または中止レースの事前速報は公開できません。' });
+    if (input.kind === 'POST_RACE_REVIEW' && (!latestPre || generatedAt < race.startsAt || !race.resultVersions.length)) throw new ConflictException({ code: 'FREE_REPORT_REVIEW_NOT_READY', message: '事前速報と確定結果があり、発走時刻を過ぎてから検証を公開できます。' });
+    if (input.kind === 'POST_RACE_REVIEW' && !race.freeReportDraft.reviewText.trim()) throw new BadRequestException({ code: 'FREE_REPORT_REVIEW_REQUIRED', message: 'レース後の検証コメントを入力してください。' });
+    if (input.kind === 'PRE_RACE') {
+      const entries = new Map(race.entries.map(entry => [entry.id, entry.status]));
+      if (entries.get(race.freeReportDraft.upEntryId) !== 'ACTIVE' || entries.get(race.freeReportDraft.downEntryId) !== 'ACTIVE') throw new BadRequestException({ code: 'FREE_REPORT_ENTRY_INVALID', message: '選択した出走馬の状態を確認してください。' });
+    }
+    const eventType = input.kind === 'PRE_RACE' ? 'FREE_REPORT_PUBLISHED' : 'FREE_REPORT_REVIEW_PUBLISHED';
+    const version = (race.freeReportVersions[0]?.version ?? 0) + 1;
+    const message = buildPredictionLineMessage({ eventType, raceId: race.id, raceDate: race.raceDate, venue: race.venue, raceNumber: race.number, raceName: race.name, version, visibility: 'FREE', appBaseUrl: process.env.APP_BASE_URL ?? 'http://127.0.0.1:3000' });
+    return {
+      eventType,
+      contentLabel: input.kind === 'PRE_RACE' ? '無料パドック速報' : 'レース後検証',
+      kind: input.kind,
+      draftRevision: race.freeReportDraft.revision,
+      generatedAt,
+      plannedAt,
+      timing: input.scheduledAt ? 'SCHEDULED' : 'IMMEDIATE',
+      version,
+      race: { id: race.id, raceDate: race.raceDate, venue: race.venue, number: race.number, name: race.name, startsAt: race.startsAt },
+      audience: await this.audience(eventType, race.raceDate, generatedAt),
       message
     };
   }
