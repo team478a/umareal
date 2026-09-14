@@ -73,14 +73,20 @@ const databaseRole = spawnSync(process.execPath, ['scripts/db-runtime-role.mjs',
 });
 if (databaseRole.status === 0 || !databaseRole.stderr.includes('Set DB_ROLE_CONFIRM=CONFIGURE_RUNTIME_ROLE')) throw new Error('Database role configuration did not require explicit one-time confirmation');
 console.info('PASS: database role configuration requires explicit one-time confirmation.');
+const workerMail = spawnSync(process.execPath, ['dist/index.js', '--once'], {
+  cwd: resolve('apps/worker'), env: { ...process.env, NODE_ENV: 'production', LAUNCH_MODE: 'FULL', NOTIFICATION_TRANSPORT: 'line', MAIL_TRANSPORT: 'test' },
+  encoding: 'utf8', timeout: 20000, windowsHide: true
+});
+if (workerMail.status === 0 || !workerMail.stderr.includes('Production requires the Resend email transport')) throw new Error('Production worker mail guard did not reject the test transport');
+console.info('PASS: production worker refuses the local mail test transport.');
 const workerDatabaseRole = spawnSync(process.execPath, ['dist/index.js', '--once'], {
-  cwd: resolve('apps/worker'), env: { ...process.env, NODE_ENV: 'production', LAUNCH_MODE: 'FULL', NOTIFICATION_TRANSPORT: 'line' },
+  cwd: resolve('apps/worker'), env: { ...process.env, NODE_ENV: 'production', LAUNCH_MODE: 'FULL', NOTIFICATION_TRANSPORT: 'line', MAIL_TRANSPORT: 'resend', RESEND_API_KEY: 'test-resend-key', MAIL_FROM: 'notice@example.test' },
   encoding: 'utf8', timeout: 20000, windowsHide: true
 });
 if (workerDatabaseRole.status === 0 || !workerDatabaseRole.stderr.includes('Production requires a restricted database runtime role')) throw new Error('Production worker database guard did not reject the owner connection');
 console.info('PASS: production worker refuses a database owner connection.');
 const freeWorkerDatabaseRole = spawnSync(process.execPath, ['dist/index.js', '--once'], {
-  cwd: resolve('apps/worker'), env: { ...process.env, NODE_ENV: 'production', LAUNCH_MODE: 'FREE_REGISTRATION', NOTIFICATION_TRANSPORT: 'disabled' },
+  cwd: resolve('apps/worker'), env: { ...process.env, NODE_ENV: 'production', LAUNCH_MODE: 'FREE_REGISTRATION', NOTIFICATION_TRANSPORT: 'disabled', MAIL_TRANSPORT: 'resend', RESEND_API_KEY: 'test-resend-key', MAIL_FROM: 'notice@example.test' },
   encoding: 'utf8', timeout: 20000, windowsHide: true
 });
 if (freeWorkerDatabaseRole.status === 0 || !freeWorkerDatabaseRole.stderr.includes('Production requires a restricted database runtime role') || freeWorkerDatabaseRole.stderr.includes('requires the LINE notification transport')) throw new Error('Free registration worker did not accept disabled LINE transport safely');
