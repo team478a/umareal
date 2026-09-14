@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | `umareal-web` | Web service | 独自ドメイン | Next.js画面、同一Origin API中継、Webhook受付 |
 | `umareal-api` | Private service | Render内のみ | NestJS API |
-| `umareal-worker` | Background worker | 受信なし | 予約公開、LINE通知キュー |
+| `umareal-worker` | Background worker | 受信なし | 予約公開、メール・LINE通知キュー |
 | `umareal-db` | Render Postgres | 外部接続なし | 会員、予想、通知、監査履歴 |
 
 `render.yaml` がこの構成を定義する。WebからAPIへはRenderのprivate hostを使う。LINEとStripeの公開URLはそれぞれ `https://{独自ドメイン}/api/v1/webhooks/line`、`https://{独自ドメイン}/api/v1/webhooks/stripe` とする。
@@ -35,12 +35,12 @@
 | `ENCRYPTION_KEY` | API、worker | 同一の32-byte base64値。途中変更禁止 |
 | `SUPABASE_URL` | API | 本番Supabase projectのHTTPS URL |
 | `SUPABASE_ANON_KEY` | API | Auth REST API用anon key。ブラウザーへは渡さずprivate APIで使用 |
-| `RESEND_API_KEY` | API | 認証済み送信ドメインのkey |
-| `MAIL_FROM` | API | 認証済みドメインのFromアドレス |
+| `RESEND_API_KEY` | API、worker | 認証済み送信ドメインのkey |
+| `MAIL_FROM` | API、worker | 認証済みドメインのFromアドレス |
 | `JOB_SECRET` | API | 32byte以上のランダム値 |
 | `SENTRY_DSN` | API | 本番プロジェクトの監視先 |
 
-初回公開は `LAUNCH_MODE=FREE_REGISTRATION` とし、LINEとStripeのtransportを `disabled` にする。LINEとStripeの秘密値は`FULL`への拡張前に、初回管理者を本番認証へ結合した後、AAL2で `/admin/settings` から暗号化保存する。APIとworkerには同じ `ENCRYPTION_KEY` が必要である。キーを失うと保存済みLINE・Stripe秘密値を復号できない。
+初回公開は `LAUNCH_MODE=FREE_REGISTRATION` とし、LINEとStripeのtransportを `disabled`、メールtransportを`resend`にする。APIとworkerへ同じResend設定を登録する。LINEとStripeの秘密値は`FULL`への拡張前に、初回管理者を本番認証へ結合した後、AAL2で `/admin/settings` から暗号化保存する。APIとworkerには同じ `ENCRYPTION_KEY` が必要である。キーを失うと保存済みLINE・Stripe秘密値を復号できない。
 
 Supabaseのservice-role keyは現行アプリでは使用しない。管理APIが必要になるまでRenderへ登録せず、anon keyだけで登録・ログイン・更新・JWT検証を行う。
 

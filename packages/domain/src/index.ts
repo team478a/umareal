@@ -28,7 +28,7 @@ export const registrationSchema = z.object({
   acquisition: acquisitionSchema.optional()
 }).strict();
 export const loginSchema = z.object({ email: z.string().trim().email().transform(v => v.toLowerCase()), password: z.string().max(128) }).strict();
-export const preferencesSchema = z.object({ predictions: z.boolean(), changes: z.boolean(), articles: z.boolean(), billing: z.boolean() }).strict();
+export const preferencesSchema = z.object({ emailEnabled: z.boolean().optional(), predictions: z.boolean(), changes: z.boolean(), articles: z.boolean(), billing: z.boolean() }).strict();
 export const mfaCodeSchema = z.object({ code: z.string().regex(/^\d{6}$/) }).strict();
 export function requiresMfa(role: Role) { return role === 'ADMIN' || role === 'EXPERT'; }
 export function canManage(identity: Identity, accepted: readonly Role[]) {

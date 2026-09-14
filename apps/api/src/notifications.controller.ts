@@ -19,8 +19,9 @@ export class NotificationsController {
   @Get()
   async list(@Req() req: AppRequest, @Query() query: unknown) {
     await this.staff(req, ['ADMIN', 'OPERATOR']);
-    const { page, limit, status } = notificationListQuerySchema.parse(query);
-    const where = status ? { status } : {};
+    const { page, limit, status, channel } = notificationListQuerySchema.parse(query);
+    const where: Prisma.NotificationDeliveryWhereInput = { ...(status ? { status } : {}), ...(channel ? { channel } : {}) };
+    const countWhere = channel ? Prisma.sql`WHERE channel = ${channel}` : Prisma.empty;
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const [items, total, counts, lastWebhook, receivedWebhooks, unmatchedWebhooks, blockedAccounts] = await this.auth.db.$transaction([
       this.auth.db.notificationDelivery.findMany({
@@ -33,13 +34,13 @@ export class NotificationsController {
         }
       }),
       this.auth.db.notificationDelivery.count({ where }),
-      this.auth.db.$queryRaw<Array<{ status: string; count: bigint }>>(Prisma.sql`SELECT status, count(*)::bigint AS count FROM notification_deliveries GROUP BY status ORDER BY status`),
+      this.auth.db.$queryRaw<Array<{ status: string; count: bigint }>>(Prisma.sql`SELECT status, count(*)::bigint AS count FROM notification_deliveries ${countWhere} GROUP BY status ORDER BY status`),
       this.auth.db.lineWebhookEvent.findFirst({ orderBy: [{ receivedAt: 'desc' }, { id: 'asc' }], select: { receivedAt: true, eventType: true, outcome: true } }),
       this.auth.db.lineWebhookEvent.count({ where: { receivedAt: { gte: since } } }),
       this.auth.db.lineWebhookEvent.count({ where: { receivedAt: { gte: since }, outcome: 'UNMATCHED' } }),
       this.auth.db.lineAccount.count({ where: { notificationDisabledAt: { not: null } } })
     ]);
-    return { items, total, page, limit, counts: Object.fromEntries(counts.map(item => [item.status, Number(item.count)])), webhook: { lastReceivedAt: lastWebhook?.receivedAt ?? null, lastEventType: lastWebhook?.eventType ?? null, lastOutcome: lastWebhook?.outcome ?? null, received24h: receivedWebhooks, unmatched24h: unmatchedWebhooks, blockedAccounts } };
+    return { items, total, page, limit, channel: channel ?? null, counts: Object.fromEntries(counts.map(item => [item.status, Number(item.count)])), webhook: { lastReceivedAt: lastWebhook?.receivedAt ?? null, lastEventType: lastWebhook?.eventType ?? null, lastOutcome: lastWebhook?.outcome ?? null, received24h: receivedWebhooks, unmatched24h: unmatchedWebhooks, blockedAccounts } };
   }
 
   @Post(':notificationId/retry')
@@ -48,13 +49,13 @@ export class NotificationsController {
     z.string().uuid().parse(notificationId);
     const input = notificationRetrySchema.parse(body);
     return this.auth.db.$transaction(async tx => {
-      const delivery = await tx.notificationDelivery.findUnique({ where: { id: notificationId }, select: { id: true, eventId: true, status: true, attemptCount: true, manualRetryCount: true, attempts: { orderBy: { attemptNumber: 'asc' }, take: 1, select: { startedAt: true } } } });
+      const delivery = await tx.notificationDelivery.findUnique({ where: { id: notificationId }, select: { id: true, eventId: true, channel: true, status: true, attemptCount: true, manualRetryCount: true, attempts: { orderBy: { attemptNumber: 'asc' }, take: 1, select: { startedAt: true } } } });
       if (!delivery) throw new NotFoundException({ code: 'NOTIFICATION_NOT_FOUND', message: '通知が見つかりません。' });
       if (delivery.status !== 'FAILED') throw new BadRequestException({ code: 'NOTIFICATION_NOT_FAILED', message: '失敗した通知だけを再送できます。' });
-      if (delivery.attempts[0] && Date.now() - delivery.attempts[0].startedAt.getTime() >= 24 * 60 * 60 * 1000) throw new BadRequestException({ code: 'NOTIFICATION_RETRY_WINDOW_EXPIRED', message: 'LINEの重複防止期間を過ぎているため、この通知は再送できません。' });
+      if (delivery.attempts[0] && Date.now() - delivery.attempts[0].startedAt.getTime() >= 24 * 60 * 60 * 1000) throw new BadRequestException({ code: 'NOTIFICATION_RETRY_WINDOW_EXPIRED', message: '重複防止期間を過ぎているため、この通知は再送できません。' });
       const updated = await tx.notificationDelivery.update({ where: { id: delivery.id }, data: { status: 'QUEUED', forceAttempt: true, manualRetryCount: { increment: 1 }, nextAttemptAt: new Date(), lockedAt: null, leaseToken: null, updatedAt: new Date() } });
       await tx.notificationEvent.update({ where: { id: delivery.eventId }, data: { status: 'RETRIED', updatedAt: new Date() } });
-      await tx.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: 'NOTIFICATION_RETRY_REQUEST', targetType: 'NOTIFICATION_DELIVERY', targetId: delivery.id, reason: input.reason, details: { eventId: delivery.eventId, previousStatus: delivery.status, attemptCount: delivery.attemptCount, manualRetryCount: updated.manualRetryCount }, requestId: req.requestId } });
+      await tx.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: 'NOTIFICATION_RETRY_REQUEST', targetType: 'NOTIFICATION_DELIVERY', targetId: delivery.id, reason: input.reason, details: { eventId: delivery.eventId, channel: delivery.channel, previousStatus: delivery.status, attemptCount: delivery.attemptCount, manualRetryCount: updated.manualRetryCount }, requestId: req.requestId } });
       return { id: updated.id, status: updated.status, manualRetryCount: updated.manualRetryCount, nextAttemptAt: updated.nextAttemptAt };
     });
   }

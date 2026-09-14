@@ -185,12 +185,13 @@ model PasswordReset {
 }
 
 model NotificationPreference {
-  userId      String  @id @db.Uuid
-  user        User    @relation(fields: [userId], references: [id])
-  predictions Boolean @default(true)
-  changes     Boolean @default(true)
-  articles    Boolean @default(false)
-  billing     Boolean @default(true)
+  userId       String  @id @db.Uuid
+  user         User    @relation(fields: [userId], references: [id])
+  emailEnabled Boolean @default(true)
+  predictions  Boolean @default(true)
+  changes      Boolean @default(true)
+  articles     Boolean @default(false)
+  billing      Boolean @default(true)
 
   @@map("notification_preferences")
 }
@@ -808,6 +809,7 @@ model NotificationEvent {
   payload             Json
   createdAt           DateTime                 @default(now()) @db.Timestamptz(3)
   expandedAt          DateTime?                @db.Timestamptz(3)
+  emailExpandedAt     DateTime?                @db.Timestamptz(3)
   updatedAt           DateTime                 @default(now()) @db.Timestamptz(3)
   deliveries          NotificationDelivery[]
   memberReads         MemberNotificationRead[]
@@ -873,6 +875,7 @@ model SystemSetting {
   revision                        Int      @default(1)
   newRegistrationsEnabled         Boolean  @default(true)
   registrationPauseMessage        String   @default("")
+  emailNotificationsEnabled       Boolean  @default(true)
   predictionPublicationEnabled    Boolean  @default(true)
   csvImportEnabled                Boolean  @default(true)
   lineNotificationsEnabled        Boolean  @default(false)

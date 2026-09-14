@@ -6,6 +6,7 @@ export const adminSettingsUpdateSchema = z.object({
   reason: z.string().trim().min(1).max(500),
   operations: z.object({
     newRegistrationsEnabled: z.boolean(),
+    emailNotificationsEnabled: z.boolean(),
     predictionPublicationEnabled: z.boolean(),
     csvImportEnabled: z.boolean(),
     lineNotificationsEnabled: z.boolean(),

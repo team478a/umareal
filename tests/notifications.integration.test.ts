@@ -1,13 +1,15 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import type { NotificationTransport } from '../apps/worker/src/notification-runner';
-import { runNotificationBatch, skipPendingNotificationEvents, TestNotificationTransport } from '../apps/worker/src/notification-runner';
+import { runEmailNotificationBatch, runNotificationBatch, skipPendingNotificationEvents, TestNotificationTransport } from '../apps/worker/src/notification-runner';
 import { account, Client, db } from './helpers';
 
 let settingsBefore: Awaited<ReturnType<typeof db.systemSetting.findUniqueOrThrow>>;
 beforeAll(async () => {
   settingsBefore = await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' } });
-  await db.systemSetting.update({ where: { id: 'global' }, data: { lineNotificationsEnabled: true, lineChannelId: 'notification-test', lineChannelSecretEncrypted: 'test-encrypted', lineAccessTokenEncrypted: 'test-encrypted', notificationMaxAttempts: 3, notificationBaseDelaySeconds: 10 } });
+  await db.systemSetting.update({ where: { id: 'global' }, data: { emailNotificationsEnabled: true, lineNotificationsEnabled: true, lineChannelId: 'notification-test', lineChannelSecretEncrypted: 'test-encrypted', lineAccessTokenEncrypted: 'test-encrypted', notificationMaxAttempts: 3, notificationBaseDelaySeconds: 10 } });
+  // A developer database can contain pending events from an interrupted earlier run. Never turn those into email during this test run.
+  await db.notificationEvent.updateMany({ where: { emailExpandedAt: null }, data: { emailExpandedAt: new Date(), updatedAt: new Date() } });
   // Preserve the append-only history while draining due work left by earlier local runs.
   for (let index = 0; index < 100; index += 1) {
     const result = await runNotificationBatch({ db, transport: new TestNotificationTransport(), limit: 200 });
@@ -15,7 +17,7 @@ beforeAll(async () => {
   }
 }, 120000);
 afterAll(async () => {
-  await db.systemSetting.update({ where: { id: 'global' }, data: { lineNotificationsEnabled: settingsBefore.lineNotificationsEnabled, lineChannelId: settingsBefore.lineChannelId, lineChannelSecretEncrypted: settingsBefore.lineChannelSecretEncrypted, lineAccessTokenEncrypted: settingsBefore.lineAccessTokenEncrypted, notificationMaxAttempts: settingsBefore.notificationMaxAttempts, notificationBaseDelaySeconds: settingsBefore.notificationBaseDelaySeconds } });
+  await db.systemSetting.update({ where: { id: 'global' }, data: { emailNotificationsEnabled: settingsBefore.emailNotificationsEnabled, lineNotificationsEnabled: settingsBefore.lineNotificationsEnabled, lineChannelId: settingsBefore.lineChannelId, lineChannelSecretEncrypted: settingsBefore.lineChannelSecretEncrypted, lineAccessTokenEncrypted: settingsBefore.lineAccessTokenEncrypted, notificationMaxAttempts: settingsBefore.notificationMaxAttempts, notificationBaseDelaySeconds: settingsBefore.notificationBaseDelaySeconds } });
   await db.$disconnect();
 });
 
@@ -45,8 +47,43 @@ async function processFirstAttempt(eventId: string, userId: string, transport: N
   }
   throw new Error(`Target notification delivery was not attempted for event ${eventId}`);
 }
+async function processFirstEmailAttempt(eventId: string, userId: string, transport: NotificationTransport) {
+  for (let index = 0; index < 20; index += 1) {
+    const delivery = await db.notificationDelivery.findFirst({ where: { eventId, userId, channel: 'EMAIL' } });
+    if (delivery?.attemptCount) return delivery;
+    if (delivery?.status === 'QUEUED') await db.notificationDelivery.update({ where: { id: delivery.id }, data: { nextAttemptAt: new Date(0) } });
+    await runEmailNotificationBatch({ db, transport, limit: 200 });
+  }
+  throw new Error(`Target email delivery was not attempted for event ${eventId}`);
+}
 
 describe('notification worker and administration', () => {
+  it('sends safe publication email only to verified members who opted in', async () => {
+    const target = await publication('FREE');
+    const enabled = await account();
+    const optedOut = await account();
+    const unverified = await account();
+    await db.notificationPreference.update({ where: { userId: optedOut.user.id }, data: { emailEnabled: false } });
+    await db.user.update({ where: { id: unverified.user.id }, data: { emailVerifiedAt: null } });
+    const sent: { recipient: string; text: string }[] = [];
+    const transport: NotificationTransport = { async send(input) { sent.push({ recipient: input.recipient, text: input.message.text }); return { kind: 'SENT', providerMessageId: `email-${input.retryKey}` }; } };
+    const delivery = await processFirstEmailAttempt(target.event.id, enabled.user.id, transport);
+    expect(delivery).toMatchObject({ channel: 'EMAIL', status: 'SENT', attemptCount: 1 });
+    expect(sent.some(item => item.recipient === enabled.user.email && item.text.includes(target.race.name))).toBe(true);
+    expect(sent.find(item => item.recipient === enabled.user.email)?.text).not.toMatch(/買い目|本命|円/);
+    expect(await db.notificationDelivery.count({ where: { eventId: target.event.id, userId: { in: [optedOut.user.id, unverified.user.id] }, channel: 'EMAIL' } })).toBe(0);
+    expect(await db.notificationEvent.findUniqueOrThrow({ where: { id: target.event.id } })).toMatchObject({ emailExpandedAt: expect.any(Date) });
+  });
+
+  it('keeps email and LINE delivery expansion independent', async () => {
+    const target = await publication('FREE'); const member = await recipient();
+    await runNotificationBatch({ db, transport: new TestNotificationTransport(), limit: 200 });
+    expect(await db.notificationDelivery.count({ where: { eventId: target.event.id, userId: member.id, channel: 'LINE' } })).toBe(1);
+    expect(await db.notificationDelivery.count({ where: { eventId: target.event.id, userId: member.id, channel: 'EMAIL' } })).toBe(0);
+    await runEmailNotificationBatch({ db, transport: new TestNotificationTransport(), limit: 200 });
+    expect(await db.notificationDelivery.count({ where: { eventId: target.event.id, userId: member.id, channel: 'EMAIL' } })).toBe(1);
+  });
+
   it('finalizes web-only events without creating delayed LINE deliveries', async () => {
     const target = await publication('FREE');
     const result = await skipPendingNotificationEvents(db, 200);
@@ -134,9 +171,11 @@ describe('notification worker and administration', () => {
 
     const admin = new Client(); await admin.login(await account('ADMIN')); expect((await admin.call('admin/notifications')).body.code).toBe('MFA_REQUIRED'); await admin.mfa();
     const listed = await admin.call('admin/notifications?status=FAILED&limit=50'); expect(listed.status).toBe(200); expect(listed.body.total).toBeGreaterThan(0); expect(listed.body.items.every((item: { status: string }) => item.status === 'FAILED')).toBe(true);
+    const emailListed = await admin.call('admin/notifications?channel=EMAIL&limit=50'); expect(emailListed.status).toBe(200); expect(emailListed.body.items.every((item: { channel: string }) => item.channel === 'EMAIL')).toBe(true);
     const retried = await admin.call(`admin/notifications/${delivery.id}/retry`, 'POST', { reason: '試験用配送先を修正したため' });
     expect(retried.status).toBe(201); expect(retried.body).toMatchObject({ status: 'QUEUED', manualRetryCount: 1 });
-    expect(await db.auditLog.count({ where: { action: 'NOTIFICATION_RETRY_REQUEST', targetId: delivery.id, reason: '試験用配送先を修正したため' } })).toBe(1);
+    const retryAudit = await db.auditLog.findFirstOrThrow({ where: { action: 'NOTIFICATION_RETRY_REQUEST', targetId: delivery.id, reason: '試験用配送先を修正したため' }, orderBy: { createdAt: 'desc' } });
+    expect(retryAudit.details).toMatchObject({ channel: 'LINE' });
 
     const expiredTarget = await publication('PAID'); const expiredMember = await recipient(undefined, true); const old = new Date(Date.now() - 25 * 60 * 60 * 1000);
     await db.notificationEvent.update({ where: { id: expiredTarget.event.id }, data: { expandedAt: new Date(), status: 'FAILED' } });

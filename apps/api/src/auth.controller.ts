@@ -51,7 +51,7 @@ export class AuthController {
     const mode = resolveLaunchMode(process.env.LAUNCH_MODE);
     const capabilities = launchCapabilities(mode);
     const [settings, registration] = await Promise.all([
-      this.auth.db.systemSetting.findUnique({ where: { id: 'global' }, select: { lineLoginEnabled: true, lineNotificationsEnabled: true } }),
+      this.auth.db.systemSetting.findUnique({ where: { id: 'global' }, select: { emailNotificationsEnabled: true, lineLoginEnabled: true, lineNotificationsEnabled: true } }),
       this.auth.registrationAvailability()
     ]);
     return {
@@ -60,6 +60,7 @@ export class AuthController {
       launchMode: mode,
       capabilities,
       registration,
+      emailNotificationsEnabled: settings?.emailNotificationsEnabled === true,
       lineEnabled: capabilities.lineLogin && settings?.lineLoginEnabled === true,
       lineNotificationsEnabled: capabilities.lineNotifications && settings?.lineNotificationsEnabled === true
     };

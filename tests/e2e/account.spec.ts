@@ -43,10 +43,13 @@ test('register, save preferences, sign out and sign in on desktop/mobile', async
   await page.getByRole('button', { name: '未読', exact: true }).click();
   await expect(page.getByRole('button', { name: '未読', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await page.goto('/account');
+  await expect(page.getByLabel('メール通知を受け取る', { exact: true })).toBeChecked();
+  await page.getByLabel('メール通知を受け取る', { exact: true }).uncheck();
   await page.getByLabel('記事・動画・音声の更新', { exact: false }).check();
   await page.getByRole('button', { name: '設定を保存' }).click();
   await expect(page.getByRole('status')).toContainText('通知設定を保存しました。');
   await page.reload();
+  await expect(page.getByLabel('メール通知を受け取る', { exact: true })).not.toBeChecked();
   await expect(page.getByLabel('記事・動画・音声の更新', { exact: false })).toBeChecked();
   await expect(page.getByRole('heading', { name: '同意履歴' })).toBeVisible();
   await page.goto('/admin');

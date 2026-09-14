@@ -45,7 +45,7 @@
 | GET | /admin/audit | ADMIN+AAL2。page/limit |
 | GET | /admin/settings | ADMIN+AAL2またはOPERATOR。秘密値を除く運用・LINE・Stripe設定と接続準備状態 |
 | PATCH | /admin/settings | ADMIN+AAL2。revisionと理由必須。LINE・Stripe資格情報、料金、通知方針、緊急停止を更新 |
-| GET | /admin/notifications | ADMIN+AAL2またはOPERATOR。受信者単位の配送、試行履歴、状態別件数。page/limit/status |
+| GET | /admin/notifications | ADMIN+AAL2またはOPERATOR。受信者単位の配送、試行履歴、状態別件数。page/limit/status/channel（EMAILまたはLINE） |
 | POST | /admin/notifications/:notificationId/retry | ADMIN+AAL2またはOPERATOR。FAILED配送を理由付きで再送待ちへ戻し監査 |
 | POST | /webhooks/line | LINE署名必須。follow/unfollowを冪等受付し、連携済みアカウントの通知可否を更新 |
 | POST | /auth/line/start | REGISTER、LOGIN、LINKのstate・nonce・PKCE付きOAuthフローを開始。REGISTERのみ任意のacquisitionをサーバー内フローへ固定 |
@@ -79,6 +79,8 @@ HTTP 400=入力不正、401=未認証、403=権限/MFA/Origin不正、404=対象
 `BILLING_TRANSPORT=test` はローカル検証専用で、外部通信、カード入力、実請求を行わない。`stripe` はHosted Checkoutと署名付きWebhookを使用する。`LAUNCH_MODE=FREE_REGISTRATION` の本番では `disabled` を必須にし、購入画面を表示せず、CheckoutとWebhookを503で拒否する。新規購入停止は月額と1日利用の両方へ適用する。
 
 `GET /api/v1/auth/config` は新規登録の受付状態と、停止中だけ会員向け案内を返す。`POST /api/v1/auth/register`、LINEの新規登録開始・確定は、管理設定で停止中の場合 `REGISTRATION_PAUSED`（503）を返す。ログイン、メール確認、パスワード再設定は停止対象に含めない。切替は `PATCH /api/v1/admin/settings` でADMIN+AAL2、現在のrevision、変更理由、停止時の会員向け案内を必須とする。
+
+確認済みメール会員への公開通知は、メール通知全体と本人の`emailEnabled`・カテゴリ設定を送信直前に確認する。通知eventは共通だが、メールとLINEの配送、冪等キー、展開状態は独立する。既存eventは移行時にメール展開済みとし、導入前の告知を一斉送信しない。公開通知の停止は認証用メールへ影響しない。
 
 ローカル月額契約は申込時刻からUTC基準の暦1か月を計算し、Stripe月額契約はInvoiceの請求期間を正とする。`invoice.paid` は初回期間補正、更新、回復を反映し、`invoice.payment_failed` はPAST_DUEと設定済み猶予期限を反映する。`customer.subscription.updated/deleted` は解約予約・終了を同期する。1日利用は対象日のJST 00:00以上、翌日00:00未満。支払試行、請求イベント、Stripe受信イベントはDBで更新・削除・TRUNCATEを拒否する。
 

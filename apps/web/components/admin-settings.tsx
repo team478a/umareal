@@ -3,7 +3,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 
 type Settings = {
   revision: number;
-  operations: { newRegistrationsEnabled: boolean; predictionPublicationEnabled: boolean; csvImportEnabled: boolean; lineNotificationsEnabled: boolean; lineLoginEnabled: boolean; newPurchasesEnabled: boolean };
+  operations: { newRegistrationsEnabled: boolean; emailNotificationsEnabled: boolean; predictionPublicationEnabled: boolean; csvImportEnabled: boolean; lineNotificationsEnabled: boolean; lineLoginEnabled: boolean; newPurchasesEnabled: boolean };
   registrationPauseMessage: string;
   maintenanceMessage: string;
   notificationPolicy: { maxAttempts: number; baseDelaySeconds: number };
@@ -66,6 +66,7 @@ export function AdminSettings() {
       <section className="panel"><div className="panel-heading"><div><span className="eyebrow">EMERGENCY CONTROLS</span><h2>機能の停止・再開</h2></div><span className="status-tag">設定版 {settings.revision}</span></div><div className="panel-body">
         {([
           ['newRegistrationsEnabled', '新規会員登録', '停止中も既存会員のログインとメール確認は利用できます。'],
+          ['emailNotificationsEnabled', 'メール通知', '確認済みメール会員へのレース告知と公開通知を停止・再開します。'],
           ['predictionPublicationEnabled', '予想公開', '停止中は公開前確認と公開確定を拒否します。'],
           ['csvImportEnabled', 'CSV取込', '停止中はプレビューと確定を拒否します。'],
           ['lineNotificationsEnabled', 'LINE通知', '資格情報が揃っている場合だけ有効化できます。'],

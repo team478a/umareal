@@ -47,6 +47,7 @@ export class AdminSettingsController {
       revision: value.revision,
       operations: {
         newRegistrationsEnabled: value.newRegistrationsEnabled,
+        emailNotificationsEnabled: value.emailNotificationsEnabled,
         predictionPublicationEnabled: value.predictionPublicationEnabled,
         csvImportEnabled: value.csvImportEnabled,
         lineNotificationsEnabled: value.lineNotificationsEnabled,

@@ -22,7 +22,7 @@ describe('audited administration settings', () => {
     const stripeSecretKey = `sk_test_${'x'.repeat(32)}`; const stripeWebhookSecret = `whsec_${'y'.repeat(32)}`;
     const stoppedBody = {
       revision: initial.body.revision, reason: '緊急停止とLINE設定の結合試験',
-      operations: { newRegistrationsEnabled: false, predictionPublicationEnabled: false, csvImportEnabled: false, lineNotificationsEnabled: true, lineLoginEnabled: true, newPurchasesEnabled: false },
+      operations: { newRegistrationsEnabled: false, emailNotificationsEnabled: false, predictionPublicationEnabled: false, csvImportEnabled: false, lineNotificationsEnabled: true, lineLoginEnabled: true, newPurchasesEnabled: false },
       registrationPauseMessage: '募集人数の確認中です。受付再開までお待ちください。',
       maintenanceMessage: '結合試験中', notificationPolicy: { maxAttempts: 4, baseDelaySeconds: 45 },
       billing: { founderSalesEnabled: false, founderPriceYen: 1980, standardPriceYen: 2980, dayPassPriceYen: 980, founderSalesLimit: 100, billingGraceDays: 0 },
@@ -45,6 +45,7 @@ describe('audited administration settings', () => {
 
     const publicConfig = await new Client().call('auth/config');
     expect(publicConfig.body.registration).toEqual({ enabled: false, message: stoppedBody.registrationPauseMessage });
+    expect(publicConfig.body.emailNotificationsEnabled).toBe(false);
     const pausedEmail = `paused-${randomUUID()}@example.test`;
     const paused = await new Client().call('auth/register', 'POST', { email: pausedEmail, displayName: '停止中登録', password: 'integration-password-123', adult: true, terms: true, privacy: true, termsVersion: 'draft-v1', privacyVersion: 'draft-v1' });
     expect(paused.status).toBe(503); expect(paused.body).toMatchObject({ code: 'REGISTRATION_PAUSED', message: stoppedBody.registrationPauseMessage });
@@ -61,7 +62,7 @@ describe('audited administration settings', () => {
 
     const restored = await admin.call('admin/settings', 'PATCH', {
       ...stoppedBody, revision: stopped.body.revision, reason: '結合試験後に通常運用へ復帰',
-      operations: { newRegistrationsEnabled: true, predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: false, lineLoginEnabled: false, newPurchasesEnabled: false },
+      operations: { newRegistrationsEnabled: true, emailNotificationsEnabled: true, predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: false, lineLoginEnabled: false, newPurchasesEnabled: false },
       registrationPauseMessage: '',
       maintenanceMessage: '', stripe: { liveMode: false, clearSecretKey: true, clearWebhookSecret: true, priceFounder: null, priceStandard: null, priceDayPass: null }, line: { channelId: null, clearChannelSecret: true, clearChannelAccessToken: true, loginChannelId: null, loginCallbackUrl: null, clearLoginChannelSecret: true }
     });

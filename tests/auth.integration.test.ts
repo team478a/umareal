@@ -37,7 +37,7 @@ describe('registration, account and session lifecycle', () => {
     expect(me.body.registrationMethod).toBe('EMAIL');
     expect(me.body).toMatchObject({ lineLinked: false, lineNotificationReady: false, lineNotificationState: 'NOT_LINKED' });
     expect(me.body.consents).toHaveLength(3);
-    expect(me.body.preferences).toEqual({ predictions: true, changes: true, articles: false, billing: true });
+    expect(me.body.preferences).toEqual({ emailEnabled: true, predictions: true, changes: true, articles: false, billing: true });
     expect(JSON.stringify(me.body)).not.toMatch(/passwordHash|mfaSecret|tokenHash/);
     expect((await client.call('admin/users')).status).toBe(403);
     const preferences = { predictions: false, changes: true, articles: true, billing: false };

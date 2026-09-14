@@ -40,9 +40,10 @@ export class AppController {
     const identity = await this.auth.authenticate(req);
     const user = await this.auth.db.user.findUniqueOrThrow({ where: { id: identity.id }, include: { preferences: true, lineAccount: true, entitlements: { where: { revokedAt: null, endsAt: { gt: new Date() } } }, consents: { orderBy: { acceptedAt: 'desc' } } } });
     const preferences = {
-        predictions: user.preferences?.predictions ?? true, changes: user.preferences?.changes ?? true,
-        articles: user.preferences?.articles ?? false, billing: user.preferences?.billing ?? true
-      };
+      emailEnabled: user.preferences?.emailEnabled ?? true,
+      predictions: user.preferences?.predictions ?? true, changes: user.preferences?.changes ?? true,
+      articles: user.preferences?.articles ?? false, billing: user.preferences?.billing ?? true
+    };
     const lineNotificationState = !user.lineAccount || user.lineAccount.unlinkedAt ? 'NOT_LINKED' : user.lineAccount.notificationDisabledAt ? 'BLOCKED' : !preferences.predictions ? 'DISABLED' : 'READY';
     return { id: user.id, email: user.email, emailVerified: !!user.emailVerifiedAt, hasPassword: !!user.passwordHash || (process.env.AUTH_PROVIDER === 'supabase' && !!user.authSubject), registrationMethod: user.registrationMethod, displayName: user.displayName, role: user.role, aal: identity.aal, mfaEnabled: !!user.mfaSecret || !!user.externalMfaFactorId || identity.aal === 2,
       mfaRequired: requiresMfa(user.role), preferences, lineLinked: !!user.lineAccount && !user.lineAccount.unlinkedAt,
@@ -57,7 +58,7 @@ export class AppController {
       const before = await tx.notificationPreference.findUnique({ where: { userId: identity.id } });
       const next = await tx.notificationPreference.upsert({ where: { userId: identity.id }, create: { userId: identity.id, ...input }, update: input });
       await this.auth.audit(tx, req, 'PREFERENCES_UPDATE', identity.id, '通知設定の変更', { before, after: input });
-      return { predictions: next.predictions, changes: next.changes, articles: next.articles, billing: next.billing };
+      return { emailEnabled: next.emailEnabled, predictions: next.predictions, changes: next.changes, articles: next.articles, billing: next.billing };
     });
   }
   @Get('me/closure') async closureEligibility(@Req() req: AppRequest) {
@@ -152,7 +153,7 @@ export class AppController {
       this.auth.db.notificationDelivery.count({ where: { status: { in: ['QUEUED', 'SENDING'] } } }),
       this.auth.db.race.count({ where: { startsAt: { gt: now }, status: { in: ['SCHEDULED', 'ACTIVE', 'DELAYED'] }, OR: [{ prediction: null }, { prediction: { versions: { none: {} } } }] } }),
       this.auth.db.race.count({ where: { startsAt: { lte: now }, prediction: { versions: { some: {} } }, resultVersions: { none: {} } } }),
-      this.auth.db.systemSetting.findUnique({ where: { id: 'global' }, select: { newRegistrationsEnabled: true, predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: true, lineLoginEnabled: true, newPurchasesEnabled: true } }),
+      this.auth.db.systemSetting.findUnique({ where: { id: 'global' }, select: { newRegistrationsEnabled: true, emailNotificationsEnabled: true, predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: true, lineLoginEnabled: true, newPurchasesEnabled: true } }),
       this.memberFunnel(), this.memberFunnel(cohortStartsAt),
       this.auth.db.memberJourneyEvent.findFirst({ orderBy: { occurredAt: 'asc' }, select: { occurredAt: true } }),
       this.acquisitionBreakdown(cohortStartsAt),
@@ -259,7 +260,7 @@ export class AppController {
     await this.staff(req, ['ADMIN', 'OPERATOR']);
     const now = new Date(); const delayedAt = new Date(now.getTime() - 60_000); const staleLeaseAt = new Date(now.getTime() - 5 * 60_000); const since = new Date(now.getTime() - 24 * 60 * 60_000);
     const [settings, failed, delayed, stuck, lastWebhook, unmatchedWebhooks] = await this.auth.db.$transaction([
-      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: true, newPurchasesEnabled: true, maintenanceMessage: true, lineChannelId: true, lineChannelSecretEncrypted: true, lineAccessTokenEncrypted: true, updatedAt: true } }),
+      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { emailNotificationsEnabled: true, predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: true, newPurchasesEnabled: true, maintenanceMessage: true, lineChannelId: true, lineChannelSecretEncrypted: true, lineAccessTokenEncrypted: true, updatedAt: true } }),
       this.auth.db.notificationDelivery.count({ where: { status: 'FAILED' } }),
       this.auth.db.notificationDelivery.count({ where: { status: 'QUEUED', attemptCount: 0, createdAt: { lt: delayedAt }, nextAttemptAt: { lte: now } } }),
       this.auth.db.notificationDelivery.count({ where: { status: 'SENDING', lockedAt: { lt: staleLeaseAt } } }),
@@ -269,6 +270,7 @@ export class AppController {
     const lineConfigured = !!settings.lineChannelId && !!settings.lineChannelSecretEncrypted && !!settings.lineAccessTokenEncrypted;
     const issues: { code: string; severity: 'CRITICAL' | 'WARNING' | 'INFO'; title: string; detail: string; action: string; href: string }[] = [];
     if (!settings.predictionPublicationEnabled) issues.push({ code: 'PREDICTION_PAUSED', severity: 'CRITICAL', title: '予想公開が停止中', detail: '新しいプレビュー確認と公開確定が拒否されます。', action: '停止理由を確認し、復旧条件が揃った後に管理者が再開します。', href: '/admin/settings' });
+    if (!settings.emailNotificationsEnabled) issues.push({ code: 'EMAIL_PAUSED', severity: 'CRITICAL', title: 'メール通知が停止中', detail: '確認済みメール会員へのレース告知と公開通知は送信されません。', action: 'メール配信基盤とキューを確認してから管理者が再開します。', href: '/admin/settings' });
     if (!settings.lineNotificationsEnabled) issues.push({ code: 'LINE_PAUSED', severity: 'CRITICAL', title: 'LINE通知が停止中', detail: '公開情報はWebへ残りますが、通知キューは処理されません。', action: 'LINE側とキューを確認してから管理者が通知を再開します。', href: '/admin/settings' });
     if (settings.lineNotificationsEnabled && !lineConfigured) issues.push({ code: 'LINE_CONFIGURATION_MISSING', severity: 'CRITICAL', title: 'LINE通知設定が不足', detail: 'Channel ID、secret、access tokenのいずれかが未設定です。', action: '管理者が資格情報を再設定し、外部疎通は別途確認します。', href: '/admin/settings' });
     if (stuck) issues.push({ code: 'DELIVERY_STUCK', severity: 'CRITICAL', title: '送信中の通知が停滞', detail: `5分以上送信中の配送が${stuck}件あります。`, action: 'ワーカー状態を確認します。再起動後は期限切れleaseが自動回収されます。', href: '/admin/notifications' });
@@ -279,7 +281,7 @@ export class AppController {
     if (settings.maintenanceMessage.trim()) issues.push({ code: 'MAINTENANCE_MESSAGE_ACTIVE', severity: 'INFO', title: 'メンテナンス案内を設定中', detail: settings.maintenanceMessage, action: '案内内容と現在の障害状態が一致しているか確認します。', href: '/admin/settings' });
     const critical = issues.filter(issue => issue.severity === 'CRITICAL').length; const warning = issues.filter(issue => issue.severity === 'WARNING').length;
     const status = critical ? 'INCIDENT' : warning ? 'DEGRADED' : 'NORMAL';
-    const publicMessage = !settings.predictionPublicationEnabled ? '現在、予想情報の公開準備を確認しています。公開が通常より遅れる可能性があります。状況が確定次第、Web会員ページでご案内します。' : !settings.lineNotificationsEnabled || !lineConfigured || stuck || failed || delayed ? '現在、LINE通知の配信に遅れが発生しています。公開済みの予想情報はWeb会員ページでご確認いただけます。復旧後に改めてご案内します。' : '現在、確認されている公開・通知障害はありません。';
+    const publicMessage = !settings.predictionPublicationEnabled ? '現在、予想情報の公開準備を確認しています。公開が通常より遅れる可能性があります。状況が確定次第、Web会員ページでご案内します。' : !settings.emailNotificationsEnabled || !settings.lineNotificationsEnabled || !lineConfigured || stuck || failed || delayed ? '現在、通知の配信に遅れが発生しています。公開済みの情報はWeb会員ページでご確認いただけます。復旧後に改めてご案内します。' : '現在、確認されている公開・通知障害はありません。';
     return { generatedAt: now, status, counts: { critical, warning, total: issues.length }, issues, publicMessage, monitoring: { failedDeliveries: failed, delayedDeliveries: delayed, stuckDeliveries: stuck, unmatchedWebhooks24h: unmatchedWebhooks, lastWebhookAt: lastWebhook?.receivedAt ?? null, lastWebhookOutcome: lastWebhook?.outcome ?? null, settingsUpdatedAt: settings.updatedAt, newPurchasesEnabled: settings.newPurchasesEnabled } };
   }
   @Get('admin/backups/status') async backupStatus(@Req() req: AppRequest) {
@@ -291,7 +293,7 @@ export class AppController {
     const launchMode = resolveLaunchMode(process.env.LAUNCH_MODE);
     const capabilities = launchCapabilities(launchMode);
     const [settings, backup, appliedMigrations, stripeConfig, databaseAccessRestricted] = await Promise.all([
-      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { newRegistrationsEnabled: true, predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: true, lineLoginEnabled: true, newPurchasesEnabled: true, lineChannelId: true, lineChannelSecretEncrypted: true, lineAccessTokenEncrypted: true, lineLoginChannelId: true, lineLoginChannelSecretEncrypted: true, lineLoginCallbackUrl: true, updatedAt: true } }),
+      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { newRegistrationsEnabled: true, emailNotificationsEnabled: true, predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: true, lineLoginEnabled: true, newPurchasesEnabled: true, lineChannelId: true, lineChannelSecretEncrypted: true, lineAccessTokenEncrypted: true, lineLoginChannelId: true, lineLoginChannelSecretEncrypted: true, lineLoginCallbackUrl: true, updatedAt: true } }),
       readLocalBackupStatus(),
       this.auth.db.$queryRaw<Array<{ count: number }>>`SELECT count(*)::int AS count FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`.then(rows => rows[0]?.count ?? 0),
       loadStripeConfig(this.auth.db),
@@ -322,7 +324,7 @@ export class AppController {
     const monitoringReady = !!process.env.SENTRY_DSN;
     add({ code: 'EXTERNAL_MONITORING', group: 'OPERATIONS', status: monitoringReady ? 'MANUAL' : 'BLOCKED', title: '外部監視・連絡', evidence: monitoringReady ? '監視先の設定があります。通知先と発報を人が確認する必要があります。' : '外部監視先が未設定です。', action: '死活・エラー・通知遅延の監視と連絡先を設定し、発報試験を行います。', href: '/admin/incidents' });
     const unsafePurchases = capabilities.billing && settings.newPurchasesEnabled && !stripeConfigured;
-    add({ code: 'SAFE_FEATURE_FLAGS', group: 'OPERATIONS', status: unsafePurchases ? 'BLOCKED' : 'READY', title: '公開前の機能状態', evidence: unsafePurchases ? '外部決済未接続のまま新規購入が有効です。' : `公開モード ${launchMode}、新規登録 ${settings.newRegistrationsEnabled ? '有効' : '停止'}、予想公開 ${settings.predictionPublicationEnabled ? '有効' : '停止'}、CSV ${settings.csvImportEnabled ? '有効' : '停止'}、新規購入 ${capabilities.billing && settings.newPurchasesEnabled ? '有効' : '停止'}です。`, action: unsafePurchases ? '新規購入を停止します。' : '公開当日に緊急停止と復旧手順を再確認します。', href: '/admin/settings' });
+    add({ code: 'SAFE_FEATURE_FLAGS', group: 'OPERATIONS', status: unsafePurchases ? 'BLOCKED' : 'READY', title: '公開前の機能状態', evidence: unsafePurchases ? '外部決済未接続のまま新規購入が有効です。' : `公開モード ${launchMode}、新規登録 ${settings.newRegistrationsEnabled ? '有効' : '停止'}、メール通知 ${settings.emailNotificationsEnabled ? '有効' : '停止'}、予想公開 ${settings.predictionPublicationEnabled ? '有効' : '停止'}、CSV ${settings.csvImportEnabled ? '有効' : '停止'}、新規購入 ${capabilities.billing && settings.newPurchasesEnabled ? '有効' : '停止'}です。`, action: unsafePurchases ? '新規購入を停止します。' : '公開当日に緊急停止と復旧手順を再確認します。', href: '/admin/settings' });
     const counts = { ready: checks.filter(item => item.status === 'READY').length, blocked: checks.filter(item => item.status === 'BLOCKED').length, manual: checks.filter(item => item.status === 'MANUAL').length, total: checks.length };
     return { generatedAt: new Date(), status: counts.blocked ? 'NOT_READY' : counts.manual ? 'MANUAL_REVIEW' : 'READY_FOR_REVIEW', counts, checks, nextActions: checks.filter(item => item.status !== 'READY').map(item => item.code), settingsUpdatedAt: settings.updatedAt, declaration: 'この自動判定だけで本番公開を承認しません。' };
   }

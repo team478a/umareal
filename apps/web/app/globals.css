@@ -483,6 +483,8 @@ td { padding:17px 24px; border-top:1px solid var(--line); }
 .readiness-grid span.ready { background:#e8f4ed; color:#176443; }
 .status-tag.warning { background:#fff2d8; color:#8a5a00; }
 .notification-counts { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; margin-bottom:22px; }
+.filter-row { display:flex; gap:8px; flex-wrap:wrap; margin:-10px 0 22px; }
+.filter-row .selected { border-color:var(--green); background:#edf6f0; }
 .webhook-health { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); padding:20px 24px; gap:20px; }
 .webhook-health>div { display:grid; gap:4px; }
 .webhook-health span,.webhook-health small { color:var(--muted); font-size:12px; }
