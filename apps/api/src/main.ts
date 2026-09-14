@@ -29,6 +29,7 @@ import { MailService } from './mail.service';
 import { MemberNotificationsController } from './member-notifications.controller';
 import { AdminFreeReportsController, MemberFreeReportsController } from './free-reports.controller';
 import { PublicationSchedulesController } from './publication-schedules.controller';
+import { SupabaseAuthService } from './supabase-auth.service';
 config({ path: resolve(process.cwd(), '../../.env'), quiet: true });
 
 @Catch()
@@ -51,7 +52,7 @@ class ErrorFilter implements ExceptionFilter {
     res.status(status).json({ code, message, requestId: req.requestId, details });
   }
 }
-@Module({ controllers: [AuthController, AppController, RacesController, AssessmentsController, PredictionsController, AdminSettingsController, NotificationsController, MemberNotificationsController, AdminFreeReportsController, MemberFreeReportsController, PublicationSchedulesController, LineWebhookController, LineLoginController, ResultsController, BillingController], providers: [DbService, AuthService, LineLoginService, MailService] })
+@Module({ controllers: [AuthController, AppController, RacesController, AssessmentsController, PredictionsController, AdminSettingsController, NotificationsController, MemberNotificationsController, AdminFreeReportsController, MemberFreeReportsController, PublicationSchedulesController, LineWebhookController, LineLoginController, ResultsController, BillingController], providers: [DbService, AuthService, SupabaseAuthService, LineLoginService, MailService] })
 class AppModule {}
 
 async function main() {
@@ -61,6 +62,12 @@ async function main() {
   if (process.env.NODE_ENV === 'production' && applicationUrl.protocol !== 'https:') throw new Error('Production requires an HTTPS application URL');
   if (!['local', 'supabase'].includes(provider ?? '')) throw new Error('Set AUTH_PROVIDER explicitly');
   if (provider === 'local' && process.env.NODE_ENV === 'production') throw new Error('Local authentication is forbidden in production');
+  if (provider === 'supabase') {
+    let supabaseUrl: URL;
+    try { supabaseUrl = new URL(process.env.SUPABASE_URL ?? ''); } catch { throw new Error('Configure SUPABASE_URL'); }
+    if (!process.env.SUPABASE_ANON_KEY) throw new Error('Configure SUPABASE_ANON_KEY');
+    if (process.env.NODE_ENV === 'production' && supabaseUrl.protocol !== 'https:') throw new Error('Production requires an HTTPS Supabase URL');
+  }
   if (Buffer.from(process.env.ENCRYPTION_KEY ?? '', 'base64').length !== 32) throw new Error('Configure ENCRYPTION_KEY');
   if (process.env.CORRECTION_POLICY && !['ADMIN_ONLY', 'EXPERT_OR_ADMIN'].includes(process.env.CORRECTION_POLICY)) throw new Error('Invalid CORRECTION_POLICY');
   if (process.env.DELAYED_PUBLICATION_POLICY && !['CLOSED', 'LATEST_STARTS_AT'].includes(process.env.DELAYED_PUBLICATION_POLICY)) throw new Error('Invalid DELAYED_PUBLICATION_POLICY');

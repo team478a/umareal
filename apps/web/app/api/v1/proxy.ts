@@ -27,3 +27,16 @@ export function apiBaseUrl(value = process.env.API_BASE_URL) {
   }
   return parsed.toString().replace(/\/$/, '');
 }
+
+export function mergeResponseCookies(cookieHeader: string | null, setCookies: string[]) {
+  const values = new Map<string, string>();
+  for (const part of (cookieHeader ?? '').split(';')) {
+    const trimmed = part.trim(); const separator = trimmed.indexOf('=');
+    if (separator > 0) values.set(trimmed.slice(0, separator), trimmed.slice(separator + 1));
+  }
+  for (const cookie of setCookies) {
+    const first = cookie.split(';', 1)[0]; const separator = first.indexOf('=');
+    if (separator > 0) values.set(first.slice(0, separator), first.slice(separator + 1));
+  }
+  return [...values].map(([name, value]) => `${name}=${value}`).join('; ');
+}

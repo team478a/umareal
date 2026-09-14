@@ -21,7 +21,8 @@ export class AuthService {
     }
     if (process.env.AUTH_PROVIDER === 'local') { this.ensureLocal(); throw new UnauthorizedException(); }
     if (process.env.AUTH_PROVIDER !== 'supabase') throw new UnauthorizedException();
-    const bearerToken = req.headers.authorization?.match(/^Bearer (\S+)$/)?.[1];
+    const cookieAccessToken: unknown = req.cookies?.keiba_access_token;
+    const bearerToken = req.headers.authorization?.match(/^Bearer (\S+)$/)?.[1] ?? (typeof cookieAccessToken === 'string' && cookieAccessToken.length <= 8192 ? cookieAccessToken : undefined);
     if (!bearerToken || !process.env.SUPABASE_URL) throw new UnauthorizedException();
     const issuer = `${process.env.SUPABASE_URL.replace(/\/$/, '')}/auth/v1`;
     this.jwks ??= createRemoteJWKSet(new URL(`${issuer}/.well-known/jwks.json`));

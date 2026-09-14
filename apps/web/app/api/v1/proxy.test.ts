@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { apiBaseUrl, proxyRequestHeaders } from './proxy';
+import { apiBaseUrl, mergeResponseCookies, proxyRequestHeaders } from './proxy';
 
 describe('same-origin API proxy', () => {
   it('forwards provider signatures and drops arbitrary request headers', () => {
@@ -20,5 +20,12 @@ describe('same-origin API proxy', () => {
 
   it('rejects credentials embedded in the backend URL', () => {
     expect(() => apiBaseUrl('https://user:secret@api.example.com')).toThrow('API_BASE_URL');
+  });
+
+  it('merges rotated authentication cookies without forwarding cookie attributes', () => {
+    expect(mergeResponseCookies('theme=dark; keiba_access_token=old', [
+      'keiba_access_token=new-token; Path=/; HttpOnly',
+      'keiba_refresh_token=new-refresh; Path=/; HttpOnly'
+    ])).toBe('theme=dark; keiba_access_token=new-token; keiba_refresh_token=new-refresh');
   });
 });

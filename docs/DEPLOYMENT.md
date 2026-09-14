@@ -34,14 +34,25 @@
 | `ADMIN_BASE_URL` | API | 初期は `APP_BASE_URL` と同じ |
 | `ENCRYPTION_KEY` | API、worker | 同一の32-byte base64値。途中変更禁止 |
 | `SUPABASE_URL` | API | 本番Supabase projectのHTTPS URL |
-| `SUPABASE_ANON_KEY` | API | ブラウザー公開可能なanon key |
-| `SUPABASE_SERVICE_ROLE_KEY` | API | サーバーだけで保持。実装上必要になる操作に限定 |
+| `SUPABASE_ANON_KEY` | API | Auth REST API用anon key。ブラウザーへは渡さずprivate APIで使用 |
 | `RESEND_API_KEY` | API | 認証済み送信ドメインのkey |
 | `MAIL_FROM` | API | 認証済みドメインのFromアドレス |
 | `JOB_SECRET` | API | 32byte以上のランダム値 |
 | `SENTRY_DSN` | API | 本番プロジェクトの監視先 |
 
 LINEとStripeの秘密値は初回管理者を本番認証へ結合した後、AAL2で `/admin/settings` から暗号化保存する。APIとworkerには同じ `ENCRYPTION_KEY` が必要である。キーを失うと保存済みLINE・Stripe秘密値を復号できない。
+
+Supabaseのservice-role keyは現行アプリでは使用しない。管理APIが必要になるまでRenderへ登録せず、anon keyだけで登録・ログイン・更新・JWT検証を行う。
+
+## Supabase Auth設定
+
+1. Email providerを有効にし、メール確認を必須にする。
+2. Site URLを `https://{独自ドメイン}` にする。
+3. Redirect URLsへ `https://{独自ドメイン}/api/v1/auth/callback` を完全一致で追加する。一時URLで限定試験する間は、その一時URLの同じパスも追加する。
+4. 本番用SMTPをSupabase Authへ設定し、送信元ドメインのSPF/DKIMを確認する。
+5. Password securityとBot/CAPTCHA設定を決める。CAPTCHAを有効にする場合は、登録APIへ検証トークンを渡す実装を追加してから募集を開始する。
+
+登録とパスワード再設定はPKCEを使用する。コード検証値、アクセストークン、更新トークンはHttpOnly・SameSite=Lax・本番Secure Cookieだけに保存する。更新トークンによるセッション更新は同一Origin API中継が401を受けた場合に一度だけ実行する。ロールはSupabaseのuser metadataを使用せず、自社DBの値だけを参照する。
 
 ## 独自ドメイン設定の順序
 
@@ -59,10 +70,10 @@ LINEとStripeの秘密値は初回管理者を本番認証へ結合した後、A
 
 コンテナとドメイン経路は準備できるが、一般ユーザーの募集開始はまだできない。
 
-1. Web画面は現在、開発専用のローカル登録・ログインAPIを使用している。本番で必要なSupabaseの登録、メール確認、ログイン、セッション更新、ログアウトと、ローカル会員・同意履歴の作成が未結合である。
+1. Supabase認証経路は実装済みだが、本番project、Redirect URL、SMTPを使った登録・メール確認・ログイン・更新・ログアウトの実環境試験が未実施である。初回管理者のauth subject結合とSupabase MFA登録手順も確定していない。
 2. 利用規約とプライバシーポリシーは `draft-v1` であり、正式同意として扱えない。
 3. 個人情報の保持・匿名化、マイグレーション所有者とアプリDB権限の分離、本番バックアップの保持と復元責任者が未確定である。
-4. LINE、Stripe、Resend、Supabase、監視のライブ資格情報と実環境試験が未実施である。
+4. LINE、Stripe、Supabase SMTP、監視のライブ資格情報と実環境試験が未実施である。
 5. APIのレート制限はプロセス内保存である。初期はAPIを1インスタンスに固定し、複数インスタンス化の前に共有ストアへ移す。
 
-次の実装ゴールは本番Supabase認証の結合とする。これが完了すれば、正式文書と外部サービス資格情報を受け取り、Renderリソース作成、DNS設定、TLS確認、限定公開試験まで進められる。
+次の公開準備ゴールは、正式文書の反映と初回管理者・Supabase MFAの起動手順確定とする。その後、外部サービス資格情報を受け取り、Renderリソース作成、DNS設定、TLS確認、限定公開試験へ進める。
