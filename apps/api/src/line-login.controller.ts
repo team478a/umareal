@@ -20,6 +20,7 @@ export class LineLoginController {
   async start(@Body() body: unknown, @Req() req: AppRequest) {
     this.enabled();
     const { purpose, acquisition } = lineOAuthStartSchema.parse(body);
+    if (purpose === 'REGISTER') await this.auth.requireNewRegistration();
     const identity = purpose === 'LINK' ? await this.auth.authenticate(req) : undefined;
     return this.line.start(purpose, identity?.id, acquisition);
   }
@@ -40,6 +41,7 @@ export class LineLoginController {
         sessionCookie(res, session); return res.redirect(303, `${process.env.APP_BASE_URL}/account?line=login`);
       }
       if (account) throw new ConflictException({ code: 'LINE_ACCOUNT_UNAVAILABLE', message: 'このLINEアカウントは再登録できません。' });
+      await this.auth.requireNewRegistration();
       const token = newToken();
       await this.auth.db.lineRegistrationGrant.create({ data: { tokenHash: hashToken(token), subjectHash, subjectEncrypted: encrypt(identity.subject), expiresAt: new Date(Date.now() + 15 * 60000), acquisition: flow.acquisition ?? undefined } });
       return res.redirect(303, `${process.env.APP_BASE_URL}/register/line?token=${encodeURIComponent(token)}`);
@@ -72,6 +74,7 @@ export class LineLoginController {
     this.enabled();
     const input = lineRegistrationSchema.parse(body); const now = new Date();
     const result = await this.auth.db.$transaction(async tx => {
+      await this.auth.requireNewRegistration(tx);
       const grant = await tx.lineRegistrationGrant.findUnique({ where: { tokenHash: hashToken(input.token) } });
       if (!grant || grant.usedAt || grant.expiresAt <= now) throw new BadRequestException({ code: 'LINE_REGISTRATION_INVALID', message: 'LINE登録の有効期限が切れています。もう一度お試しください。' });
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${grant.subjectHash}))::text`;

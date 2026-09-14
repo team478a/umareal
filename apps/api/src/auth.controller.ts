@@ -50,18 +50,23 @@ export class AuthController {
   @Get('config') async config() {
     const mode = resolveLaunchMode(process.env.LAUNCH_MODE);
     const capabilities = launchCapabilities(mode);
-    const settings = await this.auth.db.systemSetting.findUnique({ where: { id: 'global' }, select: { lineLoginEnabled: true, lineNotificationsEnabled: true } });
+    const [settings, registration] = await Promise.all([
+      this.auth.db.systemSetting.findUnique({ where: { id: 'global' }, select: { lineLoginEnabled: true, lineNotificationsEnabled: true } }),
+      this.auth.registrationAvailability()
+    ]);
     return {
       provider: process.env.AUTH_PROVIDER,
       localOnly: process.env.AUTH_PROVIDER === 'local',
       launchMode: mode,
       capabilities,
+      registration,
       lineEnabled: capabilities.lineLogin && settings?.lineLoginEnabled === true,
       lineNotificationsEnabled: capabilities.lineNotifications && settings?.lineNotificationsEnabled === true
     };
   }
   @Post('register') async register(@Body() body: unknown, @Req() req: AppRequest, @Res({ passthrough: true }) res: Response) {
     const input = registrationSchema.parse(body);
+    await this.auth.requireNewRegistration();
     if (process.env.AUTH_PROVIDER === 'supabase') {
       const flow = pkce();
       const callbackUrl = `${process.env.APP_BASE_URL}/api/v1/auth/callback`;
@@ -73,6 +78,7 @@ export class AuthController {
       const existing = await this.auth.db.user.findFirst({ where: { OR: [{ authSubject: result.user.id }, { email: input.email }] } });
       if (existing && existing.authSubject !== result.user.id) throw new ConflictException({ code: 'ACCOUNT_LINK_REQUIRED', message: 'このメールアドレスは既存アカウントの確認が必要です。' });
       const user = existing ?? await this.auth.db.$transaction(async tx => {
+        await this.auth.requireNewRegistration(tx);
         const created = await tx.user.create({ data: { authSubject: result.user.id, email: input.email, emailVerifiedAt: result.user.email_confirmed_at || result.user.confirmed_at ? new Date(result.user.email_confirmed_at ?? result.user.confirmed_at!) : null, displayName: input.displayName, registrationMethod: 'EMAIL',
           preferences: { create: {} }, acquisition: { create: { source: input.acquisition?.source ?? 'direct', medium: input.acquisition?.medium, campaign: input.acquisition?.campaign, content: input.acquisition?.content, term: input.acquisition?.term, landingPath: input.acquisition?.landingPath ?? '/register', referralCode: input.acquisition?.referralCode } }, consents: { create: [
             { documentType: 'AGE_20', version: '1', source: 'web-registration' },
@@ -94,6 +100,7 @@ export class AuthController {
     this.auth.ensureLocal();
     const passwordHash = await hashPassword(input.password);
     const user = await this.auth.db.$transaction(async tx => {
+      await this.auth.requireNewRegistration(tx);
       const user = await tx.user.create({ data: { email: input.email, displayName: input.displayName, passwordHash, registrationMethod: 'EMAIL',
         preferences: { create: {} }, acquisition: { create: { source: input.acquisition?.source ?? 'direct', medium: input.acquisition?.medium, campaign: input.acquisition?.campaign, content: input.acquisition?.content, term: input.acquisition?.term, landingPath: input.acquisition?.landingPath ?? '/register', referralCode: input.acquisition?.referralCode } }, consents: { create: [
           { documentType: 'AGE_20', version: '1', source: 'web-registration' },

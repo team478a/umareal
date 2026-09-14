@@ -144,6 +144,8 @@ LINE通知を有効にしても現区間では送信しない。次区間のワ�
 
 `LAUNCH_MODE=FREE_REGISTRATION` では `BILLING_TRANSPORT=disabled` とし、会員向け購入画面と購入APIを停止する。`FULL`へ進むときに `BILLING_TRANSPORT=stripe` を配備時の安全スイッチとして設定し、Secret key、Webhook secret、テスト／本番モード、創設・通常・1日利用のPrice IDは `/admin/settings` で管理する。管理画面の秘密値は暗号化され、保存後は再表示されない。管理画面未設定時だけ同名の環境変数を互換用フォールバックとして使う。Webhook URLは `{API公開URL}/api/v1/webhooks/stripe`。Checkoutの完了画面だけでは権限を付けず、`checkout.session.completed` の署名、live/testモード、JPY金額、内部申込ID、会員ID、プランを照合してから反映する。
 
+新規会員募集を一時停止する場合は、ADMINがAAL2で `/admin/settings` を開き、「新規会員登録」を無効化し、会員向け案内と監査用の変更理由を入力する。保存後にシークレットブラウザーで `/register` の案内と、既存会員の `/login` が利用できることを確認する。再開時はスイッチを有効化し、停止案内を空にして理由付きで保存する。停止中もメール確認とパスワード再設定を止めない。
+
 Webhookには `checkout.session.completed`、`invoice.paid`、`invoice.payment_failed`、`customer.subscription.updated`、`customer.subscription.deleted` を登録する。更新成功はInvoiceの請求期間へ権限を更新する。失敗は管理設定の猶予期限を反映し、期限後は時刻ベースの権限判定で有料本文を返さない。契約終了は即時失効する。外部決済モードでは管理画面のローカル失敗・回復操作を拒否する。
 
 管理者は `/admin/billing` の外部決済申込とWebhook受信結果を確認する。`REJECTED` は金額や申込の不一致、`IGNORED` は対象外イベント、`PROCESSED` は反映済みを示す。Webhook secret、カード情報、イベント本文は保存・表示しない。ライブ接続前にStripe CLIまたはテスト環境で正常完了、重複配信、不正署名、金額不一致を確認する。

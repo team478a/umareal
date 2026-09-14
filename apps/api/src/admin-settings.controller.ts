@@ -46,12 +46,14 @@ export class AdminSettingsController {
     return {
       revision: value.revision,
       operations: {
+        newRegistrationsEnabled: value.newRegistrationsEnabled,
         predictionPublicationEnabled: value.predictionPublicationEnabled,
         csvImportEnabled: value.csvImportEnabled,
         lineNotificationsEnabled: value.lineNotificationsEnabled,
         lineLoginEnabled: value.lineLoginEnabled,
         newPurchasesEnabled: value.newPurchasesEnabled
       },
+      registrationPauseMessage: value.registrationPauseMessage,
       maintenanceMessage: value.maintenanceMessage,
       notificationPolicy: { maxAttempts: value.notificationMaxAttempts, baseDelaySeconds: value.notificationBaseDelaySeconds },
       billing: {
@@ -108,6 +110,7 @@ export class AdminSettingsController {
       if (process.env.BILLING_TRANSPORT === 'stripe' && input.operations.newPurchasesEnabled && (!stripeComplete || !stripeSecretKey || (process.env.NODE_ENV === 'production' && !input.stripe.liveMode))) throw new BadRequestException({ code: 'STRIPE_CONFIGURATION_REQUIRED', message: '新規購入を有効にする前に、この環境で利用できるStripe設定を完了してください。' });
       const after = await tx.systemSetting.update({ where: { id: 'global' }, data: {
         ...input.operations,
+        registrationPauseMessage: input.registrationPauseMessage,
         maintenanceMessage: input.maintenanceMessage,
         notificationMaxAttempts: input.notificationPolicy.maxAttempts,
         notificationBaseDelaySeconds: input.notificationPolicy.baseDelaySeconds,

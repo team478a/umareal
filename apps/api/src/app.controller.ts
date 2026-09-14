@@ -152,7 +152,7 @@ export class AppController {
       this.auth.db.notificationDelivery.count({ where: { status: { in: ['QUEUED', 'SENDING'] } } }),
       this.auth.db.race.count({ where: { startsAt: { gt: now }, status: { in: ['SCHEDULED', 'ACTIVE', 'DELAYED'] }, OR: [{ prediction: null }, { prediction: { versions: { none: {} } } }] } }),
       this.auth.db.race.count({ where: { startsAt: { lte: now }, prediction: { versions: { some: {} } }, resultVersions: { none: {} } } }),
-      this.auth.db.systemSetting.findUnique({ where: { id: 'global' }, select: { predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: true, lineLoginEnabled: true, newPurchasesEnabled: true } }),
+      this.auth.db.systemSetting.findUnique({ where: { id: 'global' }, select: { newRegistrationsEnabled: true, predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: true, lineLoginEnabled: true, newPurchasesEnabled: true } }),
       this.memberFunnel(), this.memberFunnel(cohortStartsAt),
       this.auth.db.memberJourneyEvent.findFirst({ orderBy: { occurredAt: 'asc' }, select: { occurredAt: true } }),
       this.acquisitionBreakdown(cohortStartsAt),
@@ -291,7 +291,7 @@ export class AppController {
     const launchMode = resolveLaunchMode(process.env.LAUNCH_MODE);
     const capabilities = launchCapabilities(launchMode);
     const [settings, backup, appliedMigrations, stripeConfig, databaseAccessRestricted] = await Promise.all([
-      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: true, lineLoginEnabled: true, newPurchasesEnabled: true, lineChannelId: true, lineChannelSecretEncrypted: true, lineAccessTokenEncrypted: true, lineLoginChannelId: true, lineLoginChannelSecretEncrypted: true, lineLoginCallbackUrl: true, updatedAt: true } }),
+      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { newRegistrationsEnabled: true, predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: true, lineLoginEnabled: true, newPurchasesEnabled: true, lineChannelId: true, lineChannelSecretEncrypted: true, lineAccessTokenEncrypted: true, lineLoginChannelId: true, lineLoginChannelSecretEncrypted: true, lineLoginCallbackUrl: true, updatedAt: true } }),
       readLocalBackupStatus(),
       this.auth.db.$queryRaw<Array<{ count: number }>>`SELECT count(*)::int AS count FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`.then(rows => rows[0]?.count ?? 0),
       loadStripeConfig(this.auth.db),
@@ -322,7 +322,7 @@ export class AppController {
     const monitoringReady = !!process.env.SENTRY_DSN;
     add({ code: 'EXTERNAL_MONITORING', group: 'OPERATIONS', status: monitoringReady ? 'MANUAL' : 'BLOCKED', title: '外部監視・連絡', evidence: monitoringReady ? '監視先の設定があります。通知先と発報を人が確認する必要があります。' : '外部監視先が未設定です。', action: '死活・エラー・通知遅延の監視と連絡先を設定し、発報試験を行います。', href: '/admin/incidents' });
     const unsafePurchases = capabilities.billing && settings.newPurchasesEnabled && !stripeConfigured;
-    add({ code: 'SAFE_FEATURE_FLAGS', group: 'OPERATIONS', status: unsafePurchases ? 'BLOCKED' : 'READY', title: '公開前の機能状態', evidence: unsafePurchases ? '外部決済未接続のまま新規購入が有効です。' : `公開モード ${launchMode}、予想公開 ${settings.predictionPublicationEnabled ? '有効' : '停止'}、CSV ${settings.csvImportEnabled ? '有効' : '停止'}、新規購入 ${capabilities.billing && settings.newPurchasesEnabled ? '有効' : '停止'}です。`, action: unsafePurchases ? '新規購入を停止します。' : '公開当日に緊急停止と復旧手順を再確認します。', href: '/admin/settings' });
+    add({ code: 'SAFE_FEATURE_FLAGS', group: 'OPERATIONS', status: unsafePurchases ? 'BLOCKED' : 'READY', title: '公開前の機能状態', evidence: unsafePurchases ? '外部決済未接続のまま新規購入が有効です。' : `公開モード ${launchMode}、新規登録 ${settings.newRegistrationsEnabled ? '有効' : '停止'}、予想公開 ${settings.predictionPublicationEnabled ? '有効' : '停止'}、CSV ${settings.csvImportEnabled ? '有効' : '停止'}、新規購入 ${capabilities.billing && settings.newPurchasesEnabled ? '有効' : '停止'}です。`, action: unsafePurchases ? '新規購入を停止します。' : '公開当日に緊急停止と復旧手順を再確認します。', href: '/admin/settings' });
     const counts = { ready: checks.filter(item => item.status === 'READY').length, blocked: checks.filter(item => item.status === 'BLOCKED').length, manual: checks.filter(item => item.status === 'MANUAL').length, total: checks.length };
     return { generatedAt: new Date(), status: counts.blocked ? 'NOT_READY' : counts.manual ? 'MANUAL_REVIEW' : 'READY_FOR_REVIEW', counts, checks, nextActions: checks.filter(item => item.status !== 'READY').map(item => item.code), settingsUpdatedAt: settings.updatedAt, declaration: 'この自動判定だけで本番公開を承認しません。' };
   }

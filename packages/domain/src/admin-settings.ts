@@ -5,12 +5,14 @@ export const adminSettingsUpdateSchema = z.object({
   revision: z.number().int().positive(),
   reason: z.string().trim().min(1).max(500),
   operations: z.object({
+    newRegistrationsEnabled: z.boolean(),
     predictionPublicationEnabled: z.boolean(),
     csvImportEnabled: z.boolean(),
     lineNotificationsEnabled: z.boolean(),
     lineLoginEnabled: z.boolean(),
     newPurchasesEnabled: z.boolean()
   }).strict(),
+  registrationPauseMessage: z.string().trim().max(500),
   maintenanceMessage: z.string().trim().max(500),
   notificationPolicy: z.object({
     maxAttempts: z.number().int().min(1).max(10),
@@ -38,6 +40,10 @@ export const adminSettingsUpdateSchema = z.object({
     loginCallbackUrl: z.string().trim().url().max(500).nullable(),
     clearLoginChannelSecret: z.boolean()
   }).strict()
-}).strict();
+}).strict().superRefine((value, context) => {
+  if (!value.operations.newRegistrationsEnabled && !value.registrationPauseMessage) {
+    context.addIssue({ code: 'custom', path: ['registrationPauseMessage'], message: '新規登録を停止する場合は会員向け案内を入力してください。' });
+  }
+});
 
 export type AdminSettingsUpdate = z.infer<typeof adminSettingsUpdateSchema>;

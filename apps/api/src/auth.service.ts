@@ -1,4 +1,4 @@
-import { ForbiddenException, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, Inject, Injectable, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import type { Prisma } from '@keiba/db';
 import type { AppRequest, AuthContext } from './context';
@@ -9,6 +9,24 @@ import { hashToken, newToken } from './security';
 export class AuthService {
   private jwks?: ReturnType<typeof createRemoteJWKSet>;
   constructor(@Inject(DbService) readonly db: DbService) {}
+  private registrationView(value: { newRegistrationsEnabled: boolean; registrationPauseMessage: string }) {
+    return {
+      enabled: value.newRegistrationsEnabled,
+      message: value.newRegistrationsEnabled ? '' : value.registrationPauseMessage.trim() || '現在、無料会員の新規登録を一時停止しています。'
+    };
+  }
+  async registrationAvailability() {
+    const value = await this.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { newRegistrationsEnabled: true, registrationPauseMessage: true } });
+    return this.registrationView(value);
+  }
+  async requireNewRegistration(tx?: Prisma.TransactionClient) {
+    const value = tx
+      ? (await tx.$queryRaw<Array<{ newRegistrationsEnabled: boolean; registrationPauseMessage: string }>>`SELECT "newRegistrationsEnabled", "registrationPauseMessage" FROM "system_settings" WHERE "id" = 'global' FOR SHARE`)[0]
+      : await this.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { newRegistrationsEnabled: true, registrationPauseMessage: true } });
+    if (!value) throw new Error('Global system settings are missing.');
+    const availability = this.registrationView(value);
+    if (!availability.enabled) throw new ServiceUnavailableException({ code: 'REGISTRATION_PAUSED', message: availability.message });
+  }
   ensureLocal() {
     if (process.env.AUTH_PROVIDER !== 'local' || process.env.NODE_ENV === 'production') throw new ForbiddenException({ code: 'LOCAL_AUTH_DISABLED', message: 'この認証方法は利用できません。' });
   }

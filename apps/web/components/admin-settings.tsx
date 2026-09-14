@@ -3,7 +3,8 @@ import { useEffect, useState, type FormEvent } from 'react';
 
 type Settings = {
   revision: number;
-  operations: { predictionPublicationEnabled: boolean; csvImportEnabled: boolean; lineNotificationsEnabled: boolean; lineLoginEnabled: boolean; newPurchasesEnabled: boolean };
+  operations: { newRegistrationsEnabled: boolean; predictionPublicationEnabled: boolean; csvImportEnabled: boolean; lineNotificationsEnabled: boolean; lineLoginEnabled: boolean; newPurchasesEnabled: boolean };
+  registrationPauseMessage: string;
   maintenanceMessage: string;
   notificationPolicy: { maxAttempts: number; baseDelaySeconds: number };
   billing: { founderSalesEnabled: boolean; founderPriceYen: number; standardPriceYen: number; dayPassPriceYen: number; founderSalesLimit: number; billingGraceDays: number };
@@ -43,7 +44,7 @@ export function AdminSettings() {
     event.preventDefault(); if (!settings) return; setBusy(true); setError(''); setMessage('');
     try {
       const updated = await request<Settings>('PATCH', {
-        revision: settings.revision, reason, operations: settings.operations, maintenanceMessage: settings.maintenanceMessage,
+        revision: settings.revision, reason, operations: settings.operations, registrationPauseMessage: settings.registrationPauseMessage, maintenanceMessage: settings.maintenanceMessage,
         notificationPolicy: settings.notificationPolicy, billing: settings.billing,
         stripe: {
           liveMode: settings.stripe.liveMode, ...(stripeSecretKey ? { secretKey: stripeSecretKey } : {}), ...(stripeWebhookSecret ? { webhookSecret: stripeWebhookSecret } : {}),
@@ -64,12 +65,14 @@ export function AdminSettings() {
     <form onSubmit={save} className="settings-stack">
       <section className="panel"><div className="panel-heading"><div><span className="eyebrow">EMERGENCY CONTROLS</span><h2>機能の停止・再開</h2></div><span className="status-tag">設定版 {settings.revision}</span></div><div className="panel-body">
         {([
+          ['newRegistrationsEnabled', '新規会員登録', '停止中も既存会員のログインとメール確認は利用できます。'],
           ['predictionPublicationEnabled', '予想公開', '停止中は公開前確認と公開確定を拒否します。'],
           ['csvImportEnabled', 'CSV取込', '停止中はプレビューと確定を拒否します。'],
           ['lineNotificationsEnabled', 'LINE通知', '資格情報が揃っている場合だけ有効化できます。'],
           ['lineLoginEnabled', 'LINEログイン', 'ログイン資格情報とCallback URLが揃っている場合だけ有効化できます。'],
           ['newPurchasesEnabled', '新規購入', '停止中はすべての新しい申込を拒否します。']
         ] as const).map(([key, label, description]) => <label className="setting-row" key={key}><span><strong>{label}</strong><small>{description}</small></span><input aria-label={`${label}を有効にする`} type="checkbox" checked={settings.operations[key]} onChange={event => operation(key, event.target.checked)} /></label>)}
+        <label className="field settings-message">登録停止中の会員向け案内<textarea aria-label="登録停止中の会員向け案内" rows={3} maxLength={500} required={!settings.operations.newRegistrationsEnabled} value={settings.registrationPauseMessage} onChange={event => setSettings({ ...settings, registrationPauseMessage: event.target.value })} /><small>新規登録を停止する場合は必須です。登録画面を開いた方へそのまま表示します。</small></label>
         <label className="field settings-message">運用メッセージ<textarea aria-label="運用メッセージ" rows={3} maxLength={500} value={settings.maintenanceMessage} onChange={event => setSettings({ ...settings, maintenanceMessage: event.target.value })} /><small>将来の会員向け告知欄に表示する文面です。現在は保存のみ行います。</small></label>
       </div></section>
       <section className="panel"><div className="panel-heading"><div><span className="eyebrow">BILLING</span><h2>料金・契約設定</h2></div><span className="status-tag warning">開発初期値</span></div><div className="panel-body">

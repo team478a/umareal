@@ -8,7 +8,7 @@ afterAll(() => db.$disconnect());
 
 describe('audited administration settings', () => {
   it('protects secrets, detects stale edits, and enforces emergency stops', async () => {
-    const member = new Client(); await member.login(await account());
+    const memberFixture = await account(); const member = new Client(); await member.login(memberFixture);
     expect((await member.call('admin/settings')).status).toBe(403);
 
     const admin = new Client(); await admin.login(await account('ADMIN'));
@@ -22,7 +22,8 @@ describe('audited administration settings', () => {
     const stripeSecretKey = `sk_test_${'x'.repeat(32)}`; const stripeWebhookSecret = `whsec_${'y'.repeat(32)}`;
     const stoppedBody = {
       revision: initial.body.revision, reason: '緊急停止とLINE設定の結合試験',
-      operations: { predictionPublicationEnabled: false, csvImportEnabled: false, lineNotificationsEnabled: true, lineLoginEnabled: true, newPurchasesEnabled: false },
+      operations: { newRegistrationsEnabled: false, predictionPublicationEnabled: false, csvImportEnabled: false, lineNotificationsEnabled: true, lineLoginEnabled: true, newPurchasesEnabled: false },
+      registrationPauseMessage: '募集人数の確認中です。受付再開までお待ちください。',
       maintenanceMessage: '結合試験中', notificationPolicy: { maxAttempts: 4, baseDelaySeconds: 45 },
       billing: { founderSalesEnabled: false, founderPriceYen: 1980, standardPriceYen: 2980, dayPassPriceYen: 980, founderSalesLimit: 100, billingGraceDays: 0 },
       stripe: { liveMode: false, secretKey: stripeSecretKey, webhookSecret: stripeWebhookSecret, clearSecretKey: false, clearWebhookSecret: false, priceFounder: 'price_Founder123', priceStandard: 'price_Standard123', priceDayPass: 'price_DayPass123' },
@@ -42,6 +43,15 @@ describe('audited administration settings', () => {
     const audit = await db.auditLog.findFirstOrThrow({ where: { action: 'SYSTEM_SETTINGS_UPDATE', targetId: 'global' }, orderBy: { createdAt: 'desc' } });
     expect(JSON.stringify(audit.details)).not.toContain(channelSecret); expect(JSON.stringify(audit.details)).not.toContain(channelAccessToken); expect(JSON.stringify(audit.details)).not.toContain(loginChannelSecret); expect(JSON.stringify(audit.details)).not.toContain(stripeSecretKey); expect(JSON.stringify(audit.details)).not.toContain(stripeWebhookSecret);
 
+    const publicConfig = await new Client().call('auth/config');
+    expect(publicConfig.body.registration).toEqual({ enabled: false, message: stoppedBody.registrationPauseMessage });
+    const pausedEmail = `paused-${randomUUID()}@example.test`;
+    const paused = await new Client().call('auth/register', 'POST', { email: pausedEmail, displayName: '停止中登録', password: 'integration-password-123', adult: true, terms: true, privacy: true, termsVersion: 'draft-v1', privacyVersion: 'draft-v1' });
+    expect(paused.status).toBe(503); expect(paused.body).toMatchObject({ code: 'REGISTRATION_PAUSED', message: stoppedBody.registrationPauseMessage });
+    expect(await db.user.findUnique({ where: { email: pausedEmail } })).toBeNull();
+    expect((await new Client().call('auth/line/start', 'POST', { purpose: 'REGISTER' })).body.code).toBe('REGISTRATION_PAUSED');
+    expect((await new Client().call('auth/login', 'POST', { email: memberFixture.user.email, password: memberFixture.password })).status).toBe(201);
+
     const publish = await fixture.client.call(`expert/races/${fixture.race.id}/prediction/preview`, 'POST', { predictionRevision: 1, raceRevision: fixture.race.revision, correctionReason: '' });
     expect(publish.body.code).toBe('PREDICTION_PUBLICATION_STOPPED');
     const day = '2094-01-01'; const row: Record<string, unknown> = { raceDate: day, venue: '東京', number: 1, name: `CSV停止試験-${randomUUID().slice(0, 6)}`, raceClass: '未勝利', distance: 1600, surface: 'TURF', direction: 'LEFT', startsAt: `${day}T10:00:00+09:00`, going: 'GOOD', weather: '晴', status: 'SCHEDULED', expertId: fixture.owner.user.id };
@@ -51,11 +61,16 @@ describe('audited administration settings', () => {
 
     const restored = await admin.call('admin/settings', 'PATCH', {
       ...stoppedBody, revision: stopped.body.revision, reason: '結合試験後に通常運用へ復帰',
-      operations: { predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: false, lineLoginEnabled: false, newPurchasesEnabled: false },
+      operations: { newRegistrationsEnabled: true, predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: false, lineLoginEnabled: false, newPurchasesEnabled: false },
+      registrationPauseMessage: '',
       maintenanceMessage: '', stripe: { liveMode: false, clearSecretKey: true, clearWebhookSecret: true, priceFounder: null, priceStandard: null, priceDayPass: null }, line: { channelId: null, clearChannelSecret: true, clearChannelAccessToken: true, loginChannelId: null, loginCallbackUrl: null, clearLoginChannelSecret: true }
     });
     expect(restored.status).toBe(200); expect(restored.body.line.connectionStatus).toBe('NOT_CONFIGURED');
     expect(restored.body.stripe.connectionStatus).toBe('NOT_CONFIGURED');
+    expect((await new Client().call('auth/config')).body.registration).toEqual({ enabled: true, message: '' });
+    const resumedEmail = `resumed-${randomUUID()}@example.test`;
+    expect((await new Client().call('auth/register', 'POST', { email: resumedEmail, displayName: '再開後登録', password: 'integration-password-123', adult: true, terms: true, privacy: true, termsVersion: 'draft-v1', privacyVersion: 'draft-v1' })).status).toBe(201);
+    await expect(db.systemSetting.update({ where: { id: 'global' }, data: { newRegistrationsEnabled: false, registrationPauseMessage: '' } })).rejects.toThrow();
     await expect(db.systemSetting.update({ where: { id: 'global' }, data: { lineNotificationsEnabled: true } })).rejects.toThrow();
     await expect(db.systemSetting.update({ where: { id: 'global' }, data: { lineLoginEnabled: true } })).rejects.toThrow();
     await expect(db.systemSetting.update({ where: { id: 'global' }, data: { stripeLiveMode: true } })).rejects.toThrow();

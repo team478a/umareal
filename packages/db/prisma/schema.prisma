@@ -871,6 +871,8 @@ model NotificationAttempt {
 model SystemSetting {
   id                              String   @id
   revision                        Int      @default(1)
+  newRegistrationsEnabled         Boolean  @default(true)
+  registrationPauseMessage        String   @default("")
   predictionPublicationEnabled    Boolean  @default(true)
   csvImportEnabled                Boolean  @default(true)
   lineNotificationsEnabled        Boolean  @default(false)
