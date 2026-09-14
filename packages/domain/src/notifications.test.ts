@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { notificationIdempotencyKey, notificationListQuerySchema, notificationRetrySchema, retryDelayMs } from './notifications';
+import { notificationIdempotencyKey, notificationListQuerySchema, notificationRetrySchema, notificationTestSendSchema, retryDelayMs } from './notifications';
 
 describe('notification operations rules', () => {
   it('builds a recipient and version scoped idempotency key', () => {
@@ -16,5 +16,12 @@ describe('notification operations rules', () => {
     expect(notificationListQuerySchema.parse({ raceId: '11111111-1111-4111-8111-111111111111' })).toMatchObject({ raceId: '11111111-1111-4111-8111-111111111111' });
     expect(() => notificationListQuerySchema.parse({ status: 'UNKNOWN' })).toThrow();
     expect(() => notificationRetrySchema.parse({ reason: ' ' })).toThrow();
+  });
+  it('requires a frozen draft revision for free-content test sends', () => {
+    const common = { raceId: '11111111-1111-4111-8111-111111111111', channel: 'EMAIL', reason: '公開前の文面確認' } as const;
+    expect(notificationTestSendSchema.parse({ ...common, contentType: 'RACE_ANNOUNCEMENT' })).toMatchObject({ contentType: 'RACE_ANNOUNCEMENT' });
+    expect(notificationTestSendSchema.parse({ ...common, contentType: 'FREE_REPORT_PRE_RACE', draftRevision: 2 })).toMatchObject({ draftRevision: 2 });
+    expect(() => notificationTestSendSchema.parse({ ...common, contentType: 'FREE_REPORT_PRE_RACE' })).toThrow();
+    expect(() => notificationTestSendSchema.parse({ ...common, contentType: 'RACE_ANNOUNCEMENT', draftRevision: 1 })).toThrow();
   });
 });

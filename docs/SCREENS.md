@@ -19,8 +19,8 @@
 | /races/:raceId | 無料会員向けパドック速報・音声・レース後検証、最新の公開予想と旧版・訂正版の切替、有料ロック時の料金確認導線 | 全員。無料速報本文はログイン会員、予想本文は公開範囲・有限期間権限による |
 | /admin | 管理ダッシュボード。30秒自動更新・鮮度表示付きの日付別開催日運用ボード、6段階の開催日リハーサル、運用状況、会員転換ファネル | ADMIN+AAL2/OPERATOR |
 | /admin/races | 開催日・レース・出走馬・担当専門家・CSV差分確認・スマホ向け対象レース告知 | ADMIN+AAL2/OPERATOR |
-| /admin/free-reports | 登録特典動画、評価UP/DOWN各1頭、本人音声、レース後検証の下書き・公開履歴 | ADMIN+AAL2/OPERATOR |
-| /admin/publication-schedules | 対象レース告知・無料速報の予約、取消、公開版別のWeb・LINE・メール配信結果、各種アラート | ADMIN+AAL2/OPERATOR |
+| /admin/free-reports | 登録特典動画、評価UP/DOWN各1頭、本人音声、レース後検証の下書き・配信前確認・管理者テスト送信・公開履歴 | ADMIN+AAL2/OPERATOR。テスト送信はADMIN+AAL2 |
+| /admin/publication-schedules | 対象レース告知・無料速報の配信前確認、管理者テスト送信、予約、取消、公開版別のWeb・LINE・メール配信結果、各種アラート | ADMIN+AAL2/OPERATOR。テスト送信はADMIN+AAL2 |
 | /admin/settings | LINE・Stripe資格情報、料金、通知再試行方針、緊急停止 | ADMIN+AAL2。OPERATORはAPIで状態のみ閲覧可 |
 | /admin/notifications | 配送状態、試行履歴、状態・チャネル・レースの絞り込み、理由付き再送、Resend配信拒否履歴と停止解除 | ADMIN+AAL2/OPERATOR（停止解除はADMIN+AAL2） |
 | /admin/incidents | 公開・取込・通知の停止、通知遅延・失敗・停滞、初動から復旧までの手順、会員向け案内文案 | ADMIN+AAL2/OPERATOR |

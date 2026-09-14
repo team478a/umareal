@@ -1,10 +1,11 @@
-import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req } from '@nestjs/common';
-import { buildPredictionLineMessage, canManage, notificationListQuerySchema, notificationRetrySchema, requiresMfa } from '@keiba/domain';
+import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req, ServiceUnavailableException } from '@nestjs/common';
+import { buildPredictionLineMessage, canManage, notificationListQuerySchema, notificationRetrySchema, notificationTestSendSchema, requiresMfa } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
-import { notificationRecipientWhere, Prisma } from '@keiba/db';
+import { decryptSecret, loadMailConfig, notificationRecipientWhere, Prisma } from '@keiba/db';
 import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
+import { hashToken } from './security';
 
 @Controller('admin/notifications')
 export class NotificationsController {
@@ -36,6 +37,34 @@ export class NotificationsController {
       line: { enabled: settings.lineNotificationsEnabled, eligibleRecipients: lineEligible, scheduledDeliveries: lineScheduled },
       email: { enabled: settings.emailNotificationsEnabled, eligibleRecipients: emailEligible, scheduledDeliveries: emailScheduled }
     };
+  }
+
+  private async deliverTest(input: { channel: 'LINE' | 'EMAIL'; recipient: string; message: { type: 'text'; text: string }; idempotencyKey: string; contentLabel: string }) {
+    if (input.channel === 'LINE') {
+      const transport = process.env.NOTIFICATION_TRANSPORT;
+      if (transport === 'test') return 'TEST_ONLY' as const;
+      if (transport !== 'line') throw new ServiceUnavailableException({ code: 'LINE_TEST_TRANSPORT_UNAVAILABLE', message: 'LINEテスト送信を利用できません。通知transportを確認してください。' });
+      const encrypted = await this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { lineAccessTokenEncrypted: true } });
+      let accessToken: string;
+      try { accessToken = decryptSecret(encrypted.lineAccessTokenEncrypted ?? ''); } catch { throw new ServiceUnavailableException({ code: 'LINE_TEST_CONFIGURATION_INVALID', message: 'LINE資格情報を読み取れません。管理設定を確認してください。' }); }
+      let response: Response;
+      try {
+        response = await fetch('https://api.line.me/v2/bot/message/push', { method: 'POST', signal: AbortSignal.timeout(8000), headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'X-Line-Retry-Key': input.idempotencyKey }, body: JSON.stringify({ to: input.recipient, messages: [input.message] }) });
+      } catch { throw new ServiceUnavailableException({ code: 'LINE_TEST_CONNECTION_FAILED', message: 'LINEテスト送信に接続できませんでした。' }); }
+      if (!response.ok && !(response.status === 409 && response.headers.get('x-line-accepted-request-id'))) throw new ServiceUnavailableException({ code: `LINE_TEST_HTTP_${response.status}`, message: 'LINEテスト送信が受理されませんでした。' });
+      return 'LINE' as const;
+    }
+    const transport = process.env.MAIL_TRANSPORT;
+    if (transport === 'test') return 'TEST_ONLY' as const;
+    if (transport !== 'resend') throw new ServiceUnavailableException({ code: 'EMAIL_TEST_TRANSPORT_UNAVAILABLE', message: 'メールテスト送信を利用できません。通知transportを確認してください。' });
+    const config = await loadMailConfig(this.auth.db);
+    if (!config.sendingComplete || !config.apiKey || !config.from) throw new ServiceUnavailableException({ code: 'EMAIL_TEST_CONFIGURATION_INVALID', message: 'メール送信設定が不足しています。管理設定を確認してください。' });
+    let response: Response;
+    try {
+      response = await fetch('https://api.resend.com/emails', { method: 'POST', signal: AbortSignal.timeout(8000), headers: { Authorization: `Bearer ${config.apiKey}`, 'Content-Type': 'application/json', 'Idempotency-Key': input.idempotencyKey, 'User-Agent': 'umareal-api/1.0' }, body: JSON.stringify({ from: config.from, to: [input.recipient], subject: `【運営テスト】${input.contentLabel}`, text: `${input.message.text}\n\nこれは運営担当者本人へのテスト送信です。` }) });
+    } catch { throw new ServiceUnavailableException({ code: 'EMAIL_TEST_CONNECTION_FAILED', message: 'メールテスト送信に接続できませんでした。' }); }
+    if (!response.ok) throw new ServiceUnavailableException({ code: `EMAIL_TEST_HTTP_${response.status}`, message: 'メールテスト送信が受理されませんでした。' });
+    return 'RESEND' as const;
   }
 
   @Get('previews/race-announcement')
@@ -108,6 +137,59 @@ export class NotificationsController {
       audience: await this.audience(eventType, race.raceDate, generatedAt),
       message
     };
+  }
+
+  @Post('test-send')
+  async testSend(@Req() req: AppRequest, @Body() body: unknown) {
+    const actor = await this.staff(req, ['ADMIN']);
+    const input = notificationTestSendSchema.parse(body);
+    const requestKey = z.string().uuid().parse(req.headers['idempotency-key']);
+    const idempotencyKey = `notification-test:${actor.id}:${requestKey}`;
+    const requestHash = hashToken(JSON.stringify(input));
+    const previous = await this.auth.db.idempotencyKey.findUnique({ where: { key: idempotencyKey } });
+    if (previous) {
+      if (previous.requestHash !== requestHash) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: '同じテスト送信キーが異なる内容で使われています。' });
+      return previous.response;
+    }
+    const preview = input.contentType === 'RACE_ANNOUNCEMENT'
+      ? await this.previewRaceAnnouncement(req, { raceId: input.raceId })
+      : await this.previewFreeReport(req, { raceId: input.raceId, kind: input.contentType === 'FREE_REPORT_PRE_RACE' ? 'PRE_RACE' : 'POST_RACE_REVIEW', revision: input.draftRevision });
+    const [settings, user] = await this.auth.db.$transaction([
+      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { lineNotificationsEnabled: true, emailNotificationsEnabled: true } }),
+      this.auth.db.user.findUniqueOrThrow({ where: { id: actor.id }, select: { email: true, emailVerifiedAt: true, emailDeliveryDisabledAt: true, lineAccount: { select: { subject: true, unlinkedAt: true, notificationDisabledAt: true } } } })
+    ]);
+    const reject = async (error: BadRequestException | ServiceUnavailableException): Promise<never> => {
+      const detail = error.getResponse(); const errorCode = typeof detail === 'object' && detail && 'code' in detail && typeof detail.code === 'string' ? detail.code : 'NOTIFICATION_TEST_REJECTED';
+      await this.auth.db.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: 'NOTIFICATION_TEST_SEND_FAILED', targetType: 'RACE', targetId: input.raceId, reason: input.reason, details: { channel: input.channel, contentType: input.contentType, eventType: preview.eventType, errorCode }, requestId: req.requestId } });
+      throw error;
+    };
+    if (input.channel === 'LINE' && !settings.lineNotificationsEnabled) await reject(new ServiceUnavailableException({ code: 'LINE_NOTIFICATIONS_STOPPED', message: 'LINE通知が停止中です。管理設定を確認してください。' }));
+    if (input.channel === 'EMAIL' && !settings.emailNotificationsEnabled) await reject(new ServiceUnavailableException({ code: 'EMAIL_NOTIFICATIONS_STOPPED', message: 'メール通知が停止中です。管理設定を確認してください。' }));
+    const recipient = input.channel === 'LINE' ? user.lineAccount?.subject : user.email;
+    if (input.channel === 'LINE' && (!user.lineAccount || user.lineAccount.unlinkedAt || user.lineAccount.notificationDisabledAt)) await reject(new BadRequestException({ code: 'ADMIN_LINE_NOT_READY', message: '管理者本人のLINE連携・受信状態を確認してください。' }));
+    if (input.channel === 'EMAIL' && (!user.email || !user.emailVerifiedAt || user.emailDeliveryDisabledAt)) await reject(new BadRequestException({ code: 'ADMIN_EMAIL_NOT_READY', message: '管理者本人の確認済みメールと受信状態を確認してください。' }));
+    const testMessage = { type: 'text' as const, text: `【運営テスト】\n${preview.message.text}` };
+    let transport: 'TEST_ONLY' | 'LINE' | 'RESEND';
+    try {
+      transport = await this.deliverTest({ channel: input.channel, recipient: recipient!, message: testMessage, idempotencyKey: requestKey, contentLabel: preview.contentLabel });
+    } catch (error) {
+      const detail = error instanceof ServiceUnavailableException ? error.getResponse() : null;
+      const errorCode = typeof detail === 'object' && detail && 'code' in detail && typeof detail.code === 'string' ? detail.code : 'NOTIFICATION_TEST_FAILED';
+      await this.auth.db.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: 'NOTIFICATION_TEST_SEND_FAILED', targetType: 'RACE', targetId: input.raceId, reason: input.reason, details: { channel: input.channel, contentType: input.contentType, eventType: preview.eventType, errorCode }, requestId: req.requestId } });
+      throw error;
+    }
+    const response = { status: transport === 'TEST_ONLY' ? 'SIMULATED' : 'SENT', channel: input.channel, transport, contentLabel: preview.contentLabel, version: preview.version, sentAt: new Date() };
+    return this.auth.db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${idempotencyKey}))::text`;
+      const stored = await tx.idempotencyKey.findUnique({ where: { key: idempotencyKey } });
+      if (stored) {
+        if (stored.requestHash !== requestHash) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: '同じテスト送信キーが異なる内容で使われています。' });
+        return stored.response;
+      }
+      await tx.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: 'NOTIFICATION_TEST_SENT', targetType: 'RACE', targetId: input.raceId, reason: input.reason, details: { channel: input.channel, contentType: input.contentType, eventType: preview.eventType, transport, status: response.status, version: preview.version }, requestId: req.requestId } });
+      await tx.idempotencyKey.create({ data: { key: idempotencyKey, requestHash, response } });
+      return response;
+    });
   }
 
   @Get()

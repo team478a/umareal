@@ -1,5 +1,6 @@
 'use client';
-import { CheckCircle2, Clock3, Mail, MessageCircle, Users } from 'lucide-react';
+import { CheckCircle2, Clock3, Mail, MessageCircle, Send, Users } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 
 export type NotificationPreviewData = {
   eventType: 'RACE_ANNOUNCED' | 'FREE_REPORT_PUBLISHED' | 'FREE_REPORT_REVIEW_PUBLISHED';
@@ -23,7 +24,19 @@ export type NotificationPreviewData = {
 
 const format = (value: string) => new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
 
-export function NotificationPreview({ preview, action, busy = false }: { preview: NotificationPreviewData; action?: { label: string; onClick: () => void }; busy?: boolean }) {
+type TestAction = { busy: 'LINE' | 'EMAIL' | null; onSend: (channel: 'LINE' | 'EMAIL') => void };
+
+export function NotificationPreview({ preview, action, testAction, busy = false }: { preview: NotificationPreviewData; action?: { label: string; onClick: () => void }; testAction?: TestAction; busy?: boolean }) {
+  const lineButton = useRef<HTMLButtonElement>(null);
+  const emailButton = useRef<HTMLButtonElement>(null);
+  const completedTest = useRef<'LINE' | 'EMAIL' | null>(null);
+  useEffect(() => {
+    if (testAction?.busy) completedTest.current = testAction.busy;
+    else if (completedTest.current) {
+      (completedTest.current === 'LINE' ? lineButton : emailButton).current?.focus({ preventScroll: true });
+      completedTest.current = null;
+    }
+  }, [testAction?.busy]);
   const channels = [
     { key: 'line', label: 'LINE', Icon: MessageCircle, value: preview.audience.line },
     { key: 'email', label: 'メール', Icon: Mail, value: preview.audience.email }
@@ -39,6 +52,7 @@ export function NotificationPreview({ preview, action, busy = false }: { preview
     {preview.audience.duplicateChannelMembers > 0 && <p className="muted delivery-preview-note">両方のチャネルで受け取る会員は{preview.audience.duplicateChannelMembers}人です。</p>}
     <div className="delivery-message"><span>送信本文</span><pre>{preview.message.text}</pre></div>
     <p className="muted delivery-preview-note">対象はこの画面を開いた時点の人数です。配信直前にも会員状態と通知設定を確認します。</p>
+    {testAction && <div className="delivery-test-send"><div><Send size={18} /><span>管理者本人へテスト送信<small>公開や会員向け配送は開始しません。</small></span></div><div><button ref={lineButton} type="button" className="button secondary small" disabled={busy || !!testAction.busy || !preview.audience.line.enabled} onClick={() => testAction.onSend('LINE')}><MessageCircle size={15} />{testAction.busy === 'LINE' ? '送信中…' : 'LINEへ送信'}</button><button ref={emailButton} type="button" className="button secondary small" disabled={busy || !!testAction.busy || !preview.audience.email.enabled} onClick={() => testAction.onSend('EMAIL')}><Mail size={15} />{testAction.busy === 'EMAIL' ? '送信中…' : 'メールへ送信'}</button></div></div>}
     {action && <button type="button" className="button delivery-preview-action" disabled={busy} onClick={action.onClick}>{busy ? '処理中…' : action.label}</button>}
     {preview.audience.totalDeliveries === 0 && <p className="notice error" role="alert">有効な配信チャネルと対象会員がありません。通知設定を確認してください。</p>}
   </section>;
