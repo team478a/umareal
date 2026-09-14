@@ -97,3 +97,5 @@ pnpm test:e2e
 `AUTH_PROVIDER=supabase` ではSupabase JWKSによる署名、issuer、audience、有効期限を検証し、authSubjectでローカルユーザーに対応付けます。ロールはDBから取得します。Supabaseの登録・メール確認・コールバック・セッション更新・ログアウトを含む本番のエンドツーエンド接続は未実施です。APIのJWT検証アダプターのみ準備済みです。
 
 正式文書・料金・データ許諾の確定と、正式な同意の再取得が本番公開前に必要です。詳細は docs/DECISIONS.md、docs/OPERATIONS.md、docs/IMPLEMENTATION.md を参照してください。
+
+独自ドメイン公開の構成、Render Blueprint、必要な資格情報と公開判定は [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) を参照してください。`render.yaml` はWeb、非公開API、ワーカー、PostgreSQLをSingaporeリージョンに作るための準備ファイルです。現時点では本番認証の結合と正式文書が未完了のため、公開トラフィックを受ける用途にはまだ使用しません。

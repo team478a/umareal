@@ -1,16 +1,14 @@
 import { NextRequest } from 'next/server';
+import { apiBaseUrl, proxyRequestHeaders } from '../proxy';
 export const dynamic = 'force-dynamic';
 async function forward(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const { path } = await context.params;
   if (path.some(p => !/^[a-zA-Z0-9_-]+$/.test(p))) return Response.json({ code: 'NOT_FOUND', message: 'ページが見つかりません。' }, { status: 404 });
-  const headers = new Headers();
-  for (const key of ['cookie', 'content-type', 'origin', 'authorization', 'idempotency-key', 'range']) {
-    const value = request.headers.get(key); if (value) headers.set(key, value);
-  }
+  const headers = proxyRequestHeaders(request.headers);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
   try {
-    const response = await fetch(`${process.env.API_BASE_URL ?? 'http://127.0.0.1:4000'}/api/v1/${path.join('/')}${request.nextUrl.search}`, {
+    const response = await fetch(`${apiBaseUrl()}/api/v1/${path.join('/')}${request.nextUrl.search}`, {
       method: request.method, headers, cache: 'no-store', redirect: 'manual', signal: controller.signal,
       body: ['GET', 'HEAD'].includes(request.method) ? undefined : await request.arrayBuffer()
     });

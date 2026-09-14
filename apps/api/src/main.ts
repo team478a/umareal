@@ -97,8 +97,9 @@ async function main() {
   app.use('/api/v1/expert', rateLimit({ windowMs: 60000, limit: 300 * localRateMultiplier, standardHeaders: 'draft-8', legacyHeaders: false, handler }));
   app.useGlobalFilters(new ErrorFilter());
   app.enableShutdownHooks();
-  const port = Number(process.env.API_PORT ?? 4000);
+  const port = Number(process.env.PORT ?? process.env.API_PORT ?? 4000);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid API port');
   await app.listen(port, provider === 'local' ? '127.0.0.1' : '0.0.0.0');
-  console.info(`API ready at http://127.0.0.1:${port}/api/v1`);
+  console.info(`API ready on port ${port}`);
 }
 void main();

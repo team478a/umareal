@@ -297,8 +297,8 @@ export class AppController {
     const checks: Check[] = [];
     const add = (check: Check) => checks.push(check);
     const baseUrl = process.env.APP_BASE_URL ?? '';
-    const authReady = process.env.AUTH_PROVIDER === 'supabase' && !!process.env.SUPABASE_URL && !!process.env.SUPABASE_ANON_KEY;
-    add({ code: 'PRODUCTION_AUTH', group: 'APPLICATION', status: authReady ? 'READY' : 'BLOCKED', title: '本番認証', evidence: authReady ? 'Supabase認証の設定があります。' : '現在はローカル認証、またはSupabase設定が不足しています。', action: 'Supabase実環境で登録・ログイン・セッション更新を結合確認します。' });
+    const authConfigured = process.env.AUTH_PROVIDER === 'supabase' && !!process.env.SUPABASE_URL && !!process.env.SUPABASE_ANON_KEY;
+    add({ code: 'PRODUCTION_AUTH', group: 'APPLICATION', status: authConfigured ? 'MANUAL' : 'BLOCKED', title: '本番認証', evidence: authConfigured ? 'Supabase JWT検証の設定があります。登録・ログインの実環境結合は未確認です。' : '現在はローカル認証、またはSupabase設定が不足しています。', action: 'Supabase実環境で登録・ログイン・セッション更新・ログアウトを結合確認します。' });
     add({ code: 'HTTPS_BASE_URL', group: 'APPLICATION', status: /^https:\/\//.test(baseUrl) ? 'READY' : 'BLOCKED', title: '公開URLとHTTPS', evidence: /^https:\/\//.test(baseUrl) ? 'APP_BASE_URLはHTTPSです。' : 'APP_BASE_URLは公開用HTTPSではありません。', action: '公開ドメインとHTTPSを設定し、Origin制御を確認します。' });
     const messagingConfigured = process.env.NOTIFICATION_TRANSPORT === 'line' && !!settings.lineChannelId && !!settings.lineChannelSecretEncrypted && !!settings.lineAccessTokenEncrypted;
     add({ code: 'LINE_MESSAGING', group: 'CONNECTIONS', status: messagingConfigured ? 'READY' : 'BLOCKED', title: 'LINE Messaging API', evidence: messagingConfigured ? '本番transportと必要な資格情報が設定済みです。' : '本番transportまたは必要な資格情報が未設定です。', action: '管理設定を保存し、実アカウントへの送信リハーサルを行います。', href: '/admin/settings' });

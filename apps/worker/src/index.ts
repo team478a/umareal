@@ -15,6 +15,10 @@ async function main() {
   if (process.env.NODE_ENV === 'production' && transportName === 'test') throw new Error('The test notification transport is forbidden in production');
   const db = new PrismaClient();
   const continuous = !process.argv.includes('--once');
+  let stopping = false;
+  const requestStop = () => { stopping = true; };
+  process.once('SIGTERM', requestStop);
+  process.once('SIGINT', requestStop);
   try {
     const transport = transportName === 'line'
       ? new LineMessagingTransport(decryptSecret((await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { lineAccessTokenEncrypted: true } })).lineAccessTokenEncrypted ?? ''))
@@ -23,10 +27,14 @@ async function main() {
       const schedules = await runPublicationSchedules({ db });
       const result = await runNotificationBatch({ db, transport });
       console.info(JSON.stringify({ job: 'publication-and-notifications', schedules, ...result }));
-      if (!continuous) break;
+      if (!continuous || stopping) break;
       await new Promise(resolveWait => setTimeout(resolveWait, 5000));
-    } while (continuous);
-  } finally { await db.$disconnect(); }
+    } while (continuous && !stopping);
+  } finally {
+    process.off('SIGTERM', requestStop);
+    process.off('SIGINT', requestStop);
+    await db.$disconnect();
+  }
 }
 if (require.main === module) void main();
 export * from './notification-runner';
