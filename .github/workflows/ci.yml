@@ -23,6 +23,10 @@ jobs:
       APP_BASE_URL: http://localhost:3000
       API_BASE_URL: http://127.0.0.1:4000
       API_PORT: 4000
+      # Integration tests exercise the authentication and administration APIs
+      # intensively from one loopback address. Keep production defaults intact.
+      AUTH_RATE_LIMIT: 1000
+      LOCAL_RATE_LIMIT_MULTIPLIER: 10
       NOTIFICATION_TRANSPORT: test
       LINE_OAUTH_TRANSPORT: test
       BILLING_TRANSPORT: test

@@ -60,7 +60,7 @@ describe('LP free member offer', () => {
     await expect(db.freeReportVersion.delete({ where: { id: version.id } })).rejects.toThrow();
     await expect(db.audioAsset.update({ where: { id: upload.id }, data: { sizeBytes: 1 } })).rejects.toThrow();
     const event = await db.notificationEvent.findUniqueOrThrow({ where: { freeReportVersionId: version.id } });
-    const messages: string[] = []; const transport: NotificationTransport = { async send(input) { if (input.recipient === target.subject) messages.push(input.message.text); return { kind: 'SENT', providerMessageId: input.retryKey }; } };
+    const messages: string[] = []; const transport: NotificationTransport = { async send(input) { if (input.recipient === target.subject && input.targetId === version.id) messages.push(input.message.text); return { kind: 'SENT', providerMessageId: input.retryKey }; } };
     for (let index = 0; index < 20; index += 1) {
       const delivery = await db.notificationDelivery.findFirst({ where: { eventId: event.id, userId: target.member.user.id } });
       if (delivery?.status === 'SENT') break;

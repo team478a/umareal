@@ -30,9 +30,14 @@ export class Client {
     if (setCookie) this.cookie = setCookie.split(';')[0];
     return { status: response.status, body: await response.json(), headers: response.headers };
   }
-  async login(fixture: Awaited<ReturnType<typeof account>>) { return this.call('auth/login', 'POST', { email: fixture.user.email!, password: fixture.password }); }
+  async login(fixture: Awaited<ReturnType<typeof account>>) {
+    const response = await this.call('auth/login', 'POST', { email: fixture.user.email!, password: fixture.password });
+    if (response.status !== 201) throw new Error(`Login test setup failed: ${response.status} (${String(response.body?.code ?? 'UNKNOWN')})`);
+    return response;
+  }
   async mfa() {
     const enroll = await this.call('auth/mfa/enroll', 'POST');
+    if (enroll.status !== 201 || typeof enroll.body?.secret !== 'string') throw new Error(`MFA enrollment test setup failed: ${enroll.status} (${String(enroll.body?.code ?? 'UNKNOWN')})`);
     const code = totp(enroll.body.secret);
     const verified = await this.call('auth/mfa/verify', 'POST', { code });
     if (verified.status !== 201) throw new Error(`MFA test setup failed: ${verified.status}`);
