@@ -48,7 +48,7 @@
 | GET | /admin/audit | ADMIN+AAL2。page/limit |
 | GET | /admin/settings | ADMIN+AAL2またはOPERATOR。秘密値を除く運用・メール・LINE・Stripe設定と接続準備状態 |
 | PATCH | /admin/settings | ADMIN+AAL2。revisionと理由必須。メール・LINE・Stripe資格情報、料金、通知方針、緊急停止を更新 |
-| GET | /admin/notifications | ADMIN+AAL2またはOPERATOR。受信者単位の配送、試行履歴、状態別件数。page/limit/status/channel（EMAILまたはLINE） |
+| GET | /admin/notifications | ADMIN+AAL2またはOPERATOR。受信者単位の配送、試行履歴、状態別件数。page/limit/status/channel（EMAILまたはLINE）/raceId |
 | GET | /admin/notifications/previews/race-announcement | ADMIN+AAL2またはOPERATOR。raceIdと任意のscheduledAtから、告知の次版、対象会員数、チャネル別候補・予定配送数、本文、配信時刻を返す。会員識別情報は返さず、データは変更しない |
 | GET | /admin/notifications/previews/free-report | ADMIN+AAL2またはOPERATOR。raceId、kind、保存済みdraft revisionと任意のscheduledAt（発走前速報のみ）から、無料速報またはレース後検証の次版、対象会員数、チャネル別件数、本文、配信時刻を返す。公開条件を検証するがデータは変更しない |
 | POST | /admin/notifications/:notificationId/retry | ADMIN+AAL2またはOPERATOR。FAILED配送を理由付きで再送待ちへ戻し監査 |
@@ -125,7 +125,7 @@ StripeもSecret keyとWebhook secretは同じ暗号化方式で保存し、設�
 | GET | /me/free-benefit | ログイン会員。設定済みの登録特典を返す |
 | GET | /races/:raceId/free-report | ログイン会員。追記済み無料速報とレース後検証を返す |
 | GET | /free-report-audio/:audioId | 公開前は管理担当、公開後はログイン会員。Range対応で音声を返す |
-| GET/POST | /admin/publication-schedules | ADMIN+AAL2またはOPERATOR。開催日別の予約・警告取得／告知または無料速報の予約作成 |
+| GET/POST | /admin/publication-schedules | ADMIN+AAL2またはOPERATOR。開催日別の予約・警告・公開版別配信結果取得／告知または無料速報の予約作成 |
 | POST | /admin/publication-schedules/:scheduleId/cancel | ADMIN+AAL2またはOPERATOR。待機中の予約を理由付きで取消 |
 | GET | /admin/race-experts | 有効な専門家のid/displayNameのみ |
 | GET | /admin/races | date（既定JST当日）、page/limit |

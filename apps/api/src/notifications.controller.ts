@@ -113,9 +113,14 @@ export class NotificationsController {
   @Get()
   async list(@Req() req: AppRequest, @Query() query: unknown) {
     await this.staff(req, ['ADMIN', 'OPERATOR']);
-    const { page, limit, status, channel } = notificationListQuerySchema.parse(query);
-    const where: Prisma.NotificationDeliveryWhereInput = { ...(status ? { status } : {}), ...(channel ? { channel } : {}) };
-    const countWhere = channel ? Prisma.sql`WHERE channel = ${channel}` : Prisma.empty;
+    const { page, limit, status, channel, raceId } = notificationListQuerySchema.parse(query);
+    const raceWhere: Prisma.NotificationDeliveryWhereInput = raceId ? { event: { is: { OR: [
+      { announcement: { is: { raceId } } },
+      { freeReportVersion: { is: { raceId } } },
+      { version: { is: { prediction: { is: { raceId } } } } }
+    ] } } } : {};
+    const countsWhere: Prisma.NotificationDeliveryWhereInput = { ...(channel ? { channel } : {}), ...raceWhere };
+    const where: Prisma.NotificationDeliveryWhereInput = { ...countsWhere, ...(status ? { status } : {}) };
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const [items, total, counts, lastWebhook, receivedWebhooks, unmatchedWebhooks, blockedAccounts, lastEmailWebhook, emailReceived24h, emailAction24h, blockedEmailAccounts, recentEmailWebhooks, blockedEmailMembers] = await this.auth.db.$transaction([
       this.auth.db.notificationDelivery.findMany({
@@ -128,7 +133,7 @@ export class NotificationsController {
         }
       }),
       this.auth.db.notificationDelivery.count({ where }),
-      this.auth.db.$queryRaw<Array<{ status: string; count: bigint }>>(Prisma.sql`SELECT status, count(*)::bigint AS count FROM notification_deliveries ${countWhere} GROUP BY status ORDER BY status`),
+      this.auth.db.notificationDelivery.groupBy({ by: ['status'], where: countsWhere, _count: { _all: true }, orderBy: { status: 'asc' } }),
       this.auth.db.lineWebhookEvent.findFirst({ orderBy: [{ receivedAt: 'desc' }, { id: 'asc' }], select: { receivedAt: true, eventType: true, outcome: true } }),
       this.auth.db.lineWebhookEvent.count({ where: { receivedAt: { gte: since } } }),
       this.auth.db.lineWebhookEvent.count({ where: { receivedAt: { gte: since }, outcome: 'UNMATCHED' } }),
@@ -140,7 +145,7 @@ export class NotificationsController {
       this.auth.db.emailWebhookEvent.findMany({ orderBy: [{ receivedAt: 'desc' }, { id: 'asc' }], take: 20, select: { id: true, eventType: true, occurredAt: true, receivedAt: true, recipientCount: true, matchedCount: true, disabledCount: true, outcome: true } }),
       this.auth.db.user.findMany({ where: { emailDeliveryDisabledAt: { not: null } }, orderBy: [{ emailDeliveryDisabledAt: 'desc' }, { id: 'asc' }], take: 20, select: { id: true, displayName: true, email: true, emailDeliveryDisabledAt: true, emailDeliveryDisabledReason: true } })
     ]);
-    return { items, total, page, limit, channel: channel ?? null, counts: Object.fromEntries(counts.map(item => [item.status, Number(item.count)])), webhook: { lastReceivedAt: lastWebhook?.receivedAt ?? null, lastEventType: lastWebhook?.eventType ?? null, lastOutcome: lastWebhook?.outcome ?? null, received24h: receivedWebhooks, unmatched24h: unmatchedWebhooks, blockedAccounts }, emailWebhook: { lastReceivedAt: lastEmailWebhook?.receivedAt ?? null, lastEventType: lastEmailWebhook?.eventType ?? null, lastOutcome: lastEmailWebhook?.outcome ?? null, received24h: emailReceived24h, actionRequired24h: emailAction24h, blockedAccounts: blockedEmailAccounts, recent: recentEmailWebhooks, blockedMembers: blockedEmailMembers } };
+    return { items, total, page, limit, channel: channel ?? null, raceId: raceId ?? null, counts: Object.fromEntries(counts.map(item => [item.status, item._count && typeof item._count === 'object' ? item._count._all ?? 0 : 0])), webhook: { lastReceivedAt: lastWebhook?.receivedAt ?? null, lastEventType: lastWebhook?.eventType ?? null, lastOutcome: lastWebhook?.outcome ?? null, received24h: receivedWebhooks, unmatched24h: unmatchedWebhooks, blockedAccounts }, emailWebhook: { lastReceivedAt: lastEmailWebhook?.receivedAt ?? null, lastEventType: lastEmailWebhook?.eventType ?? null, lastOutcome: lastEmailWebhook?.outcome ?? null, received24h: emailReceived24h, actionRequired24h: emailAction24h, blockedAccounts: blockedEmailAccounts, recent: recentEmailWebhooks, blockedMembers: blockedEmailMembers } };
   }
 
   @Post(':notificationId/retry')

@@ -23,7 +23,19 @@ describe('scheduled publication and alerts', () => {
     expect(await runPublicationSchedules({ db, now: () => scheduledAt })).toMatchObject({ claimed: 0, published: 0 });
     const schedule = await db.publicationSchedule.findUniqueOrThrow({ where: { id: created.body.id } }); expect(schedule.status).toBe('PUBLISHED');
     const announcement = await db.raceAnnouncement.findUniqueOrThrow({ where: { id: schedule.publishedTargetId! } }); expect(announcement.reason).toBe(body.reason);
-    expect(await db.notificationEvent.findUnique({ where: { announcementId: announcement.id } })).toMatchObject({ eventType: 'RACE_ANNOUNCED', status: 'QUEUED' });
+    const event = await db.notificationEvent.findUniqueOrThrow({ where: { announcementId: announcement.id } }); expect(event).toMatchObject({ eventType: 'RACE_ANNOUNCED', status: 'QUEUED' });
+    await db.notificationEvent.update({ where: { id: event.id }, data: { status: 'FAILED', expandedAt: new Date(), emailExpandedAt: new Date() } });
+    await db.notificationDelivery.createMany({ data: [
+      { eventId: event.id, userId: target.member.user.id, channel: 'LINE', status: 'SENT', sentAt: new Date(), idempotencyKey: `schedule-line:${randomUUID()}` },
+      { eventId: event.id, userId: target.member.user.id, channel: 'EMAIL', status: 'FAILED', lastErrorCode: 'TEST_PROVIDER_FAILURE', idempotencyKey: `schedule-email:${randomUUID()}` }
+    ] });
+    const overview = await target.adminClient.call('admin/publication-schedules?date=2098-11-01');
+    const race = overview.body.items.find((item: { id: string }) => item.id === target.race.id);
+    expect(overview.body.failedDeliveries).toBeGreaterThanOrEqual(1);
+    expect(race.deliveryResults[0]).toMatchObject({ eventId: event.id, contentType: 'RACE_ANNOUNCEMENT', label: '対象レース告知', version: 1, eventStatus: 'FAILED', line: { total: 1, sent: 1, failed: 0 }, email: { total: 1, sent: 0, failed: 1 } });
+    const filtered = await target.adminClient.call(`admin/notifications?raceId=${target.race.id}`);
+    expect(filtered.status).toBe(200); expect(filtered.body).toMatchObject({ raceId: target.race.id, total: 2, counts: { SENT: 1, FAILED: 1 } });
+    expect(filtered.body.items.every((item: { event: { announcement: { race: { id: string } } } }) => item.event.announcement.race.id === target.race.id)).toBe(true);
   });
 
   it('fails safely when a frozen free-report draft changes and exposes the alert', async () => {

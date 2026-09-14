@@ -13,6 +13,7 @@ describe('notification operations rules', () => {
   it('validates filters and requires a manual retry reason', () => {
     expect(notificationListQuerySchema.parse({ status: 'FAILED' })).toMatchObject({ page: 1, limit: 20, status: 'FAILED' });
     expect(notificationListQuerySchema.parse({ channel: 'EMAIL' })).toMatchObject({ page: 1, limit: 20, channel: 'EMAIL' });
+    expect(notificationListQuerySchema.parse({ raceId: '11111111-1111-4111-8111-111111111111' })).toMatchObject({ raceId: '11111111-1111-4111-8111-111111111111' });
     expect(() => notificationListQuerySchema.parse({ status: 'UNKNOWN' })).toThrow();
     expect(() => notificationRetrySchema.parse({ reason: ' ' })).toThrow();
   });

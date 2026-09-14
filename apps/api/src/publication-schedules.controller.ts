@@ -7,6 +7,11 @@ import type { AppRequest } from './context';
 import { hashToken } from './security';
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+function deliverySummary(deliveries: Array<{ channel: string; status: string }>, channel: 'LINE' | 'EMAIL', expandedAt: Date | null) {
+  const selected = deliveries.filter(delivery => delivery.channel === channel);
+  const count = (status: string) => selected.filter(delivery => delivery.status === status).length;
+  return { expandedAt, total: selected.length, queued: count('QUEUED'), sending: count('SENDING'), sent: count('SENT'), failed: count('FAILED'), skipped: count('SKIPPED') };
+}
 
 @Controller('admin/publication-schedules')
 export class PublicationSchedulesController {
@@ -21,7 +26,7 @@ export class PublicationSchedulesController {
   @Get()
   async list(@Req() req: AppRequest, @Query() query: unknown) {
     await this.staff(req); const { date } = z.object({ date: dateSchema.default(jstDate(new Date())) }).parse(query); const now = new Date(); const dueSoon = new Date(now.getTime() + 30 * 60_000); const overdueAt = new Date(now.getTime() - 60_000);
-    const [races, failedDeliveries] = await this.auth.db.$transaction([
+    const [races, notificationEvents] = await this.auth.db.$transaction([
       this.auth.db.race.findMany({ where: { raceDate: date }, orderBy: [{ startsAt: 'asc' }, { id: 'asc' }], select: {
         id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true, status: true,
         announcements: { orderBy: { version: 'desc' }, take: 1, select: { version: true, publishedAt: true } },
@@ -29,15 +34,40 @@ export class PublicationSchedulesController {
         freeReportVersions: { where: { kind: 'PRE_RACE' }, orderBy: { version: 'desc' }, take: 1, select: { version: true, publishedAt: true } },
         publicationSchedules: { orderBy: { createdAt: 'desc' }, take: 20, select: { id: true, kind: true, draftRevision: true, scheduledAt: true, status: true, reason: true, createdAt: true, processedAt: true, errorCode: true, publishedTargetId: true } }
       } }),
-      this.auth.db.notificationDelivery.count({ where: { status: 'FAILED' } })
+      this.auth.db.notificationEvent.findMany({
+        where: { OR: [
+          { announcement: { is: { race: { is: { raceDate: date } } } } },
+          { freeReportVersion: { is: { race: { is: { raceDate: date } } } } }
+        ] },
+        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+        select: {
+          id: true, eventType: true, status: true, expandedAt: true, emailExpandedAt: true,
+          announcement: { select: { raceId: true, version: true, publishedAt: true } },
+          freeReportVersion: { select: { raceId: true, version: true, kind: true, publishedAt: true } },
+          deliveries: { select: { channel: true, status: true } }
+        }
+      })
     ]);
+    const resultsByRace = new Map<string, Array<{
+      eventId: string; contentType: 'RACE_ANNOUNCEMENT' | 'FREE_REPORT_PRE_RACE' | 'FREE_REPORT_POST_RACE_REVIEW'; label: string; version: number; publishedAt: Date; eventStatus: string;
+      line: ReturnType<typeof deliverySummary>; email: ReturnType<typeof deliverySummary>;
+    }>>();
+    for (const event of notificationEvents) {
+      const target = event.announcement ?? event.freeReportVersion;
+      if (!target) continue;
+      const contentType: 'RACE_ANNOUNCEMENT' | 'FREE_REPORT_PRE_RACE' | 'FREE_REPORT_POST_RACE_REVIEW' = event.announcement ? 'RACE_ANNOUNCEMENT' : event.freeReportVersion!.kind === 'PRE_RACE' ? 'FREE_REPORT_PRE_RACE' : 'FREE_REPORT_POST_RACE_REVIEW';
+      const label = event.announcement ? '対象レース告知' : event.freeReportVersion!.kind === 'PRE_RACE' ? '無料パドック速報' : 'レース後検証';
+      const result = { eventId: event.id, contentType, label, version: target.version, publishedAt: target.publishedAt, eventStatus: event.status, line: deliverySummary(event.deliveries, 'LINE', event.expandedAt), email: deliverySummary(event.deliveries, 'EMAIL', event.emailExpandedAt) };
+      resultsByRace.set(target.raceId, [...(resultsByRace.get(target.raceId) ?? []), result]);
+    }
+    const failedDeliveries = notificationEvents.reduce((count, event) => count + event.deliveries.filter(delivery => delivery.status === 'FAILED').length, 0);
     const items = races.map(race => {
       const active = race.publicationSchedules.filter(schedule => ['PENDING', 'PROCESSING'].includes(schedule.status)); const warnings: string[] = [];
       if (race.startsAt > now && race.startsAt <= dueSoon && !race.announcements.length && !active.some(schedule => schedule.kind === 'RACE_ANNOUNCEMENT')) warnings.push('発走30分前までに対象レース告知が公開・予約されていません。');
       if (race.startsAt > now && race.startsAt <= dueSoon && race.freeReportDraft && !race.freeReportVersions.length && !active.some(schedule => schedule.kind === 'FREE_REPORT_PRE_RACE')) warnings.push('無料速報の下書きがありますが公開・予約されていません。');
       if (active.some(schedule => schedule.scheduledAt < overdueAt)) warnings.push('実行時刻を1分以上過ぎた配信予約があります。');
       if (race.publicationSchedules.some(schedule => schedule.status === 'FAILED')) warnings.push('失敗した配信予約があります。');
-      return { ...race, warnings };
+      return { ...race, deliveryResults: resultsByRace.get(race.id) ?? [], warnings };
     });
     return { generatedAt: now, items, alerts: items.reduce((count, race) => count + race.warnings.length, 0) + failedDeliveries, failedDeliveries };
   }
