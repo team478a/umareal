@@ -199,7 +199,8 @@ export class NotificationsController {
     const raceWhere: Prisma.NotificationDeliveryWhereInput = raceId ? { event: { is: { OR: [
       { announcement: { is: { raceId } } },
       { freeReportVersion: { is: { raceId } } },
-      { version: { is: { prediction: { is: { raceId } } } } }
+      { version: { is: { prediction: { is: { raceId } } } } },
+      { productVersion: { is: { product: { is: { races: { some: { raceId } } } } } } }
     ] } } } : {};
     const countsWhere: Prisma.NotificationDeliveryWhereInput = { ...(channel ? { channel } : {}), ...raceWhere };
     const where: Prisma.NotificationDeliveryWhereInput = { ...countsWhere, ...(status ? { status } : {}) };
@@ -210,7 +211,7 @@ export class NotificationsController {
         select: {
           id: true, status: true, channel: true, attemptCount: true, manualRetryCount: true, nextAttemptAt: true, lastErrorCode: true, sentAt: true, createdAt: true, updatedAt: true,
           user: { select: { id: true, displayName: true, email: true } },
-          event: { select: { id: true, eventType: true, status: true, createdAt: true, version: { select: { id: true, version: true, visibility: true, prediction: { select: { race: { select: { id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true } } } } } }, announcement: { select: { id: true, version: true, race: { select: { id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true } } } }, freeReportVersion: { select: { id: true, version: true, kind: true, race: { select: { id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true } } } } } },
+          event: { select: { id: true, eventType: true, status: true, createdAt: true, version: { select: { id: true, version: true, visibility: true, prediction: { select: { race: { select: { id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true } } } } } }, announcement: { select: { id: true, version: true, race: { select: { id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true } } } }, freeReportVersion: { select: { id: true, version: true, kind: true, race: { select: { id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true } } } }, productVersion: { select: { id: true, version: true, accessScope: true, product: { select: { id: true, targetDate: true, title: true } } } } } },
           attempts: { select: { id: true, attemptNumber: true, outcome: true, errorCode: true, startedAt: true, finishedAt: true }, orderBy: { attemptNumber: 'desc' }, take: 10 }
         }
       }),

@@ -34,7 +34,10 @@ test('shows the paid WIN5 paper and version history on the member screen', async
   for (let legNumber = 1; legNumber <= 5; legNumber++) races.push(await db.race.create({ data: { raceDate: targetDate, venue: `紙面${legNumber}`, number: legNumber + 5, name: `会員紙面試験${legNumber}`, startsAt: new Date(`${targetDate}T${String(legNumber + 5).padStart(2, '0')}:00:00Z`) } }));
   const product = await db.predictionProduct.create({ data: { targetDate, title: `会員向けWIN5-${randomUUID().slice(0, 6)}`, expertId: expert.user.id, status: 'PUBLISHED', scheduledPublishAt: new Date(`${targetDate}T00:00:00Z`), publishedAt: new Date(), confidence: 'A', summary: '会員画面に表示する全体総評', showFreeConfidence: true, updatedBy: expert.user.id, races: { create: races.map((race, index) => ({ raceId: race.id, legNumber: index + 1, confidence: 'A', strategyType: 'NORMAL', comment: `第${index + 1}レースの紙面見解` })) } } });
   const contentSnapshot = { product: { expertName: expert.user.displayName, confidence: 'A', summary: '会員画面に表示する全体総評' }, races: races.map((race, index) => ({ legNumber: index + 1, confidence: 'A', strategyType: 'NORMAL', comment: `第${index + 1}レースの紙面見解`, race: { id: race.id, raceDate: targetDate, venue: race.venue, number: race.number, name: race.name, startsAt: race.startsAt.toISOString(), status: race.status }, selections: [{ entryId: randomUUID(), horseId: randomUUID(), number: index + 1, horseName: `紙面選択馬${index + 1}`, status: 'ACTIVE', selectionType: 'CENTER' }] })), combinationCount: 1, amountPerPointYen: 100, assumedPurchaseAmountYen: 100 };
-  await db.predictionProductVersion.create({ data: { productId: product.id, version: 1, status: 'PUBLISHED', accessScope: 'PAID', confidence: 'A', combinationCount: 1, amountPerPointYen: 100, assumedPurchaseAmountYen: 100, contentSnapshot, publisherId: expert.user.id, deadlineAt: races[0].startsAt } });
+  await db.$transaction(async tx => {
+    const version = await tx.predictionProductVersion.create({ data: { productId: product.id, version: 1, status: 'PUBLISHED', accessScope: 'PAID', confidence: 'A', combinationCount: 1, amountPerPointYen: 100, assumedPurchaseAmountYen: 100, contentSnapshot, publisherId: expert.user.id, deadlineAt: races[0].startsAt } });
+    await tx.notificationEvent.create({ data: { productVersionId: version.id, eventType: 'WIN5_PREVIEW_PUBLISHED', status: 'QUEUED', payload: { productVersionId: version.id, productId: product.id, targetDate } } });
+  });
   await db.entitlement.create({ data: { userId: member.owner.user.id, planCode: 'STANDARD', startsAt: new Date(Date.now() - 1000), endsAt: new Date(Date.now() + 3600000), reason: '会員紙面E2E', grantedBy: member.owner.user.id } });
   await context.addCookies([{ name: 'keiba_session', value: member.token, domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
   await page.goto(`/win5/${product.id}`);
@@ -43,4 +46,10 @@ test('shows the paid WIN5 paper and version history on the member screen', async
   await expect(page.getByText('想定購入総額')).toBeVisible();
   await expect(page.getByRole('heading', { name: '公開履歴', exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.goto('/notifications');
+  const notice = page.locator('article').filter({ hasText: 'WIN5紙面予想を公開しました' });
+  await expect(notice).toContainText(product.title);
+  await notice.getByRole('button', { name: '詳細を見る' }).click();
+  await expect(page).toHaveURL(new RegExp(`/win5/${product.id}$`));
+  await expect(page.getByRole('heading', { name: product.title, exact: true })).toBeVisible();
 });

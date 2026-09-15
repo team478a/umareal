@@ -10,7 +10,7 @@ export type NotificationAudienceInput = {
 
 /** Shared expansion filter used by delivery execution and read-only previews. */
 export function notificationRecipientWhere(input: NotificationAudienceInput): Prisma.UserWhereInput {
-  const preference = input.eventType === 'PREDICTION_CORRECTED' ? { changes: true } : { predictions: true };
+  const preference = ['PREDICTION_CORRECTED', 'WIN5_PREVIEW_CORRECTED'].includes(input.eventType) ? { changes: true } : { predictions: true };
   const paidFilter: Prisma.UserWhereInput = input.visibility === 'PAID' ? { entitlements: { some: { revokedAt: null, startsAt: { lte: input.now }, endsAt: { gt: input.now }, OR: [{ raceDate: null }, { raceDate: input.raceDate }] } } } : {};
   const channelFilter: Prisma.UserWhereInput = input.channel === 'LINE'
     ? { lineAccount: { is: { notificationDisabledAt: null, unlinkedAt: null } }, preferences: { is: preference } }

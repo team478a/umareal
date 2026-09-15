@@ -8,7 +8,9 @@ const subjects: Record<string, string> = {
   PREDICTION_PUBLISHED: '最終予想を公開しました',
   PREDICTION_CORRECTED: '最終予想を訂正しました',
   FREE_REPORT_PUBLISHED: '無料パドック速報を公開しました',
-  FREE_REPORT_REVIEW_PUBLISHED: '無料速報のレース後検証を公開しました'
+  FREE_REPORT_REVIEW_PUBLISHED: '無料速報のレース後検証を公開しました',
+  WIN5_PREVIEW_PUBLISHED: 'WIN5紙面予想を公開しました',
+  WIN5_PREVIEW_CORRECTED: 'WIN5紙面予想を訂正しました'
 };
 
 export class ResendEmailTransport implements NotificationTransport {

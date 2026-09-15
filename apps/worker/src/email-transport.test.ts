@@ -23,4 +23,12 @@ describe('ResendEmailTransport', () => {
     await expect(retryable.send(input)).resolves.toEqual({ kind: 'TRANSIENT_FAILURE', errorCode: 'EMAIL_HTTP_429' });
     await expect(permanent.send(input)).resolves.toEqual({ kind: 'PERMANENT_FAILURE', errorCode: 'EMAIL_HTTP_422' });
   });
+
+  it('uses the WIN5 publication subject', async () => {
+    let captured: RequestInit | undefined;
+    const request = vi.fn(async (_url: string | URL | Request, options?: RequestInit) => { captured = options; return new Response(JSON.stringify({ id: 'win5-email-id' }), { status: 200, headers: { 'Content-Type': 'application/json' } }); });
+    const transport = new ResendEmailTransport('key', 'notice@example.test', request as typeof fetch, 'https://resend.test/emails');
+    await transport.send({ recipient: 'member@example.test', idempotencyKey: 'EMAIL:win5', retryKey: 'win5-delivery', eventType: 'WIN5_PREVIEW_PUBLISHED', targetId: 'target-id', raceId: 'race-id', message });
+    expect(JSON.parse(String(captured?.body)).subject).toBe('WIN5紙面予想を公開しました');
+  });
 });

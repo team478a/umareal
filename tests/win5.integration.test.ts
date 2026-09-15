@@ -52,6 +52,9 @@ describe('WIN5 product drafting and publication', () => {
     const published = await expert.client.call(`expert/win5/${created.body.id}/publish/${checked.body.previewId}`, 'POST');
     expect(published.status).toBe(201); expect(published.body.version).toBe(1);
     expect((await expert.client.call(`expert/win5/${created.body.id}/publish/${checked.body.previewId}`, 'POST')).body.alreadyPublished).toBe(true);
+    const initialEvent = await db.notificationEvent.findUniqueOrThrow({ where: { productVersionId: published.body.versionId } });
+    expect(initialEvent).toMatchObject({ eventType: 'WIN5_PREVIEW_PUBLISHED', status: 'QUEUED' });
+    expect(JSON.stringify(initialEvent.payload)).not.toMatch(/contentSnapshot|selection|horse|amount|summary|reason/i);
 
     const activePass = await db.dayPass.findUniqueOrThrow({ where: { id: pendingPass.id }, include: { entitlement: true } });
     expect(activePass.status).toBe('ACTIVE'); expect(activePass.startsAt?.toISOString()).toBe(new Date(published.body.publishedAt).toISOString());
@@ -84,6 +87,8 @@ describe('WIN5 product drafting and publication', () => {
     expect(correctionPreview.status).toBe(201);
     const corrected = await admin.client.call(`admin/win5/${created.body.id}/publish/${correctionPreview.body.previewId}`, 'POST');
     expect(corrected.body.version).toBe(2);
+    const correctionEvent = await db.notificationEvent.findUniqueOrThrow({ where: { productVersionId: corrected.body.versionId } });
+    expect(correctionEvent).toMatchObject({ eventType: 'WIN5_PREVIEW_CORRECTED', status: 'QUEUED' });
     const versions = await db.predictionProductVersion.findMany({ where: { productId: created.body.id }, orderBy: { version: 'asc' } });
     expect(versions).toHaveLength(2); expect(versions[1].previousVersionId).toBe(versions[0].id); expect(versions[1].correctionReason).toBe('全体信頼度と総評を訂正');
     const correctedPaper = await dayClient.call(`win5/${created.body.id}`); expect(correctedPaper.body.version.version).toBe(2);

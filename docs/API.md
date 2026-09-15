@@ -18,7 +18,7 @@
 | POST | /auth/mfa/verify | code、Supabase初回だけfactorId。challenge検証後にセッションをAAL2へ昇格。localは使用済み時刻ステップも拒否 |
 | GET | /me | 本人の会員・通知・同意・有限期間権限。秘密情報を選択除外 |
 | PATCH | /me/preferences | 本人。emailEnabled/predictions/changes/articles/billing（boolean）。配信拒否検出後のemailEnabled再開は拒否 |
-| GET | /me/notifications | 本人。会員登録後に発生した対象レース告知と閲覧権限内の予想公開履歴。`page`、`limit`、`unread` |
+| GET | /me/notifications | 本人。会員登録後に発生した対象レース告知、WIN5紙面公開案内、閲覧権限内の予想公開履歴。`page`、`limit`、`unread` |
 | POST | /me/notifications/:eventId/read | 本人。閲覧可能なお知らせを冪等に既読化 |
 | GET | /races | 全員。`date`、`venue`、`publication=ALL\|ANNOUNCED\|PUBLISHED\|UNPUBLISHED`、ページネーション。予想本文を含めない |
 | GET | /races | 公開情報のみ、date（既定JST当日）、page/limit（既定1/20、最大50） |
@@ -112,7 +112,7 @@ HTTP 400=入力不正、401=未認証、403=権限/MFA/Origin不正、404=対象
 
 プレビューと公開確定は対象5レースの最小`startsAt`を締切として再検証する。公開後の通常PATCH、DELETE APIは提供しない。組み合わせ数と想定購入総額はサーバーで再計算し、クライアント値を信用しない。
 
-Phase 2では通知eventを作成しない。WIN5通知は会員向け専用DTOと配送内容の漏えい試験を揃えるPhase 4で追加する。
+WIN5初版・訂正版の公開時は商品公開版と通知eventを同じDBトランザクションで作成する。外部配送は公開後に既存ワーカーが処理し、配送失敗で公開版を変更しない。
 
 ### 会員閲覧
 
@@ -124,7 +124,7 @@ Phase 2では通知eventを作成しない。WIN5通知は会員向け専用DTO�
 
 無料・未認証向けDTOは商品ID、対象日、タイトル、公開状態・時刻、対象レースの競馬場・番号・発走時刻と、公開を許可した全体信頼度だけを返す。選択馬、馬番、中心馬、理由、金額、総評、訂正理由、パドック評価を取得・返却しない。有料会員と有効な1日利用者には公開済みスナップショットを返す。
 
-### 通知・結果・共有（WIN5 Phase 4、現在の実装許可範囲外）
+### 通知・結果・共有（WIN5 Phase 4）
 
 | Method | Path | 権限・動作 |
 | --- | --- | --- |
@@ -133,7 +133,7 @@ Phase 2では通知eventを作成しない。WIN5通知は会員向け専用DTO�
 | GET | /win5/performance | 通常馬券と分離したWIN5成績 |
 | GET | /admin/win5/:win5Id/share | ADMIN+AAL2。結果確定後の共有文、URL、画像データ |
 
-通知種別は`WIN5_PREVIEW_PUBLISHED`、`WIN5_PREVIEW_CORRECTED`、`WIN5_RESULT_CONFIRMED`。同じ公開版・受信者・チャネル・種別を冪等キーで一意にし、通知失敗は商品公開を取り消さない。例外結果が`REVIEW_REQUIRED`の間は結果確定、成績反映、的中表示、共有画像生成を拒否する。
+実装済みの通知種別は`WIN5_PREVIEW_PUBLISHED`と`WIN5_PREVIEW_CORRECTED`。同じ商品公開版・受信者・チャネル・種別・版番号を冪等キーで一意にし、通知失敗は商品公開を取り消さない。無料会員を含む通知希望者へ対象日、商品名、版番号、会員ページURLだけを送り、有料紙面本文を返さない。`WIN5_RESULT_CONFIRMED`、結果API、成績、共有は未実装である。
 
 ### エラーコード
 

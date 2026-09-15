@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { buildPredictionLineMessage, notificationIdempotencyKey, retryDelayMs } from '@keiba/domain';
+import { buildPredictionLineMessage, buildWin5LineMessage, notificationIdempotencyKey, retryDelayMs } from '@keiba/domain';
 import type { LineTextMessage } from '@keiba/domain';
 import { notificationRecipientWhere, PrismaClient } from '@keiba/db';
 
@@ -58,13 +58,14 @@ async function expandEvents(db: PrismaClient, limit: number, channel: DeliveryCh
         ? await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM notification_events WHERE id = ${candidate.id}::uuid AND "expandedAt" IS NULL FOR UPDATE`
         : await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM notification_events WHERE id = ${candidate.id}::uuid AND "emailExpandedAt" IS NULL FOR UPDATE`;
       if (!locked.length) return false;
-      const event = await tx.notificationEvent.findUniqueOrThrow({ where: { id: candidate.id }, include: { version: { include: { prediction: { include: { race: true } } } }, announcement: { include: { race: true } }, freeReportVersion: { include: { race: true } } } });
-      const race = event.version?.prediction.race ?? event.announcement?.race ?? event.freeReportVersion?.race;
+      const event = await tx.notificationEvent.findUniqueOrThrow({ where: { id: candidate.id }, include: { version: { include: { prediction: { include: { race: true } } } }, announcement: { include: { race: true } }, freeReportVersion: { include: { race: true } }, productVersion: { include: { product: { include: { races: { orderBy: { legNumber: 'asc' }, include: { race: true } } } } } } } });
+      const race = event.version?.prediction.race ?? event.announcement?.race ?? event.freeReportVersion?.race ?? event.productVersion?.product.races[0]?.race;
       if (!race) throw new Error('Notification event target is missing');
       const now = new Date();
-      const recipients = await tx.user.findMany({ where: notificationRecipientWhere({ channel, eventType: event.eventType, visibility: (event.version?.visibility ?? 'FREE') as 'FREE' | 'PAID', raceDate: race.raceDate, now }), select: { id: true } });
-      const targetVersion = event.version?.version ?? event.announcement?.version ?? event.freeReportVersion!.version;
-      if (recipients.length) await tx.notificationDelivery.createMany({ data: recipients.map(recipient => ({ eventId: event.id, userId: recipient.id, channel, idempotencyKey: notificationIdempotencyKey({ eventType: event.eventType, targetId: race.id, recipientId: recipient.id, version: targetVersion, channel }) })), skipDuplicates: true });
+      const recipients = await tx.user.findMany({ where: notificationRecipientWhere({ channel, eventType: event.eventType, visibility: event.productVersion ? 'FREE' : (event.version?.visibility ?? 'FREE') as 'FREE' | 'PAID', raceDate: event.productVersion?.product.targetDate ?? race.raceDate, now }), select: { id: true } });
+      const targetVersion = event.version?.version ?? event.announcement?.version ?? event.freeReportVersion?.version ?? event.productVersion!.version;
+      const targetId = event.productVersion?.id ?? race.id;
+      if (recipients.length) await tx.notificationDelivery.createMany({ data: recipients.map(recipient => ({ eventId: event.id, userId: recipient.id, channel, idempotencyKey: notificationIdempotencyKey({ eventType: event.eventType, targetId, recipientId: recipient.id, version: targetVersion, channel }) })), skipDuplicates: true });
       await tx.notificationEvent.update({ where: { id: event.id }, data: { [marker]: now, updatedAt: now } });
       return true;
     });
@@ -103,7 +104,21 @@ async function runChannelBatch(input: { db: PrismaClient; channel: DeliveryChann
 
   for (const id of claim.ids) {
     const startedAt = now();
-    const delivery = await db.notificationDelivery.findFirst({ where: { id, channel, leaseToken: claim.leaseToken, status: 'SENDING' }, include: { attempts: { orderBy: { attemptNumber: 'asc' }, take: 1 }, user: { include: { lineAccount: true, preferences: true, entitlements: true } }, event: { include: { version: { include: { prediction: { include: { race: true } } } }, announcement: { include: { race: true } }, freeReportVersion: { include: { race: true } } } } } });
+    const delivery = await db.notificationDelivery.findFirst({
+      where: { id, channel, leaseToken: claim.leaseToken, status: 'SENDING' },
+      include: {
+        attempts: { orderBy: { attemptNumber: 'asc' }, take: 1 },
+        user: { include: { lineAccount: true, preferences: true, entitlements: true } },
+        event: {
+          include: {
+            version: { include: { prediction: { include: { race: true } } } },
+            announcement: { include: { race: true } },
+            freeReportVersion: { include: { race: true } },
+            productVersion: { include: { product: { include: { races: { orderBy: { legNumber: 'asc' }, include: { race: true } } } } } }
+          }
+        }
+      }
+    });
     if (!delivery) continue;
     const stillEnabled = channel === 'LINE'
       ? (await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { lineNotificationsEnabled: true } })).lineNotificationsEnabled
@@ -116,10 +131,11 @@ async function runChannelBatch(input: { db: PrismaClient; channel: DeliveryChann
     const version = delivery.event.version;
     const announcement = delivery.event.announcement;
     const freeReport = delivery.event.freeReportVersion;
-    const race = version?.prediction.race ?? announcement?.race ?? freeReport?.race;
+    const productVersion = delivery.event.productVersion;
+    const race = version?.prediction.race ?? announcement?.race ?? freeReport?.race ?? productVersion?.product.races[0]?.race;
     if (!race) throw new Error('Notification event target is missing');
-    const preferenceEnabled = delivery.event.eventType === 'PREDICTION_CORRECTED' ? delivery.user.preferences?.changes !== false : delivery.user.preferences?.predictions !== false;
-    const entitlementActive = !version || version.visibility === 'FREE' || delivery.user.entitlements.some(item => !item.revokedAt && item.startsAt <= startedAt && item.endsAt > startedAt && (!item.raceDate || item.raceDate === race.raceDate));
+    const preferenceEnabled = ['PREDICTION_CORRECTED', 'WIN5_PREVIEW_CORRECTED'].includes(delivery.event.eventType) ? delivery.user.preferences?.changes !== false : delivery.user.preferences?.predictions !== false;
+    const entitlementActive = !!productVersion || !version || version.visibility === 'FREE' || delivery.user.entitlements.some(item => !item.revokedAt && item.startsAt <= startedAt && item.endsAt > startedAt && (!item.raceDate || item.raceDate === race.raceDate));
     const channelSkipCode = channel === 'LINE'
       ? !delivery.user.lineAccount || delivery.user.lineAccount.unlinkedAt ? 'LINE_UNLINKED' : delivery.user.lineAccount.notificationDisabledAt ? 'LINE_BLOCKED' : null
       : !delivery.user.email ? 'EMAIL_MISSING' : !delivery.user.emailVerifiedAt ? 'EMAIL_UNVERIFIED' : delivery.user.emailDeliveryDisabledAt ? 'EMAIL_BLOCKED' : delivery.user.preferences?.emailEnabled === false ? 'EMAIL_DISABLED' : null;
@@ -144,9 +160,11 @@ async function runChannelBatch(input: { db: PrismaClient; channel: DeliveryChann
       await refreshEventStatus(db, delivery.eventId);
       continue;
     }
-    const message = buildPredictionLineMessage({ eventType: delivery.event.eventType as 'PREDICTION_PUBLISHED' | 'PREDICTION_CORRECTED' | 'RACE_ANNOUNCED' | 'FREE_REPORT_PUBLISHED' | 'FREE_REPORT_REVIEW_PUBLISHED', raceId: race.id, raceDate: race.raceDate, venue: race.venue, raceNumber: race.number, raceName: race.name, version: version?.version ?? announcement?.version ?? freeReport!.version, visibility: (version?.visibility ?? 'FREE') as 'FREE' | 'PAID', appBaseUrl: process.env.APP_BASE_URL ?? 'http://127.0.0.1:3000' });
+    const message = productVersion
+      ? buildWin5LineMessage({ eventType: delivery.event.eventType as 'WIN5_PREVIEW_PUBLISHED' | 'WIN5_PREVIEW_CORRECTED', productId: productVersion.productId, targetDate: productVersion.product.targetDate, title: productVersion.product.title, version: productVersion.version, appBaseUrl: process.env.APP_BASE_URL ?? 'http://127.0.0.1:3000' })
+      : buildPredictionLineMessage({ eventType: delivery.event.eventType as 'PREDICTION_PUBLISHED' | 'PREDICTION_CORRECTED' | 'RACE_ANNOUNCED' | 'FREE_REPORT_PUBLISHED' | 'FREE_REPORT_REVIEW_PUBLISHED', raceId: race.id, raceDate: race.raceDate, venue: race.venue, raceNumber: race.number, raceName: race.name, version: version?.version ?? announcement?.version ?? freeReport!.version, visibility: (version?.visibility ?? 'FREE') as 'FREE' | 'PAID', appBaseUrl: process.env.APP_BASE_URL ?? 'http://127.0.0.1:3000' });
     const recipient = channel === 'LINE' ? delivery.user.lineAccount!.subject : delivery.user.email!;
-    const outcome = await transport.send({ recipient, idempotencyKey: delivery.idempotencyKey, retryKey: delivery.id, eventType: delivery.event.eventType, targetId: version?.id ?? announcement?.id ?? freeReport!.id, raceId: race.id, message });
+    const outcome = await transport.send({ recipient, idempotencyKey: delivery.idempotencyKey, retryKey: delivery.id, eventType: delivery.event.eventType, targetId: version?.id ?? announcement?.id ?? freeReport?.id ?? productVersion!.id, raceId: race.id, message });
     const finishedAt = now();
     const nextAttemptCount = delivery.attemptCount + 1;
     if (outcome.kind === 'SENT') {

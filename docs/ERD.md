@@ -83,6 +83,8 @@ Phase 2第3区間でpredictions（可変下書き）、publication_previews（�
 
 Phase 3Dでline_accountsへ通知不可時刻と最終Webhook時刻を追加し、署名検証後のイベント識別子・種別・subjectハッシュ・処理結果だけをline_webhook_eventsへ追記する。Webhook本文とLINE subjectは履歴へ保存しない。
 
+WIN5 Phase 4第1区間でnotification_eventsへ商品公開版の排他的な参照を追加した。初版・訂正版と通知イベントは同じDBトランザクションで作成し、商品公開版、受信者、チャネル、通知種別、版番号から配送を冪等化する。通知本文は商品メタデータだけから生成する。
+
 Phase 3Eでline_accountsへ解除時刻を追加し、削除せず連携履歴を維持する。line_oauth_flowsは10分有効のstate/nonce/PKCE情報を保持し、stateとnonceはハッシュ、nonceとcode verifierは暗号文で保存する。purposeとuserIdの整合性はDB制約で強制する。
 
 Phase 3Fでrace_result_drafts、追記専用race_result_versions、prediction_performances、bet_performancesを追加した。結果確定と公開版・買い目別精算は同一トランザクションでのみ作成でき、確定後の変更・削除・子データ後付けをDBで拒否する。

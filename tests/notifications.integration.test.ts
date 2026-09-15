@@ -32,6 +32,19 @@ async function publication(visibility: 'FREE' | 'PAID' = 'FREE') {
     return { race, version, event };
   });
 }
+async function win5Publication() {
+  const publisher = await account('ADMIN');
+  const suffix = randomUUID().slice(0, 8);
+  const targetDate = new Date(Date.UTC(2090, 0, 1) + (parseInt(suffix, 16) % 10000) * 86400000).toISOString().slice(0, 10);
+  return db.$transaction(async tx => {
+    const races = [];
+    for (let index = 0; index < 5; index += 1) races.push(await tx.race.create({ data: { raceDate: targetDate, venue: `通知W${suffix}${index}`, number: index + 1, name: `WIN5通知${index + 1}`, startsAt: new Date(`${targetDate}T${10 + index}:00:00Z`) } }));
+    const product = await tx.predictionProduct.create({ data: { targetDate, title: `日曜WIN5紙面 ${suffix}`, expertId: publisher.user.id, status: 'PUBLISHED', accessScope: 'PAID', scheduledPublishAt: new Date(`${targetDate}T00:00:00Z`), publishedAt: new Date(), confidence: 'A', updatedBy: publisher.user.id, races: { create: races.map((race, index) => ({ raceId: race.id, legNumber: index + 1, confidence: 'A', strategyType: 'NORMAL', comment: '通知テスト' })) } } });
+    const version = await tx.predictionProductVersion.create({ data: { productId: product.id, version: 1, status: 'PUBLISHED', accessScope: 'PAID', confidence: 'A', combinationCount: 2, amountPerPointYen: 100, assumedPurchaseAmountYen: 200, contentSnapshot: { secretHorse: '通知へ出してはいけない選択馬' }, publisherId: publisher.user.id, deadlineAt: races[0].startsAt } });
+    const event = await tx.notificationEvent.create({ data: { productVersionId: version.id, eventType: 'WIN5_PREVIEW_PUBLISHED', status: 'QUEUED', payload: { productVersionId: version.id, productId: product.id, targetDate } } });
+    return { product, version, event, firstRaceId: races[0].id };
+  });
+}
 async function recipient(subject = `test:sent:${randomUUID()}`, entitled = false) {
   const member = await account();
   await db.lineAccount.create({ data: { userId: member.user.id, subject } });
@@ -58,6 +71,24 @@ async function processFirstEmailAttempt(eventId: string, userId: string, transpo
 }
 
 describe('notification worker and administration', () => {
+  it('sends a metadata-only WIN5 notice to free members on LINE and email', async () => {
+    const target = await win5Publication();
+    const subject = `test:win5-target:${randomUUID()}`;
+    const member = await recipient(subject);
+    const sent: Array<{ recipient: string; targetId: string; text: string }> = [];
+    const transport: NotificationTransport = { async send(input) { if ([subject, member.email].includes(input.recipient)) sent.push({ recipient: input.recipient, targetId: input.targetId, text: input.message.text }); return { kind: 'SENT', providerMessageId: `win5-${input.retryKey}` }; } };
+    expect(await processFirstAttempt(target.event.id, member.id, transport)).toMatchObject({ channel: 'LINE', status: 'SENT' });
+    expect(await processFirstEmailAttempt(target.event.id, member.id, transport)).toMatchObject({ channel: 'EMAIL', status: 'SENT' });
+    const targetMessages = sent.filter(item => item.targetId === target.version.id);
+    expect(targetMessages).toHaveLength(2);
+    expect(targetMessages.every(item => item.text.includes('WIN5紙面予想を公開しました') && item.text.includes(target.product.title) && item.text.includes(`/win5/${target.product.id}`))).toBe(true);
+    expect(targetMessages.map(item => item.text).join('\n')).not.toMatch(/通知へ出してはいけない選択馬|中心馬|馬番|買い目|円/);
+    const admin = new Client(); await admin.login(await account('ADMIN')); await admin.mfa();
+    const listed = await admin.call(`admin/notifications?raceId=${target.firstRaceId}&limit=50`);
+    expect(listed.status).toBe(200);
+    expect(listed.body.items.some((item: { event: { productVersion: { id: string; product: { title: string } } | null } }) => item.event.productVersion?.id === target.version.id && item.event.productVersion.product.title === target.product.title)).toBe(true);
+  });
+
   it('sends safe publication email only to verified members who opted in', async () => {
     const target = await publication('FREE');
     const enabled = await account();

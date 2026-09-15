@@ -866,6 +866,8 @@ model NotificationEvent {
   announcement        RaceAnnouncement?        @relation(fields: [announcementId], references: [id])
   freeReportVersionId String?                  @unique @db.Uuid
   freeReportVersion   FreeReportVersion?       @relation(fields: [freeReportVersionId], references: [id])
+  productVersionId    String?                  @unique @db.Uuid
+  productVersion      PredictionProductVersion? @relation(fields: [productVersionId], references: [id])
   eventType           String
   status              String
   payload             Json
@@ -1087,6 +1089,7 @@ model PredictionProductVersion {
   correction               PredictionProductVersion?   @relation("PredictionProductCorrections")
   createdTxId              BigInt                      @default(dbgenerated("txid_current()"))
   confirmedPreview         PredictionProductPreview?
+  notificationEvent        NotificationEvent?
 
   @@unique([productId, version])
   @@index([publishedAt])
