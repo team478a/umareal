@@ -525,6 +525,16 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 
 レート制限はAPIプロセス内のストア。複数インスタンス運用前に共有ストアへ移行する。MFA復旧や退会・個人情報削除と監査保持の分離も本番前の課題。DB所有者はトリガーを無効化できるため、Phase 6Mの権限分離を本番DBで実行し、検証に合格したruntime接続だけを常駐サービスへ設定する。
 
+## Phase 6Y: 無料登録入口のBot対策
+
+ユーザーが残機能の実装計画を作り、まとめられる機能をゴール単位で進めるよう依頼したため、公開LPからの無料登録を守る機能を最初のゴールとして実装対象とした。Cloudflare側のwidget作成、ライブ資格情報による疎通、本番公開は含めない。
+
+- Turnstileは公開メール登録だけに適用する。LINE登録はLINE Providerが本人のブラウザーを介して認可するため、初期公開では追加のTurnstileを要求しない。
+- 管理者が有効化、Site key、暗号化Secret keyを設定する。環境変数との混在や暗黙のfallbackを設けず、設定未完了時は有効化を拒否する。
+- ブラウザーの成功表示を根拠にせず、登録APIがCloudflare Siteverifyを実行し、success、`register` action、`APP_BASE_URL`のhostnameを確認する。
+- Turnstile token、Secret key、Provider応答本文はDB、監査、ログへ保存しない。管理画面と準備APIには有無、復号可否、transportだけを返す。
+- ローカルとCIは固定の試験回答を使い外部通信しない。本番ではTurnstile transport以外を起動時に拒否する。試験transportは外部疎通の証拠にしない。
+
 ## 参照した公式資料
 
 - [Next.js 導入と構成](https://nextjs.org/docs/app/getting-started/installation)
@@ -538,3 +548,6 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 - [Resend Webhookの受信と再試行](https://resend.com/docs/webhooks/introduction)
 - [Resend Webhook署名検証](https://resend.com/docs/webhooks/verify-webhooks-requests)
 - [Resendメールイベント種別](https://resend.com/docs/webhooks/event-types)
+- [Turnstileの明示レンダリング](https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/)
+- [Turnstileのサーバー検証](https://developers.cloudflare.com/turnstile/get-started/server-side-validation/)
+- [Turnstileの試験用キー](https://developers.cloudflare.com/turnstile/troubleshooting/testing/)

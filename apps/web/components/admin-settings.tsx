@@ -5,6 +5,11 @@ type Settings = {
   revision: number;
   operations: { newRegistrationsEnabled: boolean; emailNotificationsEnabled: boolean; predictionPublicationEnabled: boolean; csvImportEnabled: boolean; lineNotificationsEnabled: boolean; lineLoginEnabled: boolean; newPurchasesEnabled: boolean };
   registrationPauseMessage: string;
+  captcha: {
+    enabled: boolean; siteKey: string | null; secretConfigured: boolean;
+    connectionStatus: 'DISABLED' | 'INCOMPLETE' | 'CONFIGURED_NOT_VERIFIED';
+    readiness: { siteKeyStored: boolean; secretStored: boolean; secretReadable: boolean; serverValidationReady: boolean; transport: 'TEST_ONLY' | 'TURNSTILE'; externalConnectionTested: boolean };
+  };
   maintenanceMessage: string;
   notificationPolicy: { maxAttempts: number; baseDelaySeconds: number };
   billing: { founderSalesEnabled: boolean; founderPriceYen: number; standardPriceYen: number; dayPassPriceYen: number; founderSalesLimit: number; billingGraceDays: number };
@@ -44,6 +49,7 @@ export function AdminSettings() {
   const [clearStripeSecretKey, setClearStripeSecretKey] = useState(false); const [clearStripeWebhookSecret, setClearStripeWebhookSecret] = useState(false);
   const [mailApiKey, setMailApiKey] = useState(''); const [clearMailApiKey, setClearMailApiKey] = useState(false);
   const [mailWebhookSecret, setMailWebhookSecret] = useState(''); const [clearMailWebhookSecret, setClearMailWebhookSecret] = useState(false);
+  const [turnstileSecret, setTurnstileSecret] = useState(''); const [clearTurnstileSecret, setClearTurnstileSecret] = useState(false);
   const [reason, setReason] = useState(''); const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
   useEffect(() => { request<Settings>().then(setSettings).catch(error => setError(error.message)); }, []);
   function operation(key: keyof Settings['operations'], value: boolean) { setSettings(current => current ? { ...current, operations: { ...current.operations, [key]: value } } : current); }
@@ -53,6 +59,7 @@ export function AdminSettings() {
       const updated = await request<Settings>('PATCH', {
         revision: settings.revision, reason, operations: settings.operations, registrationPauseMessage: settings.registrationPauseMessage, maintenanceMessage: settings.maintenanceMessage,
         notificationPolicy: settings.notificationPolicy, billing: settings.billing,
+        captcha: { enabled: settings.captcha.enabled, siteKey: settings.captcha.siteKey || null, ...(turnstileSecret ? { secret: turnstileSecret } : {}), clearSecret: clearTurnstileSecret },
         stripe: {
           liveMode: settings.stripe.liveMode, ...(stripeSecretKey ? { secretKey: stripeSecretKey } : {}), ...(stripeWebhookSecret ? { webhookSecret: stripeWebhookSecret } : {}),
           clearSecretKey: clearStripeSecretKey, clearWebhookSecret: clearStripeWebhookSecret,
@@ -64,7 +71,7 @@ export function AdminSettings() {
           loginChannelId: settings.line.loginChannelId || null, ...(loginChannelSecret ? { loginChannelSecret } : {}), loginCallbackUrl: settings.line.loginCallbackUrl || null, clearLoginChannelSecret: clearLoginSecret
         }
       });
-      setSettings(updated); setChannelSecret(''); setChannelAccessToken(''); setLoginChannelSecret(''); setStripeSecretKey(''); setStripeWebhookSecret(''); setMailApiKey(''); setMailWebhookSecret(''); setClearSecret(false); setClearToken(false); setClearLoginSecret(false); setClearStripeSecretKey(false); setClearStripeWebhookSecret(false); setClearMailApiKey(false); setClearMailWebhookSecret(false); setReason(''); setMessage('管理設定を保存しました。');
+      setSettings(updated); setChannelSecret(''); setChannelAccessToken(''); setLoginChannelSecret(''); setStripeSecretKey(''); setStripeWebhookSecret(''); setMailApiKey(''); setMailWebhookSecret(''); setTurnstileSecret(''); setClearSecret(false); setClearToken(false); setClearLoginSecret(false); setClearStripeSecretKey(false); setClearStripeWebhookSecret(false); setClearMailApiKey(false); setClearMailWebhookSecret(false); setClearTurnstileSecret(false); setReason(''); setMessage('管理設定を保存しました。');
     } catch (error) { setError((error as Error).message); } finally { setBusy(false); }
   }
   if (!settings) return <><div className="page-heading"><span className="eyebrow">ADMINISTRATION</span><h1>運用・連携設定</h1></div><p role={error ? 'alert' : 'status'}>{error || '読み込み中…'}</p></>;
@@ -83,6 +90,13 @@ export function AdminSettings() {
         ] as const).map(([key, label, description]) => <label className="setting-row" key={key}><span><strong>{label}</strong><small>{description}</small></span><input aria-label={`${label}を有効にする`} type="checkbox" checked={settings.operations[key]} onChange={event => operation(key, event.target.checked)} /></label>)}
         <label className="field settings-message">登録停止中の会員向け案内<textarea aria-label="登録停止中の会員向け案内" rows={3} maxLength={500} required={!settings.operations.newRegistrationsEnabled} value={settings.registrationPauseMessage} onChange={event => setSettings({ ...settings, registrationPauseMessage: event.target.value })} /><small>新規登録を停止する場合は必須です。登録画面を開いた方へそのまま表示します。</small></label>
         <label className="field settings-message">運用メッセージ<textarea aria-label="運用メッセージ" rows={3} maxLength={500} value={settings.maintenanceMessage} onChange={event => setSettings({ ...settings, maintenanceMessage: event.target.value })} /><small>将来の会員向け告知欄に表示する文面です。現在は保存のみ行います。</small></label>
+      </div></section>
+      <section className="panel"><div className="panel-heading"><div><span className="eyebrow">REGISTRATION PROTECTION</span><h2>無料登録のBot対策</h2></div><span className={`status-tag ${settings.captcha.connectionStatus === 'CONFIGURED_NOT_VERIFIED' ? '' : 'warning'}`}>{settings.captcha.connectionStatus === 'CONFIGURED_NOT_VERIFIED' ? '設定済み・未疎通' : settings.captcha.connectionStatus === 'INCOMPLETE' ? '設定不足' : '無効'}</span></div><div className="panel-body">
+        <div className="notice">Cloudflare Turnstileでメール会員登録を保護します。Secret keyは暗号化し、保存後は画面、API、操作履歴へ返しません。LINE登録には適用しません。</div>
+        <div className="readiness-grid" aria-label="無料登録Bot対策の準備"><span className={settings.captcha.readiness.siteKeyStored ? 'ready' : ''}>Site key</span><span className={settings.captcha.readiness.secretStored ? 'ready' : ''}>Secret key</span><span className={settings.captcha.readiness.secretReadable ? 'ready' : ''}>Secret復号</span><span className={settings.captcha.readiness.serverValidationReady ? 'ready' : ''}>サーバー検証</span><span className={settings.captcha.readiness.transport === 'TURNSTILE' ? 'ready' : ''}>{settings.captcha.readiness.transport === 'TURNSTILE' ? 'Turnstile transport' : 'ローカル試験transport'}</span><span>外部疎通は未実施</span></div>
+        <label className="setting-row"><span><strong>メール会員登録のBot対策</strong><small>Site keyとSecret keyが揃っている場合だけ有効化できます。</small></span><input aria-label="メール会員登録のBot対策を有効にする" type="checkbox" checked={settings.captcha.enabled} onChange={event => setSettings({ ...settings, captcha: { ...settings.captcha, enabled: event.target.checked } })} /></label>
+        <div className="two-columns"><label className="field">Turnstile Site key<input aria-label="Turnstile Site key" maxLength={100} value={settings.captcha.siteKey ?? ''} onChange={event => setSettings({ ...settings, captcha: { ...settings.captcha, siteKey: event.target.value || null } })} placeholder="0x4AAAA…" /></label><label className="field">Turnstile Secret key<input aria-label="Turnstile Secret key" type="password" autoComplete="new-password" maxLength={256} value={turnstileSecret} onChange={event => { setTurnstileSecret(event.target.value); setClearTurnstileSecret(false); }} placeholder={settings.captcha.secretConfigured ? '保存済み（変更時のみ入力）' : '0x4AAAA…'} /></label></div>
+        <div className="credential-actions"><label><input type="checkbox" checked={clearTurnstileSecret} onChange={event => { setClearTurnstileSecret(event.target.checked); if (event.target.checked) setTurnstileSecret(''); }} />保存済みSecret keyを削除</label></div>
       </div></section>
       <section className="panel"><div className="panel-heading"><div><span className="eyebrow">BILLING</span><h2>料金・契約設定</h2></div><span className="status-tag warning">開発初期値</span></div><div className="panel-body">
         <div className="notice">正式な販売条件ではありません。価格、創設会員枠、支払猶予は本番開始前に確定してください。</div>

@@ -33,6 +33,7 @@ import { PublicationSchedulesController } from './publication-schedules.controll
 import { SupabaseAuthService } from './supabase-auth.service';
 import { ResendWebhookController } from './resend-webhook.controller';
 import { RegistrationFollowupsController } from './registration-followups.controller';
+import { RegistrationCaptchaService } from './registration-captcha.service';
 config({ path: resolve(process.cwd(), '../../.env'), quiet: true });
 
 @Catch()
@@ -55,7 +56,7 @@ class ErrorFilter implements ExceptionFilter {
     res.status(status).json({ code, message, requestId: req.requestId, details });
   }
 }
-@Module({ controllers: [AuthController, AppController, RacesController, AssessmentsController, PredictionsController, AdminSettingsController, NotificationsController, MemberNotificationsController, AdminFreeReportsController, MemberFreeReportsController, PublicationSchedulesController, LineWebhookController, ResendWebhookController, RegistrationFollowupsController, LineLoginController, ResultsController, BillingController], providers: [DbService, AuthService, SupabaseAuthService, LineLoginService, MailService] })
+@Module({ controllers: [AuthController, AppController, RacesController, AssessmentsController, PredictionsController, AdminSettingsController, NotificationsController, MemberNotificationsController, AdminFreeReportsController, MemberFreeReportsController, PublicationSchedulesController, LineWebhookController, ResendWebhookController, RegistrationFollowupsController, LineLoginController, ResultsController, BillingController], providers: [DbService, AuthService, SupabaseAuthService, LineLoginService, MailService, RegistrationCaptchaService] })
 class AppModule {}
 
 async function main() {
@@ -89,6 +90,8 @@ async function main() {
   if (process.env.NODE_ENV === 'production' && !capabilities.billing && process.env.BILLING_TRANSPORT !== 'disabled') throw new Error('Free registration launch requires billing to be disabled');
   if (!['test', 'resend'].includes(process.env.MAIL_TRANSPORT ?? '')) throw new Error('Set MAIL_TRANSPORT explicitly');
   if (process.env.NODE_ENV === 'production' && process.env.MAIL_TRANSPORT !== 'resend') throw new Error('Production requires an external mail transport');
+  if (!['test', 'turnstile'].includes(process.env.CAPTCHA_TRANSPORT ?? '')) throw new Error('Set CAPTCHA_TRANSPORT explicitly');
+  if (process.env.NODE_ENV === 'production' && process.env.CAPTCHA_TRANSPORT !== 'turnstile') throw new Error('Production requires the Turnstile CAPTCHA transport');
   if (process.env.NODE_ENV === 'production') {
     const legalErrors = legalDocumentReleaseErrors();
     if (legalErrors.length) throw new Error(`Production requires published legal documents: ${legalErrors.join('; ')}`);

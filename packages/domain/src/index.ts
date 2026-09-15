@@ -25,7 +25,8 @@ export const registrationSchema = z.object({
   displayName: z.string().trim().min(1).max(60),
   adult: z.literal(true), terms: z.literal(true), privacy: z.literal(true),
   termsVersion: z.literal(consentVersions.terms), privacyVersion: z.literal(consentVersions.privacy),
-  acquisition: acquisitionSchema.optional()
+  acquisition: acquisitionSchema.optional(),
+  captchaToken: z.string().trim().min(1).max(2048).optional()
 }).strict();
 export const loginSchema = z.object({ email: z.string().trim().email().transform(v => v.toLowerCase()), password: z.string().max(128) }).strict();
 export const preferencesSchema = z.object({ emailEnabled: z.boolean().optional(), predictions: z.boolean(), changes: z.boolean(), articles: z.boolean(), billing: z.boolean() }).strict();

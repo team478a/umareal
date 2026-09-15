@@ -139,6 +139,13 @@ h3 { font-size:17px; font-weight:650; }
 .consents label { display:flex; align-items:flex-start; gap:10px; font-size:13px; min-height:44px; padding:9px 0; }
 input[type=checkbox] { accent-color:var(--green); width:20px; height:20px; flex-shrink:0; margin-top:2px; }
 .consents a,.auth-switch a,.details a { color:var(--green); text-decoration:underline; text-underline-offset:3px; }
+.captcha-challenge { margin:20px 0; min-height:72px; }
+.captcha-challenge>div:first-child { min-height:65px; }
+.captcha-challenge p { margin:7px 0 0; font-size:12px; }
+.captcha-test { display:flex; align-items:center; gap:12px; margin:20px 0; padding:13px 15px; border:1px solid var(--line); border-radius:6px; background:#f8faf8; min-height:64px; }
+.captcha-test input { width:20px; height:20px; flex:none; }
+.captcha-test span { display:flex; flex-direction:column; gap:2px; }
+.captcha-test small { color:var(--muted); }
 .form-link { display:block; text-align:center; margin-top:17px; font-size:13px; color:var(--green); }
 .auth-switch { font-size:13px; text-align:center; border-top:1px solid var(--line); padding-top:23px; margin-top:24px; }
 .development-note { font-size:12px; color:var(--muted); margin-top:25px; }

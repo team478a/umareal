@@ -21,6 +21,14 @@ export const adminSettingsUpdateSchema = z.object({
     newPurchasesEnabled: z.boolean()
   }).strict(),
   registrationPauseMessage: z.string().trim().max(500),
+  captcha: z.object({
+    enabled: z.boolean(),
+    siteKey: z.string().trim().min(1).max(100).nullable(),
+    secret: z.string().trim().min(1).max(256).optional(),
+    clearSecret: z.boolean()
+  }).strict().superRefine((value, context) => {
+    if (value.secret && value.clearSecret) context.addIssue({ code: 'custom', path: ['clearSecret'], message: 'Secret keyの入力と削除は同時に指定できません。' });
+  }),
   maintenanceMessage: z.string().trim().max(500),
   notificationPolicy: z.object({
     maxAttempts: z.number().int().min(1).max(10),
@@ -61,6 +69,9 @@ export const adminSettingsUpdateSchema = z.object({
 }).strict().superRefine((value, context) => {
   if (!value.operations.newRegistrationsEnabled && !value.registrationPauseMessage) {
     context.addIssue({ code: 'custom', path: ['registrationPauseMessage'], message: '新規登録を停止する場合は会員向け案内を入力してください。' });
+  }
+  if (value.captcha.enabled && !value.captcha.siteKey) {
+    context.addIssue({ code: 'custom', path: ['captcha', 'siteKey'], message: 'Bot対策を有効にする場合はSite keyが必要です。' });
   }
 });
 

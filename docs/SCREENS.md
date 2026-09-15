@@ -3,7 +3,7 @@
 | URL | 画面 | 対象 |
 | --- | --- | --- |
 | / | ホーム、対象レース、最新の対象レース告知。ログイン中は未読・LINE受信・会員プランと次の操作 | 全員。予想本文なし |
-| /register | LINEを主経路にした無料登録、メール登録 | 全員 |
+| /register | LINEを主経路にした無料登録、Turnstileで保護したメール登録 | 全員 |
 | /register/line | LINE認証後の表示名・成人・規約同意確認 | 有効な登録grant |
 | /verify-email | 登録メール・予備メールの確認、登録メール再送 | 全員 |
 | /login | メール認証または連携済みLINEアカウントでログイン | 開発認証／LINE Login有効時 |
@@ -21,7 +21,7 @@
 | /admin/races | 開催日・レース・出走馬・担当専門家・CSV差分確認・スマホ向け対象レース告知 | ADMIN+AAL2/OPERATOR |
 | /admin/free-reports | 登録特典動画、評価UP/DOWN各1頭、本人音声、レース後検証の下書き・配信前確認・管理者テスト送信・公開履歴 | ADMIN+AAL2/OPERATOR。テスト送信はADMIN+AAL2 |
 | /admin/publication-schedules | 対象レース告知・無料速報の配信前確認、管理者テスト送信、予約、取消、公開版別のWeb・LINE・メール配信結果、各種アラート | ADMIN+AAL2/OPERATOR。テスト送信はADMIN+AAL2 |
-| /admin/settings | LINE・Stripe資格情報、料金、通知再試行方針、緊急停止 | ADMIN+AAL2。OPERATORはAPIで状態のみ閲覧可 |
+| /admin/settings | Turnstile・メール・LINE・Stripe資格情報、料金、通知再試行方針、緊急停止 | ADMIN+AAL2。OPERATORはAPIで状態のみ閲覧可 |
 | /admin/notifications | 配送状態、試行履歴、状態・チャネル・レースの絞り込み、理由付き再送、Resend配信拒否履歴と停止解除 | ADMIN+AAL2/OPERATOR（停止解除はADMIN+AAL2） |
 | /admin/incidents | 公開・取込・通知の停止、通知遅延・失敗・停滞、初動から復旧までの手順、会員向け案内文案 | ADMIN+AAL2/OPERATOR |
 | /admin/backups | 最終バックアップ・隔離復元結果、ハッシュ、件数照合、実施手順 | ADMIN+AAL2 |

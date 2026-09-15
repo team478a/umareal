@@ -65,7 +65,13 @@ LINE登録はOAuth完了後に15分有効の使い切りgrantを発行し、成�
 
 ## 運用・連携設定
 
-`/admin/settings` はADMIN+AAL2だけが変更でき、OPERATORは状態確認だけ行える。すべての変更に理由が必要で、設定値、実行者、時刻を監査ログへ保存する。Channel secretとChannel access tokenは保存後に取り出せないため、変更時は新しい値を再入力する。
+`/admin/settings` はADMIN+AAL2だけが変更でき、OPERATORは状態確認だけ行える。すべての変更に理由が必要で、設定値、実行者、時刻を監査ログへ保存する。Turnstile、メール、LINE、Stripeの秘密値は保存後に取り出せないため、変更時は新しい値を再入力する。
+
+## 無料登録のBot対策
+
+ローカルは`CAPTCHA_TRANSPORT=test`で、管理画面から架空のSite keyとSecret keyを保存して有効化すると、登録画面に外部通信を行わない確認欄を表示する。本番は`CAPTCHA_TRANSPORT=turnstile`以外でAPIを起動できない。Cloudflareでwidgetを作成し、公開hostnameを許可してから、管理画面へSite keyとSecret keyを保存して有効化する。
+
+登録時はブラウザー表示だけを根拠にせず、APIがSiteverifyの成功、`register` action、`APP_BASE_URL`のhostnameを確認する。期限切れ、再利用、不一致時は登録画面を再読み込みしてやり直す。Cloudflare障害時は登録を通さず、既存会員のログインと管理画面からの登録停止は維持する。token、Secret、Provider応答本文をログへ追加しない。
 
 ## ローカル通知ワーカー
 

@@ -32,6 +32,7 @@ jobs:
       LINE_OAUTH_TRANSPORT: test
       BILLING_TRANSPORT: test
       MAIL_TRANSPORT: test
+      CAPTCHA_TRANSPORT: test
       NEXT_TELEMETRY_DISABLED: '1'
     steps:
       - uses: actions/checkout@v4

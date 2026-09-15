@@ -23,6 +23,8 @@ export class AdminSettingsController {
     const configured = !!value.lineChannelId && channelSecretConfigured && channelAccessTokenConfigured;
     const readable = (encrypted: string | null) => { if (!encrypted) return false; try { return decrypt(encrypted).length > 0; } catch { return false; } };
     const messagingSecretsReadable = readable(value.lineChannelSecretEncrypted) && readable(value.lineAccessTokenEncrypted);
+    const turnstileSecretConfigured = !!value.turnstileSecretEncrypted;
+    const turnstileSecretReadable = readable(value.turnstileSecretEncrypted);
     const loginSecretReadable = readable(value.lineLoginChannelSecretEncrypted);
     const stripeSecretKeyConfigured = !!value.stripeSecretKeyEncrypted;
     const stripeWebhookSecretConfigured = !!value.stripeWebhookSecretEncrypted;
@@ -56,6 +58,20 @@ export class AdminSettingsController {
         newPurchasesEnabled: value.newPurchasesEnabled
       },
       registrationPauseMessage: value.registrationPauseMessage,
+      captcha: {
+        enabled: value.registrationCaptchaEnabled,
+        siteKey: value.turnstileSiteKey,
+        secretConfigured: turnstileSecretConfigured,
+        connectionStatus: !value.registrationCaptchaEnabled ? 'DISABLED' : value.turnstileSiteKey && turnstileSecretConfigured ? 'CONFIGURED_NOT_VERIFIED' : 'INCOMPLETE',
+        readiness: {
+          siteKeyStored: !!value.turnstileSiteKey,
+          secretStored: turnstileSecretConfigured,
+          secretReadable: turnstileSecretReadable,
+          serverValidationReady: true,
+          transport: process.env.CAPTCHA_TRANSPORT === 'turnstile' ? 'TURNSTILE' : 'TEST_ONLY',
+          externalConnectionTested: false
+        }
+      },
       maintenanceMessage: value.maintenanceMessage,
       notificationPolicy: { maxAttempts: value.notificationMaxAttempts, baseDelaySeconds: value.notificationBaseDelaySeconds },
       billing: {
@@ -120,6 +136,9 @@ export class AdminSettingsController {
       const stripeWebhookSecretEncrypted = input.stripe.webhookSecret ? encrypt(input.stripe.webhookSecret) : input.stripe.clearWebhookSecret ? null : before.stripeWebhookSecretEncrypted;
       const mailApiKeyEncrypted = input.mail.apiKey ? encrypt(input.mail.apiKey) : input.mail.clearApiKey ? null : before.mailApiKeyEncrypted;
       const mailWebhookSecretEncrypted = input.mail.webhookSecret ? encrypt(input.mail.webhookSecret) : input.mail.clearWebhookSecret ? null : before.mailWebhookSecretEncrypted;
+      const turnstileSecretEncrypted = input.captcha.secret ? encrypt(input.captcha.secret) : input.captcha.clearSecret ? null : before.turnstileSecretEncrypted;
+      if (input.captcha.enabled && (!input.captcha.siteKey || !turnstileSecretEncrypted)) throw new BadRequestException({ code: 'CAPTCHA_CREDENTIALS_REQUIRED', message: 'Bot対策を有効にするにはSite keyとSecret keyが必要です。' });
+      if (process.env.NODE_ENV === 'production' && input.captcha.enabled && process.env.CAPTCHA_TRANSPORT !== 'turnstile') throw new BadRequestException({ code: 'CAPTCHA_CONFIGURATION_REQUIRED', message: 'Bot対策を有効にする前にTurnstile transportを設定してください。' });
       if (input.operations.lineNotificationsEnabled && (!input.line.channelId || !lineChannelSecretEncrypted || !lineAccessTokenEncrypted)) throw new BadRequestException({ code: 'LINE_CREDENTIALS_REQUIRED', message: 'LINE通知を有効にするにはChannel ID、Channel secret、Channel access tokenが必要です。' });
       if (input.operations.lineLoginEnabled && (!input.line.loginChannelId || !lineLoginChannelSecretEncrypted || !input.line.loginCallbackUrl)) throw new BadRequestException({ code: 'LINE_LOGIN_CREDENTIALS_REQUIRED', message: 'LINE Loginを有効にするにはChannel ID、Channel secret、Callback URLが必要です。' });
       const stripeComplete = !!stripeSecretKeyEncrypted && !!stripeWebhookSecretEncrypted && !!input.stripe.priceFounder && !!input.stripe.priceStandard && !!input.stripe.priceDayPass;
@@ -136,6 +155,9 @@ export class AdminSettingsController {
       const after = await tx.systemSetting.update({ where: { id: 'global' }, data: {
         ...input.operations,
         registrationPauseMessage: input.registrationPauseMessage,
+        registrationCaptchaEnabled: input.captcha.enabled,
+        turnstileSiteKey: input.captcha.siteKey,
+        turnstileSecretEncrypted,
         maintenanceMessage: input.maintenanceMessage,
         notificationMaxAttempts: input.notificationPolicy.maxAttempts,
         notificationBaseDelaySeconds: input.notificationPolicy.baseDelaySeconds,
@@ -161,7 +183,7 @@ export class AdminSettingsController {
       } });
       await this.auth.audit(tx, req, 'SYSTEM_SETTINGS_UPDATE', 'global', input.reason, {
         before: this.view(before), after: this.view(after),
-        credentialsChanged: { channelSecret: !!input.line.channelSecret || input.line.clearChannelSecret, channelAccessToken: !!input.line.channelAccessToken || input.line.clearChannelAccessToken, loginChannelSecret: !!input.line.loginChannelSecret || input.line.clearLoginChannelSecret, stripeSecretKey: !!input.stripe.secretKey || input.stripe.clearSecretKey, stripeWebhookSecret: !!input.stripe.webhookSecret || input.stripe.clearWebhookSecret, mailApiKey: !!input.mail.apiKey || input.mail.clearApiKey, mailWebhookSecret: !!input.mail.webhookSecret || input.mail.clearWebhookSecret }
+        credentialsChanged: { turnstileSecret: !!input.captcha.secret || input.captcha.clearSecret, channelSecret: !!input.line.channelSecret || input.line.clearChannelSecret, channelAccessToken: !!input.line.channelAccessToken || input.line.clearChannelAccessToken, loginChannelSecret: !!input.line.loginChannelSecret || input.line.clearLoginChannelSecret, stripeSecretKey: !!input.stripe.secretKey || input.stripe.clearSecretKey, stripeWebhookSecret: !!input.stripe.webhookSecret || input.stripe.clearWebhookSecret, mailApiKey: !!input.mail.apiKey || input.mail.clearApiKey, mailWebhookSecret: !!input.mail.webhookSecret || input.mail.clearWebhookSecret }
       });
       return this.view(after);
     }, { timeout: 20000, maxWait: 10000 });

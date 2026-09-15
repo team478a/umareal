@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
-const productionBase = { APP_BASE_URL: 'https://example.test', ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'), SUPABASE_URL: 'https://project.supabase.co', SUPABASE_ANON_KEY: 'test-anon-key', LAUNCH_MODE: 'FULL' };
+const productionBase = { APP_BASE_URL: 'https://example.test', ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'), SUPABASE_URL: 'https://project.supabase.co', SUPABASE_ANON_KEY: 'test-anon-key', LAUNCH_MODE: 'FULL', CAPTCHA_TRANSPORT: 'turnstile' };
 const launchMode = spawnSync(process.execPath, ['dist/main.js'], {
   cwd: resolve('apps/api'), env: { ...process.env, ...productionBase, LAUNCH_MODE: '', NODE_ENV: 'production', AUTH_PROVIDER: 'supabase' },
   encoding: 'utf8', timeout: 20000, windowsHide: true
@@ -43,6 +43,12 @@ const mail = spawnSync(process.execPath, ['dist/main.js'], {
 });
 if (mail.status === 0 || !mail.stderr.includes('Production requires an external mail transport')) throw new Error('Production mail guard did not reject test mode');
 console.info('PASS: compiled API refuses the local mail test transport in production.');
+const captcha = spawnSync(process.execPath, ['dist/main.js'], {
+  cwd: resolve('apps/api'), env: { ...process.env, ...productionBase, NODE_ENV: 'production', AUTH_PROVIDER: 'supabase', NOTIFICATION_TRANSPORT: 'line', LINE_OAUTH_TRANSPORT: 'line', BILLING_TRANSPORT: 'stripe', STRIPE_LIVE_MODE: 'true', MAIL_TRANSPORT: 'resend', CAPTCHA_TRANSPORT: 'test' },
+  encoding: 'utf8', timeout: 20000, windowsHide: true
+});
+if (captcha.status === 0 || !captcha.stderr.includes('Production requires the Turnstile CAPTCHA transport')) throw new Error('Production CAPTCHA guard did not reject test mode');
+console.info('PASS: compiled API refuses the local CAPTCHA test transport in production.');
 const legalDocuments = spawnSync(process.execPath, ['dist/main.js'], {
   cwd: resolve('apps/api'), env: { ...process.env, ...productionBase, NODE_ENV: 'production', AUTH_PROVIDER: 'supabase', NOTIFICATION_TRANSPORT: 'line', LINE_OAUTH_TRANSPORT: 'line', BILLING_TRANSPORT: 'stripe', STRIPE_LIVE_MODE: 'true', MAIL_TRANSPORT: 'resend' },
   encoding: 'utf8', timeout: 20000, windowsHide: true

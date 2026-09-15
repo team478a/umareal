@@ -10,6 +10,7 @@ import { decrypt, encrypt, hashPassword, hashToken, newToken, verifyPassword } f
 import { MailService } from './mail.service';
 import { SupabaseAuthService } from './supabase-auth.service';
 import type { SupabaseSession } from './supabase-auth.service';
+import { RegistrationCaptchaService } from './registration-captcha.service';
 
 const publicUser = (user: { id: string; displayName: string; role: string }) => ({ id: user.id, displayName: user.displayName, role: user.role });
 function cookie(res: Response, token: string) { res.cookie('keiba_session', token, { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: 8 * 3600000 }); }
@@ -38,13 +39,14 @@ function accessToken(req: AppRequest) {
 const otp = (secret: string, email: string) => new TOTP({ issuer: '競馬会員メディア 開発用', label: email, algorithm: 'SHA1', digits: 6, period: 30, secret: Secret.fromBase32(secret) });
 @Controller('auth')
 export class AuthController {
-  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(SupabaseAuthService) private readonly supabase: SupabaseAuthService, @Inject(MailService) private readonly mail: MailService) {}
+  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(SupabaseAuthService) private readonly supabase: SupabaseAuthService, @Inject(MailService) private readonly mail: MailService, @Inject(RegistrationCaptchaService) private readonly captcha: RegistrationCaptchaService) {}
   @Get('config') async config() {
     const mode = resolveLaunchMode(process.env.LAUNCH_MODE);
     const capabilities = launchCapabilities(mode);
-    const [settings, registration] = await Promise.all([
+    const [settings, registration, captcha] = await Promise.all([
       this.auth.db.systemSetting.findUnique({ where: { id: 'global' }, select: { emailNotificationsEnabled: true, lineLoginEnabled: true, lineNotificationsEnabled: true } }),
-      this.auth.registrationAvailability()
+      this.auth.registrationAvailability(),
+      this.captcha.publicConfig()
     ]);
     return {
       provider: process.env.AUTH_PROVIDER,
@@ -52,6 +54,7 @@ export class AuthController {
       launchMode: mode,
       capabilities,
       registration,
+      captcha,
       emailNotificationsEnabled: settings?.emailNotificationsEnabled === true,
       lineEnabled: capabilities.lineLogin && settings?.lineLoginEnabled === true,
       lineNotificationsEnabled: capabilities.lineNotifications && settings?.lineNotificationsEnabled === true
@@ -60,6 +63,7 @@ export class AuthController {
   @Post('register') async register(@Body() body: unknown, @Req() req: AppRequest, @Res({ passthrough: true }) res: Response) {
     const input = registrationSchema.parse(body);
     await this.auth.requireNewRegistration();
+    await this.captcha.verify(input.captchaToken, req.requestId);
     if (process.env.AUTH_PROVIDER === 'supabase') {
       const flow = pkce();
       const callbackUrl = `${process.env.APP_BASE_URL}/api/v1/auth/callback`;

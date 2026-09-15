@@ -22,10 +22,12 @@ describe('audited administration settings', () => {
     const stripeSecretKey = `sk_test_${'x'.repeat(32)}`; const stripeWebhookSecret = `whsec_${'y'.repeat(32)}`;
     const mailApiKey = `re_${'m'.repeat(32)}`;
     const mailWebhookSecret = `whsec_${'w'.repeat(32)}`;
+    const turnstileSecret = `0x4AAAA${'c'.repeat(32)}`;
     const stoppedBody = {
       revision: initial.body.revision, reason: '緊急停止とLINE設定の結合試験',
       operations: { newRegistrationsEnabled: false, emailNotificationsEnabled: false, predictionPublicationEnabled: false, csvImportEnabled: false, lineNotificationsEnabled: true, lineLoginEnabled: true, newPurchasesEnabled: false },
       registrationPauseMessage: '募集人数の確認中です。受付再開までお待ちください。',
+      captcha: { enabled: true, siteKey: '0x4AAAA-test-site-key', secret: turnstileSecret, clearSecret: false },
       maintenanceMessage: '結合試験中', notificationPolicy: { maxAttempts: 4, baseDelaySeconds: 45 },
       billing: { founderSalesEnabled: false, founderPriceYen: 1980, standardPriceYen: 2980, dayPassPriceYen: 980, founderSalesLimit: 100, billingGraceDays: 0 },
       stripe: { liveMode: false, secretKey: stripeSecretKey, webhookSecret: stripeWebhookSecret, clearSecretKey: false, clearWebhookSecret: false, priceFounder: 'price_Founder123', priceStandard: 'price_Standard123', priceDayPass: 'price_DayPass123' },
@@ -41,17 +43,21 @@ describe('audited administration settings', () => {
     expect(stopped.body.stripe.readiness).toMatchObject({ credentialsStored: true, secretsReadable: true, pricesConfigured: true, modeConsistent: true, billingTransport: 'TEST_ONLY', externalConnectionTested: false });
     expect(stopped.body.mail).toMatchObject({ source: 'ADMIN', apiKeyConfigured: true, webhookSecretConfigured: true, from: '競馬会員メディア <notice@example.test>', connectionStatus: 'CONFIGURED_NOT_VERIFIED' });
     expect(stopped.body.mail.readiness).toMatchObject({ credentialsStored: true, secretReadable: true, webhookSecretStored: true, webhookSecretReadable: true, senderConfigured: true, webhookReceiverReady: true, mailTransport: 'TEST_ONLY', externalConnectionTested: false });
-    expect(JSON.stringify(stopped.body)).not.toContain(channelSecret); expect(JSON.stringify(stopped.body)).not.toContain(channelAccessToken); expect(JSON.stringify(stopped.body)).not.toContain(loginChannelSecret); expect(JSON.stringify(stopped.body)).not.toContain(stripeSecretKey); expect(JSON.stringify(stopped.body)).not.toContain(stripeWebhookSecret); expect(JSON.stringify(stopped.body)).not.toContain(mailApiKey); expect(JSON.stringify(stopped.body)).not.toContain(mailWebhookSecret);
+    expect(stopped.body.captcha).toMatchObject({ enabled: true, siteKey: '0x4AAAA-test-site-key', secretConfigured: true, connectionStatus: 'CONFIGURED_NOT_VERIFIED' });
+    expect(stopped.body.captcha.readiness).toMatchObject({ siteKeyStored: true, secretStored: true, secretReadable: true, serverValidationReady: true, transport: 'TEST_ONLY', externalConnectionTested: false });
+    expect(JSON.stringify(stopped.body)).not.toContain(channelSecret); expect(JSON.stringify(stopped.body)).not.toContain(channelAccessToken); expect(JSON.stringify(stopped.body)).not.toContain(loginChannelSecret); expect(JSON.stringify(stopped.body)).not.toContain(stripeSecretKey); expect(JSON.stringify(stopped.body)).not.toContain(stripeWebhookSecret); expect(JSON.stringify(stopped.body)).not.toContain(mailApiKey); expect(JSON.stringify(stopped.body)).not.toContain(mailWebhookSecret); expect(JSON.stringify(stopped.body)).not.toContain(turnstileSecret);
     const stored = await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' } });
     expect(stored.lineChannelSecretEncrypted).not.toContain(channelSecret); expect(stored.lineAccessTokenEncrypted).not.toContain(channelAccessToken); expect(stored.lineLoginChannelSecretEncrypted).not.toContain(loginChannelSecret);
     expect(stored.stripeSecretKeyEncrypted).not.toContain(stripeSecretKey); expect(stored.stripeWebhookSecretEncrypted).not.toContain(stripeWebhookSecret);
     expect(stored.mailApiKeyEncrypted).not.toContain(mailApiKey);
     expect(stored.mailWebhookSecretEncrypted).not.toContain(mailWebhookSecret);
+    expect(stored.turnstileSecretEncrypted).not.toContain(turnstileSecret);
     const audit = await db.auditLog.findFirstOrThrow({ where: { action: 'SYSTEM_SETTINGS_UPDATE', targetId: 'global' }, orderBy: { createdAt: 'desc' } });
-    expect(JSON.stringify(audit.details)).not.toContain(channelSecret); expect(JSON.stringify(audit.details)).not.toContain(channelAccessToken); expect(JSON.stringify(audit.details)).not.toContain(loginChannelSecret); expect(JSON.stringify(audit.details)).not.toContain(stripeSecretKey); expect(JSON.stringify(audit.details)).not.toContain(stripeWebhookSecret); expect(JSON.stringify(audit.details)).not.toContain(mailApiKey); expect(JSON.stringify(audit.details)).not.toContain(mailWebhookSecret);
+    expect(JSON.stringify(audit.details)).not.toContain(channelSecret); expect(JSON.stringify(audit.details)).not.toContain(channelAccessToken); expect(JSON.stringify(audit.details)).not.toContain(loginChannelSecret); expect(JSON.stringify(audit.details)).not.toContain(stripeSecretKey); expect(JSON.stringify(audit.details)).not.toContain(stripeWebhookSecret); expect(JSON.stringify(audit.details)).not.toContain(mailApiKey); expect(JSON.stringify(audit.details)).not.toContain(mailWebhookSecret); expect(JSON.stringify(audit.details)).not.toContain(turnstileSecret);
 
     const publicConfig = await new Client().call('auth/config');
     expect(publicConfig.body.registration).toEqual({ enabled: false, message: stoppedBody.registrationPauseMessage });
+    expect(publicConfig.body.captcha).toEqual({ enabled: true, siteKey: '0x4AAAA-test-site-key', mode: 'TEST_ONLY' });
     expect(publicConfig.body.emailNotificationsEnabled).toBe(false);
     const pausedEmail = `paused-${randomUUID()}@example.test`;
     const paused = await new Client().call('auth/register', 'POST', { email: pausedEmail, displayName: '停止中登録', password: 'integration-password-123', adult: true, terms: true, privacy: true, termsVersion: 'draft-v1', privacyVersion: 'draft-v1' });
@@ -78,11 +84,17 @@ describe('audited administration settings', () => {
     expect(restored.body.mail.connectionStatus).toBe('NOT_CONFIGURED');
     expect((await new Client().call('auth/config')).body.registration).toEqual({ enabled: true, message: '' });
     const resumedEmail = `resumed-${randomUUID()}@example.test`;
-    expect((await new Client().call('auth/register', 'POST', { email: resumedEmail, displayName: '再開後登録', password: 'integration-password-123', adult: true, terms: true, privacy: true, termsVersion: 'draft-v1', privacyVersion: 'draft-v1' })).status).toBe(201);
+    const resumedBody = { email: resumedEmail, displayName: '再開後登録', password: 'integration-password-123', adult: true, terms: true, privacy: true, termsVersion: 'draft-v1', privacyVersion: 'draft-v1' };
+    expect((await new Client().call('auth/register', 'POST', resumedBody)).body.code).toBe('CAPTCHA_REQUIRED');
+    expect((await new Client().call('auth/register', 'POST', { ...resumedBody, captchaToken: 'wrong' })).body.code).toBe('CAPTCHA_INVALID');
+    expect((await new Client().call('auth/register', 'POST', { ...resumedBody, captchaToken: 'test-registration-captcha' })).status).toBe(201);
+    const cleaned = await admin.call('admin/settings', 'PATCH', { ...stoppedBody, revision: restored.body.revision, reason: 'Bot対策の結合試験を終了', operations: { ...restored.body.operations }, registrationPauseMessage: '', maintenanceMessage: '', captcha: { enabled: false, siteKey: null, clearSecret: true }, stripe: { liveMode: false, clearSecretKey: true, clearWebhookSecret: true, priceFounder: null, priceStandard: null, priceDayPass: null }, mail: { from: null, clearApiKey: true, clearWebhookSecret: true }, line: { channelId: null, clearChannelSecret: true, clearChannelAccessToken: true, loginChannelId: null, loginCallbackUrl: null, clearLoginChannelSecret: true } });
+    expect(cleaned.status).toBe(200); expect(cleaned.body.captcha.connectionStatus).toBe('DISABLED');
     await expect(db.systemSetting.update({ where: { id: 'global' }, data: { newRegistrationsEnabled: false, registrationPauseMessage: '' } })).rejects.toThrow();
     await expect(db.systemSetting.update({ where: { id: 'global' }, data: { lineNotificationsEnabled: true } })).rejects.toThrow();
     await expect(db.systemSetting.update({ where: { id: 'global' }, data: { lineLoginEnabled: true } })).rejects.toThrow();
     await expect(db.systemSetting.update({ where: { id: 'global' }, data: { stripeLiveMode: true } })).rejects.toThrow();
-    const operator = new Client(); await operator.login(await account('OPERATOR')); expect((await operator.call('admin/settings')).status).toBe(200); expect((await operator.call('admin/settings', 'PATCH', { ...stoppedBody, revision: restored.body.revision })).status).toBe(403);
+    await expect(db.systemSetting.update({ where: { id: 'global' }, data: { registrationCaptchaEnabled: true } })).rejects.toThrow();
+    const operator = new Client(); await operator.login(await account('OPERATOR')); expect((await operator.call('admin/settings')).status).toBe(200); expect((await operator.call('admin/settings', 'PATCH', { ...stoppedBody, revision: cleaned.body.revision })).status).toBe(403);
   });
 });

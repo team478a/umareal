@@ -5,8 +5,8 @@
 | Method | Path | 権限・動作 |
 | --- | --- | --- |
 | GET | /health | DB接続確認 |
-| GET | /auth/config | 認証モード、公開モード、メール登録・無料情報・LINE・決済の公開機能状態。秘密値を含まない |
-| POST | /auth/register | 開発認証のみ。メール無料登録を作成し確認メールを送信。任意のacquisition（標準UTM相当）を初回流入として固定。確認完了までセッションを発行しない |
+| GET | /auth/config | 認証モード、公開モード、メール登録・無料情報・LINE・決済・登録CAPTCHAの公開機能状態。CAPTCHAは有効状態、Site key、transport区分だけを返し、秘密値を含まない |
+| POST | /auth/register | メール無料登録を作成し確認メールを送信。有効時は2048文字以下のcaptchaTokenをCloudflareで再検証。任意のacquisition（標準UTM相当）を初回流入として固定。確認完了までセッションを発行しない |
 | POST | /auth/email/resend | 開発認証のみ。未確認の登録メールを再送。登録有無を同一応答で伏せる |
 | POST | /auth/email/verify | 30分有効の使い切りtoken。登録または予備メール確認を完了しセッションを発行 |
 | POST | /auth/email/fallback | ログイン必須。LINE登録者の予備メール・パスワード確認を開始 |
@@ -46,8 +46,8 @@
 | POST | /billing/subscriptions/:id/cancel | 本人の月額解約予約。Stripe契約は外部API成功後にローカルへ反映 |
 | GET | /admin/users | ADMIN+AAL2。page/limit |
 | GET | /admin/audit | ADMIN+AAL2。page/limit |
-| GET | /admin/settings | ADMIN+AAL2またはOPERATOR。秘密値を除く運用・メール・LINE・Stripe設定と接続準備状態 |
-| PATCH | /admin/settings | ADMIN+AAL2。revisionと理由必須。メール・LINE・Stripe資格情報、料金、通知方針、緊急停止を更新 |
+| GET | /admin/settings | ADMIN+AAL2またはOPERATOR。秘密値を除く運用・Turnstile・メール・LINE・Stripe設定と接続準備状態 |
+| PATCH | /admin/settings | ADMIN+AAL2。revisionと理由必須。Turnstile・メール・LINE・Stripe資格情報、料金、通知方針、緊急停止を更新 |
 | GET | /admin/notifications | ADMIN+AAL2またはOPERATOR。受信者単位の配送、試行履歴、状態別件数。page/limit/status/channel（EMAILまたはLINE）/raceId |
 | GET | /admin/notifications/previews/race-announcement | ADMIN+AAL2またはOPERATOR。raceIdと任意のscheduledAtから、告知の次版、対象会員数、チャネル別候補・予定配送数、本文、配信時刻を返す。会員識別情報は返さず、データは変更しない |
 | GET | /admin/notifications/previews/free-report | ADMIN+AAL2またはOPERATOR。raceId、kind、保存済みdraft revisionと任意のscheduledAt（発走前速報のみ）から、無料速報またはレース後検証の次版、対象会員数、チャネル別件数、本文、配信時刻を返す。公開条件を検証するがデータは変更しない |

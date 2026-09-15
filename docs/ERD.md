@@ -101,4 +101,6 @@ Phase 6Gでmember_acquisitionsを追加した。会員ごとに初回流入を1�
 
 Phase 6Hでacquisition_campaignsを追加した。管理用名称、一意コード、UTMのsource・medium・content、登録先パス、任意の紹介コード、作成者とUTC作成時刻を保存する。登録URLはAPIがAPP_BASE_URLから生成し、作成操作は監査ログへ追記する。
 
+Phase 6Yでsystem_settingsにメール登録Bot対策の有効状態、Turnstile Site key、暗号化Secret keyを追加した。有効時に両資格情報を必須とするDB制約を持ち、Secret keyは管理API、公開設定、監査、ログへ返さない。CAPTCHA tokenとCloudflare応答本文は保存しない。
+
 次区間候補はStripeの返金・領収書導線、または課金状態の会員向け通知。実Supabase・メール・LINE・Stripe資格情報を使うステージング接続、正式価格、返金、クーポン、試用、CMSは未確定・未実施。

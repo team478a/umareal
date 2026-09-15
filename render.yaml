@@ -39,6 +39,8 @@ services:
         value: "false"
       - key: MAIL_TRANSPORT
         value: resend
+      - key: CAPTCHA_TRANSPORT
+        value: turnstile
       - key: RESEND_API_KEY
         sync: false
       - key: RESEND_WEBHOOK_SECRET

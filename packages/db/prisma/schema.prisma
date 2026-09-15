@@ -893,6 +893,9 @@ model SystemSetting {
   revision                        Int      @default(1)
   newRegistrationsEnabled         Boolean  @default(true)
   registrationPauseMessage        String   @default("")
+  registrationCaptchaEnabled      Boolean  @default(false)
+  turnstileSiteKey                String?
+  turnstileSecretEncrypted        String?
   emailNotificationsEnabled       Boolean  @default(true)
   predictionPublicationEnabled    Boolean  @default(true)
   csvImportEnabled                Boolean  @default(true)

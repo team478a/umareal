@@ -5,7 +5,7 @@ import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
-import { hashToken, verifyPassword } from './security';
+import { decrypt, hashToken, verifyPassword } from './security';
 import { databaseRuntimeAccessRestricted, loadMailConfig, Prisma, resolveMailConfig } from '@keiba/db';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -35,7 +35,7 @@ function csvCell(value: string | number) {
 @Controller()
 export class AppController {
   constructor(@Inject(AuthService) private readonly auth: AuthService) {}
-  @Get('health') async health() { await this.auth.db.$queryRaw`SELECT 1`; return { status: 'ok', phase: '6x-admin-notification-test-send' }; }
+  @Get('health') async health() { await this.auth.db.$queryRaw`SELECT 1`; return { status: 'ok', phase: '6y-registration-captcha' }; }
   @Get('me') async me(@Req() req: AppRequest) {
     const identity = await this.auth.authenticate(req);
     const user = await this.auth.db.user.findUniqueOrThrow({ where: { id: identity.id }, include: { preferences: true, lineAccount: true, entitlements: { where: { revokedAt: null, endsAt: { gt: new Date() } } }, consents: { orderBy: { acceptedAt: 'desc' } } } });
@@ -343,7 +343,7 @@ export class AppController {
     const launchMode = resolveLaunchMode(process.env.LAUNCH_MODE);
     const capabilities = launchCapabilities(launchMode);
     const [settings, backup, appliedMigrations, stripeConfig, mailConfig, databaseAccessRestricted] = await Promise.all([
-      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { newRegistrationsEnabled: true, emailNotificationsEnabled: true, predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: true, lineLoginEnabled: true, newPurchasesEnabled: true, lineChannelId: true, lineChannelSecretEncrypted: true, lineAccessTokenEncrypted: true, lineLoginChannelId: true, lineLoginChannelSecretEncrypted: true, lineLoginCallbackUrl: true, updatedAt: true } }),
+      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { newRegistrationsEnabled: true, registrationCaptchaEnabled: true, turnstileSiteKey: true, turnstileSecretEncrypted: true, emailNotificationsEnabled: true, predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: true, lineLoginEnabled: true, newPurchasesEnabled: true, lineChannelId: true, lineChannelSecretEncrypted: true, lineAccessTokenEncrypted: true, lineLoginChannelId: true, lineLoginChannelSecretEncrypted: true, lineLoginCallbackUrl: true, updatedAt: true } }),
       readLocalBackupStatus(),
       this.auth.db.$queryRaw<Array<{ count: number }>>`SELECT count(*)::int AS count FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`.then(rows => rows[0]?.count ?? 0),
       loadStripeConfig(this.auth.db),
@@ -357,6 +357,10 @@ export class AppController {
     const authConfigured = process.env.AUTH_PROVIDER === 'supabase' && !!process.env.SUPABASE_URL && !!process.env.SUPABASE_ANON_KEY;
     add({ code: 'PRODUCTION_AUTH', group: 'APPLICATION', status: authConfigured ? 'MANUAL' : 'BLOCKED', title: '本番認証', evidence: authConfigured ? 'Supabase PKCE登録、ログイン、Cookie更新、JWT検証、初回管理者CLI、TOTP MFAの実装があります。実環境でのメール到達と一連の操作は未確認です。' : '現在はローカル認証、またはSupabase設定が不足しています。', action: 'Supabaseの許可Redirect URLとSMTPを設定し、登録・メール確認・ログイン・セッション更新・ログアウト・AAL2を実環境で確認します。' });
     add({ code: 'HTTPS_BASE_URL', group: 'APPLICATION', status: /^https:\/\//.test(baseUrl) ? 'READY' : 'BLOCKED', title: '公開URLとHTTPS', evidence: /^https:\/\//.test(baseUrl) ? 'APP_BASE_URLはHTTPSです。' : 'APP_BASE_URLは公開用HTTPSではありません。', action: '公開ドメインとHTTPSを設定し、Origin制御を確認します。' });
+    let turnstileSecretReadable = false;
+    try { turnstileSecretReadable = !!settings.turnstileSecretEncrypted && decrypt(settings.turnstileSecretEncrypted).length > 0; } catch { turnstileSecretReadable = false; }
+    const captchaConfigured = settings.registrationCaptchaEnabled && !!settings.turnstileSiteKey && turnstileSecretReadable && process.env.CAPTCHA_TRANSPORT === 'turnstile' && /^https:\/\//.test(baseUrl);
+    add({ code: 'REGISTRATION_CAPTCHA', group: 'CONNECTIONS', status: captchaConfigured ? 'MANUAL' : 'BLOCKED', title: '無料登録のBot対策', evidence: captchaConfigured ? 'TurnstileのSite key、復号可能なSecret key、本番transport、HTTPS公開URLが設定済みです。ライブ疎通は人による確認が必要です。' : !settings.registrationCaptchaEnabled ? '無料登録のBot対策が無効です。' : 'Site key、Secret key、本番transport、HTTPS公開URLのいずれかが不足しています。', action: captchaConfigured ? 'Cloudflareへ公開hostnameを登録し、実端末から正常・失敗・期限切れを確認します。' : '管理画面でTurnstile資格情報を保存して有効化します。', href: '/admin/settings' });
     const messagingConfigured = capabilities.lineNotifications && process.env.NOTIFICATION_TRANSPORT === 'line' && !!settings.lineChannelId && !!settings.lineChannelSecretEncrypted && !!settings.lineAccessTokenEncrypted;
     add({ code: 'LINE_MESSAGING', group: 'CONNECTIONS', status: !capabilities.lineNotifications || messagingConfigured ? 'READY' : 'BLOCKED', title: 'LINE Messaging API', evidence: !capabilities.lineNotifications ? '無料会員募集モードでは対象外です。' : messagingConfigured ? '本番transportと必要な資格情報が設定済みです。' : '本番transportまたは必要な資格情報が未設定です。', action: capabilities.lineNotifications ? '管理設定を保存し、実アカウントへの送信リハーサルを行います。' : 'FULLへ切り替える前にLINE設定と送信リハーサルを完了します。', href: '/admin/settings' });
     const loginConfigured = capabilities.lineLogin && process.env.LINE_OAUTH_TRANSPORT === 'line' && !!settings.lineLoginChannelId && !!settings.lineLoginChannelSecretEncrypted && !!settings.lineLoginCallbackUrl && /^https:\/\//.test(settings.lineLoginCallbackUrl);

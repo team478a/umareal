@@ -7,7 +7,7 @@ test.afterAll(() => db.$disconnect());
 
 test('an AAL2 administrator pauses and resumes registration while login remains available', async ({ page }) => {
   const admin = await account('ADMIN'); const client = new Client(); await client.login(admin); await client.mfa();
-  await db.systemSetting.update({ where: { id: 'global' }, data: { newRegistrationsEnabled: true, registrationPauseMessage: '' } });
+  await db.systemSetting.update({ where: { id: 'global' }, data: { newRegistrationsEnabled: true, registrationPauseMessage: '', registrationCaptchaEnabled: false, turnstileSiteKey: null, turnstileSecretEncrypted: null } });
   try {
     await page.context().addCookies([{ name: 'keiba_session', value: client.cookie.split('=')[1], domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
     await page.goto('/admin/settings');
@@ -38,6 +38,6 @@ test('an AAL2 administrator pauses and resumes registration while login remains 
     await page.goto('/register');
     await expect(page.getByRole('heading', { name: '無料会員登録', exact: true })).toBeVisible();
   } finally {
-    await db.systemSetting.update({ where: { id: 'global' }, data: { newRegistrationsEnabled: true, registrationPauseMessage: '' } });
+    await db.systemSetting.update({ where: { id: 'global' }, data: { newRegistrationsEnabled: true, registrationPauseMessage: '', registrationCaptchaEnabled: false, turnstileSiteKey: null, turnstileSecretEncrypted: null } });
   }
 });
