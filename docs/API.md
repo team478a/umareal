@@ -239,3 +239,15 @@ contentは事前点数・順位・印・短評、パドック5項目、総合変
 FREE版は未認証でも本文を取得できる。PAID版は対象JST日を含む有効期間のMEMBER権限、担当EXPERT+AAL2、またはADMIN+AAL2にだけ本文、印、買い目、評価スナップショットを返す。それ以外には版番号、公開時刻などのメタデータだけを返し、`locked=true` とする。公開範囲は履歴の各版で独立して判定し、FREE版とPAID版が混在しても別の版の権限を流用しない。ロック中は訂正理由も返さない。
 
 公開版、凍結印、買い目はDBトリガーでUPDATE、DELETE、TRUNCATEを拒否する。印・買い目のINSERTも公開版作成と同じDBトランザクション内だけ許可する。通知イベントは `QUEUED` で保存するが、外部送信はPhase 3の対象。
+
+## WIN5結果管理
+
+ADMINまたはOPERATORのAAL2が操作する。レース結果は手入力せず、通常レース側で確定した最新結果版を5件取り込む。
+
+| Method | Path | 動作 |
+| --- | --- | --- |
+| GET | /admin/win5/:productId/result | 現在の取込下書きと追記済み結果版を返す |
+| POST | /admin/win5/:productId/results/import | `{revision,officialPayoutYen,reason}`。最終WIN5公開版と5件の最新レース結果版から判定を再計算する |
+| POST | /admin/win5/:productId/results/confirm | `{revision,reason}`。取込元を再検証し、結果版と5脚を同一トランザクションで追記する |
+
+取込後にWIN5公開版またはレース結果版が増えた場合は `WIN5_RESULT_SOURCE_CHANGED` で確定を拒否し、再取込を求める。中止、取消、除外、返還、1着馬不明は `REVIEW_REQUIRED` として下書きだけを保存し、現在未確定の事業ルールを適用しない。確定版は公開版ID、各レース結果版ID、勝馬、脚別判定、的中脚数、完全的中、組合せ数、想定購入額、公式・想定払戻、0.1%単位の想定回収率、確認者・時刻・ルール版を保持し、DBで更新・削除を拒否する。

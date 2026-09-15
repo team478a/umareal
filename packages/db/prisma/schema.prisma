@@ -64,6 +64,7 @@ model User {
   acquisitionCampaigns   AcquisitionCampaign[]    @relation("AcquisitionCampaignCreator")
   win5Products           PredictionProduct[]      @relation("PredictionProductExpert")
   win5VersionsPublished  PredictionProductVersion[] @relation("PredictionProductPublisher")
+  win5ResultsConfirmed   Win5ResultVersion[]       @relation("Win5ResultConfirmer")
 
   @@map("users")
 }
@@ -464,6 +465,7 @@ model Race {
   freeReportVersions   FreeReportVersion[]
   publicationSchedules PublicationSchedule[]
   win5ProductRaces      PredictionProductRace[]
+  win5ResultLegs        Win5ResultLeg[]
 
   @@unique([raceDate, venue, number])
   @@map("races")
@@ -799,6 +801,7 @@ model RaceResultVersion {
   confirmedAt     DateTime                @default(now()) @db.Timestamptz(3)
   createdTxId     BigInt                  @default(dbgenerated("txid_current()"))
   performances    PredictionPerformance[]
+  win5ResultLegs  Win5ResultLeg[]
 
   @@unique([raceId, version])
   @@unique([raceId, sourceRevision])
@@ -1015,6 +1018,8 @@ model PredictionProduct {
   races                PredictionProductRace[]
   versions             PredictionProductVersion[]
   previews             PredictionProductPreview[]
+  resultDraft          Win5ResultDraft?
+  resultVersions       Win5ResultVersion[]
 
   @@unique([type, targetDate])
   @@index([expertId, targetDate])
@@ -1090,10 +1095,81 @@ model PredictionProductVersion {
   createdTxId              BigInt                      @default(dbgenerated("txid_current()"))
   confirmedPreview         PredictionProductPreview?
   notificationEvent        NotificationEvent?
+  win5ResultDrafts          Win5ResultDraft[]
+  win5ResultVersions        Win5ResultVersion[]
 
   @@unique([productId, version])
   @@index([publishedAt])
   @@map("prediction_product_versions")
+}
+
+model Win5ResultDraft {
+  id                String                   @id @default(uuid()) @db.Uuid
+  productId         String                   @unique @db.Uuid
+  product           PredictionProduct        @relation(fields: [productId], references: [id])
+  productVersionId  String                   @db.Uuid
+  productVersion    PredictionProductVersion @relation(fields: [productVersionId], references: [id])
+  revision          Int                      @default(1)
+  status            String
+  officialPayoutYen Int
+  sourceHash        String
+  legsSnapshot      Json
+  ruleVersion       String
+  updatedBy         String                   @db.Uuid
+  updatedAt         DateTime                 @default(now()) @db.Timestamptz(3)
+
+  @@index([productVersionId])
+  @@map("win5_result_drafts")
+}
+
+model Win5ResultVersion {
+  id                         String                   @id @default(uuid()) @db.Uuid
+  productId                  String                   @db.Uuid
+  product                    PredictionProduct        @relation(fields: [productId], references: [id])
+  productVersionId           String                   @db.Uuid
+  productVersion             PredictionProductVersion @relation(fields: [productVersionId], references: [id])
+  version                    Int
+  sourceRevision             Int
+  status                     String                   @default("CONFIRMED")
+  ruleVersion                String
+  hitLegs                    Int
+  perfectHit                 Boolean
+  combinationCount           Int
+  assumedPurchaseAmountYen   Int
+  officialPayoutYen          Int
+  assumedPayoutYen           Int
+  recoveryRateTenthsPercent  Int
+  reason                     String
+  confirmedBy                String                   @db.Uuid
+  confirmer                  User                     @relation("Win5ResultConfirmer", fields: [confirmedBy], references: [id])
+  confirmedAt                DateTime                 @default(now()) @db.Timestamptz(3)
+  createdTxId                BigInt                   @default(dbgenerated("txid_current()"))
+  legs                       Win5ResultLeg[]
+
+  @@unique([productId, version])
+  @@unique([productId, sourceRevision])
+  @@index([confirmedAt])
+  @@map("win5_result_versions")
+}
+
+model Win5ResultLeg {
+  resultVersionId      String            @db.Uuid
+  resultVersion        Win5ResultVersion @relation(fields: [resultVersionId], references: [id])
+  legNumber             Int
+  raceId                String            @db.Uuid
+  race                  Race              @relation(fields: [raceId], references: [id])
+  raceResultVersionId   String            @db.Uuid
+  raceResultVersion     RaceResultVersion @relation(fields: [raceResultVersionId], references: [id])
+  winnerEntryId         String            @db.Uuid
+  winnerNumber          Int
+  winnerHorseName       String
+  hit                    Boolean
+  createdTxId            BigInt            @default(dbgenerated("txid_current()"))
+
+  @@id([resultVersionId, legNumber])
+  @@unique([resultVersionId, raceId])
+  @@unique([resultVersionId, raceResultVersionId])
+  @@map("win5_result_legs")
 }
 
 model SystemSetting {

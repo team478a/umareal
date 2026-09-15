@@ -18,6 +18,7 @@ export * from './legal';
 export * from './launch';
 export * from './operational-alert';
 export * from './win5';
+export * from './win5-results';
 
 export const roles = ['MEMBER', 'EXPERT', 'EDITOR', 'OPERATOR', 'ADMIN'] as const;
 export type Role = typeof roles[number];

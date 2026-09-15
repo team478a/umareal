@@ -123,12 +123,12 @@ Phase 7Aでoperational_alert_settings、operational_alerts、operational_alert_d
 
 Phase 7B第1区間でbilling_support_requestsとbilling_support_eventsを追加した。問い合わせは会員と任意の本人所有支払に紐づき、分類、本文、現在状態を保持する。返金・領収書分類では対象支払をDB制約でも必須にする。問い合わせ本体は削除禁止、状態変更eventは追記専用とし、管理者の対応理由と監査履歴を残す。
 
-WIN5 Phase 2で`prediction_products`、`prediction_product_races`、`prediction_product_selections`、`prediction_product_previews`、`prediction_product_versions`を物理追加した。結果、成績、ダブル的中、通知参照は後続Phaseの論理モデルである。既存の`predictions`系は1レース単位のパドック直前予想として残し、WIN5データを混在させない。
+WIN5 Phase 2で`prediction_products`、`prediction_product_races`、`prediction_product_selections`、`prediction_product_previews`、`prediction_product_versions`を物理追加した。既存の`predictions`系は1レース単位のパドック直前予想として残し、WIN5データを混在させない。
 
 `prediction_products`は`type + targetDate`を一意にし、当面のtypeは`WIN5_PREVIEW`。`prediction_product_races`は商品内の`legNumber` 1〜5と`raceId`をそれぞれ一意にし、既存レースを順序付きで5件参照する。`prediction_product_selections`は既存出走馬を参照し、対象レースごとの中心馬を1頭に制限する。
 
-`prediction_product_versions`は公開内容全体を凍結した追記専用スナップショットで、商品内版番号と直前版を保持する。結果は締切までに公開された最新の商品版IDと5件の確定レース結果版IDを`win5_result_versions`へ固定し、通常馬券の`prediction_performances`へ混在させない。`double_hit_results`も判定に使用したWIN5結果版、パドック公開版・結果版を参照し、再計算元を失わない。
+`prediction_product_versions`は公開内容全体を凍結した追記専用スナップショットで、商品内版番号と直前版を保持する。WIN5 Phase 4第2区間で`win5_result_drafts`、`win5_result_versions`、`win5_result_legs`を物理追加した。確定版は最終の商品公開版と5件の最新確定レース結果版を固定し、通常馬券の`prediction_performances`へ混在させない。結果版と5脚は同一トランザクションでのみ作成でき、件数・的中数・想定払戻・回収率を遅延制約で照合した上でUPDATE、DELETE、TRUNCATEを拒否する。`double_hit_results`は引き続き後続区間の論理モデルである。
 
-`notification_events`はPhase 4で既存3種類の公開元にWIN5公開版を加え、常にいずれか1種類だけを参照するXOR制約へ移行する。Phase 2で追加したWIN5公開版はUPDATE、DELETE、TRUNCATEをDBトリガーで拒否する。WIN5確定結果版とダブル的中判定の保護は各モデルを物理追加するPhase 4で実装する。
+`notification_events`はPhase 4で既存3種類の公開元にWIN5公開版を加え、常にいずれか1種類だけを参照するXOR制約へ移行した。Phase 2で追加したWIN5公開版とPhase 4第2区間のWIN5確定結果版はDBトリガーで保護する。結果通知参照とダブル的中判定は後続区間で追加する。
 
 次区間候補はStripeの返金・領収書導線、プラン変更、または課金状態の会員向け通知。実Supabase・メール・LINE・Stripe資格情報を使うステージング接続、正式価格、返金、クーポン、試用、CMSは未確定・未実施。

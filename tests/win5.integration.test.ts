@@ -74,6 +74,7 @@ describe('WIN5 product drafting and publication', () => {
     expect((await monthlyClient.call(`win5/${created.body.id}`)).body.access).toBe('FULL');
     const anonymousList = await new Client().call(`win5?targetDate=${targetDate}`);
     expect(anonymousList.status).toBe(200); expect(JSON.stringify(anonymousList.body)).not.toContain('contentSnapshot');
+    expect((await aal1.client.call(`admin/win5/${created.body.id}/result`)).body.code).toBe('MFA_REQUIRED');
 
     const first = await db.predictionProductVersion.findUniqueOrThrow({ where: { id: published.body.versionId } });
     await expect(db.predictionProductVersion.update({ where: { id: first.id }, data: { confidence: 'C' } })).rejects.toThrow();
@@ -82,6 +83,8 @@ describe('WIN5 product drafting and publication', () => {
     const detail = await admin.client.call(`admin/win5/${created.body.id}`); expect(detail.status, JSON.stringify(detail.body)).toBe(200); revision = detail.body.revision;
     const correctionDraft = await admin.client.call(`admin/win5/${created.body.id}`, 'PATCH', { revision, title: detail.body.title, expertId: expert.owner.user.id, scheduledPublishAt, accessScope: 'PAID', confidence: 'B', summary: '訂正版の全体総評', showFreeConfidence: true, amountPerPointYen: 100, reason: '総評を訂正' });
     expect(correctionDraft.status, JSON.stringify(correctionDraft.body)).toBe(200); revision = correctionDraft.body.revision;
+    const narrowed = await admin.client.call(`admin/win5/${created.body.id}/races/1`, 'PUT', { productRevision: revision, raceId: races[0].race.id, confidence: 'S', strategyType: 'NARROW', comment: '訂正版では1頭に絞る', selectionEntryIds: [races[0].entries[0].id], centerEntryId: races[0].entries[0].id, reason: '訂正版の選択馬変更' });
+    expect(narrowed.status, JSON.stringify(narrowed.body)).toBe(200); revision = narrowed.body.productRevision;
     expect((await expert.client.call(`expert/win5/${created.body.id}/preview`, 'POST', { productRevision: revision, correctionReason: '訂正試験' })).body.code).toBe('CORRECTION_APPROVAL_REQUIRED');
     const correctionPreview = await admin.client.call(`admin/win5/${created.body.id}/preview`, 'POST', { productRevision: revision, correctionReason: '全体信頼度と総評を訂正' });
     expect(correctionPreview.status).toBe(201);
@@ -96,5 +99,43 @@ describe('WIN5 product drafting and publication', () => {
 
     await db.race.update({ where: { id: races[0].race.id }, data: { startsAt: new Date(Date.now() - 1000) } });
     await expect(db.predictionProductVersion.create({ data: { productId: created.body.id, version: 3, status: 'CORRECTED', accessScope: 'PAID', confidence: 'B', combinationCount: 32, amountPerPointYen: 100, assumedPurchaseAmountYen: 3200, contentSnapshot: {}, publisherId: admin.owner.user.id, deadlineAt: new Date(Date.now() + 3600000), correctionReason: 'DB締切保護試験', previousVersionId: versions[1].id } })).rejects.toThrow();
+
+    for (let index = 0; index < races.length; index++) {
+      await db.race.update({ where: { id: races[index].race.id }, data: { startsAt: new Date(Date.now() - 1000), status: 'FINISHED' } });
+      const winnerIndex = index === 0 ? 1 : 0;
+      await db.raceResultVersion.create({ data: {
+        raceId: races[index].race.id, version: 1, sourceRevision: 1, ruleVersion: 'VERSION_AUDIT_V1', raceCanceled: false,
+        entriesSnapshot: races[index].entries.map((entry, entryIndex) => ({ entryId: entry.id, status: 'FINISHED', finishPosition: entryIndex === winnerIndex ? 1 : 2, popularity: null, finalOdds: null })),
+        payoutsSnapshot: [], reason: 'WIN5結果結合試験', confirmedBy: admin.owner.user.id
+      } });
+    }
+    const imported = await admin.client.call(`admin/win5/${created.body.id}/results/import`, 'POST', { revision: 0, officialPayoutYen: 5_000_000, reason: '公式結果を取り込み' });
+    expect(imported.status, JSON.stringify(imported.body)).toBe(201); expect(imported.body.status).toBe('READY'); expect(imported.body.calculation).toMatchObject({ hitLegs: 4, perfectHit: false, assumedPayoutYen: 0, recoveryRateTenthsPercent: 0 });
+    await db.raceResultVersion.create({ data: {
+      raceId: races[4].race.id, version: 2, sourceRevision: 2, ruleVersion: 'VERSION_AUDIT_V1', raceCanceled: false,
+      entriesSnapshot: races[4].entries.map((entry, entryIndex) => ({ entryId: entry.id, status: 'FINISHED', finishPosition: entryIndex + 1, popularity: null, finalOdds: null })),
+      payoutsSnapshot: [], reason: '取込後のレース結果訂正版', confirmedBy: admin.owner.user.id
+    } });
+    const stale = await admin.client.call(`admin/win5/${created.body.id}/results/confirm`, 'POST', { revision: imported.body.revision, reason: '古い取込内容は拒否' });
+    expect(stale.status).toBe(409); expect(stale.body.code).toBe('WIN5_RESULT_SOURCE_CHANGED');
+    const refreshed = await admin.client.call(`admin/win5/${created.body.id}/results/import`, 'POST', { revision: imported.body.revision, officialPayoutYen: 5_000_000, reason: '最新結果版を再取込' });
+    expect(refreshed.status).toBe(201); expect(refreshed.body.status).toBe('READY');
+    const confirmed = await admin.client.call(`admin/win5/${created.body.id}/results/confirm`, 'POST', { revision: refreshed.body.revision, reason: '5レースと公式払戻を照合' });
+    expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(201); expect(confirmed.body).toMatchObject({ version: 1, hitLegs: 4, perfectHit: false, assumedPayoutYen: 0 });
+    expect((await admin.client.call(`admin/win5/${created.body.id}/results/confirm`, 'POST', { revision: refreshed.body.revision, reason: '再送' })).body.alreadyConfirmed).toBe(true);
+    const storedResult = await db.win5ResultVersion.findUniqueOrThrow({ where: { id: confirmed.body.versionId }, include: { legs: true } });
+    expect(storedResult.legs).toHaveLength(5); expect(storedResult.productVersionId).toBe(corrected.body.versionId); expect(storedResult.combinationCount).toBe(16);
+    await expect(db.win5ResultVersion.update({ where: { id: storedResult.id }, data: { hitLegs: 5 } })).rejects.toThrow();
+    await expect(db.win5ResultLeg.delete({ where: { resultVersionId_legNumber: { resultVersionId: storedResult.id, legNumber: 1 } } })).rejects.toThrow();
+
+    await db.raceResultVersion.create({ data: {
+      raceId: races[0].race.id, version: 2, sourceRevision: 2, ruleVersion: 'VERSION_AUDIT_V1', raceCanceled: false,
+      entriesSnapshot: races[0].entries.map((entry, entryIndex) => ({ entryId: entry.id, status: entryIndex === 0 ? 'WITHDRAWN' : 'FINISHED', finishPosition: entryIndex === 0 ? null : 1, popularity: null, finalOdds: null })),
+      payoutsSnapshot: [{ betType: 'WIN', combination: [1], payoutPer100Yen: 100, refund: true }], reason: '取消例外の結合試験', confirmedBy: admin.owner.user.id
+    } });
+    const review = await admin.client.call(`admin/win5/${created.body.id}/results/import`, 'POST', { revision: refreshed.body.revision, officialPayoutYen: 5_000_000, reason: '訂正結果を再取込' });
+    expect(review.status, JSON.stringify(review.body)).toBe(201); expect(review.body.status).toBe('REVIEW_REQUIRED'); expect(review.body.reviewReasons.length).toBeGreaterThan(0);
+    const blocked = await admin.client.call(`admin/win5/${created.body.id}/results/confirm`, 'POST', { revision: review.body.revision, reason: '例外状態では確定不可' });
+    expect(blocked.status).toBe(400); expect(blocked.body.code).toBe('WIN5_RESULT_REVIEW_REQUIRED');
   });
 });
