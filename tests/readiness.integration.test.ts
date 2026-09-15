@@ -11,9 +11,9 @@ describe('production readiness', () => {
     const response = await admin.call('admin/readiness');
     expect(response.status).toBe(200);
     expect(response.body.status).toBe('NOT_READY');
-    expect(response.body.counts).toEqual(expect.objectContaining({ total: 14 }));
+    expect(response.body.counts).toEqual(expect.objectContaining({ total: 15 }));
     expect(response.body.counts.blocked).toBeGreaterThan(0);
-    expect(response.body.checks.map((item: { code: string }) => item.code)).toEqual(expect.arrayContaining(['PRODUCTION_AUTH', 'REGISTRATION_CAPTCHA', 'EXTERNAL_BILLING', 'LEGAL_DOCUMENTS', 'DATABASE_LEAST_PRIVILEGE', 'LOCAL_RESTORE_TEST']));
+    expect(response.body.checks.map((item: { code: string }) => item.code)).toEqual(expect.arrayContaining(['PRODUCTION_AUTH', 'ADMIN_CONTINUITY', 'REGISTRATION_CAPTCHA', 'EXTERNAL_BILLING', 'LEGAL_DOCUMENTS', 'DATABASE_LEAST_PRIVILEGE', 'LOCAL_RESTORE_TEST']));
     expect(response.body.checks.find((item: { code: string }) => item.code === 'DATABASE_LEAST_PRIVILEGE')?.status).toBe('BLOCKED');
     expect(['READY', 'BLOCKED']).toContain(response.body.checks.find((item: { code: string }) => item.code === 'LOCAL_RESTORE_TEST')?.status);
     expect(response.body.declaration).toContain('本番公開を承認しません');

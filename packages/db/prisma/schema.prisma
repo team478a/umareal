@@ -29,6 +29,10 @@ model User {
   mfaSecret              String?
   pendingMfaSecret       String?
   externalMfaFactorId    String?                  @db.Uuid
+  externalBackupMfaFactorId String?               @db.Uuid
+  pendingExternalMfaFactorId String?               @db.Uuid
+  pendingExternalMfaKind String?
+  pendingExternalMfaExpiresAt DateTime?            @db.Timestamptz(3)
   mfaLastStep            BigInt?
   disabledAt             DateTime?                @db.Timestamptz(3)
   createdAt              DateTime                 @default(now()) @db.Timestamptz(3)

@@ -13,6 +13,8 @@ let authBase = '';
 const receivedSignups: Array<{ url: string; body: Record<string, unknown> }> = [];
 const providerUsers = new Map<string, { id: string; email: string; identities: unknown[] }>();
 let activeProviderUser: { id: string; email: string; identities: unknown[] } | undefined;
+let factorEnrollmentCount = 0;
+let backupFactorId = '';
 
 async function listen(server: Server) {
   await new Promise<void>((resolveListen, reject) => {
@@ -52,6 +54,7 @@ beforeAll(async () => {
   const publicJwk = await exportJWK(keys.publicKey);
   Object.assign(publicJwk, { kid: 'integration-signing-key', alg: 'RS256', use: 'sig' });
   const factorId = randomUUID();
+  backupFactorId = randomUUID();
   const providerSession = async (user: { id: string; email: string; identities: unknown[] }, aal: 'aal1' | 'aal2' = 'aal1') => ({
     access_token: await new SignJWT({ aal }).setProtectedHeader({ alg: 'RS256', kid: 'integration-signing-key' }).setSubject(user.id).setIssuer(`${authBase}/auth/v1`).setAudience('authenticated').setIssuedAt().setExpirationTime('1h').sign(keys.privateKey),
     refresh_token: `refresh-${randomBytes(12).toString('hex')}`,
@@ -67,7 +70,7 @@ beforeAll(async () => {
     const chunks: Buffer[] = [];
     request.on('data', chunk => chunks.push(Buffer.from(chunk)));
     request.on('end', async () => {
-      if (request.method !== 'POST' || !request.url?.startsWith('/auth/v1/')) {
+      if (!['POST', 'DELETE'].includes(request.method ?? '') || !request.url?.startsWith('/auth/v1/')) {
         response.writeHead(404).end();
         return;
       }
@@ -90,19 +93,23 @@ beforeAll(async () => {
         return;
       }
       if (request.url === '/auth/v1/factors' && activeProviderUser) {
+        factorEnrollmentCount += 1;
         response.writeHead(200, { 'content-type': 'application/json' });
-        response.end(JSON.stringify({ id: factorId, type: 'totp', totp: { qr_code: '<svg />', secret: 'ABCDEFGHIJKLMNOP', uri: 'otpauth://totp/umareal' } }));
+        response.end(JSON.stringify({ id: factorEnrollmentCount === 1 ? factorId : backupFactorId, type: 'totp', totp: { qr_code: '<svg />', secret: factorEnrollmentCount === 1 ? 'ABCDEFGHIJKLMNOP' : 'QRSTUVWXYZ234567', uri: 'otpauth://totp/umareal' } }));
         return;
       }
-      if (request.url === `/auth/v1/factors/${factorId}/challenge`) {
+      if ([`/auth/v1/factors/${factorId}/challenge`, `/auth/v1/factors/${backupFactorId}/challenge`].includes(request.url)) {
         response.writeHead(200, { 'content-type': 'application/json' });
         response.end(JSON.stringify({ id: randomUUID() }));
         return;
       }
-      if (request.url === `/auth/v1/factors/${factorId}/verify` && activeProviderUser) {
+      if ([`/auth/v1/factors/${factorId}/verify`, `/auth/v1/factors/${backupFactorId}/verify`].includes(request.url) && activeProviderUser) {
         response.writeHead(200, { 'content-type': 'application/json' });
         response.end(JSON.stringify(await providerSession(activeProviderUser, 'aal2')));
         return;
+      }
+      if (request.method === 'DELETE' && request.url === `/auth/v1/factors/${backupFactorId}`) {
+        response.writeHead(200, { 'content-type': 'application/json' }); response.end('{}'); return;
       }
       response.writeHead(200, { 'content-type': 'application/json' });
       response.end('{}');
@@ -200,6 +207,31 @@ describe('Supabase free-member registration boundary', () => {
     const aal2 = await fetch(`${apiBase}/api/v1/me`, { headers: { Cookie: aal2Cookies } });
     expect(await aal2.json()).toMatchObject({ aal: 2, mfaEnabled: true });
     expect((await db.user.findUniqueOrThrow({ where: { id: user.id } })).externalMfaFactorId).toBe(enrollmentBody.factorId);
+
+    await db.user.update({ where: { id: user.id }, data: { role: 'ADMIN' } });
+    const backupWithoutAal2 = await fetch(`${apiBase}/api/v1/auth/mfa/enroll`, { method: 'POST', headers: { Origin: 'http://localhost:3000', Cookie: loginCookies, 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'BACKUP' }) });
+    expect(backupWithoutAal2.status).toBe(403);
+    const backupEnrollment = await fetch(`${apiBase}/api/v1/auth/mfa/enroll`, { method: 'POST', headers: { Origin: 'http://localhost:3000', Cookie: aal2Cookies, 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'BACKUP' }) });
+    expect(backupEnrollment.status).toBe(201);
+    const backupBody = await backupEnrollment.json() as { factorId: string; kind: string; secret: string };
+    expect(backupBody).toMatchObject({ factorId: backupFactorId, kind: 'BACKUP', secret: 'QRSTUVWXYZ234567' });
+    const backupVerification = await fetch(`${apiBase}/api/v1/auth/mfa/verify`, { method: 'POST', headers: { Origin: 'http://localhost:3000', Cookie: aal2Cookies, 'Content-Type': 'application/json' }, body: JSON.stringify({ factorId: backupBody.factorId, factor: 'PRIMARY', code: '123456' }) });
+    expect(backupVerification.status).toBe(201);
+    const backupAal2Cookies = backupVerification.headers.getSetCookie().map(value => value.split(';', 1)[0]).join('; ');
+    expect((await db.user.findUniqueOrThrow({ where: { id: user.id } })).externalBackupMfaFactorId).toBe(backupFactorId);
+
+    const freshLogin = await fetch(`${apiBase}/api/v1/auth/login`, { method: 'POST', headers: { Origin: 'http://localhost:3000', 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: 'integration-password-123' }) });
+    const freshLoginCookies = freshLogin.headers.getSetCookie().map(value => value.split(';', 1)[0]).join('; ');
+    const backupLogin = await fetch(`${apiBase}/api/v1/auth/mfa/verify`, { method: 'POST', headers: { Origin: 'http://localhost:3000', Cookie: freshLoginCookies, 'Content-Type': 'application/json' }, body: JSON.stringify({ factor: 'BACKUP', code: '123456' }) });
+    expect(backupLogin.status).toBe(201);
+    expect((await fetch(`${apiBase}/api/v1/me`, { headers: { Cookie: backupLogin.headers.getSetCookie().map(value => value.split(';', 1)[0]).join('; ') } }).then(response => response.json()))).toMatchObject({ aal: 2, mfaBackupEnabled: true });
+
+    const revoked = await fetch(`${apiBase}/api/v1/auth/mfa/backup/revoke`, { method: 'POST', headers: { Origin: 'http://localhost:3000', Cookie: backupAal2Cookies, 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: '予備端末の交換試験' }) });
+    expect(revoked.status).toBe(201);
+    expect(await revoked.json()).toMatchObject({ revoked: true, signedOut: true });
+    expect(revoked.headers.get('set-cookie')).toContain('keiba_access_token=;');
+    expect((await db.user.findUniqueOrThrow({ where: { id: user.id } })).externalBackupMfaFactorId).toBeNull();
+    expect(await db.auditLog.count({ where: { targetId: user.id, action: 'MFA_BACKUP_REVOKED', reason: '予備端末の交換試験' } })).toBe(1);
 
     const refreshed = await fetch(`${apiBase}/api/v1/auth/refresh`, { method: 'POST', headers: { Origin: 'http://localhost:3000', Cookie: 'keiba_refresh_token=refresh-test-token', 'Content-Type': 'application/json' }, body: '{}' });
     expect(refreshed.status).toBe(201);

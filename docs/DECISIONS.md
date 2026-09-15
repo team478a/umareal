@@ -359,7 +359,7 @@ Phase 6G完了時に次候補として示したキャンペーンURL発行とCSV
 - メール登録のDB制約は、ローカル`passwordHash`または外部`authSubject`のどちらかを必須にする。外部認証を示すsubjectがないメール会員は、従来どおりローカルpassword hashなしでは作成できない。
 - 無料会員、20歳確認、規約・プライバシー同意、初回流入はSupabase signup成功後に自社DBへ同一トランザクションで保存する。同意履歴はPostgreSQLで更新・削除・TRUNCATEを拒否する。既存メールを隠すidentity-less応答から会員を新規作成しない。
 - 現行処理はanon keyだけを使用する。service-role keyは必要な管理操作が承認・実装されるまで配備しない。
-- Supabase本番SMTP、Redirect URL、CAPTCHAとスタッフMFA復旧は本番接続前の確認事項として残す。
+- Supabase本番SMTP、Redirect URL、CAPTCHA、スタッフの主・予備MFA要素は、本番接続前に実環境で確認する。
 
 ### Phase 6K 初回管理者・Supabase MFA（追加承認済み）
 
@@ -523,7 +523,7 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 
 ## 制約と残課題
 
-レート制限はAPIプロセス内のストア。複数インスタンス運用前に共有ストアへ移行する。MFA復旧や退会・個人情報削除と監査保持の分離も本番前の課題。DB所有者はトリガーを無効化できるため、Phase 6Mの権限分離を本番DBで実行し、検証に合格したruntime接続だけを常駐サービスへ設定する。
+レート制限はAPIプロセス内のストア。複数インスタンス運用前に共有ストアへ移行する。管理者2名の主・予備MFA要素の実環境確認と、退会・個人情報削除と監査保持の分離も本番前の課題。DB所有者はトリガーを無効化できるため、Phase 6Mの権限分離を本番DBで実行し、検証に合格したruntime接続だけを常駐サービスへ設定する。
 
 ## Phase 6Y: 無料登録入口のBot対策
 
@@ -535,10 +535,24 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 - Turnstile token、Secret key、Provider応答本文はDB、監査、ログへ保存しない。管理画面と準備APIには有無、復号可否、transportだけを返す。
 - ローカルとCIは固定の試験回答を使い外部通信しない。本番ではTurnstile transport以外を起動時に拒否する。試験transportは外部疎通の証拠にしない。
 
+## Phase 6Z: 管理者の復旧と継続運用
+
+ユーザーが残機能をゴール単位でまとめて進めるよう依頼したため、単独管理者とMFA端末紛失による運用停止を防ぐ機能を実装対象とした。Supabase実環境での要素登録と端末紛失リハーサルは本番接続工程として別途実施する。
+
+- Supabase Authの利用者向けMFAは復旧コードをサポートせず、最大10個の要素と予備要素を案内している。独自コードでAAL2を代替すると署名済みJWTの認証境界が分裂するため、当初案のアプリ独自復旧コードは採用しない。
+- 有効な管理者を2名以上とし、各管理者が主TOTPと別管理の予備TOTPを1つずつ登録した状態を公開準備条件にする。管理画面は人数と要素準備だけを表示し、TOTP secretやProvider応答を保存・表示しない。
+- 予備要素の追加はADMIN+AAL2だけが行える。登録開始時にProvider factor ID、用途、有効期限を自社DBへ一時保存し、同じ利用者が15分以内にProviderで検証できた場合だけ予備要素として確定する。
+- 予備要素はAAL1ログイン後の追加認証に選択できる。自社APIは引き続きSupabase署名済みJWTの`aal=aal2`だけを管理権限として採用し、自社DBの要素記録だけでAAL2へ昇格しない。
+- 予備要素の解除はADMIN+AAL2と理由を必須にし、Providerで解除した後に全Providerセッションとローカルセッションを失効し、解除を監査へ追記する。再発行は解除後に新しい予備要素を登録する。
+- 管理者追加はADMIN+AAL2、確認済みメール、対象者メールの再入力、理由を必須にする。ロールはサーバーDBだけで変更し、対象者のローカルセッションを削除する。既存のAAL1セッションは管理操作に使えず、対象者は自分の主・予備要素を登録してから運用へ入る。
+- 管理者降格、Provider管理APIによる第三者の要素削除、service-role keyを使う緊急解除は初期運用に含めない。2名の管理者と予備要素のどちらも失った場合は、本人確認手順を確定した上で別フェーズとして扱う。
+
 ## 参照した公式資料
 
 - [Next.js 導入と構成](https://nextjs.org/docs/app/getting-started/installation)
 - [Supabase MFA](https://supabase.com/docs/guides/auth/auth-mfa)
+- [Supabase Auth MFA要素と復旧](https://supabase.com/docs/reference/javascript/auth-mfa)
+- [Supabase MFA要素の解除](https://supabase.com/docs/reference/javascript/auth-mfa-unenroll)
 - [Prisma 6のマイグレーション運用](https://www.prisma.io/docs/orm/v6/prisma-client/deployment/deploy-migrations-from-a-local-environment)
 - [LINE Webhook署名検証](https://developers.line.biz/en/docs/messaging-api/verify-webhook-signature/)
 - [LINE Channel access token](https://developers.line.biz/en/docs/basics/channel-access-token/)

@@ -42,12 +42,12 @@ function configuration() {
 
 @Injectable()
 export class SupabaseAuthService {
-  private async request(path: string, body: unknown, accessToken?: string) {
+  private async request(path: string, body: unknown, accessToken?: string, method: 'POST' | 'DELETE' = 'POST') {
     const { url, key } = configuration();
     let response: Response;
     try {
       response = await fetch(`${url}/auth/v1/${path}`, {
-        method: 'POST',
+        method,
         headers: { apikey: key, Authorization: `Bearer ${accessToken ?? key}`, 'Content-Type': 'application/json', 'X-Client-Info': 'umareal-server/1' },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(10_000)
@@ -109,6 +109,10 @@ export class SupabaseAuthService {
   async verifyFactor(accessToken: string, factorId: string, challengeId: string, code: string) {
     try { return sessionResponse(await this.request(`factors/${encodeURIComponent(factorId)}/verify`, { challenge_id: challengeId, code }, accessToken)); }
     catch (error) { if (error instanceof BadRequestException) throw new UnauthorizedException({ code: 'MFA_INVALID', message: '認証コードを確認してください。' }); throw error; }
+  }
+
+  async unenrollFactor(accessToken: string, factorId: string) {
+    await this.request(`factors/${encodeURIComponent(factorId)}`, {}, accessToken, 'DELETE');
   }
 
   async updatePassword(accessToken: string, password: string) { await this.request('user', { password }, accessToken); }

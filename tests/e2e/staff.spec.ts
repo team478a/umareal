@@ -143,6 +143,12 @@ test('administrator must complete MFA before viewing member management', async (
   await expect(page.getByRole('heading', { name: '運用・復旧', exact: true })).toBeVisible();
   await expect(page.getByText('この自動判定だけで本番公開を承認しません。', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.goto('/admin/continuity');
+  await expect(page.getByRole('heading', { name: '管理者の継続運用', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '管理者と認証準備', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '管理者を追加', exact: true })).toBeVisible();
+  await expect(page.getByText('現在は開発用認証です。予備認証アプリはSupabase本番認証へ接続した後に登録できます。', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.goto('/admin');
   await page.getByRole('main').getByRole('link', { name: '会員管理 登録会員とロールを確認' }).click();
   await expect(page.getByRole('heading', { name: '会員管理', exact: true })).toBeVisible();
