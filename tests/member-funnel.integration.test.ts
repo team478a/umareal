@@ -33,7 +33,8 @@ describe('member conversion funnel', () => {
       expect(after.body.funnel.last30Days[stage] - before.body.funnel.last30Days[stage], stage).toBe(1);
     }
     expect(after.body.funnel.trackingStartsAt).toBeTruthy();
-    expect(after.body.acquisition.last30Days).toContainEqual({ source, medium: 'test', campaign: 'funnel', registered: 1, paid: 1 });
+    const acquisition = await admin.call('admin/acquisition?days=30');
+    expect(acquisition.body.breakdown).toContainEqual({ source, medium: 'test', campaign: 'funnel', registered: 1, paid: 1 });
 
     const nonMember = new Client(); await nonMember.login(await account('OPERATOR')); await nonMember.mfa();
     expect((await nonMember.call('me/journey', 'POST', { eventType: 'PLAN_VIEWED' })).status).toBe(403);

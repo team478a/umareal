@@ -9,7 +9,7 @@
 | /login | メール認証または連携済みLINEアカウントでログイン | 開発認証／LINE Login有効時 |
 | /forgot-password | 再設定依頼 | 開発認証 |
 | /reset-password | 再設定リンクの処理 | 有効なトークン |
-| /account | 利用準備チェックリスト、会員情報、予備メール、LINE連携・受信状態・解除、通知設定、同意履歴 | 本人 |
+| /account | 利用準備チェックリスト、会員情報、予備メール、LINE連携・受信状態・解除、通知設定、同意履歴、契約・支払履歴、請求問い合わせ | 本人 |
 | /notifications | 対象レース告知・最終予想・訂正版のWeb履歴、未読絞り込み、レース詳細への移動 | 本人。予想イベントは現在の閲覧権限で制御 |
 | /races | 開催日・競馬場・告知/公開状態によるレース一覧、公開範囲と訂正版表示 | 全員。予想本文なし |
 | /plans | 税込料金、申込内容の最終確認、創設会員・通常会員・1日利用の開発用申込 | 全員。申込は本人 |
@@ -28,7 +28,7 @@
 | /admin/readiness | 本番準備の確認済み・要対応・人による確認、根拠と対応先 | ADMIN+AAL2 |
 | /admin/account-closures | 退会処理済み会員、利用停止日時、退会理由、保持方針 | ADMIN+AAL2 |
 | /admin/results | 発走後の着順・状態・払戻入力、確定履歴、成績再計算 | ADMIN+AAL2/OPERATOR |
-| /admin/billing | 契約期間・猶予、1日利用、支払履歴、外部決済申込、Stripe Webhook受信、test時のみローカル失敗/回復試験 | ADMIN+AAL2 |
+| /admin/billing | 契約期間・猶予、1日利用、支払履歴、請求問い合わせ対応、外部決済申込、Stripe Webhook受信、test時のみローカル失敗/回復試験 | ADMIN+AAL2 |
 | /admin/users | 会員一覧 | ADMIN+AAL2 |
 | /admin/audit | 操作履歴 | ADMIN+AAL2 |
 | /terms、/privacy | コード管理された版付き法務文書。現在は開発用 | 全員 |

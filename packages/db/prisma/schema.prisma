@@ -49,6 +49,8 @@ model User {
   paymentTransactions    PaymentTransaction[]
   billingEvents          BillingEvent[]
   billingCheckouts       BillingCheckout[]
+  billingSupportRequests BillingSupportRequest[] @relation("BillingSupportRequester")
+  billingSupportEvents   BillingSupportEvent[]   @relation("BillingSupportActor")
   journeyEvents          MemberJourneyEvent[]
   assignments            ExpertAssignment[]
   resets                 PasswordReset[]
@@ -341,11 +343,45 @@ model PaymentTransaction {
   subscription      Subscription? @relation(fields: [subscriptionId], references: [id])
   dayPassId         String?       @db.Uuid
   dayPass           DayPass?      @relation(fields: [dayPassId], references: [id])
+  supportRequests   BillingSupportRequest[]
   occurredAt        DateTime      @default(now()) @db.Timestamptz(3)
   createdTxId       BigInt        @default(dbgenerated("txid_current()"))
 
   @@index([userId, occurredAt])
   @@map("payment_transactions")
+}
+
+model BillingSupportRequest {
+  id                   String                 @id @default(uuid()) @db.Uuid
+  userId               String                 @db.Uuid
+  user                 User                   @relation("BillingSupportRequester", fields: [userId], references: [id])
+  paymentTransactionId String?                @db.Uuid
+  paymentTransaction   PaymentTransaction?    @relation(fields: [paymentTransactionId], references: [id])
+  category             String
+  message              String
+  status               String                 @default("OPEN")
+  createdAt            DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime               @default(now()) @db.Timestamptz(3)
+  events               BillingSupportEvent[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@map("billing_support_requests")
+}
+
+model BillingSupportEvent {
+  id         String                @id @default(uuid()) @db.Uuid
+  requestId  String                @db.Uuid
+  request    BillingSupportRequest @relation(fields: [requestId], references: [id])
+  eventType  String
+  actorId    String                @db.Uuid
+  actor      User                  @relation("BillingSupportActor", fields: [actorId], references: [id])
+  actorRole  String
+  reason     String
+  occurredAt DateTime              @default(now()) @db.Timestamptz(3)
+
+  @@index([requestId, occurredAt])
+  @@map("billing_support_events")
 }
 
 model BillingEvent {

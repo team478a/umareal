@@ -52,6 +52,8 @@ test('register, save preferences, sign out and sign in on desktop/mobile', async
   await expect(page.getByLabel('メール通知を受け取る', { exact: true })).not.toBeChecked();
   await expect(page.getByLabel('記事・動画・音声の更新', { exact: false })).toBeChecked();
   await expect(page.getByRole('heading', { name: '同意履歴' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '請求について問い合わせる' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.goto('/admin');
   await expect(page.getByRole('heading', { name: '閲覧権限がありません' })).toBeVisible();
   const forbidden = await page.request.get('/api/v1/admin/users');

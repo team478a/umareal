@@ -1,5 +1,5 @@
-import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, Param, Post, Req, ServiceUnavailableException } from '@nestjs/common';
-import { addCalendarMonthUtc, canManage, dayPassCheckoutSchema, dayPassWindow, jstDate, launchCapabilities, requiresMfa, resolveLaunchMode, subscriptionCheckoutSchema } from '@keiba/domain';
+import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Req, ServiceUnavailableException } from '@nestjs/common';
+import { addCalendarMonthUtc, billingSupportEventType, billingSupportRequestSchema, billingSupportStatusSchema, canManage, dayPassCheckoutSchema, dayPassWindow, jstDate, launchCapabilities, requiresMfa, resolveLaunchMode, subscriptionCheckoutSchema } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { randomUUID } from 'node:crypto';
@@ -49,12 +49,46 @@ export class BillingController {
   @Get('billing/me')
   async mine(@Req() req: AppRequest) {
     const actor = await this.auth.authenticate(req);
-    const [subscriptions, dayPasses, payments] = await Promise.all([
+    const [subscriptions, dayPasses, payments, supportRequests] = await Promise.all([
       this.auth.db.subscription.findMany({ where: { userId: actor.id }, orderBy: { createdAt: 'desc' } }),
       this.auth.db.dayPass.findMany({ where: { userId: actor.id }, orderBy: { createdAt: 'desc' } }),
-      this.auth.db.paymentTransaction.findMany({ where: { userId: actor.id }, select: { id: true, provider: true, providerPaymentId: true, kind: true, status: true, amountYen: true, subscriptionId: true, dayPassId: true, occurredAt: true }, orderBy: { occurredAt: 'desc' } })
+      this.auth.db.paymentTransaction.findMany({ where: { userId: actor.id }, select: { id: true, provider: true, providerPaymentId: true, kind: true, status: true, amountYen: true, subscriptionId: true, dayPassId: true, occurredAt: true }, orderBy: { occurredAt: 'desc' } }),
+      this.auth.db.billingSupportRequest.findMany({ where: { userId: actor.id }, select: { id: true, paymentTransactionId: true, category: true, message: true, status: true, createdAt: true, updatedAt: true, events: { select: { eventType: true, occurredAt: true }, orderBy: { occurredAt: 'asc' } } }, orderBy: { createdAt: 'desc' } })
     ]);
-    return { subscriptions, dayPasses, payments };
+    return { subscriptions, dayPasses, payments, supportRequests };
+  }
+
+  @Post('billing/support-requests')
+  async createSupportRequest(@Req() req: AppRequest, @Body() body: unknown) {
+    const actor = await this.auth.authenticate(req);
+    if (actor.role !== 'MEMBER') throw new ForbiddenException({ code: 'MEMBER_REQUIRED', message: '会員本人としてログインしてください。' });
+    const input = billingSupportRequestSchema.parse(body);
+    const key = this.key(req, 'billing-support', actor.id);
+    const requestHash = hashToken(JSON.stringify(input));
+    try {
+      return await this.auth.db.$transaction(async tx => {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))::text`;
+        const previous = await tx.idempotencyKey.findUnique({ where: { key } });
+        if (previous) {
+          if (previous.requestHash !== requestHash) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: '同じ受付キーが異なる内容で使われています。' });
+          return previous.response;
+        }
+        if (input.paymentTransactionId) {
+          const payment = await tx.paymentTransaction.findUnique({ where: { id: input.paymentTransactionId }, select: { userId: true } });
+          if (!payment || payment.userId !== actor.id) throw new ForbiddenException({ code: 'PAYMENT_ACCESS_DENIED', message: '対象の支払いを確認できません。' });
+        }
+        const support = await tx.billingSupportRequest.create({ data: { userId: actor.id, paymentTransactionId: input.paymentTransactionId ?? null, category: input.category, message: input.message, events: { create: { eventType: 'CREATED', actorId: actor.id, actorRole: 'MEMBER', reason: input.message } } } });
+        const response = { id: support.id, category: support.category, status: support.status, paymentTransactionId: support.paymentTransactionId, createdAt: support.createdAt.toISOString() };
+        await tx.idempotencyKey.create({ data: { key, requestHash, response } });
+        await this.auth.audit(tx, req, 'BILLING_SUPPORT_REQUEST_CREATED', support.id, '会員本人による請求問い合わせ受付', { category: support.category, paymentTransactionId: support.paymentTransactionId });
+        return response;
+      });
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
+      const previous = await this.auth.db.idempotencyKey.findUnique({ where: { key } });
+      if (previous?.requestHash === requestHash) return previous.response;
+      throw new ConflictException({ code: 'BILLING_SUPPORT_CONFLICT', message: '受付状態が競合しました。再読み込みしてください。' });
+    }
   }
 
   @Post('billing/checkout')
@@ -359,13 +393,32 @@ export class BillingController {
   @Get('admin/billing')
   async admin(@Req() req: AppRequest) {
     await this.staff(req, ['ADMIN']);
-    const [subscriptions, dayPasses, payments, checkouts, stripeWebhooks] = await Promise.all([
+    const [subscriptions, dayPasses, payments, checkouts, stripeWebhooks, supportRequests] = await Promise.all([
       this.auth.db.subscription.findMany({ include: { user: { select: { email: true, displayName: true } } }, orderBy: { createdAt: 'desc' }, take: 100 }),
       this.auth.db.dayPass.findMany({ include: { user: { select: { email: true, displayName: true } } }, orderBy: { createdAt: 'desc' }, take: 100 }),
       this.auth.db.paymentTransaction.findMany({ select: { id: true, provider: true, providerPaymentId: true, kind: true, status: true, amountYen: true, subscriptionId: true, dayPassId: true, occurredAt: true, user: { select: { email: true, displayName: true } } }, orderBy: { occurredAt: 'desc' }, take: 100 }),
       this.auth.db.billingCheckout.findMany({ select: { id: true, kind: true, planCode: true, raceDate: true, amountYen: true, status: true, createdAt: true, expiresAt: true, completedAt: true, user: { select: { email: true, displayName: true } } }, orderBy: { createdAt: 'desc' }, take: 100 }),
-      this.auth.db.stripeWebhookEvent.findMany({ select: { id: true, providerEventId: true, eventType: true, livemode: true, outcome: true, receivedAt: true }, orderBy: { receivedAt: 'desc' }, take: 100 })
-    ]); return { billingTransport: process.env.BILLING_TRANSPORT, subscriptions, dayPasses, payments, checkouts, stripeWebhooks };
+      this.auth.db.stripeWebhookEvent.findMany({ select: { id: true, providerEventId: true, eventType: true, livemode: true, outcome: true, receivedAt: true }, orderBy: { receivedAt: 'desc' }, take: 100 }),
+      this.auth.db.billingSupportRequest.findMany({ select: { id: true, category: true, message: true, status: true, createdAt: true, updatedAt: true, paymentTransaction: { select: { id: true, kind: true, status: true, amountYen: true, occurredAt: true } }, user: { select: { email: true, displayName: true } }, events: { select: { id: true, eventType: true, actorRole: true, reason: true, occurredAt: true }, orderBy: { occurredAt: 'asc' } } }, orderBy: { createdAt: 'desc' }, take: 100 })
+    ]); return { billingTransport: process.env.BILLING_TRANSPORT, subscriptions, dayPasses, payments, checkouts, stripeWebhooks, supportRequests };
+  }
+
+  @Post('admin/billing/support-requests/:id/status')
+  async updateSupportStatus(@Param('id') id: string, @Body() body: unknown, @Req() req: AppRequest) {
+    const actor = await this.staff(req, ['ADMIN']);
+    z.string().uuid().parse(id);
+    const input = billingSupportStatusSchema.parse(body);
+    return this.auth.db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`billing-support:${id}`}))::text`;
+      const current = await tx.billingSupportRequest.findUnique({ where: { id } });
+      if (!current) throw new NotFoundException({ code: 'BILLING_SUPPORT_NOT_FOUND', message: '問い合わせを確認できません。' });
+      const eventType = billingSupportEventType(current.status, input.status);
+      if (!eventType) throw new ConflictException({ code: 'BILLING_SUPPORT_TRANSITION_INVALID', message: '現在の状態から指定された状態へ変更できません。' });
+      const updated = await tx.billingSupportRequest.update({ where: { id }, data: { status: input.status, updatedAt: new Date() } });
+      await tx.billingSupportEvent.create({ data: { requestId: id, eventType, actorId: actor.id, actorRole: 'ADMIN', reason: input.reason } });
+      await this.auth.audit(tx, req, 'BILLING_SUPPORT_STATUS_CHANGED', id, input.reason, { category: current.category, previousStatus: current.status, status: input.status });
+      return { id: updated.id, status: updated.status, updatedAt: updated.updatedAt };
+    });
   }
 
   @Post('admin/billing/subscriptions/:id/simulate-failure')

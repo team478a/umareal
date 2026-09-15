@@ -748,3 +748,17 @@ td { padding:17px 24px; border-top:1px solid var(--line); }
 .delivery-preview-action { width:100%; min-height:48px; }
 .schedule-race>.delivery-preview { margin-top:18px; }
 @media(max-width:650px) { .delivery-preview { padding:17px; } .delivery-preview-summary { grid-template-columns:1fr; } .delivery-preview-channels { grid-template-columns:1fr; } .delivery-test-send { align-items:stretch; flex-direction:column; } .delivery-test-send>div:last-child { display:grid; grid-template-columns:1fr 1fr; } .delivery-test-send .button { min-height:44px; } }
+.billing-support-form,.billing-support-history { display:grid; gap:12px; margin-top:22px; padding-top:20px; border-top:1px solid var(--line); }
+.billing-support-form h3,.billing-support-history h3,.billing-support-item h3 { margin:0; }
+.billing-support-form p { margin:0; }
+.billing-support-admin { display:grid; }
+.billing-support-item { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:20px; align-items:center; padding:20px 24px; border-bottom:1px solid var(--line); }
+.billing-support-item:last-child { border-bottom:0; }
+.billing-support-item h3 { margin-top:8px; }
+.billing-support-item p { margin:8px 0; white-space:pre-wrap; overflow-wrap:anywhere; }
+.billing-support-item small { display:block; margin-top:4px; color:var(--muted); overflow-wrap:anywhere; }
+.billing-support-item details { margin-top:12px; }
+.billing-support-item summary { min-height:36px; cursor:pointer; color:var(--green); font-weight:700; }
+.billing-support-item ol { margin:8px 0 0; padding-left:22px; color:var(--muted); font-size:12px; }
+.billing-support-item .review-actions { justify-content:flex-end; }
+@media(max-width:650px) { .billing-support-item { grid-template-columns:1fr; padding:19px 20px; } .billing-support-item .review-actions { display:grid; grid-template-columns:1fr; } .billing-support-item .button { width:100%; min-height:44px; } }
