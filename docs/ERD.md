@@ -41,6 +41,18 @@ erDiagram
   prediction_versions ||--o{ prediction_marks : freezes
   prediction_versions ||--o{ prediction_bets : freezes
   prediction_versions ||--o| notification_events : queues
+  users ||--o{ prediction_products : authors
+  prediction_products ||--o{ prediction_product_races : contains
+  races ||--o{ prediction_product_races : participates
+  prediction_product_races ||--o{ prediction_product_selections : selects
+  race_entries ||--o{ prediction_product_selections : references
+  prediction_products ||--o{ prediction_product_previews : previews
+  prediction_products ||--o{ prediction_product_versions : publishes
+  prediction_product_versions ||--o| notification_events : queues
+  prediction_products ||--o| win5_result_drafts : edits
+  prediction_products ||--o{ win5_result_versions : confirms
+  prediction_product_versions ||--o{ win5_result_versions : evaluates
+  win5_result_versions ||--o| double_hit_results : contributes
   notification_events ||--o{ notification_deliveries : expands
   users ||--o{ notification_deliveries : receives
   notification_deliveries ||--o{ notification_attempts : records
@@ -108,5 +120,13 @@ Phase 6ZでusersにSupabaseの予備TOTP factor IDと、15分有効の登録途�
 Phase 7Aでoperational_alert_settings、operational_alerts、operational_alert_deliveriesを追加した。設定はsingletonで有効状態、最低重大度、運営メール通知先、revisionを保持する。アラートは異常元の一意キー、重大度、安全な要約、未確認・確認済み・解決済みの各記録を保持する。外部配送はアラートと通知先の組を一意にし、lease、再試行回数、結果だけを保存する。会員ID、会員メール、LINE subject、予想本文は保持しない。
 
 Phase 7B第1区間でbilling_support_requestsとbilling_support_eventsを追加した。問い合わせは会員と任意の本人所有支払に紐づき、分類、本文、現在状態を保持する。返金・領収書分類では対象支払をDB制約でも必須にする。問い合わせ本体は削除禁止、状態変更eventは追記専用とし、管理者の対応理由と監査履歴を残す。
+
+WIN5 Phase 1では、上図の`prediction_products`から`double_hit_results`までを後続Phaseで追加する論理モデルとして確定した。既存の`predictions`系は1レース単位のパドック直前予想として残し、WIN5データを混在させない。
+
+`prediction_products`は`type + targetDate`を一意にし、当面のtypeは`WIN5_PREVIEW`。`prediction_product_races`は商品内の`legNumber` 1〜5と`raceId`をそれぞれ一意にし、既存レースを順序付きで5件参照する。`prediction_product_selections`は既存出走馬を参照し、対象レースごとの中心馬を1頭に制限する。
+
+`prediction_product_versions`は公開内容全体を凍結した追記専用スナップショットで、商品内版番号と直前版を保持する。結果は締切までに公開された最新の商品版IDと5件の確定レース結果版IDを`win5_result_versions`へ固定し、通常馬券の`prediction_performances`へ混在させない。`double_hit_results`も判定に使用したWIN5結果版、パドック公開版・結果版を参照し、再計算元を失わない。
+
+`notification_events`は既存3種類の公開元にWIN5公開版を加え、常にいずれか1種類だけを参照するXOR制約へ移行する。公開版、WIN5確定結果版、ダブル的中判定はUPDATE、DELETE、TRUNCATEをDBトリガーで拒否する。図中のWIN5モデルはPhase 1時点では未実装であり、物理追加はWIN5 Phase 2以降で行う。
 
 次区間候補はStripeの返金・領収書導線、プラン変更、または課金状態の会員向け通知。実Supabase・メール・LINE・Stripe資格情報を使うステージング接続、正式価格、返金、クーポン、試用、CMSは未確定・未実施。

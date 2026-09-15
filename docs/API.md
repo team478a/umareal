@@ -1,4 +1,4 @@
-# Phase 0 / 1・Phase 2・Phase 3A管理設定 API
+# 実装済みAPIとWIN5追加API設計
 
 基準URLは `/api/v1`。JSON。日時はISO 8601、時刻内部はUTC、画面はJST。レスポンスはno-store。全エラーにcode/message/requestIdを付与し、入力エラーはdetailsにフィールドパスを返す。
 
@@ -82,6 +82,66 @@ HTTP 400=入力不正、401=未認証、403=権限/MFA/Origin不正、404=対象
 
 返金APIは未実装。申込は同じ会員・同じキー・同じ内容なら元の結果を返し、異なる内容の再利用は409。同時実行でも契約、権限、支払履歴が重複しないよう、一意制約、アドバイザリロック、トランザクションで保護する。
 
+## WIN5 API（設計確定・未実装）
+
+管理用URLでもロールを推測せず、サーバー所有のロール、署名済みAAL、商品担当を検証する。WIN5の変更系はすべてAAL2、理由、Idempotency-Keyまたはrevisionを必須とする。
+
+### 商品・対象レース管理
+
+| Method | Path | 権限・動作 |
+| --- | --- | --- |
+| GET / POST | /admin/win5 | ADMIN+AAL2またはOPERATOR+AAL2。一覧／WIN5商品作成 |
+| GET / PATCH | /admin/win5/:win5Id | ADMIN+AAL2またはOPERATOR+AAL2。商品詳細／公開前の基本情報更新 |
+| POST | /admin/win5/:win5Id/races | ADMIN+AAL2またはOPERATOR+AAL2。対象レース追加 |
+| PUT | /admin/win5/:win5Id/races/:legNumber | ADMIN+AAL2またはOPERATOR+AAL2。対象順1〜5の設定をrevision付きで置換 |
+
+商品は`type=WIN5_PREVIEW`で対象日ごとに1件。対象レースは商品対象日と同日、対象順とraceIdはいずれも商品内で重複不可とする。公開版が存在しても下書き編集はできるが、公開済み版は変更しない。
+
+### 専門家入力・公開
+
+| Method | Path | 権限・動作 |
+| --- | --- | --- |
+| GET | /expert/win5/:win5Id | 担当EXPERT+AAL2またはADMIN+AAL2。編集用商品、5レース、出走馬、下書き、公開履歴 |
+| PUT | /expert/win5/:win5Id/races/:legNumber | 担当EXPERT+AAL2、ADMIN+AAL2、またはOPERATOR+AAL2。中心馬、選択馬、理由、信頼度、戦略をrevision付き保存 |
+| POST | /expert/win5/:win5Id/preview | 同上。5レース、選択、計算、締切、公開範囲を検証し15分有効のpreviewIdを返す |
+| POST | /expert/win5/:win5Id/publish/:previewId | 同上。初版公開版、監査、通知eventを同一トランザクションで追記 |
+| POST | /admin/win5/:win5Id/correct/:previewId | ADMIN+AAL2。訂正理由を必須にし、新版を追記 |
+
+プレビューと公開確定は対象5レースの最小`startsAt`を締切として再検証する。公開後の通常PATCH、DELETE APIは提供しない。組み合わせ数と想定購入総額はサーバーで再計算し、クライアント値を信用しない。
+
+### 会員閲覧
+
+| Method | Path | 権限・動作 |
+| --- | --- | --- |
+| GET | /win5 | 公開商品の一覧。`date`、`page`、`limit` |
+| GET | /win5/:win5Id | 認証・契約・公開範囲に応じた最新紙面または無料メタデータ |
+| GET | /win5/:win5Id/versions | 閲覧可能な公開版履歴。各版を独立して権限判定 |
+
+無料・未認証向けDTOは商品ID、対象日、タイトル、公開状態・時刻、対象レースの競馬場・番号・発走時刻と、公開を許可した全体信頼度だけを返す。選択馬、馬番、中心馬、理由、金額、総評、訂正理由、パドック評価を取得・返却しない。有料会員と有効な1日利用者には公開済みスナップショットを返す。
+
+### 通知・結果・共有（WIN5 Phase 4、現在の実装許可範囲外）
+
+| Method | Path | 権限・動作 |
+| --- | --- | --- |
+| POST | /admin/win5/:win5Id/results/import | ADMIN+AAL2またはOPERATOR+AAL2。5レースの確定結果版を参照して結果下書きを作る |
+| POST | /admin/win5/:win5Id/results/confirm | ADMIN+AAL2またはOPERATOR+AAL2。判定対象の商品版を固定して結果版を追記 |
+| GET | /win5/performance | 通常馬券と分離したWIN5成績 |
+| GET | /admin/win5/:win5Id/share | ADMIN+AAL2。結果確定後の共有文、URL、画像データ |
+
+通知種別は`WIN5_PREVIEW_PUBLISHED`、`WIN5_PREVIEW_CORRECTED`、`WIN5_RESULT_CONFIRMED`。同じ公開版・受信者・チャネル・種別を冪等キーで一意にし、通知失敗は商品公開を取り消さない。例外結果が`REVIEW_REQUIRED`の間は結果確定、成績反映、的中表示、共有画像生成を拒否する。
+
+### エラーコード
+
+- `WIN5_DUPLICATE_TARGET_DATE`: 同じ対象日の商品が存在する
+- `WIN5_LEGS_INCOMPLETE`: 対象5レースが揃っていない
+- `WIN5_DUPLICATE_RACE`: 同じレースが複数の対象順にある
+- `WIN5_SELECTION_REQUIRED`: 選択馬または中心馬が不足している
+- `WIN5_DRAFT_CONFLICT`: 下書きrevisionが一致しない
+- `WIN5_STALE_PREVIEW`: 確認後に商品、レース、出走馬、選択、公開履歴が変わった
+- `WIN5_PUBLICATION_CLOSED`: 最初の対象レースの発走時刻以降である
+- `WIN5_ACCESS_DENIED`: 契約、対象日、公開範囲を満たさない
+- `WIN5_RESULT_REVIEW_REQUIRED`: 例外結果の集計規則が確定していない
+
 ## 料金・契約
 
 `BILLING_TRANSPORT=test` はローカル検証専用で、外部通信、カード入力、実請求を行わない。`stripe` はHosted Checkoutと署名付きWebhookを使用する。`LAUNCH_MODE=FREE_REGISTRATION` の本番では `disabled` を必須にし、購入画面を表示せず、CheckoutとWebhookを503で拒否する。新規購入停止は月額と1日利用の両方へ適用する。
@@ -90,7 +150,7 @@ HTTP 400=入力不正、401=未認証、403=権限/MFA/Origin不正、404=対象
 
 確認済みメール会員への公開通知は、メール通知全体と本人の`emailEnabled`・カテゴリ設定を送信直前に確認する。通知eventは共通だが、メールとLINEの配送、冪等キー、展開状態は独立する。既存eventは移行時にメール展開済みとし、導入前の告知を一斉送信しない。公開通知の停止は認証用メールへ影響しない。
 
-ローカル月額契約は申込時刻からUTC基準の暦1か月を計算し、Stripe月額契約はInvoiceの請求期間を正とする。`invoice.paid` は初回期間補正、更新、回復を反映し、`invoice.payment_failed` はPAST_DUEと設定済み猶予期限を反映する。`customer.subscription.updated/deleted` は解約予約・終了を同期する。1日利用は対象日のJST 00:00以上、翌日00:00未満。支払試行、請求イベント、Stripe受信イベントはDBで更新・削除・TRUNCATEを拒否する。
+ローカル月額契約は申込時刻からUTC基準の暦1か月を計算し、Stripe月額契約はInvoiceの請求期間を正とする。`invoice.paid` は初回期間補正、更新、回復を反映し、`invoice.payment_failed` はPAST_DUEと設定済み猶予期限を反映する。`customer.subscription.updated/deleted` は解約予約・終了を同期する。現行の1日利用は対象日のJST 00:00以上、翌日00:00未満。WIN5 Phase 3で、WIN5商品がある日は初版の実公開時刻から、商品がない日は対象日JST 00:00からへ移行する。支払試行、請求イベント、Stripe受信イベントはDBで更新・削除・TRUNCATEを拒否する。
 
 ## 運用・連携設定
 
