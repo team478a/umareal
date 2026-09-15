@@ -106,6 +106,6 @@ pnpm test:e2e
 
 正式文書・料金・データ許諾の確定と、正式な同意の再取得が本番公開前に必要です。詳細は docs/DECISIONS.md、docs/OPERATIONS.md、docs/IMPLEMENTATION.md を参照してください。
 
-前日WIN5紙面予想と当日パドック直前予想の2商品構成は、[docs/WIN5_PHASE1_DESIGN.md](docs/WIN5_PHASE1_DESIGN.md)に差分、論理モデル、権限、API境界、実装順を記載しています。Phase 1は設計確定まで完了し、機能実装はWIN5 Phase 2から行います。
+前日WIN5紙面予想と当日パドック直前予想の2商品構成は、[docs/WIN5_PHASE1_DESIGN.md](docs/WIN5_PHASE1_DESIGN.md)に差分、論理モデル、権限、API境界、実装順を記載しています。Phase 2まで完了し、管理・担当者画面で5レースの入力、組合せ計算、公開・訂正履歴を扱えます。会員向け紙面と閲覧権限はPhase 3で追加します。
 
 独自ドメイン公開の構成、Render Blueprint、必要な資格情報と公開判定は [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) を参照してください。`render.yaml` はWeb、非公開API、ワーカー、PostgreSQLをSingaporeリージョンに作るための準備ファイルです。現時点では本番認証の結合と正式文書が未完了のため、公開トラフィックを受ける用途にはまだ使用しません。

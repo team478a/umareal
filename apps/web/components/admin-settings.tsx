@@ -12,6 +12,7 @@ type Settings = {
   };
   maintenanceMessage: string;
   notificationPolicy: { maxAttempts: number; baseDelaySeconds: number };
+  win5: { defaultAmountPerPointYen: number; combinationWarningLimit: number };
   billing: { founderSalesEnabled: boolean; founderPriceYen: number; standardPriceYen: number; dayPassPriceYen: number; founderSalesLimit: number; billingGraceDays: number };
   stripe: {
     source: 'ADMIN' | 'ENVIRONMENT'; liveMode: boolean; secretKeyConfigured: boolean; webhookSecretConfigured: boolean;
@@ -58,7 +59,7 @@ export function AdminSettings() {
     try {
       const updated = await request<Settings>('PATCH', {
         revision: settings.revision, reason, operations: settings.operations, registrationPauseMessage: settings.registrationPauseMessage, maintenanceMessage: settings.maintenanceMessage,
-        notificationPolicy: settings.notificationPolicy, billing: settings.billing,
+        notificationPolicy: settings.notificationPolicy, win5: settings.win5, billing: settings.billing,
         captcha: { enabled: settings.captcha.enabled, siteKey: settings.captcha.siteKey || null, ...(turnstileSecret ? { secret: turnstileSecret } : {}), clearSecret: clearTurnstileSecret },
         stripe: {
           liveMode: settings.stripe.liveMode, ...(stripeSecretKey ? { secretKey: stripeSecretKey } : {}), ...(stripeWebhookSecret ? { webhookSecret: stripeWebhookSecret } : {}),
@@ -133,6 +134,7 @@ export function AdminSettings() {
         <label className="field">Callback URL<input aria-label="LINE Login Callback URL" type="url" value={settings.line.loginCallbackUrl ?? ''} maxLength={500} onChange={event => setSettings({ ...settings, line: { ...settings.line, loginCallbackUrl: event.target.value || null } })} placeholder="https://example.com/api/v1/auth/line/callback" /></label>
         <div className="credential-actions"><label><input type="checkbox" checked={clearLoginSecret} onChange={event => { setClearLoginSecret(event.target.checked); if (event.target.checked) setLoginChannelSecret(''); }} />保存済みLogin Channel secretを削除</label></div>
       </div></section>
+      <section className="panel"><div className="panel-heading"><div><span className="eyebrow">WIN5</span><h2>WIN5予想設定</h2></div></div><div className="panel-body"><div className="two-columns"><label className="field">1点あたり初期金額<input aria-label="WIN5 1点あたり初期金額" type="number" min={100} max={1000000} step={100} value={settings.win5.defaultAmountPerPointYen} onChange={event => setSettings({ ...settings, win5: { ...settings.win5, defaultAmountPerPointYen: Number(event.target.value) } })} /></label><label className="field">組合せ数の警告値<input aria-label="WIN5 組合せ数の警告値" type="number" min={1} max={2000000000} value={settings.win5.combinationWarningLimit} onChange={event => setSettings({ ...settings, win5: { ...settings.win5, combinationWarningLimit: Number(event.target.value) } })} /></label></div><p className="muted form-note">警告値を超えても公開は止めず、公開前確認に注意を表示します。</p></div></section>
       <section className="panel"><div className="panel-heading"><div><span className="eyebrow">DELIVERY POLICY</span><h2>通知再試行</h2></div></div><div className="panel-body"><div className="two-columns"><label className="field">最大試行回数<input aria-label="通知の最大試行回数" type="number" min={1} max={10} value={settings.notificationPolicy.maxAttempts} onChange={event => setSettings({ ...settings, notificationPolicy: { ...settings.notificationPolicy, maxAttempts: Number(event.target.value) } })} /></label><label className="field">初回待機秒数<input aria-label="通知の初回待機秒数" type="number" min={10} max={3600} value={settings.notificationPolicy.baseDelaySeconds} onChange={event => setSettings({ ...settings, notificationPolicy: { ...settings.notificationPolicy, baseDelaySeconds: Number(event.target.value) } })} /></label></div></div></section>
       <section className="panel"><div className="panel-body"><label className="field">変更理由<input aria-label="管理設定の変更理由" required maxLength={500} value={reason} onChange={event => setReason(event.target.value)} /></label><p className="muted form-note">保存内容、実行者、日時、理由を操作履歴へ記録します。資格情報そのものは記録しません。</p><button className="button" disabled={busy || !reason.trim()}>{busy ? '保存中…' : '管理設定を保存'}</button></div></section>
     </form>

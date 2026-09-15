@@ -36,6 +36,7 @@ import { RegistrationFollowupsController } from './registration-followups.contro
 import { RegistrationCaptchaService } from './registration-captcha.service';
 import { AdminContinuityController } from './admin-continuity.controller';
 import { OperationalAlertsController } from './operational-alerts.controller';
+import { Win5Controller } from './win5.controller';
 config({ path: resolve(process.cwd(), '../../.env'), quiet: true });
 
 @Catch()
@@ -58,7 +59,7 @@ class ErrorFilter implements ExceptionFilter {
     res.status(status).json({ code, message, requestId: req.requestId, details });
   }
 }
-@Module({ controllers: [AuthController, AppController, RacesController, AssessmentsController, PredictionsController, AdminSettingsController, AdminContinuityController, OperationalAlertsController, NotificationsController, MemberNotificationsController, AdminFreeReportsController, MemberFreeReportsController, PublicationSchedulesController, LineWebhookController, ResendWebhookController, RegistrationFollowupsController, LineLoginController, ResultsController, BillingController], providers: [DbService, AuthService, SupabaseAuthService, LineLoginService, MailService, RegistrationCaptchaService] })
+@Module({ controllers: [AuthController, AppController, RacesController, AssessmentsController, PredictionsController, Win5Controller, AdminSettingsController, AdminContinuityController, OperationalAlertsController, NotificationsController, MemberNotificationsController, AdminFreeReportsController, MemberFreeReportsController, PublicationSchedulesController, LineWebhookController, ResendWebhookController, RegistrationFollowupsController, LineLoginController, ResultsController, BillingController], providers: [DbService, AuthService, SupabaseAuthService, LineLoginService, MailService, RegistrationCaptchaService] })
 class AppModule {}
 
 async function main() {

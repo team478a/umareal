@@ -82,7 +82,7 @@ HTTP 400=入力不正、401=未認証、403=権限/MFA/Origin不正、404=対象
 
 返金APIは未実装。申込は同じ会員・同じキー・同じ内容なら元の結果を返し、異なる内容の再利用は409。同時実行でも契約、権限、支払履歴が重複しないよう、一意制約、アドバイザリロック、トランザクションで保護する。
 
-## WIN5 API（設計確定・未実装）
+## WIN5 API（Phase 2 実装済み）
 
 管理用URLでもロールを推測せず、サーバー所有のロール、署名済みAAL、商品担当を検証する。WIN5の変更系はすべてAAL2、理由、Idempotency-Keyまたはrevisionを必須とする。
 
@@ -91,9 +91,9 @@ HTTP 400=入力不正、401=未認証、403=権限/MFA/Origin不正、404=対象
 | Method | Path | 権限・動作 |
 | --- | --- | --- |
 | GET / POST | /admin/win5 | ADMIN+AAL2またはOPERATOR+AAL2。一覧／WIN5商品作成 |
-| GET / PATCH | /admin/win5/:win5Id | ADMIN+AAL2またはOPERATOR+AAL2。商品詳細／公開前の基本情報更新 |
-| POST | /admin/win5/:win5Id/races | ADMIN+AAL2またはOPERATOR+AAL2。対象レース追加 |
+| GET / PATCH | /admin/win5/:win5Id | ADMIN+AAL2またはOPERATOR+AAL2。商品詳細／revision付き下書き基本情報更新 |
 | PUT | /admin/win5/:win5Id/races/:legNumber | ADMIN+AAL2またはOPERATOR+AAL2。対象順1〜5の設定をrevision付きで置換 |
+| GET | /admin/win5/:win5Id/options | ADMIN+AAL2またはOPERATOR+AAL2。対象日と一致するレース・出走馬候補 |
 
 商品は`type=WIN5_PREVIEW`で対象日ごとに1件。対象レースは商品対象日と同日、対象順とraceIdはいずれも商品内で重複不可とする。公開版が存在しても下書き編集はできるが、公開済み版は変更しない。
 
@@ -101,13 +101,18 @@ HTTP 400=入力不正、401=未認証、403=権限/MFA/Origin不正、404=対象
 
 | Method | Path | 権限・動作 |
 | --- | --- | --- |
-| GET | /expert/win5/:win5Id | 担当EXPERT+AAL2またはADMIN+AAL2。編集用商品、5レース、出走馬、下書き、公開履歴 |
+| GET | /expert/win5 | 担当EXPERT+AAL2。自分が担当する商品一覧 |
+| GET | /expert/win5/:win5Id | 担当EXPERT+AAL2または管理担当+AAL2。編集用商品、5レース、出走馬、下書き、公開履歴 |
+| GET | /expert/win5/:win5Id/options | 同上。対象日と一致するレース・出走馬候補 |
 | PUT | /expert/win5/:win5Id/races/:legNumber | 担当EXPERT+AAL2、ADMIN+AAL2、またはOPERATOR+AAL2。中心馬、選択馬、理由、信頼度、戦略をrevision付き保存 |
 | POST | /expert/win5/:win5Id/preview | 同上。5レース、選択、計算、締切、公開範囲を検証し15分有効のpreviewIdを返す |
-| POST | /expert/win5/:win5Id/publish/:previewId | 同上。初版公開版、監査、通知eventを同一トランザクションで追記 |
-| POST | /admin/win5/:win5Id/correct/:previewId | ADMIN+AAL2。訂正理由を必須にし、新版を追記 |
+| POST | /expert/win5/:win5Id/publish/:previewId | 同上。初版公開版と監査を同一トランザクションで追記 |
+| POST | /admin/win5/:win5Id/preview | ADMIN+AAL2。訂正時は理由を必須にして公開内容を確認 |
+| POST | /admin/win5/:win5Id/publish/:previewId | ADMIN+AAL2。訂正版を新版として追記 |
 
 プレビューと公開確定は対象5レースの最小`startsAt`を締切として再検証する。公開後の通常PATCH、DELETE APIは提供しない。組み合わせ数と想定購入総額はサーバーで再計算し、クライアント値を信用しない。
+
+Phase 2では通知eventを作成しない。WIN5通知は会員向け専用DTOと配送内容の漏えい試験を揃えるPhase 4で追加する。
 
 ### 会員閲覧
 

@@ -74,6 +74,7 @@ export class AdminSettingsController {
       },
       maintenanceMessage: value.maintenanceMessage,
       notificationPolicy: { maxAttempts: value.notificationMaxAttempts, baseDelaySeconds: value.notificationBaseDelaySeconds },
+      win5: { defaultAmountPerPointYen: value.win5DefaultAmountPerPointYen, combinationWarningLimit: value.win5CombinationWarningLimit },
       billing: {
         founderSalesEnabled: value.founderSalesEnabled, founderPriceYen: value.founderPriceYen,
         standardPriceYen: value.standardPriceYen, dayPassPriceYen: value.dayPassPriceYen,
@@ -161,6 +162,7 @@ export class AdminSettingsController {
         maintenanceMessage: input.maintenanceMessage,
         notificationMaxAttempts: input.notificationPolicy.maxAttempts,
         notificationBaseDelaySeconds: input.notificationPolicy.baseDelaySeconds,
+        ...(input.win5 ? { win5DefaultAmountPerPointYen: input.win5.defaultAmountPerPointYen, win5CombinationWarningLimit: input.win5.combinationWarningLimit } : {}),
         ...input.billing,
         stripeSecretKeyEncrypted,
         stripeWebhookSecretEncrypted,

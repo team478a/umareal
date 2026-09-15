@@ -1,5 +1,7 @@
 # WIN5追加開発 Phase 1 設計変更
 
+実装状況: Phase 1の設計とPhase 2の入力・公開機能は完了。会員紙面、閲覧権限、1日利用開始時刻はPhase 3、通知・結果・成績はPhase 4で実装する。
+
 ## 目的と互換性
 
 既存の1レース単位のパドック直前予想を維持したまま、5レースを1商品として扱う `WIN5_PREVIEW` を追加する。既存の `predictions`、`prediction_versions`、公開API、結果集計は `PADDOCK_RACE` 相当として挙動を変えない。WIN5は単一の `raceId` に所属させず、独立した集約ルートとする。

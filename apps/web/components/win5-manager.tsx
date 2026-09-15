@@ -1,0 +1,84 @@
+'use client';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
+
+type Expert = { id: string; displayName: string };
+type Entry = { id: string; number: number; horseName: string; status: string };
+type Race = { id: string; raceDate: string; venue: string; number: number; name: string; startsAt: string; status: string; entries: Entry[] };
+type Selection = { entryId: string; selectionType: 'CENTER' | 'SELECTED'; displayOrder: number };
+type Leg = { id: string; legNumber: number; confidence: string; strategyType: string; comment: string; race: Race; selections: Selection[] };
+type Version = { id: string; version: number; status: string; combinationCount: number; assumedPurchaseAmountYen: number; publishedAt: string; correctionReason: string | null };
+type Product = { id: string; targetDate: string; title: string; expertId: string; expert: Expert; status: string; accessScope: string; scheduledPublishAt: string; publishedAt: string | null; closeAt: string | null; confidence: string; summary: string; showFreeConfidence: boolean; amountPerPointYen: number; revision: number; races: Leg[]; versions: Version[]; currentCombinationCount: number | null; _count?: { races: number; versions: number } };
+type Preview = { previewId: string; version: number; correction: boolean; warnings: string[]; deadlineAt: string; combinationCount: number; amountPerPointYen: number; assumedPurchaseAmountYen: number };
+
+async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+  const response = await fetch(`/api/v1/${path}`, { method, cache: 'no-store', headers: body ? { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() } : {}, body: body ? JSON.stringify(body) : undefined });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.message ?? '処理に失敗しました。');
+  return result as T;
+}
+const jstDate = () => new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+const localDateTime = (value: string) => new Date(value).toISOString().slice(0, 16);
+const yen = (value: number) => new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY' }).format(value);
+async function loadExperts() {
+  const first = await request<{ items: Expert[]; total: number }>('admin/race-experts?limit=50');
+  const rest = await Promise.all(Array.from({ length: Math.max(0, Math.ceil(first.total / 50) - 1) }, (_, index) => request<{ items: Expert[] }>(`admin/race-experts?limit=50&page=${index + 2}`)));
+  return [...first.items, ...rest.flatMap(page => page.items)];
+}
+
+export function Win5Manager({ role }: { role: string }) {
+  const admin = role === 'ADMIN' || role === 'OPERATOR'; const base = admin ? 'admin' : 'expert';
+  const [products, setProducts] = useState<Product[]>([]); const [product, setProduct] = useState<Product | null>(null); const [experts, setExperts] = useState<Expert[]>([]); const [races, setRaces] = useState<Race[]>([]);
+  const [preview, setPreview] = useState<Preview | null>(null); const [correctionReason, setCorrectionReason] = useState(''); const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
+  const loadList = useCallback(async () => { const list = await request<Product[]>(`${base}/win5`); setProducts(list); return list; }, [base]);
+  const open = useCallback(async (id: string) => {
+    const [detail, options] = await Promise.all([request<Product>(`${base}/win5/${id}`), request<Race[]>(`${base}/win5/${id}/options`)]);
+    setProduct(detail); setRaces(options); setPreview(null);
+  }, [base]);
+  useEffect(() => { setError(''); Promise.all([loadList(), admin ? loadExperts() : Promise.resolve([])]).then(([list, expertItems]) => { setExperts(expertItems); if (list[0]) return open(list[0].id); }).catch(e => setError(e.message)); }, [admin, loadList, open]);
+  async function create(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError(''); setMessage(''); const data = new FormData(event.currentTarget);
+    try {
+      const created = await request<Product>('admin/win5', 'POST', { type: 'WIN5_PREVIEW', targetDate: data.get('targetDate'), title: data.get('title'), expertId: data.get('expertId'), scheduledPublishAt: new Date(String(data.get('scheduledPublishAt'))).toISOString(), accessScope: data.get('accessScope'), confidence: data.get('confidence'), summary: '', showFreeConfidence: false, reason: data.get('reason') });
+      await loadList(); await open(created.id); setMessage('WIN5予想枠を作成しました。'); event.currentTarget.reset();
+    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  }
+  async function update(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if (!product) return; setBusy(true); setError(''); setMessage(''); const data = new FormData(event.currentTarget);
+    try {
+      await request(`admin/win5/${product.id}`, 'PATCH', { revision: product.revision, title: data.get('title'), expertId: data.get('expertId'), scheduledPublishAt: new Date(String(data.get('scheduledPublishAt'))).toISOString(), accessScope: data.get('accessScope'), confidence: data.get('confidence'), summary: data.get('summary'), showFreeConfidence: data.get('showFreeConfidence') === 'on', amountPerPointYen: Number(data.get('amountPerPointYen')), reason: data.get('reason') });
+      await open(product.id); await loadList(); setMessage('基本情報を保存しました。');
+    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  }
+  async function check() {
+    if (!product) return; setBusy(true); setError(''); setMessage('');
+    try { setPreview(await request<Preview>(`${base}/win5/${product.id}/preview`, 'POST', { productRevision: product.revision, correctionReason })); }
+    catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  }
+  async function publish() {
+    if (!product || !preview) return; setBusy(true); setError(''); setMessage('');
+    try { const result = await request<{ version: number }>(`${base}/win5/${product.id}/publish/${preview.previewId}`, 'POST'); await open(product.id); await loadList(); setMessage(`WIN5予想 v${result.version} を公開しました。`); setCorrectionReason(''); }
+    catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  }
+  return <>
+    <div className="page-heading"><span className="eyebrow">WIN5 PREVIEW</span><h1>WIN5予想管理</h1><p>5レースの中心馬と選択馬をまとめ、組合せ数と想定購入額を確認して公開します。</p></div>
+    {error && <div className="notice error" role="alert">{error}</div>}{message && <div className="notice" role="status">{message}</div>}
+    {admin && <section className="panel"><div className="panel-heading"><div><span className="eyebrow">NEW PRODUCT</span><h2>予想枠を作成</h2></div></div><form className="panel-body" onSubmit={create}><div className="race-form-grid"><label className="field">対象日<input name="targetDate" type="date" defaultValue={jstDate()} required /></label><label className="field">タイトル<input name="title" defaultValue="WIN5プレビュー" maxLength={120} required /></label><label className="field">担当専門家<select name="expertId" required defaultValue=""><option value="" disabled>選択してください</option>{experts.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label><label className="field">公開予定<input name="scheduledPublishAt" type="datetime-local" defaultValue={`${jstDate()}T09:00`} required /></label><label className="field">公開範囲<select name="accessScope" defaultValue="PAID"><option value="PAID">有料</option><option value="FREE">無料</option></select></label><label className="field">全体信頼度<select name="confidence" defaultValue="A">{['S','A','B','C'].map(value => <option key={value}>{value}</option>)}</select></label><label className="field">作成理由<input name="reason" maxLength={500} required /></label></div><button className="button" disabled={busy || !experts.length}>予想枠を作成</button></form></section>}
+    <section className="panel"><div className="panel-heading"><div><span className="eyebrow">PRODUCTS</span><h2>WIN5予想一覧</h2></div><span className="count-tag">{products.length}件</span></div><div className="race-list">{products.map(item => <button type="button" className={`race-row ${product?.id === item.id ? 'selected' : ''}`} key={item.id} onClick={() => void open(item.id)}><div className="race-number">W5</div><div className="race-info"><span className="muted">{item.targetDate} · {item.status}</span><h3>{item.title}</h3></div><span className="status-tag">{item._count?.races ?? 0}/5レース</span></button>)}</div></section>
+    {product && <>
+      <section className="panel"><div className="panel-heading"><div><span className="eyebrow">OVERVIEW</span><h2>{product.title}</h2></div><span className="status-tag">revision {product.revision}</span></div>{admin ? <form className="panel-body" onSubmit={update}><div className="race-form-grid"><label className="field">タイトル<input name="title" defaultValue={product.title} required maxLength={120} /></label><label className="field">担当専門家<select name="expertId" defaultValue={product.expertId}>{experts.map(item => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label><label className="field">公開予定<input name="scheduledPublishAt" type="datetime-local" defaultValue={localDateTime(product.scheduledPublishAt)} required /></label><label className="field">公開範囲<select name="accessScope" defaultValue={product.accessScope}><option value="PAID">有料</option><option value="FREE">無料</option></select></label><label className="field">全体信頼度<select name="confidence" defaultValue={product.confidence}>{['S','A','B','C'].map(value => <option key={value}>{value}</option>)}</select></label><label className="field">1点あたり<input name="amountPerPointYen" type="number" min={100} max={1000000} step={100} defaultValue={product.amountPerPointYen} required /></label></div><label className="field">全体総評<textarea name="summary" defaultValue={product.summary} rows={4} maxLength={5000} required /></label><label><input name="showFreeConfidence" type="checkbox" defaultChecked={product.showFreeConfidence} /> 無料会員にも全体信頼度を表示</label><label className="field">変更理由<input name="reason" required maxLength={500} /></label><button className="button" disabled={busy}>基本情報を保存</button></form> : <div className="panel-body"><p>{product.summary || '全体総評は未入力です。'}</p><p className="muted">担当：{product.expert.displayName} ／ 全体信頼度：{product.confidence} ／ 1点 {yen(product.amountPerPointYen)}</p></div>}</section>
+      <section className="panel"><div className="panel-heading"><div><span className="eyebrow">FIVE LEGS</span><h2>対象5レース</h2></div><span className="count-tag">{product.races.length}/5</span></div><div className="panel-body settings-stack">{[1,2,3,4,5].map(number => <LegEditor key={`${product.id}-${product.revision}-${number}`} number={number} product={product} races={races} base={base} busy={busy} setBusy={setBusy} onError={setError} onSaved={async () => { await open(product.id); setMessage(`第${number}レースを保存しました。`); }} />)}</div></section>
+      <section className="panel"><div className="panel-heading"><div><span className="eyebrow">PUBLICATION</span><h2>公開前確認</h2></div></div><div className="panel-body"><p>現在の組合せ数：<strong>{product.currentCombinationCount ?? '未完成'}</strong></p>{product.versions.length > 0 && <label className="field">訂正理由<input value={correctionReason} onChange={event => setCorrectionReason(event.target.value)} maxLength={500} required /></label>}<button className="button secondary" onClick={() => void check()} disabled={busy || (product.versions.length > 0 && !correctionReason.trim())}>公開内容を確認</button>{preview && <div className="import-preview"><h3>v{preview.version} 公開確認</h3><p><strong>{preview.combinationCount}点 × {yen(preview.amountPerPointYen)} = {yen(preview.assumedPurchaseAmountYen)}</strong></p><p>締切：{new Date(preview.deadlineAt).toLocaleString('ja-JP')}</p>{preview.warnings.map(item => <div className="notice" key={item}>{item}</div>)}<button className="button" onClick={() => void publish()} disabled={busy}>{preview.correction ? '訂正版を公開' : 'WIN5予想を公開'}</button></div>}</div></section>
+      {product.versions.length > 0 && <section className="panel"><div className="panel-heading"><div><span className="eyebrow">HISTORY</span><h2>公開履歴</h2></div></div><div className="table-scroll"><table className="race-data-table"><thead><tr><th>版</th><th>状態</th><th>組合せ</th><th>想定額</th><th>公開日時</th><th>訂正理由</th></tr></thead><tbody>{product.versions.map(item => <tr key={item.id}><td>v{item.version}</td><td>{item.status}</td><td>{item.combinationCount}点</td><td>{yen(item.assumedPurchaseAmountYen)}</td><td>{new Date(item.publishedAt).toLocaleString('ja-JP')}</td><td>{item.correctionReason ?? '—'}</td></tr>)}</tbody></table></div></section>}
+    </>}
+  </>;
+}
+
+function LegEditor({ number, product, races, base, busy, setBusy, onError, onSaved }: { number: number; product: Product; races: Race[]; base: string; busy: boolean; setBusy: (value: boolean) => void; onError: (value: string) => void; onSaved: () => Promise<void> }) {
+  const saved = product.races.find(item => item.legNumber === number); const [raceId, setRaceId] = useState(saved?.race.id ?? ''); const [selected, setSelected] = useState<string[]>(saved?.selections.map(item => item.entryId) ?? []); const [center, setCenter] = useState(saved?.selections.find(item => item.selectionType === 'CENTER')?.entryId ?? ''); const race = races.find(item => item.id === raceId);
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); const data = new FormData(event.currentTarget); setBusy(true); onError('');
+    try { await request(`${base}/win5/${product.id}/races/${number}`, 'PUT', { productRevision: product.revision, raceId, confidence: data.get('confidence'), strategyType: data.get('strategyType'), comment: data.get('comment'), selectionEntryIds: selected, centerEntryId: center, reason: data.get('reason') }); await onSaved(); }
+    catch (e) { onError((e as Error).message); } finally { setBusy(false); }
+  }
+  return <form className="import-preview" onSubmit={save}><h3>第{number}レース</h3><div className="race-form-grid"><label className="field">レース<select value={raceId} required onChange={event => { setRaceId(event.target.value); setSelected([]); setCenter(''); }}><option value="">選択してください</option>{races.map(item => <option key={item.id} value={item.id}>{item.venue} {item.number}R {item.name}</option>)}</select></label><label className="field">信頼度<select name="confidence" defaultValue={saved?.confidence ?? 'A'}>{['S','A','B','C'].map(value => <option key={value}>{value}</option>)}</select></label><label className="field">組み立て<select name="strategyType" defaultValue={saved?.strategyType ?? 'NORMAL'}><option value="NARROW">絞る</option><option value="NORMAL">標準</option><option value="SPREAD">広げる</option></select></label></div>{race && <div className="entry-checks">{race.entries.map(entry => <label key={entry.id}><input type="checkbox" checked={selected.includes(entry.id)} onChange={event => { const next = event.target.checked ? [...selected, entry.id] : selected.filter(id => id !== entry.id); setSelected(next); if (!event.target.checked && center === entry.id) setCenter(''); }} /> {entry.number}番 {entry.horseName} <input aria-label={`${entry.number}番を中心馬`} type="radio" name={`center-${number}`} checked={center === entry.id} disabled={!selected.includes(entry.id)} onChange={() => setCenter(entry.id)} />中心</label>)}</div>}<label className="field">見解<textarea name="comment" defaultValue={saved?.comment ?? ''} rows={3} required maxLength={2000} /></label><label className="field">保存理由<input name="reason" required maxLength={500} /></label><button className="button secondary" disabled={busy || !raceId || !selected.length || !center}>第{number}レースを保存</button></form>;
+}

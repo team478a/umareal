@@ -81,6 +81,8 @@ async function inspectDatabase(databaseUrl) {
       (SELECT count(*)::int FROM "users") AS users,
       (SELECT count(*)::int FROM "races") AS races,
       (SELECT count(*)::int FROM "prediction_versions") AS "predictionVersions",
+      (SELECT count(*)::int FROM "prediction_products") AS "predictionProducts",
+      (SELECT count(*)::int FROM "prediction_product_versions") AS "predictionProductVersions",
       (SELECT count(*)::int FROM "free_report_versions") AS "freeReportVersions",
       (SELECT count(*)::int FROM "audio_assets") AS "audioAssets",
       (SELECT count(*)::int FROM "publication_schedules") AS "publicationSchedules",
@@ -92,7 +94,7 @@ async function inspectDatabase(databaseUrl) {
       (SELECT count(*)::int FROM "operational_alert_deliveries") AS "operationalAlertDeliveries",
       (SELECT count(*)::int FROM "billing_support_requests") AS "billingSupportRequests",
       (SELECT count(*)::int FROM "billing_support_events") AS "billingSupportEvents",
-      (SELECT count(*)::int FROM pg_trigger WHERE NOT tgisinternal AND tgname IN ('prediction_version_immutable','prediction_marks_immutable','prediction_bets_immutable','audit_no_update_delete','account_closure_no_update_delete','stripe_webhook_events_immutable','free_report_versions_no_update_delete','audio_assets_no_update_delete','member_acquisitions_no_update_delete','billing_support_requests_guard','billing_support_events_immutable')) AS "requiredTriggers"`);
+      (SELECT count(*)::int FROM pg_trigger WHERE NOT tgisinternal AND tgname IN ('prediction_version_immutable','prediction_marks_immutable','prediction_bets_immutable','prediction_product_version_immutable','audit_no_update_delete','account_closure_no_update_delete','stripe_webhook_events_immutable','free_report_versions_no_update_delete','audio_assets_no_update_delete','member_acquisitions_no_update_delete','billing_support_requests_guard','billing_support_events_immutable')) AS "requiredTriggers"`);
     return rows[0];
   } finally {
     await db.$disconnect();
@@ -134,7 +136,7 @@ try {
   const restoreUrl = new URL(sourceUrl); restoreUrl.port = '55433';
   const restoredCounts = await inspectDatabase(restoreUrl.toString());
   if (JSON.stringify(restoredCounts) !== JSON.stringify(sourceCounts)) throw new Error('Restored database integrity values do not match the source');
-  if (restoredCounts.requiredTriggers !== 11) throw new Error('Required immutable-history triggers were not restored');
+  if (restoredCounts.requiredTriggers !== 12) throw new Error('Required immutable-history triggers were not restored');
 
   runPgCtl(restoreData, ['-m', 'fast', '-w', 'stop']);
   restoreStarted = false;
@@ -142,7 +144,7 @@ try {
   restoreRemoved = true;
 
   const verifiedAt = new Date().toISOString();
-  safeStatus({ status: 'VERIFIED', verifiedAt, backupId, format: 'postgresql-physical-directory', postgresMajor: 16, encrypted: false, ...backup, migrations: restoredCounts.migrations, requiredTriggers: restoredCounts.requiredTriggers, restoredDatabaseRemoved: true, counts: { users: restoredCounts.users, races: restoredCounts.races, predictionVersions: restoredCounts.predictionVersions, freeReportVersions: restoredCounts.freeReportVersions, audioAssets: restoredCounts.audioAssets, publicationSchedules: restoredCounts.publicationSchedules, memberAcquisitions: restoredCounts.memberAcquisitions, acquisitionCampaigns: restoredCounts.acquisitionCampaigns, auditLogs: restoredCounts.auditLogs, notificationEvents: restoredCounts.notificationEvents, operationalAlerts: restoredCounts.operationalAlerts, operationalAlertDeliveries: restoredCounts.operationalAlertDeliveries, billingSupportRequests: restoredCounts.billingSupportRequests, billingSupportEvents: restoredCounts.billingSupportEvents } });
+  safeStatus({ status: 'VERIFIED', verifiedAt, backupId, format: 'postgresql-physical-directory', postgresMajor: 16, encrypted: false, ...backup, migrations: restoredCounts.migrations, requiredTriggers: restoredCounts.requiredTriggers, restoredDatabaseRemoved: true, counts: { users: restoredCounts.users, races: restoredCounts.races, predictionVersions: restoredCounts.predictionVersions, predictionProducts: restoredCounts.predictionProducts, predictionProductVersions: restoredCounts.predictionProductVersions, freeReportVersions: restoredCounts.freeReportVersions, audioAssets: restoredCounts.audioAssets, publicationSchedules: restoredCounts.publicationSchedules, memberAcquisitions: restoredCounts.memberAcquisitions, acquisitionCampaigns: restoredCounts.acquisitionCampaigns, auditLogs: restoredCounts.auditLogs, notificationEvents: restoredCounts.notificationEvents, operationalAlerts: restoredCounts.operationalAlerts, operationalAlertDeliveries: restoredCounts.operationalAlertDeliveries, billingSupportRequests: restoredCounts.billingSupportRequests, billingSupportEvents: restoredCounts.billingSupportEvents } });
   console.info(`Backup ${backupId} verified and isolated restore data removed.`);
 } catch {
   safeStatus({ status: 'FAILED', attemptedAt: new Date().toISOString(), errorCode: 'BACKUP_VERIFY_FAILED', backupId: backupCreated ? backupId : null, restoredDatabaseRemoved: restoreRemoved });

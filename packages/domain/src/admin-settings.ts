@@ -34,6 +34,10 @@ export const adminSettingsUpdateSchema = z.object({
     maxAttempts: z.number().int().min(1).max(10),
     baseDelaySeconds: z.number().int().min(10).max(3600)
   }).strict(),
+  win5: z.object({
+    defaultAmountPerPointYen: z.number().int().min(100).max(1_000_000).multipleOf(100),
+    combinationWarningLimit: z.number().int().min(1).max(2_000_000_000)
+  }).strict().optional(),
   billing: billingSettingsSchema,
   stripe: z.object({
     liveMode: z.boolean(),
