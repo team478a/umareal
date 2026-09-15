@@ -7,9 +7,11 @@ import { runEmailNotificationBatch, runNotificationBatch, skipPendingNotificatio
 import { runPublicationSchedules } from './publication-scheduler';
 import { LineMessagingTransport } from './line-transport';
 import { ResendEmailTransport } from './email-transport';
+import { ResendOperationalAlertTransport } from './operational-alert-transport';
+import { runOperationalAlerts, TestOperationalAlertTransport, type OperationalAlertTransport } from './operational-alert-runner';
 
 config({ path: resolve(process.cwd(), '../../.env'), quiet: true });
-export const workerCapabilities = ['scheduled-publication', 'prediction-notification-outbox', 'email-notifications', 'recipient-authorization', 'retry-policy', 'delivery-attempt-history'] as const;
+export const workerCapabilities = ['scheduled-publication', 'prediction-notification-outbox', 'email-notifications', 'operational-alerts', 'recipient-authorization', 'retry-policy', 'delivery-attempt-history'] as const;
 
 async function main() {
   const transportName = process.env.NOTIFICATION_TRANSPORT ?? 'test';
@@ -34,15 +36,18 @@ async function main() {
       : transportName === 'test' ? new TestNotificationTransport() : null;
     do {
       let emailTransport: NotificationTransport = new TestNotificationTransport();
+      let alertTransport: OperationalAlertTransport = new TestOperationalAlertTransport();
       if (mailTransportName === 'resend') {
         const mailConfig = await loadMailConfig(db);
         if (!mailConfig.sendingComplete || !mailConfig.apiKey || !mailConfig.from) throw new Error('Resend email transport requires a complete admin or environment configuration');
         emailTransport = new ResendEmailTransport(mailConfig.apiKey, mailConfig.from);
+        alertTransport = new ResendOperationalAlertTransport(mailConfig.apiKey, mailConfig.from);
       }
       const schedules = await runPublicationSchedules({ db });
       const line = transport ? await runNotificationBatch({ db, transport }) : await skipPendingNotificationEvents(db);
       const email = await runEmailNotificationBatch({ db, transport: emailTransport });
-      console.info(JSON.stringify({ job: 'publication-and-notifications', schedules, line, email }));
+      const alerts = await runOperationalAlerts({ db, transport: alertTransport });
+      console.info(JSON.stringify({ job: 'publication-notifications-and-alerts', schedules, line, email, alerts }));
       if (!continuous || stopping) break;
       await new Promise(resolveWait => setTimeout(resolveWait, 5000));
     } while (continuous && !stopping);
@@ -57,3 +62,5 @@ export * from './notification-runner';
 export * from './line-transport';
 export * from './email-transport';
 export * from './publication-scheduler';
+export * from './operational-alert-runner';
+export * from './operational-alert-transport';

@@ -117,6 +117,8 @@ test('administrator must complete MFA before viewing member management', async (
   await expect(page.getByRole('heading', { name: '配送一覧', exact: true })).toBeVisible();
   await page.goto('/admin/incidents');
   await expect(page.getByRole('heading', { name: '障害対応チェック', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '運営向け外部通知', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '運用アラート履歴', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '対応手順', exact: true })).toBeVisible();
   await expect(page.getByLabel('障害監視指標')).toContainText('60秒超の待機');
   await expect(page.getByLabel('会員向け案内文案')).toBeVisible();

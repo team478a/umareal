@@ -892,6 +892,64 @@ model NotificationAttempt {
   @@map("notification_attempts")
 }
 
+model OperationalAlertSetting {
+  id               String   @id @default("global")
+  revision         Int      @default(1)
+  enabled          Boolean  @default(false)
+  minimumSeverity  String   @default("CRITICAL")
+  destinationEmails String[] @default([])
+  updatedBy        String?  @db.Uuid
+  updatedAt        DateTime @default(now()) @db.Timestamptz(3)
+
+  @@map("operational_alert_settings")
+}
+
+model OperationalAlert {
+  id               String                     @id @default(uuid()) @db.Uuid
+  dedupeKey        String                     @unique
+  code             String
+  severity         String
+  sourceType       String
+  sourceId         String                     @db.Uuid
+  title            String
+  summary          String
+  status           String                     @default("OPEN")
+  detectedAt       DateTime                   @default(now()) @db.Timestamptz(3)
+  lastObservedAt   DateTime                   @default(now()) @db.Timestamptz(3)
+  acknowledgedAt   DateTime?                  @db.Timestamptz(3)
+  acknowledgedBy   String?                    @db.Uuid
+  acknowledgeReason String?
+  resolvedAt       DateTime?                  @db.Timestamptz(3)
+  resolvedBy       String?                    @db.Uuid
+  resolutionReason String?
+  deliveries       OperationalAlertDelivery[]
+
+  @@index([status, detectedAt])
+  @@index([severity, status])
+  @@map("operational_alerts")
+}
+
+model OperationalAlertDelivery {
+  id                String           @id @default(uuid()) @db.Uuid
+  alertId           String           @db.Uuid
+  alert             OperationalAlert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+  recipient         String
+  status            String           @default("QUEUED")
+  attemptCount      Int              @default(0)
+  nextAttemptAt     DateTime         @default(now()) @db.Timestamptz(3)
+  lockedAt          DateTime?        @db.Timestamptz(3)
+  leaseToken        String?          @db.Uuid
+  lastErrorCode     String?
+  providerMessageId String?
+  sentAt            DateTime?        @db.Timestamptz(3)
+  createdAt         DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime         @default(now()) @db.Timestamptz(3)
+
+  @@unique([alertId, recipient])
+  @@index([status, nextAttemptAt])
+  @@map("operational_alert_deliveries")
+}
+
 model SystemSetting {
   id                              String   @id
   revision                        Int      @default(1)

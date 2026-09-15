@@ -88,6 +88,8 @@ async function inspectDatabase(databaseUrl) {
       (SELECT count(*)::int FROM "acquisition_campaigns") AS "acquisitionCampaigns",
       (SELECT count(*)::int FROM "audit_logs") AS "auditLogs",
       (SELECT count(*)::int FROM "notification_events") AS "notificationEvents",
+      (SELECT count(*)::int FROM "operational_alerts") AS "operationalAlerts",
+      (SELECT count(*)::int FROM "operational_alert_deliveries") AS "operationalAlertDeliveries",
       (SELECT count(*)::int FROM pg_trigger WHERE NOT tgisinternal AND tgname IN ('prediction_version_immutable','prediction_marks_immutable','prediction_bets_immutable','audit_no_update_delete','account_closure_no_update_delete','stripe_webhook_events_immutable','free_report_versions_no_update_delete','audio_assets_no_update_delete','member_acquisitions_no_update_delete')) AS "requiredTriggers"`);
     return rows[0];
   } finally {
@@ -138,7 +140,7 @@ try {
   restoreRemoved = true;
 
   const verifiedAt = new Date().toISOString();
-  safeStatus({ status: 'VERIFIED', verifiedAt, backupId, format: 'postgresql-physical-directory', postgresMajor: 16, encrypted: false, ...backup, migrations: restoredCounts.migrations, requiredTriggers: restoredCounts.requiredTriggers, restoredDatabaseRemoved: true, counts: { users: restoredCounts.users, races: restoredCounts.races, predictionVersions: restoredCounts.predictionVersions, freeReportVersions: restoredCounts.freeReportVersions, audioAssets: restoredCounts.audioAssets, publicationSchedules: restoredCounts.publicationSchedules, memberAcquisitions: restoredCounts.memberAcquisitions, acquisitionCampaigns: restoredCounts.acquisitionCampaigns, auditLogs: restoredCounts.auditLogs, notificationEvents: restoredCounts.notificationEvents } });
+  safeStatus({ status: 'VERIFIED', verifiedAt, backupId, format: 'postgresql-physical-directory', postgresMajor: 16, encrypted: false, ...backup, migrations: restoredCounts.migrations, requiredTriggers: restoredCounts.requiredTriggers, restoredDatabaseRemoved: true, counts: { users: restoredCounts.users, races: restoredCounts.races, predictionVersions: restoredCounts.predictionVersions, freeReportVersions: restoredCounts.freeReportVersions, audioAssets: restoredCounts.audioAssets, publicationSchedules: restoredCounts.publicationSchedules, memberAcquisitions: restoredCounts.memberAcquisitions, acquisitionCampaigns: restoredCounts.acquisitionCampaigns, auditLogs: restoredCounts.auditLogs, notificationEvents: restoredCounts.notificationEvents, operationalAlerts: restoredCounts.operationalAlerts, operationalAlertDeliveries: restoredCounts.operationalAlertDeliveries } });
   console.info(`Backup ${backupId} verified and isolated restore data removed.`);
 } catch {
   safeStatus({ status: 'FAILED', attemptedAt: new Date().toISOString(), errorCode: 'BACKUP_VERIFY_FAILED', backupId: backupCreated ? backupId : null, restoredDatabaseRemoved: restoreRemoved });

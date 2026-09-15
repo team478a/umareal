@@ -14,7 +14,7 @@ import { loadStripeConfig } from './stripe-config';
 const pagination = z.object({ page: z.coerce.number().int().min(1).max(10000).default(1), limit: z.coerce.number().int().min(1).max(50).default(20) });
 const journeyEventSchema = z.object({ eventType: z.enum(['LINE_GUIDANCE_VIEWED', 'PLAN_VIEWED', 'CHECKOUT_REVIEWED']) }).strict();
 const onboardingFunnelQuerySchema = z.object({ days: z.coerce.number().int().min(1).max(365).default(30), source: z.string().trim().min(1).max(100).optional() }).strict();
-const verifiedBackupSchema = z.object({ status: z.literal('VERIFIED'), verifiedAt: z.string().datetime(), backupId: z.string().regex(/^keiba-physical-\d{14}$/), format: z.literal('postgresql-physical-directory'), postgresMajor: z.literal(16), encrypted: z.literal(false), sha256: z.string().regex(/^[a-f0-9]{64}$/), sizeBytes: z.number().int().positive(), fileCount: z.number().int().positive(), migrations: z.number().int().nonnegative(), requiredTriggers: z.number().int().nonnegative(), restoredDatabaseRemoved: z.literal(true), counts: z.object({ users: z.number().int().nonnegative(), races: z.number().int().nonnegative(), predictionVersions: z.number().int().nonnegative(), freeReportVersions: z.number().int().nonnegative(), audioAssets: z.number().int().nonnegative(), publicationSchedules: z.number().int().nonnegative(), memberAcquisitions: z.number().int().nonnegative(), acquisitionCampaigns: z.number().int().nonnegative(), auditLogs: z.number().int().nonnegative(), notificationEvents: z.number().int().nonnegative() }).strict() }).strict();
+const verifiedBackupSchema = z.object({ status: z.literal('VERIFIED'), verifiedAt: z.string().datetime(), backupId: z.string().regex(/^keiba-physical-\d{14}$/), format: z.literal('postgresql-physical-directory'), postgresMajor: z.literal(16), encrypted: z.literal(false), sha256: z.string().regex(/^[a-f0-9]{64}$/), sizeBytes: z.number().int().positive(), fileCount: z.number().int().positive(), migrations: z.number().int().nonnegative(), requiredTriggers: z.number().int().nonnegative(), restoredDatabaseRemoved: z.literal(true), counts: z.object({ users: z.number().int().nonnegative(), races: z.number().int().nonnegative(), predictionVersions: z.number().int().nonnegative(), freeReportVersions: z.number().int().nonnegative(), audioAssets: z.number().int().nonnegative(), publicationSchedules: z.number().int().nonnegative(), memberAcquisitions: z.number().int().nonnegative(), acquisitionCampaigns: z.number().int().nonnegative(), auditLogs: z.number().int().nonnegative(), notificationEvents: z.number().int().nonnegative(), operationalAlerts: z.number().int().nonnegative(), operationalAlertDeliveries: z.number().int().nonnegative() }).strict() }).strict();
 const failedBackupSchema = z.object({ status: z.literal('FAILED'), attemptedAt: z.string().datetime(), errorCode: z.literal('BACKUP_VERIFY_FAILED'), backupId: z.string().regex(/^keiba-physical-\d{14}$/).nullable(), restoredDatabaseRemoved: z.boolean() }).strict();
 const closeAccountSchema = z.object({ reasonCode: z.enum(['SERVICE_NO_LONGER_NEEDED', 'PRICE', 'CONTENT', 'OTHER']), confirmation: z.literal('退会する'), currentPassword: z.string().max(128).optional() }).strict();
 async function readLocalBackupStatus() {
@@ -35,7 +35,7 @@ function csvCell(value: string | number) {
 @Controller()
 export class AppController {
   constructor(@Inject(AuthService) private readonly auth: AuthService) {}
-  @Get('health') async health() { await this.auth.db.$queryRaw`SELECT 1`; return { status: 'ok', phase: '6z-admin-continuity' }; }
+  @Get('health') async health() { await this.auth.db.$queryRaw`SELECT 1`; return { status: 'ok', phase: '7a-operational-alerts' }; }
   @Get('me') async me(@Req() req: AppRequest) {
     const identity = await this.auth.authenticate(req);
     const user = await this.auth.db.user.findUniqueOrThrow({ where: { id: identity.id }, include: { preferences: true, lineAccount: true, entitlements: { where: { revokedAt: null, endsAt: { gt: new Date() } } }, consents: { orderBy: { acceptedAt: 'desc' } } } });
@@ -343,7 +343,7 @@ export class AppController {
     await this.staff(req, ['ADMIN']);
     const launchMode = resolveLaunchMode(process.env.LAUNCH_MODE);
     const capabilities = launchCapabilities(launchMode);
-    const [settings, backup, appliedMigrations, stripeConfig, mailConfig, databaseAccessRestricted, adminContinuity] = await Promise.all([
+    const [settings, backup, appliedMigrations, stripeConfig, mailConfig, databaseAccessRestricted, adminContinuity, alertSetting] = await Promise.all([
       this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { newRegistrationsEnabled: true, registrationCaptchaEnabled: true, turnstileSiteKey: true, turnstileSecretEncrypted: true, emailNotificationsEnabled: true, predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: true, lineLoginEnabled: true, newPurchasesEnabled: true, lineChannelId: true, lineChannelSecretEncrypted: true, lineAccessTokenEncrypted: true, lineLoginChannelId: true, lineLoginChannelSecretEncrypted: true, lineLoginCallbackUrl: true, updatedAt: true } }),
       readLocalBackupStatus(),
       this.auth.db.$queryRaw<Array<{ count: number }>>`SELECT count(*)::int AS count FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`.then(rows => rows[0]?.count ?? 0),
@@ -354,7 +354,8 @@ export class AppController {
         this.auth.db.user.count({ where: { role: 'ADMIN', disabledAt: null } }),
         this.auth.db.user.count({ where: { role: 'ADMIN', disabledAt: null, externalMfaFactorId: { not: null } } }),
         this.auth.db.user.count({ where: { role: 'ADMIN', disabledAt: null, externalBackupMfaFactorId: { not: null } } })
-      ])
+      ]),
+      this.auth.db.operationalAlertSetting.findUniqueOrThrow({ where: { id: 'global' } })
     ]);
     type Check = { code: string; group: 'APPLICATION' | 'CONNECTIONS' | 'LEGAL_DATA' | 'OPERATIONS'; status: 'READY' | 'BLOCKED' | 'MANUAL'; title: string; evidence: string; action: string; href?: string };
     const checks: Check[] = [];
@@ -385,8 +386,8 @@ export class AppController {
     const backupFresh = backup.status === 'VERIFIED' && backup.migrations === appliedMigrations && Date.now() - new Date(backup.verifiedAt).getTime() <= 7 * 86400000;
     add({ code: 'LOCAL_RESTORE_TEST', group: 'OPERATIONS', status: backupFresh ? 'READY' : 'BLOCKED', title: 'ローカル復元試験', evidence: backupFresh ? `${backup.migrations}件のマイグレーションを含む隔離復元を7日以内に確認済みです。` : '現在のDB構成について、7日以内の正常な隔離復元結果がありません。', action: '開発端末で復元検証を実行します。', href: '/admin/backups' });
     add({ code: 'PRODUCTION_BACKUP', group: 'OPERATIONS', status: 'MANUAL', title: '本番バックアップ運用', evidence: '暗号化、別拠点保管、保持世代、RPO/RTOは未確認です。', action: 'DB基盤のバックアップ設定と定期復元試験の責任者を確認します。', href: '/admin/backups' });
-    const monitoringReady = !!process.env.SENTRY_DSN;
-    add({ code: 'EXTERNAL_MONITORING', group: 'OPERATIONS', status: monitoringReady ? 'MANUAL' : 'BLOCKED', title: '外部監視・連絡', evidence: monitoringReady ? '監視先の設定があります。通知先と発報を人が確認する必要があります。' : '外部監視先が未設定です。', action: '死活・エラー・通知遅延の監視と連絡先を設定し、発報試験を行います。', href: '/admin/incidents' });
+    const monitoringReady = alertSetting.enabled && alertSetting.destinationEmails.length > 0 && mailConfigured;
+    add({ code: 'EXTERNAL_MONITORING', group: 'OPERATIONS', status: monitoringReady ? 'MANUAL' : 'BLOCKED', title: '運用異常の外部通知', evidence: monitoringReady ? `配信・予約公開・公開期限の異常を${alertSetting.destinationEmails.length}件の運営通知先へ送る設定があります。` : '外部アラートが無効、通知先なし、またはメール送信設定が不足しています。', action: monitoringReady ? '重大・警告を1件ずつ発生させ、通知到達と確認・解決記録をリハーサルします。' : '障害対応画面で通知先と最低重大度を設定します。', href: '/admin/incidents' });
     const unsafePurchases = capabilities.billing && settings.newPurchasesEnabled && !stripeConfigured;
     add({ code: 'SAFE_FEATURE_FLAGS', group: 'OPERATIONS', status: unsafePurchases ? 'BLOCKED' : 'READY', title: '公開前の機能状態', evidence: unsafePurchases ? '外部決済未接続のまま新規購入が有効です。' : `公開モード ${launchMode}、新規登録 ${settings.newRegistrationsEnabled ? '有効' : '停止'}、メール通知 ${settings.emailNotificationsEnabled ? '有効' : '停止'}、予想公開 ${settings.predictionPublicationEnabled ? '有効' : '停止'}、CSV ${settings.csvImportEnabled ? '有効' : '停止'}、新規購入 ${capabilities.billing && settings.newPurchasesEnabled ? '有効' : '停止'}です。`, action: unsafePurchases ? '新規購入を停止します。' : '公開当日に緊急停止と復旧手順を再確認します。', href: '/admin/settings' });
     const counts = { ready: checks.filter(item => item.status === 'READY').length, blocked: checks.filter(item => item.status === 'BLOCKED').length, manual: checks.filter(item => item.status === 'MANUAL').length, total: checks.length };
