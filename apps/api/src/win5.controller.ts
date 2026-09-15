@@ -1,10 +1,11 @@
-import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Put, Query, Req } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Put, Query, Req, UnauthorizedException } from '@nestjs/common';
 import { win5AssumedPurchaseAmount, win5CombinationCount, win5LegUpdateSchema, win5PreviewSchema, win5ProductCreateSchema, win5ProductUpdateSchema } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
 import type { AppRequest, AuthContext } from './context';
 import { hashToken } from './security';
+import { activatePendingDayPasses } from './day-pass-access';
 
 type Tx = Prisma.TransactionClient;
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
@@ -89,6 +90,79 @@ export class Win5Controller {
 
   private view(product: Awaited<ReturnType<Win5Controller['state']>>) {
     return { ...product, currentCombinationCount: product.races.length === 5 && product.races.every(item => item.selections.length) ? win5CombinationCount(product.races.map(item => item.selections.length)) : null };
+  }
+
+  private freeProduct(product: {
+    id: string; type: string; targetDate: string; title: string; status: string; scheduledPublishAt: Date; publishedAt: Date | null;
+    showFreeConfidence: boolean; confidence: string;
+    races: Array<{ legNumber: number; race: { id: string; venue: string; number: number; startsAt: Date; status: string } }>;
+    versions: Array<{ id: string; version: number; status: string; publishedAt: Date; previousVersionId: string | null }>;
+  }) {
+    const latest = product.versions[0] ?? null;
+    return {
+      id: product.id,
+      type: product.type,
+      targetDate: product.targetDate,
+      title: product.title,
+      status: latest ? product.status : 'SCHEDULED',
+      scheduledPublishAt: product.scheduledPublishAt,
+      publishedAt: latest?.publishedAt ?? null,
+      confidence: latest && product.showFreeConfidence ? product.confidence : null,
+      races: product.races.map(item => ({ legNumber: item.legNumber, race: item.race })),
+      latestVersion: latest
+    } as const;
+  }
+
+  private freeSelect(now: Date) {
+    return {
+      id: true, type: true, targetDate: true, title: true, status: true, scheduledPublishAt: true, publishedAt: true, showFreeConfidence: true, confidence: true,
+      races: { orderBy: { legNumber: 'asc' as const }, select: { legNumber: true, race: { select: { id: true, venue: true, number: true, startsAt: true, status: true } } } },
+      versions: { where: { publishedAt: { lte: now } }, orderBy: { version: 'desc' as const }, take: 1, select: { id: true, version: true, status: true, publishedAt: true, previousVersionId: true } }
+    } as const;
+  }
+
+  @Get('win5')
+  async memberList(@Query() query: unknown) {
+    const input = z.object({ targetDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), page: z.coerce.number().int().min(1).max(10000).default(1) }).parse(query);
+    const now = new Date(); const limit = 20;
+    const where = input.targetDate ? { targetDate: input.targetDate } : {};
+    const [products, total] = await this.auth.db.$transaction([
+      this.auth.db.predictionProduct.findMany({ where, orderBy: [{ targetDate: 'desc' }, { createdAt: 'desc' }], take: limit, skip: (input.page - 1) * limit, select: this.freeSelect(now) }),
+      this.auth.db.predictionProduct.count({ where })
+    ]);
+    return { items: products.map(product => this.freeProduct(product)), total, page: input.page, limit };
+  }
+
+  @Get('win5/:productId')
+  async memberDetail(@Req() req: AppRequest, @Param('productId') productId: string, @Query() query: unknown) {
+    z.string().uuid().parse(productId);
+    const input = z.object({ version: z.coerce.number().int().positive().optional() }).parse(query);
+    const now = new Date();
+    const product = await this.auth.db.predictionProduct.findUnique({ where: { id: productId }, select: { ...this.freeSelect(now), expertId: true } });
+    if (!product) throw new NotFoundException();
+    const safeProduct = this.freeProduct(product);
+    const versions = await this.auth.db.predictionProductVersion.findMany({
+      where: { productId, publishedAt: { lte: now } }, orderBy: { version: 'desc' },
+      select: { id: true, version: true, status: true, publishedAt: true, previousVersionId: true }
+    });
+    let identity: AuthContext | null = null;
+    try { identity = await this.auth.authenticate(req); } catch (error) { if (!(error instanceof UnauthorizedException)) throw error; }
+    const staffAccess = !!identity && identity.aal === 2 && (['ADMIN', 'OPERATOR'].includes(identity.role) || (identity.role === 'EXPERT' && product.expertId === identity.id));
+    const entitlement = identity?.role === 'MEMBER' ? await this.auth.db.entitlement.findFirst({
+      where: { userId: identity.id, revokedAt: null, startsAt: { lte: now }, endsAt: { gt: now }, OR: [{ raceDate: null }, { raceDate: product.targetDate }] },
+      select: { id: true }
+    }) : null;
+    const fullAccess = staffAccess || !!entitlement;
+    const selectedNumber = input.version ?? versions[0]?.version;
+    if (input.version && !versions.some(version => version.version === input.version)) throw new NotFoundException();
+    if (!fullAccess || !selectedNumber) return { access: 'METADATA', product: safeProduct, version: null, versions, locked: !!versions.length };
+    const selected = await this.auth.db.predictionProductVersion.findFirst({
+      where: { productId, version: selectedNumber, publishedAt: { lte: now } },
+      select: { id: true, version: true, status: true, confidence: true, combinationCount: true, amountPerPointYen: true, assumedPurchaseAmountYen: true, contentSnapshot: true, publishedAt: true, deadlineAt: true, correctionReason: true, previousVersionId: true }
+    });
+    if (!selected) throw new NotFoundException();
+    const fullHistory = await this.auth.db.predictionProductVersion.findMany({ where: { productId, publishedAt: { lte: now } }, orderBy: { version: 'desc' }, select: { id: true, version: true, status: true, publishedAt: true, previousVersionId: true, correctionReason: true } });
+    return { access: 'FULL', product: safeProduct, version: selected, versions: fullHistory, locked: false };
   }
 
   @Get('admin/win5')
@@ -211,8 +285,9 @@ export class Win5Controller {
       const calculated = this.publishable(product);
       const version = await tx.predictionProductVersion.create({ data: { productId, version: details.nextVersion, status: correcting ? 'CORRECTED' : 'PUBLISHED', accessScope: product.accessScope, confidence: product.confidence, combinationCount: calculated.combinationCount, amountPerPointYen: product.amountPerPointYen, assumedPurchaseAmountYen: calculated.assumedPurchaseAmountYen, contentSnapshot: json(calculated.contentSnapshot), publisherId: actor.id, deadlineAt: calculated.deadlineAt, correctionReason: correcting ? details.correctionReason : null, previousVersionId: previous?.id } });
       await tx.predictionProduct.update({ where: { id: productId }, data: { status: correcting ? 'CORRECTED' : 'PUBLISHED', publishedAt: product.publishedAt ?? version.publishedAt, closeAt: calculated.deadlineAt, updatedBy: actor.id, updatedAt: new Date() } });
+      const activatedDayPasses = correcting ? 0 : await activatePendingDayPasses(tx, product.targetDate, version.publishedAt, actor.id);
       await tx.predictionProductPreview.update({ where: { id: preview.id }, data: { confirmedVersionId: version.id } });
-      await tx.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: correcting ? 'WIN5_PRODUCT_CORRECT' : 'WIN5_PRODUCT_PUBLISH', targetType: 'PREDICTION_PRODUCT_VERSION', targetId: version.id, reason: correcting ? details.correctionReason : 'WIN5予想の公開', details: json({ productId, version: version.version, previousVersionId: previous?.id ?? null, combinationCount: calculated.combinationCount, assumedPurchaseAmountYen: calculated.assumedPurchaseAmountYen }), requestId: req.requestId } });
+      await tx.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: correcting ? 'WIN5_PRODUCT_CORRECT' : 'WIN5_PRODUCT_PUBLISH', targetType: 'PREDICTION_PRODUCT_VERSION', targetId: version.id, reason: correcting ? details.correctionReason : 'WIN5予想の公開', details: json({ productId, version: version.version, previousVersionId: previous?.id ?? null, combinationCount: calculated.combinationCount, assumedPurchaseAmountYen: calculated.assumedPurchaseAmountYen, activatedDayPasses }), requestId: req.requestId } });
       return { published: true, versionId: version.id, version: version.version, alreadyPublished: false, publishedAt: version.publishedAt };
     });
   }

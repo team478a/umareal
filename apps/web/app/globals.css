@@ -768,3 +768,60 @@ td { padding:17px 24px; border-top:1px solid var(--line); }
 .billing-support-item ol { margin:8px 0 0; padding-left:22px; color:var(--muted); font-size:12px; }
 .billing-support-item .review-actions { justify-content:flex-end; }
 @media(max-width:650px) { .billing-support-item { grid-template-columns:1fr; padding:19px 20px; } .billing-support-item .review-actions { display:grid; grid-template-columns:1fr; } .billing-support-item .button { width:100%; min-height:44px; } }
+.win5-home { border-top:4px solid var(--green); }
+.win5-product-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; padding:24px; }
+.win5-product-grid.archive { padding:0; }
+.win5-product-card { display:grid; gap:16px; padding:22px; border:1px solid var(--line); border-radius:7px; background:#fff; }
+.win5-product-top { display:flex; justify-content:space-between; align-items:start; gap:15px; }
+.win5-product-top .eyebrow { margin-bottom:4px; }
+.win5-product-meta { display:flex; flex-wrap:wrap; gap:8px 16px; color:var(--muted); font-size:12px; }
+.win5-product-meta span { display:flex; align-items:center; gap:6px; }
+.win5-leg-strip { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:5px; }
+.win5-leg-strip span { min-width:0; padding:8px 5px; border-radius:4px; background:#f1f5f3; text-align:center; font-size:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.win5-leg-strip b { display:block; color:var(--green); font-size:14px; }
+.win5-next { color:var(--muted); font-size:12px; }
+.win5-metadata { border-top:4px solid var(--gold); }
+.confidence-badge { padding:8px 12px; border-radius:5px; background:#fff3d9; color:#845500; font-weight:800; }
+.win5-meta-legs { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); }
+.win5-meta-legs>div { display:grid; gap:3px; padding:19px; border-right:1px solid var(--line); }
+.win5-meta-legs>div:last-child { border-right:0; }
+.win5-meta-legs b,.win5-meta-legs small { color:var(--muted); font-size:11px; }
+.win5-lock { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:18px; padding:24px 26px; border-left:5px solid var(--gold); }
+.win5-lock>svg { color:#956415; }
+.win5-lock p { margin-top:5px; color:var(--muted); font-size:13px; }
+.win5-paper-sheet { margin-bottom:24px; border:1px solid #cec7b6; background:#fffdf7; box-shadow:0 8px 24px rgba(45,53,48,.08); }
+.win5-paper-sheet>header { display:flex; justify-content:space-between; align-items:center; gap:20px; padding:28px 30px; border-bottom:4px double #857a63; background:#f7f1e4; font-family:Georgia,"Yu Mincho",serif; }
+.win5-paper-sheet>header span { color:#765a26; font-size:11px; letter-spacing:.18em; }
+.win5-paper-sheet>header>div:last-child { display:grid; place-items:center; min-width:88px; padding:8px; border:2px solid #8b6c32; }
+.win5-paper-sheet>header>div:last-child strong { font-size:28px; line-height:1; }
+.win5-paper-legs article { border-bottom:1px solid #d8d0bf; }
+.win5-paper-race { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:16px; align-items:center; padding:16px 22px; background:#f4efe4; }
+.win5-paper-race>b { padding:5px 9px; background:var(--ink); color:#fff; font-size:12px; }
+.win5-paper-race div { display:grid; }
+.win5-paper-race small { color:var(--muted); font-size:11px; }
+.win5-paper-race>span { font-weight:800; }
+.win5-selections { display:flex; flex-wrap:wrap; gap:10px; padding:18px 22px 12px; }
+.win5-selections>div { display:grid; grid-template-columns:auto auto minmax(80px,1fr); align-items:center; gap:8px; padding:8px 11px; border:1px solid #d8d0bf; background:#fff; }
+.win5-selections>div.center { border:2px solid #9c6b18; background:#fff8e6; }
+.win5-selections span { color:var(--muted); font-size:10px; }
+.win5-selections b { display:grid; place-items:center; width:28px; height:28px; border-radius:50%; background:var(--ink); color:#fff; }
+.win5-comment { display:grid; grid-template-columns:120px minmax(0,1fr); gap:18px; padding:8px 22px 20px; }
+.win5-comment span { color:#765a26; font-size:12px; font-weight:700; }
+.win5-comment p,.win5-summary p { white-space:pre-wrap; }
+.win5-paper-sheet>footer { padding:24px 28px 28px; }
+.win5-paper-sheet dl { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); margin:0 0 20px; border:1px solid #d8d0bf; }
+.win5-paper-sheet dl>div { padding:13px; border-right:1px solid #d8d0bf; text-align:center; }
+.win5-paper-sheet dl>div:last-child { border-right:0; }
+.win5-paper-sheet dt { color:var(--muted); font-size:11px; }
+.win5-paper-sheet dd { margin:3px 0 0; font-size:19px; font-weight:800; }
+.win5-summary { padding:18px; border-left:4px solid #9c6b18; background:#f7f1e4; }
+.win5-summary span { color:#765a26; font-size:11px; font-weight:800; }
+.win5-correction { margin:16px 0; padding:11px 13px; background:#fff0ed; color:#8b3b31; }
+.win5-paper-sheet>footer>small { display:block; margin-top:18px; color:var(--muted); }
+.win5-history { display:grid; padding:0 24px; }
+.win5-history-row { display:flex; justify-content:space-between; gap:20px; padding:16px 4px; border-bottom:1px solid var(--line); }
+.win5-history-row:last-child { border-bottom:0; }
+.win5-history-row.current { color:var(--green); font-weight:700; }
+.win5-history-row small { color:var(--muted); }
+@media(max-width:850px) { .win5-product-grid { grid-template-columns:1fr; } .win5-meta-legs { grid-template-columns:1fr 1fr; } .win5-meta-legs>div { border-right:0; border-bottom:1px solid var(--line); } .win5-lock { grid-template-columns:auto minmax(0,1fr); } .win5-lock .button { grid-column:1/-1; width:100%; } }
+@media(max-width:650px) { .win5-product-grid { padding:18px; } .win5-product-grid.archive { padding:0; } .win5-product-card { padding:18px; } .win5-product-top { flex-direction:column; } .win5-meta-legs { grid-template-columns:1fr; } .win5-paper-sheet>header { padding:22px 19px; } .win5-paper-race { grid-template-columns:auto minmax(0,1fr); padding:14px 17px; gap:10px; } .win5-paper-race>span { grid-column:2; } .win5-selections { padding:16px 17px 10px; } .win5-selections>div { width:100%; } .win5-comment { grid-template-columns:1fr; gap:5px; padding:6px 17px 18px; } .win5-paper-sheet>footer { padding:20px 17px 24px; } .win5-paper-sheet dl { grid-template-columns:1fr; } .win5-paper-sheet dl>div { border-right:0; border-bottom:1px solid #d8d0bf; } .win5-paper-sheet dl>div:last-child { border-bottom:0; } .win5-history-row { align-items:start; flex-direction:column; gap:4px; } }

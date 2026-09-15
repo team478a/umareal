@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Req, ServiceUnavailableException } from '@nestjs/common';
-import { addCalendarMonthUtc, billingSupportEventType, billingSupportRequestSchema, billingSupportStatusSchema, canManage, dayPassCheckoutSchema, dayPassWindow, jstDate, launchCapabilities, requiresMfa, resolveLaunchMode, subscriptionCheckoutSchema } from '@keiba/domain';
+import { addCalendarMonthUtc, billingSupportEventType, billingSupportRequestSchema, billingSupportStatusSchema, canManage, dayPassCheckoutSchema, jstDate, launchCapabilities, requiresMfa, resolveLaunchMode, subscriptionCheckoutSchema } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { randomUUID } from 'node:crypto';
@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
 import { hashToken } from './security';
+import { createDayPassAccess } from './day-pass-access';
 import Stripe from 'stripe';
 import { loadStripeConfig, type StripeRuntimeConfig } from './stripe-config';
 
@@ -139,12 +140,10 @@ export class BillingController {
         if (previous) { if (previous.requestHash !== requestHash) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: '同じ申込キーが異なる内容で使われています。' }); return previous.response; }
         const settings = await tx.systemSetting.findUniqueOrThrow({ where: { id: 'global' } });
         if (!settings.newPurchasesEnabled) throw new ServiceUnavailableException({ code: 'PURCHASES_STOPPED', message: '現在、新規購入を停止しています。' });
-        const window = dayPassWindow(input.raceDate);
-        const entitlement = await tx.entitlement.create({ data: { userId: actor.id, planCode: 'DAY_PASS', ...window, raceDate: input.raceDate, reason: 'LOCAL_TEST_DAY_PASS', grantedBy: actor.id } });
-        const pass = await tx.dayPass.create({ data: { userId: actor.id, raceDate: input.raceDate, status: 'ACTIVE', priceYen: settings.dayPassPriceYen, ...window, provider: 'LOCAL_TEST', providerPassId: `local-pass-${randomUUID()}`, entitlementId: entitlement.id } });
+        const access = await createDayPassAccess(tx, { userId: actor.id, raceDate: input.raceDate, priceYen: settings.dayPassPriceYen, provider: 'LOCAL_TEST', providerPassId: `local-pass-${randomUUID()}`, reason: 'LOCAL_TEST_DAY_PASS', actorId: actor.id, source: 'LOCAL_TEST' });
+        const pass = access.pass;
         const payment = await tx.paymentTransaction.create({ data: { userId: actor.id, provider: 'LOCAL_TEST', providerPaymentId: `local-pay-${randomUUID()}`, kind: 'DAY_PASS', status: 'SUCCEEDED', amountYen: settings.dayPassPriceYen, dayPassId: pass.id } });
-        await tx.billingEvent.create({ data: { userId: actor.id, eventType: 'DAY_PASS_STARTED', dayPassId: pass.id, actorId: actor.id, details: { raceDate: input.raceDate, priceYen: settings.dayPassPriceYen, developmentSimulation: true } } });
-        const response = { dayPassId: pass.id, paymentId: payment.id, status: pass.status, ...window };
+        const response = { dayPassId: pass.id, paymentId: payment.id, status: pass.status, startsAt: access.startsAt, endsAt: access.endsAt, waitingForPublication: access.waitingForPublication };
         await tx.idempotencyKey.create({ data: { key, requestHash, response } }); return response;
       });
     } catch (error) {
@@ -208,11 +207,9 @@ export class BillingController {
         await tx.billingCheckout.update({ where: { id: checkout.id }, data: { status: 'COMPLETED', completedAt: now, providerSubscriptionId } });
       } else {
         if (!checkout.raceDate) throw new ConflictException({ code: 'DAY_PASS_DATE_MISSING', message: '利用日を確認できません。' });
-        const window = dayPassWindow(checkout.raceDate);
-        const entitlement = await tx.entitlement.create({ data: { userId, planCode: 'DAY_PASS', ...window, raceDate: checkout.raceDate, reason: 'STRIPE_CHECKOUT_COMPLETED', grantedBy: userId } });
-        const pass = await tx.dayPass.create({ data: { userId, raceDate: checkout.raceDate, status: 'ACTIVE', priceYen: checkout.amountYen, ...window, provider: 'STRIPE', providerPassId: session.id, entitlementId: entitlement.id } });
+        const access = await createDayPassAccess(tx, { userId, raceDate: checkout.raceDate, priceYen: checkout.amountYen, provider: 'STRIPE', providerPassId: session.id, reason: 'STRIPE_CHECKOUT_COMPLETED', actorId: userId, source: 'STRIPE_CHECKOUT' });
+        const pass = access.pass;
         await tx.paymentTransaction.create({ data: { userId, provider: 'STRIPE', providerPaymentId: `checkout:${session.id}`, kind: 'DAY_PASS', status: 'SUCCEEDED', amountYen: checkout.amountYen, dayPassId: pass.id } });
-        await tx.billingEvent.create({ data: { userId, eventType: 'DAY_PASS_STARTED', dayPassId: pass.id, actorId: userId, details: { raceDate: checkout.raceDate, priceYen: checkout.amountYen, source: 'STRIPE_CHECKOUT' } } });
         await tx.billingCheckout.update({ where: { id: checkout.id }, data: { status: 'COMPLETED', completedAt: now } });
       }
       await tx.stripeWebhookEvent.create({ data: { providerEventId: event.id, eventType: event.type, livemode: event.livemode, outcome: 'PROCESSED' } });

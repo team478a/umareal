@@ -316,12 +316,12 @@ model DayPass {
   raceDate       String
   status         String
   priceYen       Int
-  startsAt       DateTime             @db.Timestamptz(3)
+  startsAt       DateTime?            @db.Timestamptz(3)
   endsAt         DateTime             @db.Timestamptz(3)
   provider       String
   providerPassId String               @unique
-  entitlementId  String               @unique @db.Uuid
-  entitlement    Entitlement          @relation(fields: [entitlementId], references: [id])
+  entitlementId  String?              @unique @db.Uuid
+  entitlement    Entitlement?         @relation(fields: [entitlementId], references: [id])
   payments       PaymentTransaction[]
   events         BillingEvent[]
   createdAt      DateTime             @default(now()) @db.Timestamptz(3)
