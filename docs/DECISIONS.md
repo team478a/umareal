@@ -841,3 +841,9 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 - [Turnstileの明示レンダリング](https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/)
 - [Turnstileのサーバー検証](https://developers.cloudflare.com/turnstile/get-started/server-side-validation/)
 - [Turnstileの試験用キー](https://developers.cloudflare.com/turnstile/troubleshooting/testing/)
+## 管理画面の初回利用ガイドと平易なメニュー表現（2026-09-16）
+
+- 管理ダッシュボードの先頭に、登録済みレース、公開待ち、未確定結果、待機通知から導出した「次に行うこと」を表示する。自動実行はせず、該当する管理機能への導線だけを提示する。
+- レース登録、評価入力、公開・通知、結果確定を4段階の基本手順として常設し、公開済み内容は訂正版で履歴を残す注意を同じ場所に表示する。
+- 管理ナビゲーションは機能の意味を変えず、「無料登録ファネル」などの専門用語中心の名称を「無料登録の状況」のような操作目的が分かる表現へ変更する。
+- ADMINとOPERATORの権限差は維持し、案内する手順とリンクもサーバー所有ロールに合わせて出し分ける。

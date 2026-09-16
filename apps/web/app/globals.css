@@ -230,6 +230,30 @@ td { padding:17px 24px; border-top:1px solid var(--line); }
 .stat>span { color:var(--muted); font-size:13px; }
 .stat strong { display:block; font-size:37px; font-weight:550; margin-top:10px; }
 .stat small { font-size:13px; color:var(--muted); font-weight:400; margin-left:10px; }
+.admin-getting-started { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(360px,.85fr); gap:18px; margin-bottom:24px; }
+.admin-next-action,.admin-workflow { background:#fff; border:1px solid var(--line); border-radius:8px; }
+.admin-next-action { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:18px; padding:24px; border-left:4px solid var(--green); }
+.admin-guide-icon { display:grid; place-items:center; width:46px; height:46px; border-radius:50%; color:var(--green); background:#eaf4ee; }
+.admin-next-action .eyebrow { margin-bottom:4px; }
+.admin-next-action h2 { font-size:19px; }
+.admin-next-action p { margin-top:5px; color:var(--muted); font-size:13px; }
+.admin-next-action .button { white-space:nowrap; }
+.admin-workflow { overflow:hidden; }
+.admin-workflow summary { min-height:92px; padding:19px 22px; display:flex; align-items:center; justify-content:space-between; gap:14px; cursor:pointer; list-style:none; }
+.admin-workflow summary::-webkit-details-marker { display:none; }
+.admin-workflow summary span,.admin-workflow summary strong,.admin-workflow summary small { display:block; }
+.admin-workflow summary small { margin-top:5px; color:var(--muted); font-size:12px; }
+.admin-workflow summary>svg { color:var(--green); transition:transform .15s; }
+.admin-workflow[open] summary>svg { transform:rotate(90deg); }
+.admin-workflow ol { list-style:none; margin:0; padding:0 22px; border-top:1px solid var(--line); }
+.admin-workflow li { border-bottom:1px solid var(--line); }
+.admin-workflow li:last-child { border-bottom:0; }
+.admin-workflow li a { display:grid; grid-template-columns:30px minmax(0,1fr) auto; align-items:center; gap:11px; min-height:66px; padding:10px 0; }
+.admin-workflow li a>span { display:grid; place-items:center; width:28px; height:28px; border-radius:50%; background:#eaf4ee; color:var(--green); font-size:12px; font-weight:800; }
+.admin-workflow li strong,.admin-workflow li small { display:block; }
+.admin-workflow li small { margin-top:3px; color:var(--muted); font-size:11px; }
+.admin-workflow li svg { color:var(--muted); }
+.admin-workflow>p { margin:0; padding:15px 22px; background:#fafcfb; color:var(--muted); font-size:12px; line-height:1.7; }
 .funnel-panel { margin-bottom:28px; }
 .acquisition-panel .panel-foot { flex-wrap:wrap; overflow-wrap:anywhere; }
 .acquisition-panel td small { display:block; margin-top:3px; color:var(--muted); }
@@ -402,8 +426,10 @@ td { padding:17px 24px; border-top:1px solid var(--line); }
 .footer { padding:20px 44px; border-top:1px solid var(--line); display:flex; justify-content:space-between; gap:20px; color:var(--muted); font-size:11px; }
 @media(min-width:1500px) { .main-content { padding-top:54px; } .home-grid { grid-template-columns:minmax(0,1fr) 320px; gap:30px; } .empty { padding:95px 30px; } }
 @media(max-width:1150px) { .sidebar { width:222px; padding-left:16px; padding-right:16px; } .workspace { margin-left:222px; } .main-content { padding:32px 27px 50px; } .topbar { padding:14px 27px; } .home-grid { grid-template-columns:minmax(0,1fr) 245px; gap:20px; } .auth-grid { gap:30px; } .two-columns { grid-template-columns:1fr; gap:0; } .stats-grid { grid-template-columns:repeat(2,1fr); } .topbar-left>span:first-of-type,.topbar-divider { display:none; } }
+@media(max-width:1100px) { .admin-getting-started { grid-template-columns:1fr; } }
 @media(max-width:850px) { .sidebar { transform:translateX(-100%); transition:transform .18s; width:258px; } .sidebar.open { transform:translateX(0); } .workspace { margin-left:0; } .mobile-menu,.close-menu { display:inline-flex; } .close-menu { position:absolute; right:5px; top:4px; width:32px; height:32px; } .menu-overlay { position:fixed; inset:0; background:#0d2a2a66; z-index:15; border:0; } .topbar { min-height:72px; padding:12px 20px; } .topbar-left { gap:10px; } .home-grid { grid-template-columns:minmax(0,1fr) 260px; } .auth-grid { gap:40px; } }
 @media(max-width:650px) { h1 { font-size:26px; } .main-content { padding:29px 20px 45px; } .home-grid { grid-template-columns:1fr; } .home-side { display:grid; grid-template-columns:1fr; gap:20px; } .home-side .plain-note { margin:0 0 15px; } .membership-level { margin-top:15px; } .membership p { margin:14px 0 20px; } .getting-ready { flex-wrap:wrap; gap:15px; } .getting-ready>div { flex:1; min-width:200px; } .getting-ready .text-link { margin-left:43px; } .topbar-right { gap:8px; } .topbar-left>span { display:none; } .user-name { max-width:100px; font-size:13px; } .topbar { padding:10px 14px; } .topbar-right .role-tag { font-size:11px; } .panel-heading { padding:20px; } .panel-body { padding:20px; } .panel-foot { padding:14px 20px; } .empty { padding:56px 20px; } .auth-grid { grid-template-columns:1fr; gap:25px; } .auth-intro { padding-top:0; } .auth-aside { display:none; } .auth-panel { padding:23px; } .page-heading { margin-bottom:26px; } .details { padding:0 20px 16px; } .details>div { grid-template-columns:100px minmax(0,1fr); } .panel-actions { padding:18px 20px; align-items:flex-start; flex-direction:column; } .panel-actions .button { width:100%; } .stats-grid { gap:12px; } .stat { padding:18px; } .stat strong { font-size:30px; } .footer { padding:18px 20px; flex-direction:column; gap:4px; } .race-row { padding:20px; gap:10px; flex-wrap:wrap; } .race-row .status-tag { margin-left:54px; } .race-info { min-width:170px; } }
+@media(max-width:650px) { .admin-next-action { grid-template-columns:auto minmax(0,1fr); padding:19px; align-items:start; } .admin-next-action .button { grid-column:1/-1; width:100%; } .admin-workflow summary { min-height:82px; padding:17px 19px; } .admin-workflow ol { padding:0 19px; } .admin-workflow>p { padding:14px 19px; } }
 
 .race-list button.race-row { width:100%; border:0; border-bottom:1px solid var(--line); background:transparent; color:inherit; font:inherit; text-align:left; cursor:pointer; }
 .race-list button.race-row.selected { background:#edf4f1; }
