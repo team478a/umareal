@@ -60,7 +60,7 @@ services:
     region: singapore
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    dockerCommand: sh -c 'pnpm --filter @keiba/web exec next start --hostname 0.0.0.0 --port ${PORT:-10000}'
+    dockerCommand: pnpm --filter @keiba/web exec next start --hostname 0.0.0.0 --port 10000
     healthCheckPath: /health
     autoDeployTrigger: checksPass
     maxShutdownDelaySeconds: 30
