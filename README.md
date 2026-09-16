@@ -37,7 +37,7 @@ LINE・Stripeへのライブ疎通、正式結果データ取込、返金、CMS�
 - 本番準備チェック: `/admin/readiness` で認証、外部接続、法務・データ、運用・復旧の不足項目と対応先を確認できます。資格情報は表示せず、この判定だけで公開を承認しません。
 - 管理者の継続運用: `/admin/continuity` で有効な管理者、主・予備認証アプリの準備状況を確認し、ADMIN+AAL2が確認済みメール会員を理由付きで管理者へ昇格できます。Supabaseでは `/security` から別管理の予備TOTP要素を登録し、ログイン時に主・予備を選べます。
 - 運用異常の外部通知: `/admin/incidents` で配信失敗、予約公開失敗、公開期限超過を追記型アラートとして確認できます。管理者はResendメールの通知先と最低重大度を設定し、運営担当とともに理由付きで確認・解決・再送を記録できます。
-- 段階公開: `LAUNCH_MODE=FREE_REGISTRATION` ではメール無料登録と無料情報だけを提供し、LINE・Stripeを画面とAPIで停止します。`FULL`へ切り替えると従来のLINE・Stripe本番安全条件が有効になります。
+- 段階公開: `LAUNCH_MODE=CLOUD_STAGING` はWeb全体をアクセスゲートで保護したクラウド試験、`FREE_REGISTRATION` はメール無料登録と無料情報の一般公開、`FULL` はLINE・Stripeを含む会員サービスです。限定モードではLINE・Stripeを画面とAPIで停止します。
 - DB権限分離: `pnpm db:access:configure` でマイグレーション所有者とAPI・runtimeロールを分け、`pnpm db:access:verify` でCRUDとDDL拒否を検証します。手順は `docs/DATABASE_ACCESS.md` に記載しています。
 - Stripe接続基盤: 外部決済モードではStripe Checkoutへ移動し、署名済みWebhookで金額・会員・申込を照合した後だけ契約と閲覧権限を作成します。月額更新、支払失敗・回復、解約予約・終了もWebhookから同期します。管理者は `/admin/settings` で暗号化資格情報、動作モード、Price IDを管理し、`/admin/billing` で申込と処理結果を確認できます。
 - packages/config: 共通TypeScript設定。
@@ -125,6 +125,6 @@ pnpm bridge:jra-van:test
 
 前日WIN5紙面予想と当日パドック直前予想の2商品構成は、[docs/WIN5_PHASE1_DESIGN.md](docs/WIN5_PHASE1_DESIGN.md)に差分、論理モデル、権限、API境界、実装順を記載しています。商品設定、5レース入力、組合せ計算、公開・訂正、会員向け紙面、月額・1日利用権限、LINE・メール公開通知まで実装済みです。WIN5結果、分離成績、ダブル的中、SNS共有は未実装です。
 
-独自ドメイン公開の構成、Render Blueprint、必要な資格情報と公開判定は [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) を参照してください。`render.yaml` はWeb、非公開API、ワーカー、PostgreSQLをSingaporeリージョンに作るための準備ファイルです。現時点では本番認証の結合と正式文書が未完了のため、公開トラフィックを受ける用途にはまだ使用しません。
+独自ドメイン公開の構成、Render Blueprint、必要な資格情報と公開判定は [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) を参照してください。`render.staging.yaml` はアクセス制限付きクラウド試験、`render.yaml` は一般公開用として、Web、非公開API、ワーカー、PostgreSQLをSingaporeリージョンへ分離します。
 
 Renderへ資格情報を保存する前に、Git管理外のサービス別環境ファイルを使って `pnpm deploy:preflight -- api`、`pnpm deploy:preflight -- web`、`pnpm deploy:preflight -- worker` を実行できます。検査結果には秘密値を表示しません。

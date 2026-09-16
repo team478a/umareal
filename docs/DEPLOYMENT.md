@@ -1,5 +1,28 @@
 # 独自ドメイン公開準備
 
+## 一般公開前のクラウド試験
+
+最初のRender配備は`render.staging.yaml`をBlueprint Pathに指定し、`CLOUD_STAGING`で実施する。`render.yaml`の一般公開用リソースとは名前とDBを分ける。Web全体はBasic認証で保護し、LINE Login、LINE通知、Stripe決済を停止する。APIはprivate serviceのため外部URLを持たない。
+
+Render Dashboardで次の値を入力する。値はGit、課題、チャットへ貼らない。
+
+| 変数 | 設定先 | 条件 |
+| --- | --- | --- |
+| `STAGING_ACCESS_USERNAME` | staging Web | 半角英数字・ピリオド・アンダースコア・ハイフンで1〜64文字 |
+| `STAGING_ACCESS_PASSWORD` | staging Web | 24バイト以上の固有ランダム値 |
+| `APP_BASE_URL` / `ADMIN_BASE_URL` | staging API | staging WebのHTTPS URL |
+| `ENCRYPTION_KEY` | staging API、worker | 両サービスで同一の32-byte base64値。本番とは別値 |
+| `SUPABASE_URL` / `SUPABASE_ANON_KEY` | staging API | staging専用Supabase project |
+| `RESEND_API_KEY` / `MAIL_FROM` | staging API、worker | staging送信元。本番の会員リストを使用しない |
+| `RESEND_WEBHOOK_SECRET` / `JOB_SECRET` | staging API | staging専用の値 |
+| `DATABASE_URL` | staging API、worker | staging DBの制限付きruntime接続 |
+
+配備前にAPI、Web、workerそれぞれの環境値をGit管理外ファイルへ用意し、`scripts/deployment-preflight.mjs`で検査する。Web検査はアクセス資格情報の不足や短いパスワードも拒否する。`/health`と署名付きprovider webhookはアクセスゲート対象外、それ以外の画面と同一Origin APIは未認証で401になることを確認する。
+
+staging DBの初回構築では、API・workerへ所有者接続を設定しない。Render Postgresの外部接続許可へ作業端末の現在IPだけを一時追加し、所有者接続で`pnpm db:migrate`と`pnpm db:access:configure`を実行する。runtime接続で`pnpm db:access:verify`が成功したら、API・workerへruntime URLを保存し、一時IP許可と端末上の所有者接続ファイルを削除する。以後の常駐サービスは所有者接続を保持しない。
+
+`CLOUD_STAGING`だけは開発版法務文書で起動できるが、管理画面の本番準備では法務ブロッカーを維持する。テスト環境を一般募集へ使用しない。`FREE_REGISTRATION`または`FULL`への切替前に正式文書を反映する。
+
 ## 採用する初期構成
 
 初期公開先はRenderを候補にする。現在のモノレポを次の4リソースへ分け、公開入口はWebだけにする。

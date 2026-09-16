@@ -19,6 +19,13 @@ describe('same-origin API proxy', () => {
     expect(headers.has('x-untrusted-forwarded-header')).toBe(false);
   });
 
+  it('uses Basic authorization only at the staging gate and never forwards it to the private API', () => {
+    const basic = proxyRequestHeaders(new Headers({ authorization: 'Basic dXNlcjpwYXNzd29yZA==' }));
+    const bearer = proxyRequestHeaders(new Headers({ authorization: 'Bearer signed-token' }));
+    expect(basic.has('authorization')).toBe(false);
+    expect(bearer.get('authorization')).toBe('Bearer signed-token');
+  });
+
   it('accepts a private host and port from a hosting platform', () => {
     expect(apiBaseUrl('umareal-api:10000')).toBe('http://umareal-api:10000');
     expect(apiBaseUrl('https://api.example.com/')).toBe('https://api.example.com');

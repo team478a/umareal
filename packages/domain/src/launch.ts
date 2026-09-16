@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const launchModeSchema = z.enum(['FREE_REGISTRATION', 'FULL']);
+export const launchModeSchema = z.enum(['CLOUD_STAGING', 'FREE_REGISTRATION', 'FULL']);
 export type LaunchMode = z.infer<typeof launchModeSchema>;
 
 export type LaunchCapabilities = {
@@ -24,4 +24,8 @@ export function launchCapabilities(mode: LaunchMode): LaunchCapabilities {
     lineNotifications: full,
     billing: full
   };
+}
+
+export function requiresPublishedLegalDocuments(nodeEnv: string | undefined, mode: LaunchMode): boolean {
+  return nodeEnv === 'production' && mode !== 'CLOUD_STAGING';
 }

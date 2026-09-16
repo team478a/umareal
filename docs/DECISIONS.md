@@ -808,6 +808,14 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 - 認証方式、公開URL、DB接続、暗号鍵、transportはプロセス起動前に検証する基盤設定である。管理画面では秘密値を返さず設定済み状態だけを表示し、変更は配備環境で行う。実行中プロセスから書き換えない。
 - 馬評価・見解提供へ変更したため、WIN5の1点当たり金額と組合せ警告値は管理APIと画面から外す。既存列とデータは将来互換のため物理削除せず、現行処理から参照しない。本節は過去のWIN5買い目運用に関する記述を上書きする。
 
+### 限定クラウド試験（2026-09-16）
+
+- 一般募集前のクラウド結合試験を`CLOUD_STAGING`として分離する。SingaporeのWeb、private API、worker、PostgreSQLを本番とは別名のリソースで構成し、本番DBや資格情報を共有しない。
+- Web入口はBasic認証のアクセスゲートで保護する。ユーザー名は空欄・コロンを禁止し、パスワードは24バイト以上とする。未設定時は503、認証不一致は401を返し、値をログや応答へ出さない。
+- `/health`はRenderヘルスチェックのため、LINE・Stripe・Resend webhookは各署名検証のためアクセスゲート対象外とする。APIはprivate serviceのまま外部公開しない。
+- stagingでも`NODE_ENV=production`、Supabase、Resend、Turnstile、HTTPS、制限付きDBロールを必須とし、本番相当のCookie・Origin・権限境界を検証する。LINE Login、LINE通知、Stripe決済は停止する。
+- 開発版法務文書の例外は`CLOUD_STAGING`に限定する。管理画面の本番準備判定では引き続き未公開法務文書をブロッカーとして表示し、`FREE_REGISTRATION`と`FULL`では起動を拒否する。
+
 ## 参照した公式資料
 
 - [Next.js 導入と構成](https://nextjs.org/docs/app/getting-started/installation)

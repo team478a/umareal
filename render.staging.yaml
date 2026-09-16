@@ -1,0 +1,118 @@
+services:
+  - type: pserv
+    name: umareal-staging-api
+    runtime: docker
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: pnpm --filter @keiba/api start
+    healthCheckPath: /api/v1/health
+    autoDeployTrigger: checksPass
+    maxShutdownDelaySeconds: 30
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        sync: false
+      - key: AUTH_PROVIDER
+        value: supabase
+      - key: LAUNCH_MODE
+        value: CLOUD_STAGING
+      - key: APP_BASE_URL
+        sync: false
+      - key: ADMIN_BASE_URL
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: NOTIFICATION_TRANSPORT
+        value: disabled
+      - key: LINE_OAUTH_TRANSPORT
+        value: disabled
+      - key: BILLING_TRANSPORT
+        value: disabled
+      - key: STRIPE_LIVE_MODE
+        value: "false"
+      - key: MAIL_TRANSPORT
+        value: resend
+      - key: CAPTCHA_TRANSPORT
+        value: turnstile
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_WEBHOOK_SECRET
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: JOB_SECRET
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: AUTH_RATE_LIMIT
+        value: 60
+
+  - type: web
+    name: umareal-staging-web
+    runtime: docker
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: sh -c 'pnpm --filter @keiba/web exec next start --hostname 0.0.0.0 --port ${PORT:-10000}'
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+    maxShutdownDelaySeconds: 30
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LAUNCH_MODE
+        value: CLOUD_STAGING
+      - key: API_BASE_URL
+        fromService:
+          type: pserv
+          name: umareal-staging-api
+          property: hostport
+      - key: STAGING_ACCESS_USERNAME
+        sync: false
+      - key: STAGING_ACCESS_PASSWORD
+        sync: false
+
+  - type: worker
+    name: umareal-staging-worker
+    runtime: docker
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: pnpm --filter @keiba/worker start
+    autoDeployTrigger: checksPass
+    maxShutdownDelaySeconds: 30
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: LAUNCH_MODE
+        value: CLOUD_STAGING
+      - key: APP_BASE_URL
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: NOTIFICATION_TRANSPORT
+        value: disabled
+      - key: MAIL_TRANSPORT
+        value: resend
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+
+databases:
+  - name: umareal-staging-db
+    region: singapore
+    databaseName: umareal_staging
+    user: umareal_staging_migration
+    postgresMajorVersion: "16"
+    ipAllowList: []

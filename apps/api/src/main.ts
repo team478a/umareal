@@ -10,7 +10,7 @@ import cookieParser from 'cookie-parser';
 import { rateLimit } from 'express-rate-limit';
 import { ZodError } from 'zod';
 import { databaseRuntimeAccessRestricted, loadMailConfig, Prisma } from '@keiba/db';
-import { launchCapabilities, legalDocumentReleaseErrors, resolveLaunchMode } from '@keiba/domain';
+import { launchCapabilities, legalDocumentReleaseErrors, requiresPublishedLegalDocuments, resolveLaunchMode } from '@keiba/domain';
 import { AppController } from './app.controller';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
@@ -96,7 +96,7 @@ async function main() {
   if (process.env.NODE_ENV === 'production' && process.env.MAIL_TRANSPORT !== 'resend') throw new Error('Production requires an external mail transport');
   if (!['test', 'turnstile'].includes(process.env.CAPTCHA_TRANSPORT ?? '')) throw new Error('Set CAPTCHA_TRANSPORT explicitly');
   if (process.env.NODE_ENV === 'production' && process.env.CAPTCHA_TRANSPORT !== 'turnstile') throw new Error('Production requires the Turnstile CAPTCHA transport');
-  if (process.env.NODE_ENV === 'production') {
+  if (requiresPublishedLegalDocuments(process.env.NODE_ENV, launchMode)) {
     const legalErrors = legalDocumentReleaseErrors();
     if (legalErrors.length) throw new Error(`Production requires published legal documents: ${legalErrors.join('; ')}`);
   }

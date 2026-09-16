@@ -16,6 +16,7 @@ export function proxyRequestHeaders(source: Headers) {
   const headers = new Headers();
   for (const key of forwardedRequestHeaderNames) {
     const value = source.get(key);
+    if (key === 'authorization' && value && /^Basic\s/i.test(value)) continue;
     if (value) headers.set(key, value);
   }
   return headers;
