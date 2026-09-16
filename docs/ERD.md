@@ -98,7 +98,7 @@ Phase 3Eでline_accountsへ解除時刻を追加し、削除せず連携履歴�
 
 Phase 3Fでrace_result_drafts、追記専用race_result_versions、prediction_performances、bet_performancesを追加した。prediction_performancesとbet_performancesは旧買い目機能の履歴として保持し、新規利用を休止する。確定後の変更・削除・子データ後付けは引き続きDBで拒否する。
 
-Phase 3Aでsystem_settingsを追加。singleton行に緊急停止、通知再試行方針、Messaging APIとLINE Loginの各設定、暗号化した秘密値、revision、更新者、更新時刻を保持する。不完全な資格情報でLINE通知またはLINE Loginを有効化できないようDB制約を持つ。
+Phase 3Aでsystem_settingsを追加。singleton行に緊急停止、通知再試行方針、Messaging APIとLINE Loginの各設定、暗号化した秘密値、revision、更新者、更新時刻を保持する。不完全な資格情報でLINE通知またはLINE Loginを有効化できないようDB制約を持つ。予想の訂正権限（`ADMIN_ONLY` / `EXPERT_OR_ADMIN`）と延期レース公開（`CLOSED` / `LATEST_STARTS_AT`）も同じsingleton行で管理し、許可値をDB制約で限定する。過去のWIN5金額・組合せ警告列は将来互換のため保持するが、現行の馬評価サービスでは管理APIと画面から利用しない。
 
 Phase 4Aでsubscriptions、day_passes、payment_transactions、billing_eventsを追加。契約と1日利用はそれぞれ有限期間entitlementを1件だけ持つ。有効な月額契約は会員ごとに1件、1日利用は会員・開催日ごとに1件。支払試行と請求イベントは追記専用で、DBトリガーが更新・削除・TRUNCATEを拒否する。system_settingsは価格、創設会員販売上限、猶予日数を保持する。
 

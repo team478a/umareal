@@ -54,10 +54,6 @@ services:
         sync: false
       - key: AUTH_RATE_LIMIT
         value: 60
-      - key: CORRECTION_POLICY
-        value: ADMIN_ONLY
-      - key: DELAYED_PUBLICATION_POLICY
-        value: CLOSED
 
   - type: web
     name: umareal-web

@@ -82,8 +82,6 @@ async function main() {
     if (process.env.NODE_ENV === 'production' && supabaseUrl.protocol !== 'https:') throw new Error('Production requires an HTTPS Supabase URL');
   }
   if (Buffer.from(process.env.ENCRYPTION_KEY ?? '', 'base64').length !== 32) throw new Error('Configure ENCRYPTION_KEY');
-  if (process.env.CORRECTION_POLICY && !['ADMIN_ONLY', 'EXPERT_OR_ADMIN'].includes(process.env.CORRECTION_POLICY)) throw new Error('Invalid CORRECTION_POLICY');
-  if (process.env.DELAYED_PUBLICATION_POLICY && !['CLOSED', 'LATEST_STARTS_AT'].includes(process.env.DELAYED_PUBLICATION_POLICY)) throw new Error('Invalid DELAYED_PUBLICATION_POLICY');
   if (!['test', 'line', 'disabled'].includes(process.env.NOTIFICATION_TRANSPORT ?? '')) throw new Error('Set NOTIFICATION_TRANSPORT explicitly');
   if (!['test', 'line', 'disabled'].includes(process.env.LINE_OAUTH_TRANSPORT ?? '')) throw new Error('Set LINE_OAUTH_TRANSPORT explicitly');
   if (process.env.NODE_ENV === 'production' && capabilities.lineNotifications && process.env.NOTIFICATION_TRANSPORT !== 'line') throw new Error('Full production launch requires the LINE notification transport');

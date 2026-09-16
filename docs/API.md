@@ -54,8 +54,8 @@
 | POST | /admin/continuity/administrators/:userId/promote | ADMIN+AAL2。確認済みアカウントを対象メール再入力と理由付きでADMINへ昇格し、セッションを失効して監査へ追記 |
 | PATCH | /admin/continuity/administrators/:userId/status | ADMIN+AAL2。別のADMINを停止・再開する。自己操作は禁止。停止後も有効な管理者2名以上（Supabaseでは各人の主・予備MFAも準備済み）を要求し、待機/処理中の配信予約がある停止を拒否する。ロール・設定・履歴は保持する |
 | PATCH | /admin/continuity/administrators/:userId/demote | ADMIN+AAL2。別の有効なADMINをMEMBER/EXPERT/EDITOR/OPERATORへ変更する。継続性、配信予約、会員アクセスを再検証し、セッション失効と監査追記を行う |
-| GET | /admin/settings | ADMIN+AAL2またはOPERATOR。秘密値を除く運用・Turnstile・メール・LINE・Stripe設定と接続準備状態 |
-| PATCH | /admin/settings | ADMIN+AAL2。revisionと理由必須。Turnstile・メール・LINE・Stripe資格情報、料金、通知方針、緊急停止を更新 |
+| GET | /admin/settings | ADMIN+AAL2またはOPERATOR。秘密値を除く運用・Turnstile・メール・LINE・Stripe設定、予想公開ルール、配備環境の設定状態 |
+| PATCH | /admin/settings | ADMIN+AAL2。revisionと理由必須。Turnstile・メール・LINE・Stripe資格情報、料金、通知方針、予想公開ルール、緊急停止を更新 |
 | GET | /admin/notifications | ADMIN+AAL2またはOPERATOR。受信者単位の配送、試行履歴、状態別件数。page/limit/status/channel（EMAILまたはLINE）/raceId |
 | GET | /admin/notifications/previews/race-announcement | ADMIN+AAL2またはOPERATOR。raceIdと任意のscheduledAtから、告知の次版、対象会員数、チャネル別候補・予定配送数、本文、配信時刻を返す。会員識別情報は返さず、データは変更しない |
 | GET | /admin/notifications/previews/free-report | ADMIN+AAL2またはOPERATOR。raceId、kind、保存済みdraft revisionと任意のscheduledAt（発走前速報のみ）から、無料速報またはレース後検証の次版、対象会員数、チャネル別件数、本文、配信時刻を返す。公開条件を検証するがデータは変更しない |
@@ -256,7 +256,7 @@ contentは事前点数・順位・印・短評、パドック5項目、総合変
 
 公開時は公開範囲、信頼度または見送り、最終見解が必須。見送り以外は最終本命を1頭要求し、評価馬ごとの選定理由を要求する。プレビュー後に担当、レース、出走馬、評価、下書き、公開履歴が変わった場合は409 STALE_PREVIEWとなる。
 
-発走時刻以降、またはFINISHED/CANCELLEDのレースは公開不可。APIの事前検証に加え、PostgreSQLトリガーが最新の発走時刻と状態を参照して公開版INSERTを拒否する。`DELAYED_PUBLICATION_POLICY` の開発既定値は `CLOSED`、`LATEST_STARTS_AT` は検証用。訂正は理由必須で、`CORRECTION_POLICY` の開発既定値は `ADMIN_ONLY`。どちらも本番前の事業判断が必要。
+発走時刻以降、またはFINISHED/CANCELLEDのレースは公開不可。APIの事前検証に加え、PostgreSQLトリガーが最新の発走時刻と状態を参照して公開版INSERTを拒否する。延期レースは管理設定の既定値 `CLOSED` では公開せず、`LATEST_STARTS_AT` の場合だけ変更後の発走時刻まで許可する。訂正は理由必須で、管理設定の既定値 `ADMIN_ONLY` では管理者だけが訂正版を公開できる。設定変更はADMIN+AAL2、revision、理由を必須とし、監査履歴へ保存する。
 
 無料会員と未認証者には、公開範囲の設定にかかわらず版番号・公開時刻などのメタデータだけを返し、`locked=true` とする。対象JST日を含む有効期間のMEMBER権限、担当EXPERT+AAL2、またはADMIN+AAL2にだけ中心馬、相手候補、注目馬、危険馬、理由、詳細見解、パドック評価を返す。ロック中は訂正理由も返さない。
 

@@ -74,7 +74,19 @@ export class AdminSettingsController {
       },
       maintenanceMessage: value.maintenanceMessage,
       notificationPolicy: { maxAttempts: value.notificationMaxAttempts, baseDelaySeconds: value.notificationBaseDelaySeconds },
-      win5: { defaultAmountPerPointYen: value.win5DefaultAmountPerPointYen, combinationWarningLimit: value.win5CombinationWarningLimit },
+      publicationPolicy: { correction: value.predictionCorrectionPolicy, delayedRace: value.delayedPublicationPolicy },
+      environment: {
+        launchMode: process.env.LAUNCH_MODE ?? 'UNSET',
+        authProvider: process.env.AUTH_PROVIDER === 'supabase' ? 'SUPABASE' : 'LOCAL_DEVELOPMENT',
+        applicationUrl: baseUrl || null,
+        adminUrlConfigured: !!process.env.ADMIN_BASE_URL,
+        supabaseConfigured: !!process.env.SUPABASE_URL && !!process.env.SUPABASE_ANON_KEY,
+        sentryConfigured: !!process.env.SENTRY_DSN,
+        transports: {
+          captcha: process.env.CAPTCHA_TRANSPORT ?? 'UNSET', mail: process.env.MAIL_TRANSPORT ?? 'UNSET',
+          lineNotifications: process.env.NOTIFICATION_TRANSPORT ?? 'UNSET', lineLogin: process.env.LINE_OAUTH_TRANSPORT ?? 'UNSET', billing: process.env.BILLING_TRANSPORT ?? 'UNSET'
+        }
+      },
       billing: {
         founderSalesEnabled: value.founderSalesEnabled, founderPriceYen: value.founderPriceYen,
         standardPriceYen: value.standardPriceYen, dayPassPriceYen: value.dayPassPriceYen,
@@ -162,7 +174,7 @@ export class AdminSettingsController {
         maintenanceMessage: input.maintenanceMessage,
         notificationMaxAttempts: input.notificationPolicy.maxAttempts,
         notificationBaseDelaySeconds: input.notificationPolicy.baseDelaySeconds,
-        ...(input.win5 ? { win5DefaultAmountPerPointYen: input.win5.defaultAmountPerPointYen, win5CombinationWarningLimit: input.win5.combinationWarningLimit } : {}),
+        ...(input.publicationPolicy ? { predictionCorrectionPolicy: input.publicationPolicy.correction, delayedPublicationPolicy: input.publicationPolicy.delayedRace } : {}),
         ...input.billing,
         stripeSecretKeyEncrypted,
         stripeWebhookSecretEncrypted,

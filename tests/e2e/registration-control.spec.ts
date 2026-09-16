@@ -12,6 +12,12 @@ test('an AAL2 administrator pauses and resumes registration while login remains 
     await page.context().addCookies([{ name: 'keiba_session', value: client.cookie.split('=')[1], domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
     await page.goto('/admin/settings');
     await expect(page.getByRole('heading', { name: '機能の停止・再開' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '配備環境' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '予想の公開・訂正ルール' })).toBeVisible();
+    await expect(page.getByLabel('訂正版を公開できる権限')).toBeVisible();
+    await expect(page.getByLabel('延期レースの公開ルール')).toBeVisible();
+    await expect(page.getByLabel('WIN5 1点あたり初期金額')).toHaveCount(0);
+    await expect(page.getByLabel('WIN5 組合せ数の警告値')).toHaveCount(0);
     await page.getByLabel('新規会員登録を有効にする').uncheck();
     await page.getByLabel('登録停止中の会員向け案内').fill('募集人数を確認しています。明日10時に受付状況をご案内します。');
     await page.getByLabel('管理設定の変更理由').fill('募集枠確認のため一時停止');

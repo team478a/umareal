@@ -1309,6 +1309,8 @@ model SystemSetting {
   maintenanceMessage              String   @default("")
   notificationMaxAttempts         Int      @default(5)
   notificationBaseDelaySeconds    Int      @default(30)
+  predictionCorrectionPolicy      String   @default("ADMIN_ONLY")
+  delayedPublicationPolicy        String   @default("CLOSED")
   win5DefaultAmountPerPointYen    Int      @default(100)
   win5CombinationWarningLimit     Int      @default(1000)
   lineChannelId                   String?

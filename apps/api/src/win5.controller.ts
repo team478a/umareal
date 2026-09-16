@@ -278,9 +278,10 @@ export class Win5Controller {
     z.string().uuid().parse(productId); const input = win5PreviewSchema.parse(body);
     return this.locked(async tx => {
       const { actor, product } = await this.access(tx, req, productId); await this.ensurePublicationEnabled(tx);
+      const settings = await tx.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { predictionCorrectionPolicy: true } });
       if (product.revision !== input.productRevision) throw new ConflictException({ code: 'WIN5_DRAFT_CONFLICT', message: '保存後にWIN5予想が変更されました。再読み込みしてください。' });
       const correcting = product.versions.length > 0;
-      if (correcting && actor.role !== 'ADMIN') throw new ForbiddenException({ code: 'CORRECTION_APPROVAL_REQUIRED', message: 'WIN5の訂正公開には管理者の確認が必要です。' });
+      if (correcting && settings.predictionCorrectionPolicy === 'ADMIN_ONLY' && actor.role !== 'ADMIN') throw new ForbiddenException({ code: 'CORRECTION_APPROVAL_REQUIRED', message: 'WIN5の訂正公開には管理者の確認が必要です。' });
       if (correcting && !input.correctionReason) throw new BadRequestException({ code: 'CORRECTION_REASON_REQUIRED', message: '訂正理由を入力してください。' });
       const calculated = this.publishable(product);
       const warnings = [
@@ -298,6 +299,7 @@ export class Win5Controller {
     z.string().uuid().parse(productId); z.string().uuid().parse(previewId);
     return this.locked(async tx => {
       const { actor, product } = await this.access(tx, req, productId); await this.ensurePublicationEnabled(tx);
+      const settings = await tx.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { predictionCorrectionPolicy: true } });
       const preview = await tx.predictionProductPreview.findUnique({ where: { id: previewId } });
       if (!preview || preview.productId !== productId || preview.actorId !== actor.id) throw new NotFoundException();
       if (preview.confirmedVersionId) return { published: true, versionId: preview.confirmedVersionId, alreadyPublished: true };
@@ -305,7 +307,7 @@ export class Win5Controller {
       if (preview.baselineHash !== this.fingerprint(product)) throw new ConflictException({ code: 'WIN5_STALE_PREVIEW', message: '確認後にレースまたは予想が変わりました。再確認してください。' });
       const details = previewDetailsSchema.parse(preview.snapshot); const previous = product.versions[0] ?? null; const correcting = !!previous;
       if (details.nextVersion !== (previous?.version ?? 0) + 1) throw new ConflictException({ code: 'WIN5_STALE_PREVIEW', message: '別の公開版が追加されました。再確認してください。' });
-      if (correcting && actor.role !== 'ADMIN') throw new ForbiddenException({ code: 'CORRECTION_APPROVAL_REQUIRED', message: 'WIN5の訂正公開には管理者の確認が必要です。' });
+      if (correcting && settings.predictionCorrectionPolicy === 'ADMIN_ONLY' && actor.role !== 'ADMIN') throw new ForbiddenException({ code: 'CORRECTION_APPROVAL_REQUIRED', message: 'WIN5の訂正公開には管理者の確認が必要です。' });
       const calculated = this.publishable(product);
       const version = await tx.predictionProductVersion.create({ data: { productId, version: details.nextVersion, status: correcting ? 'CORRECTED' : 'PUBLISHED', accessScope: product.accessScope, confidence: product.confidence, combinationCount: null, amountPerPointYen: null, assumedPurchaseAmountYen: null, formatVersion: 'HORSE_EVALUATION_V1', contentSnapshot: json(calculated.contentSnapshot), publisherId: actor.id, deadlineAt: calculated.deadlineAt, correctionReason: correcting ? details.correctionReason : null, previousVersionId: previous?.id } });
       const notificationEvent = await tx.notificationEvent.create({ data: { productVersionId: version.id, eventType: correcting ? 'WIN5_PREVIEW_CORRECTED' : 'WIN5_PREVIEW_PUBLISHED', status: 'QUEUED', payload: json({ productVersionId: version.id, productId, targetDate: product.targetDate }) } });

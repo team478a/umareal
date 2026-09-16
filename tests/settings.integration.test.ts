@@ -29,6 +29,7 @@ describe('audited administration settings', () => {
       registrationPauseMessage: '募集人数の確認中です。受付再開までお待ちください。',
       captcha: { enabled: true, siteKey: '0x4AAAA-test-site-key', secret: turnstileSecret, clearSecret: false },
       maintenanceMessage: '結合試験中', notificationPolicy: { maxAttempts: 4, baseDelaySeconds: 45 },
+      publicationPolicy: { correction: 'EXPERT_OR_ADMIN', delayedRace: 'LATEST_STARTS_AT' },
       billing: { founderSalesEnabled: false, founderPriceYen: 1980, standardPriceYen: 2980, dayPassPriceYen: 980, founderSalesLimit: 100, billingGraceDays: 0 },
       stripe: { liveMode: false, secretKey: stripeSecretKey, webhookSecret: stripeWebhookSecret, clearSecretKey: false, clearWebhookSecret: false, priceFounder: 'price_Founder123', priceStandard: 'price_Standard123', priceDayPass: 'price_DayPass123' },
       mail: { apiKey: mailApiKey, webhookSecret: mailWebhookSecret, from: '競馬会員メディア <notice@example.test>', clearApiKey: false, clearWebhookSecret: false },
@@ -45,6 +46,8 @@ describe('audited administration settings', () => {
     expect(stopped.body.mail.readiness).toMatchObject({ credentialsStored: true, secretReadable: true, webhookSecretStored: true, webhookSecretReadable: true, senderConfigured: true, webhookReceiverReady: true, mailTransport: 'TEST_ONLY', externalConnectionTested: false });
     expect(stopped.body.captcha).toMatchObject({ enabled: true, siteKey: '0x4AAAA-test-site-key', secretConfigured: true, connectionStatus: 'CONFIGURED_NOT_VERIFIED' });
     expect(stopped.body.captcha.readiness).toMatchObject({ siteKeyStored: true, secretStored: true, secretReadable: true, serverValidationReady: true, transport: 'TEST_ONLY', externalConnectionTested: false });
+    expect(stopped.body.publicationPolicy).toEqual({ correction: 'EXPERT_OR_ADMIN', delayedRace: 'LATEST_STARTS_AT' });
+    expect(stopped.body.environment).toMatchObject({ launchMode: 'FULL', authProvider: 'LOCAL_DEVELOPMENT', supabaseConfigured: false });
     expect(JSON.stringify(stopped.body)).not.toContain(channelSecret); expect(JSON.stringify(stopped.body)).not.toContain(channelAccessToken); expect(JSON.stringify(stopped.body)).not.toContain(loginChannelSecret); expect(JSON.stringify(stopped.body)).not.toContain(stripeSecretKey); expect(JSON.stringify(stopped.body)).not.toContain(stripeWebhookSecret); expect(JSON.stringify(stopped.body)).not.toContain(mailApiKey); expect(JSON.stringify(stopped.body)).not.toContain(mailWebhookSecret); expect(JSON.stringify(stopped.body)).not.toContain(turnstileSecret);
     const stored = await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' } });
     expect(stored.lineChannelSecretEncrypted).not.toContain(channelSecret); expect(stored.lineAccessTokenEncrypted).not.toContain(channelAccessToken); expect(stored.lineLoginChannelSecretEncrypted).not.toContain(loginChannelSecret);
@@ -77,6 +80,7 @@ describe('audited administration settings', () => {
       ...stoppedBody, revision: stopped.body.revision, reason: '結合試験後に通常運用へ復帰',
       operations: { newRegistrationsEnabled: true, emailNotificationsEnabled: true, predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: false, lineLoginEnabled: false, newPurchasesEnabled: false },
       registrationPauseMessage: '',
+      publicationPolicy: initial.body.publicationPolicy,
       maintenanceMessage: '', stripe: { liveMode: false, clearSecretKey: true, clearWebhookSecret: true, priceFounder: null, priceStandard: null, priceDayPass: null }, mail: { from: null, clearApiKey: true, clearWebhookSecret: true }, line: { channelId: null, clearChannelSecret: true, clearChannelAccessToken: true, loginChannelId: null, loginCallbackUrl: null, clearLoginChannelSecret: true }
     });
     expect(restored.status).toBe(200); expect(restored.body.line.connectionStatus).toBe('NOT_CONFIGURED');
@@ -88,7 +92,7 @@ describe('audited administration settings', () => {
     expect((await new Client().call('auth/register', 'POST', resumedBody)).body.code).toBe('CAPTCHA_REQUIRED');
     expect((await new Client().call('auth/register', 'POST', { ...resumedBody, captchaToken: 'wrong' })).body.code).toBe('CAPTCHA_INVALID');
     expect((await new Client().call('auth/register', 'POST', { ...resumedBody, captchaToken: 'test-registration-captcha' })).status).toBe(201);
-    const cleaned = await admin.call('admin/settings', 'PATCH', { ...stoppedBody, revision: restored.body.revision, reason: 'Bot対策の結合試験を終了', operations: { ...restored.body.operations }, registrationPauseMessage: '', maintenanceMessage: '', captcha: { enabled: false, siteKey: null, clearSecret: true }, stripe: { liveMode: false, clearSecretKey: true, clearWebhookSecret: true, priceFounder: null, priceStandard: null, priceDayPass: null }, mail: { from: null, clearApiKey: true, clearWebhookSecret: true }, line: { channelId: null, clearChannelSecret: true, clearChannelAccessToken: true, loginChannelId: null, loginCallbackUrl: null, clearLoginChannelSecret: true } });
+    const cleaned = await admin.call('admin/settings', 'PATCH', { ...stoppedBody, revision: restored.body.revision, reason: 'Bot対策の結合試験を終了', operations: { ...restored.body.operations }, registrationPauseMessage: '', maintenanceMessage: '', publicationPolicy: initial.body.publicationPolicy, captcha: { enabled: false, siteKey: null, clearSecret: true }, stripe: { liveMode: false, clearSecretKey: true, clearWebhookSecret: true, priceFounder: null, priceStandard: null, priceDayPass: null }, mail: { from: null, clearApiKey: true, clearWebhookSecret: true }, line: { channelId: null, clearChannelSecret: true, clearChannelAccessToken: true, loginChannelId: null, loginCallbackUrl: null, clearLoginChannelSecret: true } });
     expect(cleaned.status).toBe(200); expect(cleaned.body.captcha.connectionStatus).toBe('DISABLED');
     await expect(db.systemSetting.update({ where: { id: 'global' }, data: { newRegistrationsEnabled: false, registrationPauseMessage: '' } })).rejects.toThrow();
     await expect(db.systemSetting.update({ where: { id: 'global' }, data: { lineNotificationsEnabled: true } })).rejects.toThrow();

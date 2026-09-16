@@ -46,24 +46,24 @@ export class PredictionsController {
     }
     return valid;
   }
-  private ensureOpen(state: Awaited<ReturnType<PredictionsController['state']>>) {
-    if (state.status === 'DELAYED' && (process.env.DELAYED_PUBLICATION_POLICY ?? 'CLOSED') !== 'LATEST_STARTS_AT') throw new ConflictException({ code: 'DELAYED_PUBLICATION_CLOSED', message: '延期レースの公開は運用確認が必要です。' });
+  private ensureOpen(state: Awaited<ReturnType<PredictionsController['state']>>, delayedPolicy: string) {
+    if (state.status === 'DELAYED' && delayedPolicy !== 'LATEST_STARTS_AT') throw new ConflictException({ code: 'DELAYED_PUBLICATION_CLOSED', message: '延期レースの公開は運用確認が必要です。' });
     if (['FINISHED', 'CANCELLED'].includes(state.status) || new Date() >= state.startsAt) throw new ConflictException({ code: 'PUBLICATION_CLOSED', message: '発走時刻以降または終了・中止レースには公開できません。' });
   }
   private async ensurePublicationEnabled(tx: Tx) {
     const settings = await tx.systemSetting.findUnique({ where: { id: 'global' }, select: { predictionPublicationEnabled: true } });
     if (settings && !settings.predictionPublicationEnabled) throw new ForbiddenException({ code: 'PREDICTION_PUBLICATION_STOPPED', message: '管理設定により予想公開を停止しています。' });
   }
-  private ensureCorrectionActor(actor: AuthContext, correcting: boolean) {
-    const policy = process.env.CORRECTION_POLICY ?? 'ADMIN_ONLY';
+  private ensureCorrectionActor(actor: AuthContext, correcting: boolean, policy: string) {
     if (correcting && policy === 'ADMIN_ONLY' && actor.role !== 'ADMIN') throw new ForbiddenException({ code: 'CORRECTION_APPROVAL_REQUIRED', message: 'この開発設定では訂正公開に管理者の確認が必要です。' });
   }
   @Get('expert/races/:raceId/prediction') async edit(@Req() req: AppRequest, @Param('raceId') raceId: string) {
     z.string().uuid().parse(raceId);
     return this.locked(async tx => {
       await this.access(tx, req, raceId); const state = await this.state(tx, raceId);
+      const settings = await tx.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { predictionCorrectionPolicy: true } });
       const versions = state.prediction ? await tx.predictionVersion.findMany({ where: { predictionId: state.prediction.id }, orderBy: { version: 'desc' }, select: versionSelect }) : [];
-      return { race: { id: state.id, name: state.name, venue: state.venue, number: state.number, startsAt: state.startsAt, status: state.status, revision: state.revision }, entries: state.entries, prediction: state.prediction ? { id: state.prediction.id, draft: this.currentDraft(state.prediction.draft), revision: state.prediction.revision } : null, versions, correctionPolicy: process.env.CORRECTION_POLICY ?? 'ADMIN_ONLY' };
+      return { race: { id: state.id, name: state.name, venue: state.venue, number: state.number, startsAt: state.startsAt, status: state.status, revision: state.revision }, entries: state.entries, prediction: state.prediction ? { id: state.prediction.id, draft: this.currentDraft(state.prediction.draft), revision: state.prediction.revision } : null, versions, correctionPolicy: settings.predictionCorrectionPolicy };
     });
   }
   @Post('expert/races/:raceId/prediction/draft') async save(@Req() req: AppRequest, @Param('raceId') raceId: string, @Body() body: unknown) {
@@ -85,9 +85,11 @@ export class PredictionsController {
   @Post('expert/races/:raceId/prediction/preview') async preview(@Req() req: AppRequest, @Param('raceId') raceId: string, @Body() body: unknown) {
     z.string().uuid().parse(raceId); const input = publishPreviewSchema.parse(body);
     return this.locked(async tx => {
-      const { actor } = await this.access(tx, req, raceId); await this.ensurePublicationEnabled(tx); const state = await this.state(tx, raceId); this.ensureOpen(state);
+      const { actor } = await this.access(tx, req, raceId); await this.ensurePublicationEnabled(tx); const state = await this.state(tx, raceId);
+      const settings = await tx.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { predictionCorrectionPolicy: true, delayedPublicationPolicy: true } });
+      this.ensureOpen(state, settings.delayedPublicationPolicy);
       if (!state.prediction || state.prediction.revision !== input.predictionRevision || state.revision !== input.raceRevision) throw new ConflictException({ code: 'PREDICTION_CHANGED', message: '保存後に内容が変わりました。再読み込みしてください。' });
-      const correcting = !!state.prediction.versions[0]; this.ensureCorrectionActor(actor, correcting);
+      const correcting = !!state.prediction.versions[0]; this.ensureCorrectionActor(actor, correcting, settings.predictionCorrectionPolicy);
       if (correcting && !input.correctionReason) throw new BadRequestException({ code: 'CORRECTION_REASON_REQUIRED', message: '訂正理由を入力してください。' });
       const draft = this.validateDraft(this.currentDraft(state.prediction.draft), state);
       const missing = state.entries.filter(entry => entry.status === 'ACTIVE' && (!entry.assessment || !paddockComplete(assessmentSchema.parse(entry.assessment.content)))).map(entry => entry.number);
@@ -105,11 +107,13 @@ export class PredictionsController {
       if (!preview || preview.actorId !== actor.id) throw new NotFoundException();
       if (preview.confirmedVersionId) return { published: true, versionId: preview.confirmedVersionId, alreadyPublished: true };
       if (preview.expiresAt <= new Date()) throw new ConflictException({ code: 'PREVIEW_EXPIRED', message: '公開前確認の有効期限が切れました。再確認してください。' });
-      const state = await this.state(tx, raceId); this.ensureOpen(state);
+      const state = await this.state(tx, raceId);
+      const settings = await tx.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { predictionCorrectionPolicy: true, delayedPublicationPolicy: true } });
+      this.ensureOpen(state, settings.delayedPublicationPolicy);
       if (!state.prediction || preview.predictionId !== state.prediction.id || preview.baselineHash !== this.fingerprint(state)) throw new ConflictException({ code: 'STALE_PREVIEW', message: '確認後にレース・評価・予想が変わりました。再確認してください。' });
       const details = previewSnapshotSchema.parse(preview.snapshot); const previous = state.prediction.versions[0] ?? null; const correcting = !!previous;
       if (details.nextVersion !== (previous?.version ?? 0) + 1) throw new ConflictException({ code: 'STALE_PREVIEW', message: '別の公開版が追加されました。再確認してください。' });
-      this.ensureCorrectionActor(actor, correcting);
+      this.ensureCorrectionActor(actor, correcting, settings.predictionCorrectionPolicy);
       const draft = this.validateDraft(this.currentDraft(state.prediction.draft), state);
       const version = await tx.predictionVersion.create({ data: { predictionId: state.prediction.id, version: details.nextVersion, status: correcting ? 'CORRECTED' : 'PUBLISHED', visibility: draft.visibility!, confidence: draft.confidence!, stance: null, summary: draft.summary, estimatedTotalYen: null, formatVersion: 'HORSE_EVALUATION_V1', contentSnapshot: json({ ...draft, race: { id: state.id, raceDate: state.raceDate, venue: state.venue, number: state.number, name: state.name, startsAt: state.startsAt, status: state.status }, entries: state.entries.map(e => ({ id: e.id, horseId: e.horseId, number: e.number, horseName: e.horseName, status: e.status })) }), assessmentSnapshot: json(state.entries.map(e => ({ entryId: e.id, horseId: e.horseId, number: e.number, horseName: e.horseName, assessment: e.assessment?.content ?? null }))), publisherId: actor.id, deadlineAt: state.startsAt, previousVersionId: previous?.id, correctionReason: correcting ? details.correctionReason : null } });
       const entries = new Map(state.entries.map(e => [e.id, e]));

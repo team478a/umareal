@@ -34,9 +34,9 @@ export const adminSettingsUpdateSchema = z.object({
     maxAttempts: z.number().int().min(1).max(10),
     baseDelaySeconds: z.number().int().min(10).max(3600)
   }).strict(),
-  win5: z.object({
-    defaultAmountPerPointYen: z.number().int().min(100).max(1_000_000).multipleOf(100),
-    combinationWarningLimit: z.number().int().min(1).max(2_000_000_000)
+  publicationPolicy: z.object({
+    correction: z.enum(['ADMIN_ONLY', 'EXPERT_OR_ADMIN']),
+    delayedRace: z.enum(['CLOSED', 'LATEST_STARTS_AT'])
   }).strict().optional(),
   billing: billingSettingsSchema,
   stripe: z.object({
