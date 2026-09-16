@@ -50,8 +50,6 @@ services:
         sync: false
       - key: JOB_SECRET
         sync: false
-      - key: SENTRY_DSN
-        sync: false
       - key: AUTH_RATE_LIMIT
         value: 60
 
