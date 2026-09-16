@@ -2,7 +2,7 @@
 
 ## 一般公開前のクラウド試験
 
-最初のRender配備は`render.staging.yaml`をBlueprint Pathに指定し、`CLOUD_STAGING`で実施する。`render.yaml`の一般公開用リソースとは名前とDBを分ける。Web全体はBasic認証で保護し、LINE Login、LINE通知、Stripe決済を停止する。APIはprivate serviceのため外部URLを持たない。
+最初のRender配備は、staging専用PostgreSQLを先に作成・移行した後、`render.staging.yaml`をBlueprint Pathに指定して`CLOUD_STAGING`で実施する。`render.yaml`の一般公開用リソースとは名前とDBを分ける。Web全体はBasic認証で保護し、LINE Login、LINE通知、Stripe決済を停止する。APIはprivate serviceのため外部URLを持たない。staging Blueprintは既存DBの重複作成を避けるためAPI、Web、workerだけを管理し、DBはDashboardで独立管理する。
 
 クラウド試験のプランは、APIとworkerを`0.5c-512mb`、WebとPostgreSQLを`free`へ固定する。Renderの2026年9月時点の表示価格では基本compute料金は月額14 USD（API 7 USD + worker 7 USD、秒単位の日割り）である。無料PostgreSQLは作成30日後に失効し、超過した帯域・build pipeline等は別条件となるため、作成直前にDashboardの最新見積りを再確認する。
 
@@ -21,7 +21,7 @@ Render Dashboardで次の値を入力する。値はGit、課題、チャット�
 
 配備前にAPI、Web、workerそれぞれの環境値をGit管理外ファイルへ用意し、`scripts/deployment-preflight.mjs`で検査する。Web検査はアクセス資格情報の不足や短いパスワードも拒否する。`/health`と署名付きprovider webhookはアクセスゲート対象外、それ以外の画面と同一Origin APIは未認証で401になることを確認する。
 
-staging DBの初回構築では、API・workerへ所有者接続を設定しない。Render Postgresの外部接続許可へ作業端末の現在IPだけを一時追加し、所有者接続で`pnpm db:migrate`と`pnpm db:access:configure`を実行する。runtime接続で`pnpm db:access:verify`が成功したら、API・workerへruntime URLを保存し、一時IP許可と端末上の所有者接続ファイルを削除する。以後の常駐サービスは所有者接続を保持しない。
+staging DBの初回構築では、Blueprintより先に`umareal-staging-db`をSingapore、PostgreSQL 16で作成し、API・workerへ所有者接続を設定しない。Render Postgresの外部接続許可へ作業端末の現在IPだけを一時追加し、所有者接続で`pnpm db:migrate`と`pnpm db:access:configure`を実行する。runtime接続で`pnpm db:access:verify`が成功したら、API・workerへruntime URLを保存し、一時IP許可と端末上の所有者接続ファイルを削除する。以後の常駐サービスは所有者接続を保持しない。
 
 `CLOUD_STAGING`だけは開発版法務文書で起動できるが、管理画面の本番準備では法務ブロッカーを維持する。テスト環境を一般募集へ使用しない。`FREE_REGISTRATION`または`FULL`への切替前に正式文書を反映する。
 
@@ -122,8 +122,8 @@ MFA端末紛失時のfactor解除・本人確認・再登録は、復旧責任�
 
 ## 独自ドメイン設定の順序
 
-1. RenderでこのGitHubリポジトリのBlueprintを選び、各リソースと本番用secretを作成する。APIとworkerの `DATABASE_URL` は自動入力せず、runtime接続を設定する。
-2. `docs/DATABASE_ACCESS.md` に従い、所有者接続でマイグレーションを実行し、runtimeロールを構成・検証する。所有者接続をAPI・workerに保存しない。
+1. Render Postgresを先に作成し、`docs/DATABASE_ACCESS.md` に従って所有者接続でマイグレーションを実行し、runtimeロールを構成・検証する。所有者接続をAPI・workerに保存しない。
+2. RenderでこのGitHubリポジトリのBlueprintを選び、API、Web、workerと本番用secretを作成する。APIとworkerの `DATABASE_URL` には検証済みruntime接続だけを設定する。
 3. 一時URLで `/health` が200を返し、GitHub Actions、API、workerの起動を確認する。
 4. `umareal-web` に独自ドメインを追加する。
 5. Renderが表示するA/CNAMEと所有確認用DNSレコードをドメイン管理会社へ登録する。固定値を推測して入力しない。

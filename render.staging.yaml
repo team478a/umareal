@@ -107,12 +107,3 @@ services:
         sync: false
       - key: MAIL_FROM
         sync: false
-
-databases:
-  - name: umareal-staging-db
-    plan: free
-    region: singapore
-    databaseName: umareal_staging
-    user: umareal_staging_migration
-    postgresMajorVersion: "16"
-    ipAllowList: []
