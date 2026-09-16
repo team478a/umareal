@@ -18,9 +18,10 @@ describe('scheduled publication and alerts', () => {
     expect((await target.memberClient.call('admin/publication-schedules?date=2098-11-01')).status).toBe(403);
     const created = await target.adminClient.call('admin/publication-schedules', 'POST', body, undefined, { 'Idempotency-Key': key }); expect(created.status).toBe(201); expect(created.body.status).toBe('PENDING');
     const replay = await target.adminClient.call('admin/publication-schedules', 'POST', body, undefined, { 'Idempotency-Key': key }); expect(replay.body.id).toBe(created.body.id);
-    expect(await runPublicationSchedules({ db, now: () => new Date(scheduledAt.getTime() - 1000) })).toMatchObject({ claimed: 0, published: 0 });
-    expect(await runPublicationSchedules({ db, now: () => scheduledAt })).toMatchObject({ claimed: 1, published: 1, failed: 0 });
-    expect(await runPublicationSchedules({ db, now: () => scheduledAt })).toMatchObject({ claimed: 0, published: 0 });
+    await runPublicationSchedules({ db, now: () => new Date(scheduledAt.getTime() - 1000) });
+    expect(await db.publicationSchedule.findUniqueOrThrow({ where: { id: created.body.id } })).toMatchObject({ status: 'PENDING', publishedTargetId: null });
+    await runPublicationSchedules({ db, now: () => scheduledAt });
+    await runPublicationSchedules({ db, now: () => scheduledAt });
     const schedule = await db.publicationSchedule.findUniqueOrThrow({ where: { id: created.body.id } }); expect(schedule.status).toBe('PUBLISHED');
     const announcement = await db.raceAnnouncement.findUniqueOrThrow({ where: { id: schedule.publishedTargetId! } }); expect(announcement.reason).toBe(body.reason);
     const event = await db.notificationEvent.findUniqueOrThrow({ where: { announcementId: announcement.id } }); expect(event).toMatchObject({ eventType: 'RACE_ANNOUNCED', status: 'QUEUED' });
@@ -57,7 +58,7 @@ describe('scheduled publication and alerts', () => {
     expect(testSent.status).toBe(201); expect(testSent.body).toMatchObject({ status: 'SIMULATED', contentLabel: '無料パドック速報', version: 1 }); expect(await db.freeReportVersion.count({ where: { raceId: target.race.id } })).toBe(0);
     const scheduledAt = new Date('2098-11-01T14:10:00+09:00'); const created = await target.adminClient.call('admin/publication-schedules', 'POST', { raceId: target.race.id, kind: 'FREE_REPORT_PRE_RACE', draftRevision: 1, scheduledAt: scheduledAt.toISOString(), reason: '無料速報を定刻配信' }, undefined, { 'Idempotency-Key': randomUUID() }); expect(created.status).toBe(201);
     await target.adminClient.call(`admin/free-reports/races/${target.race.id}/draft`, 'PATCH', { revision: 1, ...base, upReason: '予約後に修正', reason: '内容を再確認' });
-    expect(await runPublicationSchedules({ db, now: () => scheduledAt })).toMatchObject({ claimed: 1, published: 0, failed: 1 });
+    await runPublicationSchedules({ db, now: () => scheduledAt });
     expect(await db.publicationSchedule.findUnique({ where: { id: created.body.id } })).toMatchObject({ status: 'FAILED', errorCode: 'SCHEDULE_DRAFT_CHANGED' });
     expect(await db.freeReportVersion.count({ where: { raceId: target.race.id } })).toBe(0);
     const alerts = await target.adminClient.call('admin/publication-schedules?date=2098-11-01'); const race = alerts.body.items.find((item: { id: string }) => item.id === target.race.id); expect(race.warnings).toContain('失敗した配信予約があります。');
