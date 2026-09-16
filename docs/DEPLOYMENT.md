@@ -23,6 +23,19 @@
 - DBマイグレーションは常駐サービスと分けた保護実行環境から、所有者接続で `pnpm db:migrate` を実行する。APIとworkerにはruntime接続だけを渡す。
 - ワーカーはSIGTERM/SIGINTを受けると新しい処理ループへ進まず、DB接続を閉じる。
 - GitHub Actionsが成功したコミットだけを自動配備対象にする。
+- API private serviceにも`/api/v1/health`を設定し、DBへ到達できないインスタンスを正常扱いしない。
+
+## 資格情報投入前の設定検査
+
+Renderへ保存する値は、Git管理外の端末用ファイルへ準備し、サービスごとに次を実行する。
+
+```powershell
+node --env-file=.env.production.api.local scripts/deployment-preflight.mjs api
+node --env-file=.env.production.web.local scripts/deployment-preflight.mjs web
+node --env-file=.env.production.worker.local scripts/deployment-preflight.mjs worker
+```
+
+検査は値そのものを表示せず、必須項目、URL形式、32-byte暗号鍵、起動モード別transport、常駐サービスへ保存してはいけない所有者接続やservice-role keyを確認する。`MANUAL`は自動判定できない法務公開、DB実権限、外部サービス疎通、TLS、監視を示す。検査成功だけで公開を承認しない。
 
 ## Render作成時に入力する値
 

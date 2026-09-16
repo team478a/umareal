@@ -126,3 +126,5 @@ pnpm bridge:jra-van:test
 前日WIN5紙面予想と当日パドック直前予想の2商品構成は、[docs/WIN5_PHASE1_DESIGN.md](docs/WIN5_PHASE1_DESIGN.md)に差分、論理モデル、権限、API境界、実装順を記載しています。商品設定、5レース入力、組合せ計算、公開・訂正、会員向け紙面、月額・1日利用権限、LINE・メール公開通知まで実装済みです。WIN5結果、分離成績、ダブル的中、SNS共有は未実装です。
 
 独自ドメイン公開の構成、Render Blueprint、必要な資格情報と公開判定は [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) を参照してください。`render.yaml` はWeb、非公開API、ワーカー、PostgreSQLをSingaporeリージョンに作るための準備ファイルです。現時点では本番認証の結合と正式文書が未完了のため、公開トラフィックを受ける用途にはまだ使用しません。
+
+Renderへ資格情報を保存する前に、Git管理外のサービス別環境ファイルを使って `pnpm deploy:preflight -- api`、`pnpm deploy:preflight -- web`、`pnpm deploy:preflight -- worker` を実行できます。検査結果には秘密値を表示しません。
