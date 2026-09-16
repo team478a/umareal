@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { unstable_doesMiddlewareMatch } from 'next/experimental/testing/server';
 import { afterEach, describe, expect, it } from 'vitest';
-import { config, proxy, stagingCredentialsValid } from './proxy';
+import { config, proxy, stagingCookieValue, stagingCredentialsValid } from './proxy';
 
 const previousMode = process.env.LAUNCH_MODE;
 const previousUsername = process.env.STAGING_ACCESS_USERNAME;
@@ -29,7 +29,7 @@ describe('cloud staging access gate', () => {
     expect(stagingCredentialsValid('Basic !!!', username, password)).toBe(false);
   });
 
-  it('returns a no-store challenge and permits the configured reviewer', () => {
+  it('returns a no-store challenge and persists a successful review session in a secure cookie', () => {
     process.env.LAUNCH_MODE = 'CLOUD_STAGING';
     process.env.STAGING_ACCESS_USERNAME = username;
     process.env.STAGING_ACCESS_PASSWORD = password;
@@ -39,6 +39,34 @@ describe('cloud staging access gate', () => {
     const allowed = proxy(new NextRequest('https://staging.example.test/', { headers: { authorization: basic(username, password) } }));
     expect(allowed.status).toBe(200);
     expect(allowed.headers.get('x-robots-tag')).toBe('noindex, nofollow');
+    const cookie = allowed.cookies.get('__Host-umareal_staging_access');
+    expect(cookie?.value).toBe(stagingCookieValue(username, password));
+    expect(cookie?.httpOnly).toBe(true);
+    expect(cookie?.secure).toBe(true);
+    expect(cookie?.sameSite).toBe('strict');
+
+    const followUp = proxy(new NextRequest('https://staging.example.test/admin/settings', {
+      headers: { cookie: `__Host-umareal_staging_access=${cookie?.value}` }
+    }));
+    expect(followUp.status).toBe(200);
+    expect(followUp.headers.get('www-authenticate')).toBeNull();
+  });
+
+  it('rejects a forged or stale staging access cookie', () => {
+    process.env.LAUNCH_MODE = 'CLOUD_STAGING';
+    process.env.STAGING_ACCESS_USERNAME = username;
+    process.env.STAGING_ACCESS_PASSWORD = password;
+    const forged = proxy(new NextRequest('https://staging.example.test/', {
+      headers: { cookie: '__Host-umareal_staging_access=forged' }
+    }));
+    expect(forged.status).toBe(401);
+
+    const staleValue = stagingCookieValue(username, password);
+    process.env.STAGING_ACCESS_PASSWORD = 'a-different-long-random-password';
+    const stale = proxy(new NextRequest('https://staging.example.test/', {
+      headers: { cookie: `__Host-umareal_staging_access=${staleValue}` }
+    }));
+    expect(stale.status).toBe(401);
   });
 
   it('fails closed when staging credentials are absent or too short', () => {
