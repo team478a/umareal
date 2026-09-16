@@ -65,7 +65,6 @@ services:
     dockerCommand: sh -c 'pnpm --filter @keiba/web exec next start --hostname 0.0.0.0 --port ${PORT:-10000}'
     healthCheckPath: /health
     autoDeployTrigger: checksPass
-    maxShutdownDelaySeconds: 30
     envVars:
       - key: NODE_ENV
         value: production
