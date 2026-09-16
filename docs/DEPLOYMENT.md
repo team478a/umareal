@@ -4,6 +4,8 @@
 
 最初のRender配備は`render.staging.yaml`をBlueprint Pathに指定し、`CLOUD_STAGING`で実施する。`render.yaml`の一般公開用リソースとは名前とDBを分ける。Web全体はBasic認証で保護し、LINE Login、LINE通知、Stripe決済を停止する。APIはprivate serviceのため外部URLを持たない。
 
+クラウド試験のプランは、APIとworkerを`0.5c-512mb`、WebとPostgreSQLを`free`へ固定する。Renderの2026年9月時点の表示価格では基本compute料金は月額14 USD（API 7 USD + worker 7 USD、秒単位の日割り）である。無料PostgreSQLは作成30日後に失効し、超過した帯域・build pipeline等は別条件となるため、作成直前にDashboardの最新見積りを再確認する。
+
 Render Dashboardで次の値を入力する。値はGit、課題、チャットへ貼らない。
 
 | 変数 | 設定先 | 条件 |

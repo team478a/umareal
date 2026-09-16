@@ -815,6 +815,7 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 - `/health`はRenderヘルスチェックのため、LINE・Stripe・Resend webhookは各署名検証のためアクセスゲート対象外とする。APIはprivate serviceのまま外部公開しない。
 - stagingでも`NODE_ENV=production`、Supabase、Resend、Turnstile、HTTPS、制限付きDBロールを必須とし、本番相当のCookie・Origin・権限境界を検証する。LINE Login、LINE通知、Stripe決済は停止する。
 - 開発版法務文書の例外は`CLOUD_STAGING`に限定する。管理画面の本番準備判定では引き続き未公開法務文書をブロッカーとして表示し、`FREE_REGISTRATION`と`FULL`では起動を拒否する。
+- stagingの料金を予測可能にするため、APIとworkerは最小の有料`0.5c-512mb`、Webと30日限定PostgreSQLは`free`へ固定する。2026年9月時点の基本compute料金は月額14 USDで、実際は秒単位の日割りとする。一般公開用`render.yaml`のプランは、利用量とバックアップ要件を確認するまで固定しない。
 
 ## 参照した公式資料
 
