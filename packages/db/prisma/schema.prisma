@@ -16,55 +16,57 @@ enum Role {
 }
 
 model User {
-  id                     String                   @id @default(uuid()) @db.Uuid
-  authSubject            String?                  @unique
-  email                  String?                  @unique
-  emailVerifiedAt        DateTime?                @db.Timestamptz(3)
-  emailDeliveryDisabledAt DateTime?               @db.Timestamptz(3)
-  emailDeliveryDisabledReason String?
-  registrationMethod     String                   @default("EMAIL")
-  displayName            String
-  role                   Role                     @default(MEMBER)
-  passwordHash           String?
-  mfaSecret              String?
-  pendingMfaSecret       String?
-  externalMfaFactorId    String?                  @db.Uuid
-  externalBackupMfaFactorId String?               @db.Uuid
-  pendingExternalMfaFactorId String?               @db.Uuid
-  pendingExternalMfaKind String?
-  pendingExternalMfaExpiresAt DateTime?            @db.Timestamptz(3)
-  mfaLastStep            BigInt?
-  disabledAt             DateTime?                @db.Timestamptz(3)
-  createdAt              DateTime                 @default(now()) @db.Timestamptz(3)
-  consents               UserConsent[]
-  sessions               Session[]
-  preferences            NotificationPreference?
-  lineAccount            LineAccount?
-  lineOAuthFlows         LineOAuthFlow[]
-  notificationDeliveries NotificationDelivery[]
-  notificationReads      MemberNotificationRead[]
-  entitlements           Entitlement[]
-  subscriptions          Subscription[]
-  dayPasses              DayPass[]
-  paymentTransactions    PaymentTransaction[]
-  billingEvents          BillingEvent[]
-  billingCheckouts       BillingCheckout[]
-  billingSupportRequests BillingSupportRequest[] @relation("BillingSupportRequester")
-  billingSupportEvents   BillingSupportEvent[]   @relation("BillingSupportActor")
-  journeyEvents          MemberJourneyEvent[]
-  assignments            ExpertAssignment[]
-  resets                 PasswordReset[]
-  emailVerifications     EmailVerification[]
-  raceAnnouncements      RaceAnnouncement[]       @relation("AnnouncementPublisher")
-  freeReportVersions     FreeReportVersion[]      @relation("FreeReportPublisher")
-  audioAssets            AudioAsset[]             @relation("AudioAssetCreator")
-  publicationSchedules   PublicationSchedule[]    @relation("PublicationScheduleCreator")
-  accountClosure         AccountClosure?
-  acquisition            MemberAcquisition?
-  acquisitionCampaigns   AcquisitionCampaign[]    @relation("AcquisitionCampaignCreator")
-  win5Products           PredictionProduct[]      @relation("PredictionProductExpert")
-  win5VersionsPublished  PredictionProductVersion[] @relation("PredictionProductPublisher")
-  win5ResultsConfirmed   Win5ResultVersion[]       @relation("Win5ResultConfirmer")
+  id                             String                     @id @default(uuid()) @db.Uuid
+  authSubject                    String?                    @unique
+  email                          String?                    @unique
+  emailVerifiedAt                DateTime?                  @db.Timestamptz(3)
+  emailDeliveryDisabledAt        DateTime?                  @db.Timestamptz(3)
+  emailDeliveryDisabledReason    String?
+  registrationMethod             String                     @default("EMAIL")
+  displayName                    String
+  role                           Role                       @default(MEMBER)
+  passwordHash                   String?
+  mfaSecret                      String?
+  pendingMfaSecret               String?
+  externalMfaFactorId            String?                    @db.Uuid
+  externalBackupMfaFactorId      String?                    @db.Uuid
+  pendingExternalMfaFactorId     String?                    @db.Uuid
+  pendingExternalMfaKind         String?
+  pendingExternalMfaExpiresAt    DateTime?                  @db.Timestamptz(3)
+  mfaLastStep                    BigInt?
+  disabledAt                     DateTime?                  @db.Timestamptz(3)
+  createdAt                      DateTime                   @default(now()) @db.Timestamptz(3)
+  consents                       UserConsent[]
+  sessions                       Session[]
+  preferences                    NotificationPreference?
+  lineAccount                    LineAccount?
+  lineOAuthFlows                 LineOAuthFlow[]
+  notificationDeliveries         NotificationDelivery[]
+  notificationReads              MemberNotificationRead[]
+  entitlements                   Entitlement[]
+  subscriptions                  Subscription[]
+  dayPasses                      DayPass[]
+  paymentTransactions            PaymentTransaction[]
+  billingEvents                  BillingEvent[]
+  billingCheckouts               BillingCheckout[]
+  billingSupportRequests         BillingSupportRequest[]    @relation("BillingSupportRequester")
+  billingSupportEvents           BillingSupportEvent[]      @relation("BillingSupportActor")
+  journeyEvents                  MemberJourneyEvent[]
+  assignments                    ExpertAssignment[]
+  resets                         PasswordReset[]
+  emailVerifications             EmailVerification[]
+  raceAnnouncements              RaceAnnouncement[]         @relation("AnnouncementPublisher")
+  freeReportVersions             FreeReportVersion[]        @relation("FreeReportPublisher")
+  audioAssets                    AudioAsset[]               @relation("AudioAssetCreator")
+  publicationSchedules           PublicationSchedule[]      @relation("PublicationScheduleCreator")
+  accountClosure                 AccountClosure?
+  acquisition                    MemberAcquisition?
+  acquisitionCampaigns           AcquisitionCampaign[]      @relation("AcquisitionCampaignCreator")
+  win5Products                   PredictionProduct[]        @relation("PredictionProductExpert")
+  win5VersionsPublished          PredictionProductVersion[] @relation("PredictionProductPublisher")
+  win5ResultsConfirmed           Win5ResultVersion[]        @relation("Win5ResultConfirmer")
+  predictionEvaluationsConfirmed PredictionEvaluation[]     @relation("PredictionEvaluationConfirmer")
+  win5EvaluationsConfirmed       Win5EvaluationVersion[]    @relation("Win5EvaluationConfirmer")
 
   @@map("users")
 }
@@ -334,37 +336,37 @@ model DayPass {
 }
 
 model PaymentTransaction {
-  id                String        @id @default(uuid()) @db.Uuid
-  userId            String        @db.Uuid
-  user              User          @relation(fields: [userId], references: [id])
+  id                String                  @id @default(uuid()) @db.Uuid
+  userId            String                  @db.Uuid
+  user              User                    @relation(fields: [userId], references: [id])
   provider          String
-  providerPaymentId String        @unique
+  providerPaymentId String                  @unique
   kind              String
   status            String
   amountYen         Int
-  subscriptionId    String?       @db.Uuid
-  subscription      Subscription? @relation(fields: [subscriptionId], references: [id])
-  dayPassId         String?       @db.Uuid
-  dayPass           DayPass?      @relation(fields: [dayPassId], references: [id])
+  subscriptionId    String?                 @db.Uuid
+  subscription      Subscription?           @relation(fields: [subscriptionId], references: [id])
+  dayPassId         String?                 @db.Uuid
+  dayPass           DayPass?                @relation(fields: [dayPassId], references: [id])
   supportRequests   BillingSupportRequest[]
-  occurredAt        DateTime      @default(now()) @db.Timestamptz(3)
-  createdTxId       BigInt        @default(dbgenerated("txid_current()"))
+  occurredAt        DateTime                @default(now()) @db.Timestamptz(3)
+  createdTxId       BigInt                  @default(dbgenerated("txid_current()"))
 
   @@index([userId, occurredAt])
   @@map("payment_transactions")
 }
 
 model BillingSupportRequest {
-  id                   String                 @id @default(uuid()) @db.Uuid
-  userId               String                 @db.Uuid
-  user                 User                   @relation("BillingSupportRequester", fields: [userId], references: [id])
-  paymentTransactionId String?                @db.Uuid
-  paymentTransaction   PaymentTransaction?    @relation(fields: [paymentTransactionId], references: [id])
+  id                   String                @id @default(uuid()) @db.Uuid
+  userId               String                @db.Uuid
+  user                 User                  @relation("BillingSupportRequester", fields: [userId], references: [id])
+  paymentTransactionId String?               @db.Uuid
+  paymentTransaction   PaymentTransaction?   @relation(fields: [paymentTransactionId], references: [id])
   category             String
   message              String
-  status               String                 @default("OPEN")
-  createdAt            DateTime               @default(now()) @db.Timestamptz(3)
-  updatedAt            DateTime               @default(now()) @db.Timestamptz(3)
+  status               String                @default("OPEN")
+  createdAt            DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime              @default(now()) @db.Timestamptz(3)
   events               BillingSupportEvent[]
 
   @@index([userId, createdAt])
@@ -439,33 +441,35 @@ model StripeWebhookEvent {
 }
 
 model Race {
-  id                   String                @id @default(uuid()) @db.Uuid
-  raceDate             String
-  venue                String
-  number               Int
-  name                 String
-  startsAt             DateTime              @db.Timestamptz(3)
-  status               String                @default("SCHEDULED")
-  assignments          ExpertAssignment[]
-  resultDraft          RaceResultDraft?
-  resultVersions       RaceResultVersion[]
-  raceDayId            String?               @db.Uuid
-  raceDay              RaceDay?              @relation(fields: [raceDayId], references: [id])
-  raceClass            String?
-  distance             Int?
-  surface              String?
-  direction            String?
-  going                String?
-  weather              String?
-  revision             Int                   @default(1)
-  entries              RaceEntry[]
-  prediction           Prediction?
-  announcements        RaceAnnouncement[]
-  freeReportDraft      FreeReportDraft?
-  freeReportVersions   FreeReportVersion[]
-  publicationSchedules PublicationSchedule[]
+  id                    String                  @id @default(uuid()) @db.Uuid
+  raceDate              String
+  venue                 String
+  number                Int
+  name                  String
+  startsAt              DateTime                @db.Timestamptz(3)
+  status                String                  @default("SCHEDULED")
+  assignments           ExpertAssignment[]
+  resultDraft           RaceResultDraft?
+  resultVersions        RaceResultVersion[]
+  raceDayId             String?                 @db.Uuid
+  raceDay               RaceDay?                @relation(fields: [raceDayId], references: [id])
+  raceClass             String?
+  distance              Int?
+  surface               String?
+  direction             String?
+  going                 String?
+  weather               String?
+  revision              Int                     @default(1)
+  entries               RaceEntry[]
+  prediction            Prediction?
+  announcements         RaceAnnouncement[]
+  freeReportDraft       FreeReportDraft?
+  freeReportVersions    FreeReportVersion[]
+  publicationSchedules  PublicationSchedule[]
   win5ProductRaces      PredictionProductRace[]
   win5ResultLegs        Win5ResultLeg[]
+  predictionEvaluations PredictionEvaluation[]
+  win5EvaluationLegs    Win5EvaluationLeg[]
 
   @@unique([raceDate, venue, number])
   @@map("races")
@@ -598,23 +602,23 @@ model Horse {
 }
 
 model RaceEntry {
-  assessment    Assessment?
-  id            String      @id @default(uuid()) @db.Uuid
-  raceId        String      @db.Uuid
-  race          Race        @relation(fields: [raceId], references: [id])
-  horseId       String      @db.Uuid
-  horse         Horse       @relation(fields: [horseId], references: [id])
-  number        Int
-  gate          Int
-  horseName     String
-  sex           String
-  age           Int
-  carriedWeight Decimal     @db.Decimal(4, 1)
-  jockey        String
-  trainer       String
-  winOdds       Decimal?    @db.Decimal(8, 1)
-  popularity    Int?
-  status        String      @default("ACTIVE")
+  assessment     Assessment?
+  id             String                       @id @default(uuid()) @db.Uuid
+  raceId         String                       @db.Uuid
+  race           Race                         @relation(fields: [raceId], references: [id])
+  horseId        String                       @db.Uuid
+  horse          Horse                        @relation(fields: [horseId], references: [id])
+  number         Int
+  gate           Int
+  horseName      String
+  sex            String
+  age            Int
+  carriedWeight  Decimal                      @db.Decimal(4, 1)
+  jockey         String
+  trainer        String
+  winOdds        Decimal?                     @db.Decimal(8, 1)
+  popularity     Int?
+  status         String                       @default("ACTIVE")
   win5Selections PredictionProductSelection[]
 
   @@unique([raceId, number])
@@ -721,9 +725,9 @@ model PredictionVersion {
   status             String
   visibility         String
   confidence         String
-  stance             String
+  stance             String?
   summary            String
-  estimatedTotalYen  Int
+  estimatedTotalYen  Int?
   contentSnapshot    Json
   assessmentSnapshot Json
   publisherId        String                  @db.Uuid
@@ -731,6 +735,7 @@ model PredictionVersion {
   deadlineAt         DateTime                @db.Timestamptz(3)
   correctionReason   String?
   previousVersionId  String?                 @unique @db.Uuid
+  formatVersion      String                  @default("LEGACY_BETTING_V1")
   previousVersion    PredictionVersion?      @relation("PredictionCorrections", fields: [previousVersionId], references: [id])
   corrections        PredictionVersion[]     @relation("PredictionCorrections")
   createdTxId        BigInt                  @default(dbgenerated("txid_current()"))
@@ -739,6 +744,7 @@ model PredictionVersion {
   notificationEvent  NotificationEvent?
   confirmedPreview   PublicationPreview?     @relation("ConfirmedPublication")
   performances       PredictionPerformance[]
+  evaluations        PredictionEvaluation[]
 
   @@unique([predictionId, version])
   @@map("prediction_versions")
@@ -786,22 +792,25 @@ model RaceResultDraft {
 }
 
 model RaceResultVersion {
-  id              String                  @id @default(uuid()) @db.Uuid
-  raceId          String                  @db.Uuid
-  race            Race                    @relation(fields: [raceId], references: [id])
-  version         Int
-  sourceRevision  Int
-  status          String                  @default("CONFIRMED")
-  ruleVersion     String
-  raceCanceled    Boolean                 @default(false)
-  entriesSnapshot Json
-  payoutsSnapshot Json
-  reason          String
-  confirmedBy     String                  @db.Uuid
-  confirmedAt     DateTime                @default(now()) @db.Timestamptz(3)
-  createdTxId     BigInt                  @default(dbgenerated("txid_current()"))
-  performances    PredictionPerformance[]
-  win5ResultLegs  Win5ResultLeg[]
+  id                    String                  @id @default(uuid()) @db.Uuid
+  raceId                String                  @db.Uuid
+  race                  Race                    @relation(fields: [raceId], references: [id])
+  version               Int
+  sourceRevision        Int
+  status                String                  @default("CONFIRMED")
+  ruleVersion           String
+  raceCanceled          Boolean                 @default(false)
+  entriesSnapshot       Json
+  payoutsSnapshot       Json
+  reason                String
+  confirmedBy           String                  @db.Uuid
+  confirmedAt           DateTime                @default(now()) @db.Timestamptz(3)
+  createdTxId           BigInt                  @default(dbgenerated("txid_current()"))
+  performances          PredictionPerformance[]
+  win5ResultLegs        Win5ResultLeg[]
+  predictionEvaluations PredictionEvaluation[]
+  win5EvaluationLegs    Win5EvaluationLeg[]
+  notificationEvent     NotificationEvent?
 
   @@unique([raceId, version])
   @@unique([raceId, sourceRevision])
@@ -862,24 +871,28 @@ model PublicationPreview {
 }
 
 model NotificationEvent {
-  id                  String                   @id @default(uuid()) @db.Uuid
-  versionId           String?                  @unique @db.Uuid
-  version             PredictionVersion?       @relation(fields: [versionId], references: [id])
-  announcementId      String?                  @unique @db.Uuid
-  announcement        RaceAnnouncement?        @relation(fields: [announcementId], references: [id])
-  freeReportVersionId String?                  @unique @db.Uuid
-  freeReportVersion   FreeReportVersion?       @relation(fields: [freeReportVersionId], references: [id])
-  productVersionId    String?                  @unique @db.Uuid
-  productVersion      PredictionProductVersion? @relation(fields: [productVersionId], references: [id])
-  eventType           String
-  status              String
-  payload             Json
-  createdAt           DateTime                 @default(now()) @db.Timestamptz(3)
-  expandedAt          DateTime?                @db.Timestamptz(3)
-  emailExpandedAt     DateTime?                @db.Timestamptz(3)
-  updatedAt           DateTime                 @default(now()) @db.Timestamptz(3)
-  deliveries          NotificationDelivery[]
-  memberReads         MemberNotificationRead[]
+  id                      String                    @id @default(uuid()) @db.Uuid
+  versionId               String?                   @unique @db.Uuid
+  version                 PredictionVersion?        @relation(fields: [versionId], references: [id])
+  announcementId          String?                   @unique @db.Uuid
+  announcement            RaceAnnouncement?         @relation(fields: [announcementId], references: [id])
+  freeReportVersionId     String?                   @unique @db.Uuid
+  freeReportVersion       FreeReportVersion?        @relation(fields: [freeReportVersionId], references: [id])
+  productVersionId        String?                   @unique @db.Uuid
+  productVersion          PredictionProductVersion? @relation(fields: [productVersionId], references: [id])
+  raceResultVersionId     String?                   @unique @db.Uuid
+  raceResultVersion       RaceResultVersion?        @relation(fields: [raceResultVersionId], references: [id])
+  win5EvaluationVersionId String?                   @unique @db.Uuid
+  win5EvaluationVersion   Win5EvaluationVersion?    @relation(fields: [win5EvaluationVersionId], references: [id])
+  eventType               String
+  status                  String
+  payload                 Json
+  createdAt               DateTime                  @default(now()) @db.Timestamptz(3)
+  expandedAt              DateTime?                 @db.Timestamptz(3)
+  emailExpandedAt         DateTime?                 @db.Timestamptz(3)
+  updatedAt               DateTime                  @default(now()) @db.Timestamptz(3)
+  deliveries              NotificationDelivery[]
+  memberReads             MemberNotificationRead[]
 
   @@map("notification_events")
 }
@@ -938,36 +951,36 @@ model NotificationAttempt {
 }
 
 model OperationalAlertSetting {
-  id               String   @id @default("global")
-  revision         Int      @default(1)
-  enabled          Boolean  @default(false)
-  minimumSeverity  String   @default("CRITICAL")
+  id                String   @id @default("global")
+  revision          Int      @default(1)
+  enabled           Boolean  @default(false)
+  minimumSeverity   String   @default("CRITICAL")
   destinationEmails String[] @default([])
-  updatedBy        String?  @db.Uuid
-  updatedAt        DateTime @default(now()) @db.Timestamptz(3)
+  updatedBy         String?  @db.Uuid
+  updatedAt         DateTime @default(now()) @db.Timestamptz(3)
 
   @@map("operational_alert_settings")
 }
 
 model OperationalAlert {
-  id               String                     @id @default(uuid()) @db.Uuid
-  dedupeKey        String                     @unique
-  code             String
-  severity         String
-  sourceType       String
-  sourceId         String                     @db.Uuid
-  title            String
-  summary          String
-  status           String                     @default("OPEN")
-  detectedAt       DateTime                   @default(now()) @db.Timestamptz(3)
-  lastObservedAt   DateTime                   @default(now()) @db.Timestamptz(3)
-  acknowledgedAt   DateTime?                  @db.Timestamptz(3)
-  acknowledgedBy   String?                    @db.Uuid
+  id                String                     @id @default(uuid()) @db.Uuid
+  dedupeKey         String                     @unique
+  code              String
+  severity          String
+  sourceType        String
+  sourceId          String                     @db.Uuid
+  title             String
+  summary           String
+  status            String                     @default("OPEN")
+  detectedAt        DateTime                   @default(now()) @db.Timestamptz(3)
+  lastObservedAt    DateTime                   @default(now()) @db.Timestamptz(3)
+  acknowledgedAt    DateTime?                  @db.Timestamptz(3)
+  acknowledgedBy    String?                    @db.Uuid
   acknowledgeReason String?
-  resolvedAt       DateTime?                  @db.Timestamptz(3)
-  resolvedBy       String?                    @db.Uuid
-  resolutionReason String?
-  deliveries       OperationalAlertDelivery[]
+  resolvedAt        DateTime?                  @db.Timestamptz(3)
+  resolvedBy        String?                    @db.Uuid
+  resolutionReason  String?
+  deliveries        OperationalAlertDelivery[]
 
   @@index([status, detectedAt])
   @@index([severity, status])
@@ -996,30 +1009,32 @@ model OperationalAlertDelivery {
 }
 
 model PredictionProduct {
-  id                   String                     @id @default(uuid()) @db.Uuid
-  type                 String                     @default("WIN5_PREVIEW")
-  targetDate           String
-  title                String
-  expertId             String                     @db.Uuid
-  expert               User                       @relation("PredictionProductExpert", fields: [expertId], references: [id])
-  status               String                     @default("DRAFT")
-  accessScope          String                     @default("PAID")
-  scheduledPublishAt   DateTime                   @db.Timestamptz(3)
-  publishedAt          DateTime?                  @db.Timestamptz(3)
-  closeAt              DateTime?                  @db.Timestamptz(3)
-  confidence           String
-  summary              String                     @default("")
-  showFreeConfidence   Boolean                    @default(false)
-  amountPerPointYen    Int                        @default(100)
-  revision             Int                        @default(1)
-  updatedBy            String                     @db.Uuid
-  createdAt            DateTime                   @default(now()) @db.Timestamptz(3)
-  updatedAt            DateTime                   @default(now()) @db.Timestamptz(3)
-  races                PredictionProductRace[]
-  versions             PredictionProductVersion[]
-  previews             PredictionProductPreview[]
-  resultDraft          Win5ResultDraft?
-  resultVersions       Win5ResultVersion[]
+  id                 String                     @id @default(uuid()) @db.Uuid
+  type               String                     @default("WIN5_PREVIEW")
+  targetDate         String
+  title              String
+  expertId           String                     @db.Uuid
+  expert             User                       @relation("PredictionProductExpert", fields: [expertId], references: [id])
+  status             String                     @default("DRAFT")
+  accessScope        String                     @default("PAID")
+  scheduledPublishAt DateTime                   @db.Timestamptz(3)
+  publishedAt        DateTime?                  @db.Timestamptz(3)
+  closeAt            DateTime?                  @db.Timestamptz(3)
+  confidence         String
+  summary            String                     @default("")
+  showFreeConfidence Boolean                    @default(false)
+  amountPerPointYen  Int                        @default(100)
+  revision           Int                        @default(1)
+  updatedBy          String                     @db.Uuid
+  createdAt          DateTime                   @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime                   @default(now()) @db.Timestamptz(3)
+  races              PredictionProductRace[]
+  versions           PredictionProductVersion[]
+  previews           PredictionProductPreview[]
+  resultDraft        Win5ResultDraft?
+  resultVersions     Win5ResultVersion[]
+  evaluationDraft    Win5EvaluationDraft?
+  evaluationVersions Win5EvaluationVersion[]
 
   @@unique([type, targetDate])
   @@index([expertId, targetDate])
@@ -1027,16 +1042,18 @@ model PredictionProduct {
 }
 
 model PredictionProductRace {
-  id             String                       @id @default(uuid()) @db.Uuid
-  productId      String                       @db.Uuid
-  product        PredictionProduct            @relation(fields: [productId], references: [id])
-  raceId         String                       @db.Uuid
-  race           Race                         @relation(fields: [raceId], references: [id])
-  legNumber      Int
-  confidence     String
-  strategyType   String
-  comment        String
-  selections     PredictionProductSelection[]
+  id           String                       @id @default(uuid()) @db.Uuid
+  productId    String                       @db.Uuid
+  product      PredictionProduct            @relation(fields: [productId], references: [id])
+  raceId       String                       @db.Uuid
+  race         Race                         @relation(fields: [raceId], references: [id])
+  legNumber    Int
+  confidence   String
+  strategyType String?
+  comment      String?
+  paceView     String?
+  shortComment String?
+  selections   PredictionProductSelection[]
 
   @@unique([productId, legNumber])
   @@unique([productId, raceId])
@@ -1047,56 +1064,61 @@ model PredictionProductSelection {
   id             String                @id @default(uuid()) @db.Uuid
   productRaceId  String                @db.Uuid
   productRace    PredictionProductRace @relation(fields: [productRaceId], references: [id], onDelete: Cascade)
-  entryId         String                @db.Uuid
-  entry           RaceEntry             @relation(fields: [entryId], references: [id])
-  selectionType   String
-  displayOrder    Int
+  entryId        String                @db.Uuid
+  entry          RaceEntry             @relation(fields: [entryId], references: [id])
+  selectionType  String?
+  displayOrder   Int
+  evaluationType String?
+  reason         String?
 
   @@unique([productRaceId, entryId])
   @@map("prediction_product_selections")
 }
 
 model PredictionProductPreview {
-  id                   String                    @id @default(uuid()) @db.Uuid
-  actorId              String                    @db.Uuid
-  productId            String                    @db.Uuid
-  product              PredictionProduct         @relation(fields: [productId], references: [id])
-  baselineHash         String
-  snapshot             Json
-  expiresAt            DateTime                  @db.Timestamptz(3)
-  confirmedVersionId   String?                   @unique @db.Uuid
-  confirmedVersion     PredictionProductVersion? @relation(fields: [confirmedVersionId], references: [id])
-  createdAt            DateTime                  @default(now()) @db.Timestamptz(3)
+  id                 String                    @id @default(uuid()) @db.Uuid
+  actorId            String                    @db.Uuid
+  productId          String                    @db.Uuid
+  product            PredictionProduct         @relation(fields: [productId], references: [id])
+  baselineHash       String
+  snapshot           Json
+  expiresAt          DateTime                  @db.Timestamptz(3)
+  confirmedVersionId String?                   @unique @db.Uuid
+  confirmedVersion   PredictionProductVersion? @relation(fields: [confirmedVersionId], references: [id])
+  createdAt          DateTime                  @default(now()) @db.Timestamptz(3)
 
   @@index([productId, expiresAt])
   @@map("prediction_product_previews")
 }
 
 model PredictionProductVersion {
-  id                       String                      @id @default(uuid()) @db.Uuid
-  productId                String                      @db.Uuid
-  product                  PredictionProduct           @relation(fields: [productId], references: [id])
+  id                       String                    @id @default(uuid()) @db.Uuid
+  productId                String                    @db.Uuid
+  product                  PredictionProduct         @relation(fields: [productId], references: [id])
   version                  Int
   status                   String
   accessScope              String
   confidence               String
-  combinationCount         Int
-  amountPerPointYen        Int
-  assumedPurchaseAmountYen Int
+  combinationCount         Int?
+  amountPerPointYen        Int?
+  assumedPurchaseAmountYen Int?
   contentSnapshot          Json
-  publisherId              String                      @db.Uuid
-  publisher                User                        @relation("PredictionProductPublisher", fields: [publisherId], references: [id])
-  publishedAt              DateTime                    @default(now()) @db.Timestamptz(3)
-  deadlineAt               DateTime                    @db.Timestamptz(3)
+  publisherId              String                    @db.Uuid
+  publisher                User                      @relation("PredictionProductPublisher", fields: [publisherId], references: [id])
+  publishedAt              DateTime                  @default(now()) @db.Timestamptz(3)
+  deadlineAt               DateTime                  @db.Timestamptz(3)
   correctionReason         String?
-  previousVersionId        String?                     @unique @db.Uuid
-  previousVersion          PredictionProductVersion?   @relation("PredictionProductCorrections", fields: [previousVersionId], references: [id])
-  correction               PredictionProductVersion?   @relation("PredictionProductCorrections")
-  createdTxId              BigInt                      @default(dbgenerated("txid_current()"))
+  previousVersionId        String?                   @unique @db.Uuid
+  previousVersion          PredictionProductVersion? @relation("PredictionProductCorrections", fields: [previousVersionId], references: [id])
+  correction               PredictionProductVersion? @relation("PredictionProductCorrections")
+  createdTxId              BigInt                    @default(dbgenerated("txid_current()"))
   confirmedPreview         PredictionProductPreview?
   notificationEvent        NotificationEvent?
-  win5ResultDrafts          Win5ResultDraft[]
-  win5ResultVersions        Win5ResultVersion[]
+  win5ResultDrafts         Win5ResultDraft[]
+  win5ResultVersions       Win5ResultVersion[]
+  formatVersion            String                    @default("LEGACY_BETTING_V1")
+  win5EvaluationDrafts     Win5EvaluationDraft[]
+  win5EvaluationVersions   Win5EvaluationVersion[]
 
   @@unique([productId, version])
   @@index([publishedAt])
@@ -1123,28 +1145,28 @@ model Win5ResultDraft {
 }
 
 model Win5ResultVersion {
-  id                         String                   @id @default(uuid()) @db.Uuid
-  productId                  String                   @db.Uuid
-  product                    PredictionProduct        @relation(fields: [productId], references: [id])
-  productVersionId           String                   @db.Uuid
-  productVersion             PredictionProductVersion @relation(fields: [productVersionId], references: [id])
-  version                    Int
-  sourceRevision             Int
-  status                     String                   @default("CONFIRMED")
-  ruleVersion                String
-  hitLegs                    Int
-  perfectHit                 Boolean
-  combinationCount           Int
-  assumedPurchaseAmountYen   Int
-  officialPayoutYen          Int
-  assumedPayoutYen           Int
-  recoveryRateTenthsPercent  Int
-  reason                     String
-  confirmedBy                String                   @db.Uuid
-  confirmer                  User                     @relation("Win5ResultConfirmer", fields: [confirmedBy], references: [id])
-  confirmedAt                DateTime                 @default(now()) @db.Timestamptz(3)
-  createdTxId                BigInt                   @default(dbgenerated("txid_current()"))
-  legs                       Win5ResultLeg[]
+  id                        String                   @id @default(uuid()) @db.Uuid
+  productId                 String                   @db.Uuid
+  product                   PredictionProduct        @relation(fields: [productId], references: [id])
+  productVersionId          String                   @db.Uuid
+  productVersion            PredictionProductVersion @relation(fields: [productVersionId], references: [id])
+  version                   Int
+  sourceRevision            Int
+  status                    String                   @default("CONFIRMED")
+  ruleVersion               String
+  hitLegs                   Int
+  perfectHit                Boolean
+  combinationCount          Int
+  assumedPurchaseAmountYen  Int
+  officialPayoutYen         Int
+  assumedPayoutYen          Int
+  recoveryRateTenthsPercent Int
+  reason                    String
+  confirmedBy               String                   @db.Uuid
+  confirmer                 User                     @relation("Win5ResultConfirmer", fields: [confirmedBy], references: [id])
+  confirmedAt               DateTime                 @default(now()) @db.Timestamptz(3)
+  createdTxId               BigInt                   @default(dbgenerated("txid_current()"))
+  legs                      Win5ResultLeg[]
 
   @@unique([productId, version])
   @@unique([productId, sourceRevision])
@@ -1153,23 +1175,115 @@ model Win5ResultVersion {
 }
 
 model Win5ResultLeg {
-  resultVersionId      String            @db.Uuid
-  resultVersion        Win5ResultVersion @relation(fields: [resultVersionId], references: [id])
-  legNumber             Int
-  raceId                String            @db.Uuid
-  race                  Race              @relation(fields: [raceId], references: [id])
-  raceResultVersionId   String            @db.Uuid
-  raceResultVersion     RaceResultVersion @relation(fields: [raceResultVersionId], references: [id])
-  winnerEntryId         String            @db.Uuid
-  winnerNumber          Int
-  winnerHorseName       String
-  hit                    Boolean
-  createdTxId            BigInt            @default(dbgenerated("txid_current()"))
+  resultVersionId     String            @db.Uuid
+  resultVersion       Win5ResultVersion @relation(fields: [resultVersionId], references: [id])
+  legNumber           Int
+  raceId              String            @db.Uuid
+  race                Race              @relation(fields: [raceId], references: [id])
+  raceResultVersionId String            @db.Uuid
+  raceResultVersion   RaceResultVersion @relation(fields: [raceResultVersionId], references: [id])
+  winnerEntryId       String            @db.Uuid
+  winnerNumber        Int
+  winnerHorseName     String
+  hit                 Boolean
+  createdTxId         BigInt            @default(dbgenerated("txid_current()"))
 
   @@id([resultVersionId, legNumber])
   @@unique([resultVersionId, raceId])
   @@unique([resultVersionId, raceResultVersionId])
   @@map("win5_result_legs")
+}
+
+model PredictionEvaluation {
+  id                     String            @id @default(uuid()) @db.Uuid
+  predictionVersionId    String            @db.Uuid
+  predictionVersion      PredictionVersion @relation(fields: [predictionVersionId], references: [id])
+  resultVersionId        String            @db.Uuid
+  resultVersion          RaceResultVersion @relation(fields: [resultVersionId], references: [id])
+  raceId                 String            @db.Uuid
+  race                   Race              @relation(fields: [raceId], references: [id])
+  primaryFinishedFirst   Boolean
+  primaryFinishedTop2    Boolean
+  primaryFinishedTop3    Boolean
+  winnerInRecommended    Boolean
+  status                 String
+  confirmedBy            String            @db.Uuid
+  confirmer              User              @relation("PredictionEvaluationConfirmer", fields: [confirmedBy], references: [id])
+  confirmedAt            DateTime          @default(now()) @db.Timestamptz(3)
+  calculationRuleVersion String
+  createdTxId            BigInt            @default(dbgenerated("txid_current()"))
+
+  @@unique([resultVersionId, predictionVersionId])
+  @@index([raceId, confirmedAt])
+  @@map("prediction_evaluations")
+}
+
+model Win5EvaluationDraft {
+  id               String                   @id @default(uuid()) @db.Uuid
+  productId        String                   @unique @db.Uuid
+  product          PredictionProduct        @relation(fields: [productId], references: [id])
+  productVersionId String                   @db.Uuid
+  productVersion   PredictionProductVersion @relation(fields: [productVersionId], references: [id])
+  revision         Int                      @default(1)
+  status           String
+  sourceHash       String
+  legsSnapshot     Json
+  ruleVersion      String
+  updatedBy        String                   @db.Uuid
+  updatedAt        DateTime                 @default(now()) @db.Timestamptz(3)
+
+  @@index([productVersionId])
+  @@map("win5_evaluation_drafts")
+}
+
+model Win5EvaluationVersion {
+  id                     String                   @id @default(uuid()) @db.Uuid
+  productId              String                   @db.Uuid
+  product                PredictionProduct        @relation(fields: [productId], references: [id])
+  productVersionId       String                   @db.Uuid
+  productVersion         PredictionProductVersion @relation(fields: [productVersionId], references: [id])
+  version                Int
+  sourceRevision         Int
+  status                 String
+  recommendedLegs        Int
+  allWinnersRecommended  Boolean
+  reason                 String
+  confirmedBy            String                   @db.Uuid
+  confirmer              User                     @relation("Win5EvaluationConfirmer", fields: [confirmedBy], references: [id])
+  confirmedAt            DateTime                 @default(now()) @db.Timestamptz(3)
+  calculationRuleVersion String
+  createdTxId            BigInt                   @default(dbgenerated("txid_current()"))
+  legs                   Win5EvaluationLeg[]
+  notificationEvent      NotificationEvent?
+
+  @@unique([productId, version])
+  @@unique([productId, sourceRevision])
+  @@index([confirmedAt])
+  @@map("win5_evaluation_versions")
+}
+
+model Win5EvaluationLeg {
+  evaluationVersionId  String                @db.Uuid
+  evaluationVersion    Win5EvaluationVersion @relation(fields: [evaluationVersionId], references: [id])
+  legNumber            Int
+  raceId               String                @db.Uuid
+  race                 Race                  @relation(fields: [raceId], references: [id])
+  raceResultVersionId  String                @db.Uuid
+  raceResultVersion    RaceResultVersion     @relation(fields: [raceResultVersionId], references: [id])
+  winnerEntryId        String                @db.Uuid
+  winnerNumber         Int
+  winnerHorseName      String
+  primaryFinishedFirst Boolean
+  primaryFinishedTop2  Boolean
+  primaryFinishedTop3  Boolean
+  winnerInRecommended  Boolean
+  status               String
+  createdTxId          BigInt                @default(dbgenerated("txid_current()"))
+
+  @@id([evaluationVersionId, legNumber])
+  @@unique([evaluationVersionId, raceId])
+  @@unique([evaluationVersionId, raceResultVersionId])
+  @@map("win5_evaluation_legs")
 }
 
 model SystemSetting {
@@ -1195,8 +1309,8 @@ model SystemSetting {
   maintenanceMessage              String   @default("")
   notificationMaxAttempts         Int      @default(5)
   notificationBaseDelaySeconds    Int      @default(30)
-  win5DefaultAmountPerPointYen     Int      @default(100)
-  win5CombinationWarningLimit      Int      @default(1000)
+  win5DefaultAmountPerPointYen    Int      @default(100)
+  win5CombinationWarningLimit     Int      @default(1000)
   lineChannelId                   String?
   lineChannelSecretEncrypted      String?
   lineAccessTokenEncrypted        String?

@@ -1,5 +1,7 @@
 # WIN5追加開発 Phase 1 設計変更
 
+> この文書は旧方式の設計履歴です。現行仕様は [SPEC.md](SPEC.md) と [HORSE_EVALUATION_MIGRATION.md](HORSE_EVALUATION_MIGRATION.md) を参照してください。旧データ構造は休止状態で保持し、新規入力・公開・集計には使いません。
+
 実装状況: Phase 1の設計、Phase 2の入力・公開、Phase 3の会員紙面・閲覧権限、Phase 4第1区間のLINE・メール公開通知まで完了。結果、成績、ダブル的中、SNS共有はPhase 4の残区間として未実装。
 
 ## 目的と互換性

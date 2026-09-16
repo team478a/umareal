@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { confidences, publicationVisibilities } from './predictions';
+import { evaluatedHorsesSchema } from './evaluations';
 
 export const win5ProductTypes = ['WIN5_PREVIEW'] as const;
 export const win5StrategyTypes = ['NARROW', 'NORMAL', 'SPREAD'] as const;
@@ -19,7 +20,6 @@ export const win5ProductCreateSchema = z.object({
   confidence: z.enum(confidences),
   summary: z.string().trim().max(5000).default(''),
   showFreeConfidence: z.boolean().default(false),
-  amountPerPointYen: z.number().int().min(100).max(1_000_000).multipleOf(100).optional(),
   reason: z.string().trim().min(1).max(500)
 }).strict();
 
@@ -32,7 +32,6 @@ export const win5ProductUpdateSchema = z.object({
   confidence: z.enum(confidences),
   summary: z.string().trim().max(5000),
   showFreeConfidence: z.boolean(),
-  amountPerPointYen: z.number().int().min(100).max(1_000_000).multipleOf(100),
   reason: z.string().trim().min(1).max(500)
 }).strict();
 
@@ -41,15 +40,12 @@ export const win5LegUpdateSchema = z.object({
   legNumber: z.number().int().min(1).max(5),
   raceId: z.string().uuid(),
   confidence: z.enum(confidences),
-  strategyType: z.enum(win5StrategyTypes),
-  comment: z.string().trim().min(1).max(2000),
-  selectionEntryIds: z.array(z.string().uuid()).min(1).max(18),
-  centerEntryId: z.string().uuid(),
+  paceView: z.string().trim().min(1).max(2000),
+  shortComment: z.string().trim().min(1).max(1000),
+  evaluations: evaluatedHorsesSchema.refine(value => value.length > 0, '評価馬を1頭以上設定してください。'),
   reason: z.string().trim().min(1).max(500)
 }).strict().superRefine((value, context) => {
-  const unique = new Set(value.selectionEntryIds);
-  if (unique.size !== value.selectionEntryIds.length) context.addIssue({ code: 'custom', path: ['selectionEntryIds'], message: '選択馬が重複しています。' });
-  if (!unique.has(value.centerEntryId)) context.addIssue({ code: 'custom', path: ['centerEntryId'], message: '中心馬は選択馬に含めてください。' });
+  if (value.evaluations.filter(item => item.evaluationType === 'PRIMARY').length !== 1) context.addIssue({ code: 'custom', path: ['evaluations'], message: '中心馬を1頭設定してください。' });
 });
 
 export const win5PreviewSchema = z.object({

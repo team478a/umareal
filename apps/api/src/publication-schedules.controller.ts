@@ -77,6 +77,8 @@ export class PublicationSchedulesController {
     const actor = await this.staff(req); const input = publicationScheduleSchema.parse(body); const requestKey = z.string().uuid().parse(req.headers['idempotency-key']); const key = `publication-schedule:${actor.id}:${requestKey}`; const requestHash = hashToken(JSON.stringify(body));
     return this.auth.db.$transaction(async tx => {
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`publication-schedule:${input.raceId}:${input.kind}`}))::text`;
+      const creators = await tx.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "users" WHERE "id" = ${actor.id}::uuid AND "disabledAt" IS NULL AND "role" IN ('ADMIN', 'OPERATOR') FOR SHARE`;
+      if (!creators[0]) throw new ForbiddenException({ code: 'STAFF_ACCOUNT_UNAVAILABLE', message: '有効な運営アカウントで再度ログインしてください。' });
       const previous = await tx.idempotencyKey.findUnique({ where: { key } });
       if (previous) { if (previous.requestHash !== requestHash) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: '同じリクエストキーの内容が変わっています。' }); return previous.response; }
       const race = await tx.race.findUnique({ where: { id: input.raceId }, include: { freeReportDraft: true } });

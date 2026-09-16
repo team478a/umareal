@@ -18,7 +18,7 @@
 | POST | /auth/mfa/verify | code、Supabase初回だけfactorId。challenge検証後にセッションをAAL2へ昇格。localは使用済み時刻ステップも拒否 |
 | GET | /me | 本人の会員・通知・同意・有限期間権限。秘密情報を選択除外 |
 | PATCH | /me/preferences | 本人。emailEnabled/predictions/changes/articles/billing（boolean）。配信拒否検出後のemailEnabled再開は拒否 |
-| GET | /me/notifications | 本人。会員登録後に発生した対象レース告知、WIN5紙面公開案内、閲覧権限内の予想公開履歴。`page`、`limit`、`unread` |
+| GET | /me/notifications | 本人。会員登録後に発生した対象レース告知、WIN5紙面公開案内、閲覧権限内の予想公開履歴、通常レース・WIN5の評価結果確定履歴。結果通知は概要と詳細ページURLだけを返す。`page`、`limit`、`unread` |
 | POST | /me/notifications/:eventId/read | 本人。閲覧可能なお知らせを冪等に既読化 |
 | GET | /races | 全員。`date`、`venue`、`publication=ALL\|ANNOUNCED\|PUBLISHED\|UNPUBLISHED`、ページネーション。予想本文を含めない |
 | GET | /races | 公開情報のみ、date（既定JST当日）、page/limit（既定1/20、最大50） |
@@ -40,12 +40,20 @@
 | POST | /me/close | MEMBER本人。確認文言と、パスワード設定済みなら現在のパスワードが必須。セッション、通知、LINE、閲覧権限を停止し退会記録を追記 |
 | GET | /admin/account-closures | ADMIN+AAL2。退会処理済み会員と保持方針バージョンをページング表示 |
 | POST | /me/journey | MEMBER本人。`LINE_GUIDANCE_VIEWED`、`PLAN_VIEWED`または`CHECKOUT_REVIEWED`の初回到達を冪等記録。初回ログインは認証成功時にサーバーが記録 |
-| POST | /billing/checkout | 本人。月額申込。test transportはローカル即時確定、stripe transportはCheckout URLを返し権限をまだ付与しない |
-| POST | /billing/day-pass | 本人。JST開催日の1日利用。stripe transportでは署名済みWebhook後だけ有効化 |
+| POST | /billing/checkout | MEMBER本人。月額申込。スタッフロールは申込不可。test transportはローカル即時確定、stripe transportはCheckout URLを返し権限をまだ付与しない |
+| POST | /billing/day-pass | MEMBER本人。JST開催日の1日利用。スタッフロールは申込不可。stripe transportでは署名済みWebhook後だけ有効化 |
 | POST | /webhooks/stripe | Stripe署名必須。Checkout申込、会員、金額、通貨、動作モードを照合し、契約・支払・有限期間権限を冪等作成 |
 | POST | /billing/subscriptions/:id/cancel | 本人の月額解約予約。Stripe契約は外部API成功後にローカルへ反映 |
 | GET | /admin/users | ADMIN+AAL2。page/limit |
 | GET | /admin/audit | ADMIN+AAL2。page/limit |
+| GET | /admin/staff | ADMIN+AAL2。確認済みの会員・専門家・編集担当・運営担当と、専門家の今後の担当レース数・有効なWIN5担当数を返す。秘密情報は返さない |
+| PATCH | /admin/staff/:userId/role | ADMIN+AAL2。expectedRole、変更後ロール、対象メールの再入力、理由を必須とし、MEMBER/EXPERT/EDITOR/OPERATOR間で変更する。成功時はローカルセッションを失効し監査へ追記。担当中EXPERTの解除とADMIN変更は拒否 |
+| PATCH | /admin/staff/:userId/responsibilities | ADMIN+AAL2。移管先の有効なEXPERT、画面取得時のレース/WIN5担当件数、移管元メールの再入力、理由を必須とし、今後の未終了レースとJST当日以降の有効なWIN5担当を一括移管。レース・WIN5管理ロック内で件数を再検証し監査へ追記 |
+| PATCH | /admin/staff/:userId/status | ADMIN+AAL2。EXPERT/EDITOR/OPERATORの停止・再開。expectedRole、対象メール再入力、理由を必須とする。停止時は担当レース、WIN5、待機/処理中の配信予約、有効または将来の契約・1日利用・閲覧権限がないことを再検証し、ロールと会員設定を保持してログインとAPI利用を停止、ローカルセッションを失効して監査へ追記。退会済み、MEMBER、ADMINは対象外 |
+| GET | /admin/continuity | ADMIN+AAL2。有効・停止中の管理者、主・予備MFA準備、昇格候補を秘密値なしで返す |
+| POST | /admin/continuity/administrators/:userId/promote | ADMIN+AAL2。確認済みアカウントを対象メール再入力と理由付きでADMINへ昇格し、セッションを失効して監査へ追記 |
+| PATCH | /admin/continuity/administrators/:userId/status | ADMIN+AAL2。別のADMINを停止・再開する。自己操作は禁止。停止後も有効な管理者2名以上（Supabaseでは各人の主・予備MFAも準備済み）を要求し、待機/処理中の配信予約がある停止を拒否する。ロール・設定・履歴は保持する |
+| PATCH | /admin/continuity/administrators/:userId/demote | ADMIN+AAL2。別の有効なADMINをMEMBER/EXPERT/EDITOR/OPERATORへ変更する。継続性、配信予約、会員アクセスを再検証し、セッション失効と監査追記を行う |
 | GET | /admin/settings | ADMIN+AAL2またはOPERATOR。秘密値を除く運用・Turnstile・メール・LINE・Stripe設定と接続準備状態 |
 | PATCH | /admin/settings | ADMIN+AAL2。revisionと理由必須。Turnstile・メール・LINE・Stripe資格情報、料金、通知方針、緊急停止を更新 |
 | GET | /admin/notifications | ADMIN+AAL2またはOPERATOR。受信者単位の配送、試行履歴、状態別件数。page/limit/status/channel（EMAILまたはLINE）/raceId |
@@ -62,9 +70,15 @@
 | POST | /auth/line/unlink | 本人のLINE連携を履歴付きで解除。確認済み予備メール・パスワード必須 |
 | GET | /admin/results/races | ADMIN+AAL2/OPERATOR。発走済み・予想公開済みの結果対象一覧 |
 | GET/PATCH | /admin/results/races/:raceId | 結果下書きの取得／revision付き保存 |
-| POST | /admin/results/races/:raceId/confirm | 結果版と公開予想版・買い目別精算を同一トランザクションで追記 |
-| GET | /races/:raceId/result | 最新確定結果と公開版別精算 |
-| GET | /results/stats | 最新結果版を使った公開版別参考集計 |
+| GET | /admin/results/import/providers | 利用できる結果取込元、形式版、必須CSV見出しを返す |
+| GET | /admin/results/import/history | 確定済み一括取込を新しい順に最大30件返す。初回／公式訂正、取込元、形式版、ファイル指紋、検証済みbundle対象日、担当者、対象レースを含み、CSV・manifest本文は返さない |
+| POST | /admin/results/import/preview | `{csv,providerId?,bundleManifest?}`。内部標準またはJRA-VANブリッジCSVを共通形式へ変換する。JRA-VAN bundleのmanifestを指定した場合はresults.csvのSHA-256、対象日、行数、確定レース数を照合し、全出走馬との照合、取込元、指紋、レース別差分、15分有効のbatchIdを返す。データは変更しない |
+| POST | /admin/results/import/:batchId/confirm | 確認済みの全レースを単一トランザクションで結果下書きへ反映。1件でも競合した場合は全件を取り消す |
+| POST | /admin/results/races/:raceId/import/preview | 結果CSVを全出走馬と照合し、現在の下書きとの差分と15分有効のbatchIdを返す。データは変更しない |
+| POST | /admin/results/races/:raceId/import/:batchId/confirm | 同じ担当者が確認した差分を理由付きで結果下書きへ反映。結果版・評価・通知は確定しない |
+| POST | /admin/results/races/:raceId/confirm | 結果版と公開予想版別の馬評価結果を同一トランザクションで追記 |
+| GET | /races/:raceId/result | 最新確定結果と公開版別の馬評価結果 |
+| GET | /results/stats | 最新結果版を使った本命馬1着・連対・複勝・見送りの集計 |
 | GET | /billing/plans | 税込価格、販売可否、創設会員残枠。開発条件フラグ付き |
 | GET | /billing/me | 本人の月額契約、1日利用、追記専用支払履歴 |
 | POST | /billing/checkout | 本人。確認済みメール・パスワード必須。FOUNDER/STANDARDの申込。Stripe時はHosted Checkout URLを返す。Idempotency-Key必須 |
@@ -104,13 +118,13 @@ HTTP 400=入力不正、401=未認証、403=権限/MFA/Origin不正、404=対象
 | GET | /expert/win5 | 担当EXPERT+AAL2。自分が担当する商品一覧 |
 | GET | /expert/win5/:win5Id | 担当EXPERT+AAL2または管理担当+AAL2。編集用商品、5レース、出走馬、下書き、公開履歴 |
 | GET | /expert/win5/:win5Id/options | 同上。対象日と一致するレース・出走馬候補 |
-| PUT | /expert/win5/:win5Id/races/:legNumber | 担当EXPERT+AAL2、ADMIN+AAL2、またはOPERATOR+AAL2。中心馬、選択馬、理由、信頼度、戦略をrevision付き保存 |
-| POST | /expert/win5/:win5Id/preview | 同上。5レース、選択、計算、締切、公開範囲を検証し15分有効のpreviewIdを返す |
+| PUT | /expert/win5/:win5Id/races/:legNumber | 担当EXPERT+AAL2、ADMIN+AAL2、またはOPERATOR+AAL2。中心馬、相手候補、注目馬、危険馬、理由、信頼度、展開見解、短評をrevision付き保存 |
+| POST | /expert/win5/:win5Id/preview | 同上。5レース、評価馬、締切、公開範囲を検証し15分有効のpreviewIdを返す |
 | POST | /expert/win5/:win5Id/publish/:previewId | 同上。初版公開版と監査を同一トランザクションで追記 |
 | POST | /admin/win5/:win5Id/preview | ADMIN+AAL2。訂正時は理由を必須にして公開内容を確認 |
 | POST | /admin/win5/:win5Id/publish/:previewId | ADMIN+AAL2。訂正版を新版として追記 |
 
-プレビューと公開確定は対象5レースの最小`startsAt`を締切として再検証する。公開後の通常PATCH、DELETE APIは提供しない。組み合わせ数と想定購入総額はサーバーで再計算し、クライアント値を信用しない。
+プレビューと公開確定は対象5レースの最小`startsAt`を締切として再検証する。公開後の通常PATCH、DELETE APIは提供しない。現行APIは券種、組み合わせ、点数、購入金額を受け付けず返さない。
 
 WIN5初版・訂正版の公開時は商品公開版と通知eventを同じDBトランザクションで作成する。外部配送は公開後に既存ワーカーが処理し、配送失敗で公開版を変更しない。
 
@@ -130,10 +144,10 @@ WIN5初版・訂正版の公開時は商品公開版と通知eventを同じDBト
 | --- | --- | --- |
 | POST | /admin/win5/:win5Id/results/import | ADMIN+AAL2またはOPERATOR+AAL2。5レースの確定結果版を参照して結果下書きを作る |
 | POST | /admin/win5/:win5Id/results/confirm | ADMIN+AAL2またはOPERATOR+AAL2。判定対象の商品版を固定して結果版を追記 |
-| GET | /win5/performance | 通常馬券と分離したWIN5成績 |
+| GET | /win5/performance | 勝ち馬候補内選出数・選出率、本命馬1着・連対・複勝のWIN5評価成績 |
 | GET | /admin/win5/:win5Id/share | ADMIN+AAL2。結果確定後の共有文、URL、画像データ |
 
-実装済みの通知種別は`WIN5_PREVIEW_PUBLISHED`と`WIN5_PREVIEW_CORRECTED`。同じ商品公開版・受信者・チャネル・種別・版番号を冪等キーで一意にし、通知失敗は商品公開を取り消さない。無料会員を含む通知希望者へ対象日、商品名、版番号、会員ページURLだけを送り、有料紙面本文を返さない。`WIN5_RESULT_CONFIRMED`、結果API、成績、共有は未実装である。
+実装済みの通知種別は`WIN5_PREVIEW_PUBLISHED`と`WIN5_PREVIEW_CORRECTED`。同じ商品公開版・受信者・チャネル・種別・版番号を冪等キーで一意にし、通知失敗は商品公開を取り消さない。無料会員を含む通知希望者へ対象日、商品名、版番号、会員ページURLだけを送り、有料紙面本文を返さない。評価結果の取込・確定・成績APIを実装済み。`GET /admin/social-shares`は確認済みの通常予想・WIN5評価結果から共有文と画像用表示行を生成する。
 
 ### エラーコード
 
@@ -169,9 +183,15 @@ StripeもSecret keyとWebhook secretは同じ暗号化方式で保存し、設�
 
 ## 結果・成績
 
-結果下書きは発走後に全出走馬を揃えて保存し、revision不一致を409で拒否する。取消・除外を含む公開買い目には明示的なREFUND行が必要。確定処理は同じ下書きrevisionの再送に元の結果を返し、訂正は次の結果版として追記する。
+結果下書きは発走後に全出走馬を揃えて保存し、revision不一致を409で拒否する。現行APIは着順・状態・人気・確定単勝だけを受け付け、払戻情報を受け付けない。結果CSVは選択中の1レース単位、または開催日・競馬場・レース番号を持つ複数レース形式を選べる。複数レース形式は`CANONICAL_CSV`と`JRA_VAN_BRIDGE_V1`を受け付け、後者の競馬場・異常区分コードをサーバーで共通結果形式へ変換する。`UMAREAL_JRA_VAN_BUNDLE_V1`のmanifestは任意で指定でき、指定時はresults.csvのSHA-256、対象日、行数、確定レース数が一致しなければbatchを作らない。各レースの全登録馬を1回ずつ要求し、一部成功を許可しない。プレビュー後に出走馬、レース状態、発走時刻、結果下書きが変わった場合は確定を409で拒否する。CSV確定は取込元・形式版・ファイル指紋と、検証済みの場合だけbundle形式版・対象日・manifest指紋を保存して下書きだけを更新する。担当者が画面で照合して結果確定した時点で初めて評価版と通知を作成する。確定処理は同じ下書きrevisionの再送に元の結果を返し、訂正は次の結果版として追記する。
 
-確定結果版、公開予想版別成績、買い目別精算は更新・削除・TRUNCATE・確定後の子データ追加をDBで拒否する。公開集計は`VERSION_AUDIT_V1`の参考値で、各レースの最新結果版と全公開予想版を使う。見送りとレース中止は的中率・回収率から除外する。
+同一の取込元とファイル指紋がすでに確定済みの場合、プレビューはbatchを作らず重複情報を返し、確定時の再検証は409 `DUPLICATE_RESULT_IMPORT`を返す。同じ取込元・同じ対象レース集合で異なる指紋は`CORRECTION`として直前batchを参照する。DBの部分一意索引も確定済み重複を拒否する。
+
+確定結果版と公開予想版別の馬評価結果は更新・削除・TRUNCATE・確定後の子データ追加をDBで拒否する。公開集計は`HORSE_EVALUATION_V1`を使い、本命馬1着率・連対率・複勝率と見送り率を返す。旧精算レコードは履歴保全のため残すが現行APIの集計対象外。
+
+結果確定時は`RACE_EVALUATION_CONFIRMED`または`WIN5_EVALUATION_CONFIRMED`を同じDBトランザクションで登録する。`REVIEW_REQUIRED`は通知しない。通知APIと配送本文は結果種別、対象レースまたは対象日、版、確定時刻、結果ページURLだけを扱い、馬番、馬名、評価理由、詳細見解を返さない。
+
+`GET /admin/social-shares?limit=50`はADMINまたはOPERATORの管理権限を要求し、各レース・WIN5商品の最新確認結果だけを返す。共有データは種別、対象日、公開版、結果版、公開・確認時刻、結果URL、事実に基づく見出し・本文・画像用表示行で構成する。`REVIEW_REQUIRED`、レース中止、評価対象外は`shareable=false`とし、本文を生成しない。APIはSNSへの投稿を行わない。
 
 予想公開を停止すると公開前確認と確定を403 PREDICTION_PUBLICATION_STOPPED、CSV取込を停止するとプレビューと確定を403 CSV_IMPORT_STOPPEDで拒否する。確認後に停止した場合も確定時に再検証する。新規購入とLINE通知のフラグは後続処理が実行直前に参照するための設定で、現時点では外部処理を開始しない。
 
@@ -189,8 +209,8 @@ StripeもSecret keyとWebhook secretは同じ暗号化方式で保存し、設�
 | POST | /admin/free-reports/audio | ADMIN+AAL2またはOPERATOR。8MB以下の検証済み音声バイナリを追記保存 |
 | GET/PATCH | /admin/free-reports/benefit | ADMIN+AAL2またはOPERATOR。登録特典動画の固定1枠を取得／更新 |
 | GET | /me/free-benefit | ログイン会員。設定済みの登録特典を返す |
-| GET | /races/:raceId/free-report | ログイン会員。追記済み無料速報とレース後検証を返す |
-| GET | /free-report-audio/:audioId | 公開前は管理担当、公開後はログイン会員。Range対応で音声を返す |
+| GET | /races/:raceId/free-report | ログイン会員。旧無料速報の版番号・種別・公開時刻のみを返す。馬名、馬番、理由、音声、検証本文は返さない |
+| GET | /free-report-audio/:audioId | 管理担当だけが既存音声を確認できる。会員への音声提供は休止 |
 | GET/POST | /admin/publication-schedules | ADMIN+AAL2またはOPERATOR。開催日別の予約・警告・公開版別配信結果取得／告知または無料速報の予約作成 |
 | POST | /admin/publication-schedules/:scheduleId/cancel | ADMIN+AAL2またはOPERATOR。待機中の予約を理由付きで取消 |
 | GET | /admin/race-experts | 有効な専門家のid/displayNameのみ |
@@ -201,10 +221,12 @@ StripeもSecret keyとWebhook secretは同じ暗号化方式で保存し、設�
 | POST | /admin/races/:id/entries | `{entry,revision,reason,entryId?}`。編集時はentryId必須 |
 | POST | /admin/races/import/preview | `{kind:races\|entries,csv,raceId?}`。出走馬のみraceId必須 |
 | POST | /admin/races/import/:batchId/confirm | `{reason}`。プレビューした本人のみ |
+| POST | /admin/races/import/bundle/preview | `{manifest,racesCsv,entries:[{path,csv}]}`。`UMAREAL_JRA_VAN_BUNDLE_V1`のSHA-256、対象日、件数、レース対応を検証し、開催日全体の差分と15分有効のbatchIdを返す |
+| POST | /admin/races/import/bundle/:batchId/confirm | `{reason}`。プレビューした本人が、全レースと全出走馬を同一トランザクションで反映する。結果は反映しない |
 
 手動作成・更新にはIdempotency-Key UUIDが必須。同一操作者・操作・キーの再送は元の結果、異なる内容は409。CSV確定はbatchId自身で冪等化し、同時再送でも取込と監査は一度のみ。
 
-プレビューは本体を変更せず、行・列のerrors、追加/変更/変更なしのchanges（before/after）、batchId、expiresAtを返す。エラーがあればbatchId=null。確認後の変更は409 STALE_PREVIEW、15分経過は409 PREVIEW_EXPIRED、別操作者のbatchIdは404。手動編集の競合は409 STALE_REVISION。全件トランザクションで適用し、CSVにないデータを削除しない。発走時刻変更の監査を残し、公開時には最新時刻を使って締切を再検証する。
+プレビューは本体を変更せず、行・列のerrors、追加/変更/変更なしのchanges（before/after）、batchId、expiresAtを返す。エラーがあればbatchId=null。確認後の変更は409 STALE_PREVIEW、15分経過は409 PREVIEW_EXPIRED、別操作者のbatchIdは404。手動編集の競合は409 STALE_REVISION。全件トランザクションで適用し、CSVにないデータを削除しない。開催日一括取込はファイル一式の指紋で確定済みの同一入力を拒否し、manifestに`results.csv`が記録されていても結果へ自動反映せず、結果管理の別プレビューと人手照合を必要とする。発走時刻変更の監査を残し、公開時には最新時刻を使って締切を再検証する。
 
 ## 評価入力
 
@@ -226,19 +248,19 @@ contentは事前点数・順位・印・短評、パドック5項目、総合変
 | --- | --- | --- |
 | GET | /expert/races/:raceId/prediction | 下書き、revision、公開履歴、出走馬と現在評価を返す |
 | POST | /expert/races/:raceId/prediction/draft | `{draft,revision,raceRevision,mutationId,reason}` を部分保存 |
-| POST | /expert/races/:raceId/prediction/preview | `{predictionRevision,raceRevision,correctionReason}`。公開可否、警告、合計金額、15分有効のpreviewIdを返す |
-| POST | /expert/races/:raceId/prediction/publish/:previewId | 本人の有効なプレビューを再検証し、公開版・凍結印・買い目・監査・通知イベントを一括保存 |
+| POST | /expert/races/:raceId/prediction/preview | `{predictionRevision,raceRevision,correctionReason}`。公開可否、警告、15分有効のpreviewIdを返す |
+| POST | /expert/races/:raceId/prediction/publish/:previewId | 本人の有効なプレビューを再検証し、公開版・凍結評価・監査・通知イベントを一括保存 |
 | GET | /races/:raceId/prediction | 公開履歴を新しい版から20件単位で返す。page指定可 |
 
 下書き保存のmutationIdはUUIDで、同一操作者・レース・ID・内容なら元の結果を返し、内容が異なる再利用は409。revision不一致はPREDICTION_CONFLICT、raceRevision不一致はRACE_CHANGED。クライアントが送るroleや公開者は受け付けない。
 
-公開時は公開範囲、信頼度、勝負判断、総評が必須。見送り以外は本命を1頭要求する。見送りは買い目を持てない。買い目は券種ごとの頭数、重複、同一馬、出走状態、100円単位の金額を検証する。プレビュー後に担当、レース、出走馬、評価、下書き、公開履歴が変わった場合は409 STALE_PREVIEWとなる。
+公開時は公開範囲、信頼度または見送り、最終見解が必須。見送り以外は最終本命を1頭要求し、評価馬ごとの選定理由を要求する。プレビュー後に担当、レース、出走馬、評価、下書き、公開履歴が変わった場合は409 STALE_PREVIEWとなる。
 
 発走時刻以降、またはFINISHED/CANCELLEDのレースは公開不可。APIの事前検証に加え、PostgreSQLトリガーが最新の発走時刻と状態を参照して公開版INSERTを拒否する。`DELAYED_PUBLICATION_POLICY` の開発既定値は `CLOSED`、`LATEST_STARTS_AT` は検証用。訂正は理由必須で、`CORRECTION_POLICY` の開発既定値は `ADMIN_ONLY`。どちらも本番前の事業判断が必要。
 
-FREE版は未認証でも本文を取得できる。PAID版は対象JST日を含む有効期間のMEMBER権限、担当EXPERT+AAL2、またはADMIN+AAL2にだけ本文、印、買い目、評価スナップショットを返す。それ以外には版番号、公開時刻などのメタデータだけを返し、`locked=true` とする。公開範囲は履歴の各版で独立して判定し、FREE版とPAID版が混在しても別の版の権限を流用しない。ロック中は訂正理由も返さない。
+無料会員と未認証者には、公開範囲の設定にかかわらず版番号・公開時刻などのメタデータだけを返し、`locked=true` とする。対象JST日を含む有効期間のMEMBER権限、担当EXPERT+AAL2、またはADMIN+AAL2にだけ中心馬、相手候補、注目馬、危険馬、理由、詳細見解、パドック評価を返す。ロック中は訂正理由も返さない。
 
-公開版、凍結印、買い目はDBトリガーでUPDATE、DELETE、TRUNCATEを拒否する。印・買い目のINSERTも公開版作成と同じDBトランザクション内だけ許可する。通知イベントは `QUEUED` で保存するが、外部送信はPhase 3の対象。
+公開版と凍結評価はDBトリガーでUPDATE、DELETE、TRUNCATEを拒否する。凍結評価のINSERTも公開版作成と同じDBトランザクション内だけ許可する。旧買い目は履歴として同じ保護を維持するが、現行公開処理では新規作成しない。
 
 ## WIN5結果管理
 
@@ -247,7 +269,7 @@ ADMINまたはOPERATORのAAL2が操作する。レース結果は手入力せず
 | Method | Path | 動作 |
 | --- | --- | --- |
 | GET | /admin/win5/:productId/result | 現在の取込下書きと追記済み結果版を返す |
-| POST | /admin/win5/:productId/results/import | `{revision,officialPayoutYen,reason}`。最終WIN5公開版と5件の最新レース結果版から判定を再計算する |
+| POST | /admin/win5/:productId/results/import | `{revision,reason}`。最終WIN5公開版と5件の最新レース結果版から候補内選出を再計算する |
 | POST | /admin/win5/:productId/results/confirm | `{revision,reason}`。取込元を再検証し、結果版と5脚を同一トランザクションで追記する |
 
-取込後にWIN5公開版またはレース結果版が増えた場合は `WIN5_RESULT_SOURCE_CHANGED` で確定を拒否し、再取込を求める。中止、取消、除外、返還、1着馬不明は `REVIEW_REQUIRED` として下書きだけを保存し、現在未確定の事業ルールを適用しない。確定版は公開版ID、各レース結果版ID、勝馬、脚別判定、的中脚数、完全的中、組合せ数、想定購入額、公式・想定払戻、0.1%単位の想定回収率、確認者・時刻・ルール版を保持し、DBで更新・削除を拒否する。
+取込後にWIN5公開版またはレース結果版が増えた場合は `WIN5_EVALUATION_SOURCE_CHANGED` で確定を拒否し、再取込を求める。中止や1着馬不明など判定できない状態は `REVIEW_REQUIRED` として下書きだけを保存する。確定版は公開版ID、各レース結果版ID、勝ち馬、各対象レースの本命着順・候補内選出、候補内選出レース数、5レース全選出状態、確認者・時刻・ルール版を保持し、DBで更新・削除を拒否する。

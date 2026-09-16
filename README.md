@@ -94,6 +94,23 @@ pnpm exec playwright install chromium
 pnpm test:e2e
 ```
 
+JRA-VAN形式の結果取込をオフラインで準備する場合は、64bit Windows/Python 3.14環境で次を実行します。現時点ではJV-Linkへのライブ接続を行いません。詳細は [docs/JRA_VAN_BRIDGE.md](docs/JRA_VAN_BRIDGE.md) を参照してください。
+
+```powershell
+pnpm bridge:jra-van:setup
+pnpm bridge:jra-van -- doctor
+pnpm bridge:jra-van -- probe
+pnpm bridge:jra-van:rehearse -- --target-date 2099-09-13 --output-dir .local/jra-van-rehearsal-2099-09-13
+pnpm bridge:jra-van:compare -- --previous-dir .local/jra-van-before --current-dir .local/jra-van-after
+pnpm bridge:jra-van -- convert --input tools/jra_van_bridge/samples/decoded-se.jsonl --output .local/jra-van-results.csv
+pnpm bridge:jra-van -- decode-sdk-races --input .local/jvlink-ra.dat --sdk-structure "<SDK展開先>\JVData_Struct.py" --output .local/jra-van-races.csv
+pnpm bridge:jra-van -- decode-sdk-entries --input .local/jvlink-se.dat --sdk-structure "<SDK展開先>\JVData_Struct.py" --race-date 2026-09-13 --venue-code 05 --race-number 10 --output .local/jra-van-entries.csv
+pnpm bridge:jra-van -- collect-jvlink-bundle --target-date 2026-09-13 --sdk-structure "<SDK展開先>\JVData_Struct.py" --output-dir .local/jra-van-2026-09-13
+pnpm bridge:jra-van -- validate-bundle --input-dir .local/jra-van-2026-09-13
+pnpm bridge:jra-van -- validate --input .local/jra-van-results.csv
+pnpm bridge:jra-van:test
+```
+
 `.github/workflows/ci.yml` は専用PostgreSQLを起動し、マイグレーション・型検査・lint・単体・結合・E2E・ビルドを実行します。テスト用データを本番へ流さないでください。
 
 結合試験とE2Eはそれぞれ認証リクエストを多数送るため、連続実行時はAPIを再起動するか1分空けてください。CIも段階間でAPIを再起動します。レート制限自体は有効です。WindowsではPrisma生成前にAPIを停止してください（使用中のDLL更新を避けるため）。

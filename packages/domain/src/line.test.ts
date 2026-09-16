@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildPredictionLineMessage, buildWin5LineMessage } from './line';
+import { buildPredictionLineMessage, buildRaceResultLineMessage, buildWin5LineMessage, buildWin5ResultLineMessage } from './line';
 
 const base = { eventType: 'PREDICTION_PUBLISHED' as const, raceId: '38bbc51a-2aa4-4b43-8661-c3c6164e2f64', raceDate: '2026-09-12', venue: '東京', raceNumber: 11, raceName: 'テストステークス', version: 1, visibility: 'PAID' as const, appBaseUrl: 'https://members.example.jp' };
 describe('LINE notification message preparation', () => {
@@ -49,5 +49,20 @@ describe('WIN5 LINE notification message preparation', () => {
     const message = buildWin5LineMessage({ ...input, eventType: 'WIN5_PREVIEW_CORRECTED', version: 2 });
     expect(message.text).toContain('WIN5紙面予想を訂正しました');
     expect(message.text).toContain('第2版');
+  });
+});
+
+describe('evaluation result notification message preparation', () => {
+  it('describes a confirmed race evaluation without restricted details', () => {
+    const message = buildRaceResultLineMessage({ eventType: 'RACE_EVALUATION_CONFIRMED', raceId: base.raceId, raceDate: base.raceDate, venue: base.venue, raceNumber: base.raceNumber, raceName: base.raceName, resultVersion: 2, status: 'PRIMARY_WIN', appBaseUrl: base.appBaseUrl });
+    expect(message.text).toContain('本命馬が1着');
+    expect(message.text).toContain(`/races/${base.raceId}`);
+    expect(message.text).not.toMatch(/買い目|組み合わせ|購入|払戻|回収率|収支|利益|的中|馬番/);
+  });
+
+  it('describes WIN5 candidate coverage as a separate fact', () => {
+    const message = buildWin5ResultLineMessage({ eventType: 'WIN5_EVALUATION_CONFIRMED', productId: base.raceId, targetDate: base.raceDate, title: 'WIN5紙面', resultVersion: 1, status: 'WIN5_ALL_WINNERS_RECOMMENDED', recommendedLegs: 5, appBaseUrl: base.appBaseUrl });
+    expect(message.text).toContain('対象5レースすべてで勝ち馬を候補内に選出');
+    expect(message.text).not.toMatch(/買い目|組み合わせ|購入|払戻|回収率|収支|利益|的中|馬番/);
   });
 });

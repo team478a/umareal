@@ -61,10 +61,10 @@ describe('LP free member offer', () => {
     const published = await target.adminClient.call(`admin/free-reports/races/${target.race.id}/publish`, 'POST', { revision: 1, kind: 'PRE_RACE', reason: '会員へ公開' }, undefined, { 'Idempotency-Key': randomUUID() });
     expect(published.status).toBe(201); expect(published.body.kind).toBe('PRE_RACE');
     const memberView = await target.memberClient.call(`races/${target.race.id}/free-report`);
-    expect(memberView.status).toBe(200); expect(memberView.body.versions[0]).toMatchObject({ upHorseName: target.up.horseName, downHorseName: target.down.horseName });
-    expect(JSON.stringify(memberView.body)).not.toMatch(/買い目|estimatedTotalYen|HONMEI/);
+    expect(memberView.status).toBe(200); expect(memberView.body.versions[0]).toMatchObject({ kind: 'PRE_RACE', version: 1 });
+    expect(JSON.stringify(memberView.body)).not.toMatch(/upHorse|downHorse|Reason|audioUrl|reviewText|買い目|estimatedTotalYen|HONMEI/);
     const audioResponse = await fetch(`${base}${upload.url}`, { headers: { Cookie: target.memberClient.cookie, Range: 'bytes=0-3' } });
-    expect(audioResponse.status).toBe(206); expect(audioResponse.headers.get('content-range')).toBe(`bytes 0-3/${audioBytes.length}`); expect(Buffer.from(await audioResponse.arrayBuffer())).toEqual(audioBytes.subarray(0, 4));
+    expect(audioResponse.status).toBe(404);
     const version = await db.freeReportVersion.findUniqueOrThrow({ where: { id: published.body.id } });
     await expect(db.freeReportVersion.update({ where: { id: version.id }, data: { upReason: '上書き' } })).rejects.toThrow();
     await expect(db.freeReportVersion.delete({ where: { id: version.id } })).rejects.toThrow();
@@ -111,6 +111,7 @@ describe('LP free member offer', () => {
     const published = await target.adminClient.call(`admin/free-reports/races/${target.race.id}/publish`, 'POST', { revision: 2, kind: 'POST_RACE_REVIEW', reason: '結果確認後に公開' }, undefined, { 'Idempotency-Key': randomUUID() });
     expect(published.status).toBe(201); expect(published.body.kind).toBe('POST_RACE_REVIEW');
     const view = await target.memberClient.call(`races/${target.race.id}/free-report`);
-    expect(view.body.versions[0]).toMatchObject({ kind: 'POST_RACE_REVIEW', reviewText: '評価UP馬は2着。状態評価どおり力を出しました。' });
+    expect(view.body.versions[0]).toMatchObject({ kind: 'POST_RACE_REVIEW', version: 2 });
+    expect(view.body.versions[0].reviewText).toBeUndefined();
   });
 });

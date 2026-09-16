@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { account, Client, db } from './helpers';
 import { entryHeaders, raceHeaders } from '../packages/domain/src/races';
 const admin = new Client(); let expert: Awaited<ReturnType<typeof account>>; let expertClient: Client;
@@ -10,6 +10,20 @@ const headers = () => ({ 'Idempotency-Key': randomUUID() });
 function csv(kind: 'races' | 'entries', rows: Record<string, unknown>[]) {
   const fields = kind === 'races' ? raceHeaders : entryHeaders;
   return [fields.join(','), ...rows.map(row => fields.map(field => String(row[field] ?? '')).join(','))].join('\n');
+}
+function bundlePayload(race: Record<string, unknown>, entries: Record<string, unknown>[]) {
+  const racesCsv = csv('races', [race]), entryCsv = csv('entries', entries);
+  const checksum = (value: string) => createHash('sha256').update(value).digest('hex');
+  const path = `entries/${race.raceDate}-05-${String(race.number).padStart(2, '0')}R.csv`;
+  return {
+    manifest: JSON.stringify({
+      formatVersion: 'UMAREAL_JRA_VAN_BUNDLE_V1', targetDate: race.raceDate, raceCount: 1, entryRaceCount: 1, entryCount: entries.length,
+      finalizedRaceCount: 0, resultsIncluded: false,
+      source: { raRecordCount: 1, raSha256: 'a'.repeat(64), seRecordCount: entries.length, seSha256: 'b'.repeat(64) },
+      files: [{ kind: 'RACES', path: 'races.csv', rowCount: 1, sha256: checksum(racesCsv) }, { kind: 'ENTRIES', path, rowCount: entries.length, sha256: checksum(entryCsv) }]
+    }),
+    racesCsv, entries: [{ path, csv: entryCsv }]
+  };
 }
 async function preview(kind: 'races' | 'entries', rows: Record<string, unknown>[], raceId?: string) {
   return admin.call('admin/races/import/preview', 'POST', { kind, csv: csv(kind, rows), ...(raceId ? { raceId } : {}) });
@@ -90,5 +104,25 @@ describe('race management and transactional CSV imports', () => {
     expect((await admin.call(`admin/races/import/${good.body.batchId}/confirm`, 'POST', { reason: 'レースCSV作成' })).status).toBe(201);
     const noChange = await preview('races', [{ ...rows[0], number: 10 }]);
     expect(noChange.body.changes[0].action).toBe('変更なし');
+  });
+  it('previews and atomically confirms a verified JRA-VAN race-day bundle', async () => {
+    const bundledRace = { ...raceInput(8), expertId: null }, bundledEntries = [entryInput(6), entryInput(7)];
+    const payload = bundlePayload(bundledRace, bundledEntries);
+    const tampered = await admin.call('admin/races/import/bundle/preview', 'POST', { ...payload, entries: [{ ...payload.entries[0], csv: payload.entries[0].csv.replace('試験馬6', '改変馬') }] });
+    expect(tampered.body.batchId).toBeNull(); expect(tampered.body.errors).toContainEqual(expect.objectContaining({ message: expect.stringContaining('SHA-256') }));
+    const rehearsal = await admin.call('admin/races/import/bundle/preview', 'POST', { ...payload, manifest: JSON.stringify({ ...JSON.parse(payload.manifest), sampleData: true }) });
+    expect(rehearsal.body.batchId).toBeNull(); expect(rehearsal.body.errors).toContainEqual(expect.objectContaining({ field: 'manifest.sampleData', message: expect.stringContaining('合成データ') }));
+    const previewed = await admin.call('admin/races/import/bundle/preview', 'POST', payload);
+    expect(previewed.status).toBe(201); expect(previewed.body.raceCount).toBe(1); expect(previewed.body.entryCount).toBe(2);
+    expect(await db.race.count({ where: { raceDate: day, venue: '東京', number: 8 } })).toBe(0);
+    const path = `admin/races/import/bundle/${previewed.body.batchId}/confirm`;
+    const confirmed = await admin.call(path, 'POST', { reason: 'JRA-VAN開催日一括取込試験' });
+    expect(confirmed.status).toBe(201); expect(confirmed.body.alreadyConfirmed).toBe(false);
+    const race = await db.race.findUniqueOrThrow({ where: { raceDate_venue_number: { raceDate: day, venue: '東京', number: 8 } }, include: { entries: true } });
+    expect(race.entries).toHaveLength(2);
+    expect((await admin.call(path, 'POST', { reason: 'JRA-VAN開催日一括取込試験' })).body.alreadyConfirmed).toBe(true);
+    expect(await db.auditLog.count({ where: { targetId: previewed.body.batchId, action: 'JRA_VAN_RACE_DAY_BUNDLE_IMPORT_CONFIRMED' } })).toBe(1);
+    const duplicate = await admin.call('admin/races/import/bundle/preview', 'POST', payload);
+    expect(duplicate.body.batchId).toBeNull(); expect(duplicate.body.errors).toContainEqual(expect.objectContaining({ field: 'sourceChecksum', message: expect.stringContaining('反映済み') }));
   });
 });

@@ -174,7 +174,7 @@ export class MemberFreeReportsController {
   @Get('races/:raceId/free-report')
   async report(@Req() req: AppRequest, @Param('raceId') raceId: string) {
     await this.auth.authenticate(req); z.string().uuid().parse(raceId);
-    const race = await this.auth.db.race.findUnique({ where: { id: raceId }, select: { id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true, freeReportVersions: { orderBy: { version: 'desc' }, select: { id: true, version: true, kind: true, upHorseNumber: true, upHorseName: true, upReason: true, downHorseNumber: true, downHorseName: true, downReason: true, audioUrl: true, reviewText: true, publishedAt: true } } } });
+    const race = await this.auth.db.race.findUnique({ where: { id: raceId }, select: { id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true, freeReportVersions: { orderBy: { version: 'desc' }, select: { id: true, version: true, kind: true, publishedAt: true } } } });
     if (!race) throw new NotFoundException({ code: 'RACE_NOT_FOUND', message: 'レースが見つかりません。' });
     return { race: { id: race.id, raceDate: race.raceDate, venue: race.venue, number: race.number, name: race.name, startsAt: race.startsAt }, versions: race.freeReportVersions };
   }
@@ -182,9 +182,8 @@ export class MemberFreeReportsController {
   @Get('free-report-audio/:audioId')
   async audio(@Req() req: AppRequest, @Res() res: Response, @Param('audioId') audioId: string) {
     const actor = await this.auth.authenticate(req); z.string().uuid().parse(audioId);
-    const url = `/api/v1/free-report-audio/${audioId}`;
     const staff = canManage(actor, ['ADMIN', 'OPERATOR']);
-    if (!staff && !await this.auth.db.freeReportVersion.findFirst({ where: { audioUrl: url }, select: { id: true } })) throw new NotFoundException({ code: 'AUDIO_NOT_FOUND', message: '音声が見つかりません。' });
+    if (!staff) throw new NotFoundException({ code: 'AUDIO_NOT_FOUND', message: '音声が見つかりません。' });
     const asset = await this.auth.db.audioAsset.findUnique({ where: { id: audioId } });
     if (!asset) throw new NotFoundException({ code: 'AUDIO_NOT_FOUND', message: '音声が見つかりません。' });
     const data = Buffer.from(asset.data); let start = 0; let end = data.length - 1; let partial = false;

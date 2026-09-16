@@ -49,18 +49,25 @@ erDiagram
   prediction_products ||--o{ prediction_product_previews : previews
   prediction_products ||--o{ prediction_product_versions : publishes
   prediction_product_versions ||--o| notification_events : queues
+  prediction_product_versions ||--o{ win5_evaluation_versions : evaluates
+  prediction_products ||--o| win5_evaluation_drafts : edits
+  win5_evaluation_versions ||--|{ win5_evaluation_legs : contains
+  race_result_versions ||--o{ win5_evaluation_legs : sources
   prediction_products ||--o| win5_result_drafts : edits
   prediction_products ||--o{ win5_result_versions : confirms
   prediction_product_versions ||--o{ win5_result_versions : evaluates
-  win5_result_versions ||--o| double_hit_results : contributes
   notification_events ||--o{ notification_deliveries : expands
   users ||--o{ notification_deliveries : receives
   notification_deliveries ||--o{ notification_attempts : records
   races ||--o| race_result_drafts : edits
   races ||--o{ race_result_versions : confirms
+  race_result_versions ||--o| notification_events : queues
+  win5_evaluation_versions ||--o| notification_events : queues
   race_result_versions ||--o{ prediction_performances : calculates
   prediction_versions ||--o{ prediction_performances : evaluates
   prediction_performances ||--o{ bet_performances : settles
+  race_result_versions ||--o{ prediction_evaluations : evaluates
+  prediction_versions ||--o{ prediction_evaluations : measures
   system_settings {
     string id PK
     int revision
@@ -75,7 +82,9 @@ usersはUUID、メールアドレスと外部authSubjectは一意。sessions/pas
 
 audit_logsは操作者、ロール、対象、理由、差分、requestId、UTC時刻を保持する追記専用の独立テーブル。ユーザー削除に連動して履歴を消さないため、操作者への削除カスケードを持たない。
 
-Phase 2第1区間でrace_days、horses、race_entries、import_batchesを追加。race_daysは開催日＋競馬場で一意。race_entriesはレース＋馬番、およびレース＋馬IDが一意で、斤量・オッズはDecimal。races.revisionは手動更新と取込確定時の競合検出に使用する。import_batchesは操作者、検証済み入力、元データのハッシュ、期限、確定時刻を保持する。
+Phase 2第1区間でrace_days、horses、race_entries、import_batchesを追加。race_daysは開催日＋競馬場で一意。race_entriesはレース＋馬番、およびレース＋馬IDが一意で、斤量・オッズはDecimal。races.revisionは手動更新と取込確定時の競合検出に使用する。import_batchesは操作者、検証済み入力、元データのハッシュ、期限、確定時刻を保持する。結果一括取込では検証済みJSONに提供元ID、形式版、元CSVのSHA-256指紋、共通形式へ変換済みの結果だけを保存する。元CSV、JV-Data固定長レコード、外部サービスの利用キーは保存しない。
+
+2026年9月16日の結果取込安全化で、結果一括取込JSONに`sourceDisposition`（NEW/CORRECTION）と`previousImportBatchId`を追加した。確定済み`results-batch`の提供元ID＋ファイル指紋には部分一意索引を設定し、旧形式batchは対象外として保持する。訂正は前回batchを論理参照するが、既存テーブルへ自己参照外部キーは追加せず、履歴表示時に検証済みUUIDとして扱う。
 
 Phase 2第2区間でassessmentsとassessment_versionsを追加。assessmentsは出走馬ごとの最新内容とrevision、assessment_versionsは各保存時の内容・出走馬スナップショット・操作者・理由を保持する追記専用履歴。履歴には更新・削除・TRUNCATE拒否トリガーを適用する。
 
@@ -87,7 +96,7 @@ WIN5 Phase 4第1区間でnotification_eventsへ商品公開版の排他的な参
 
 Phase 3Eでline_accountsへ解除時刻を追加し、削除せず連携履歴を維持する。line_oauth_flowsは10分有効のstate/nonce/PKCE情報を保持し、stateとnonceはハッシュ、nonceとcode verifierは暗号文で保存する。purposeとuserIdの整合性はDB制約で強制する。
 
-Phase 3Fでrace_result_drafts、追記専用race_result_versions、prediction_performances、bet_performancesを追加した。結果確定と公開版・買い目別精算は同一トランザクションでのみ作成でき、確定後の変更・削除・子データ後付けをDBで拒否する。
+Phase 3Fでrace_result_drafts、追記専用race_result_versions、prediction_performances、bet_performancesを追加した。prediction_performancesとbet_performancesは旧買い目機能の履歴として保持し、新規利用を休止する。確定後の変更・削除・子データ後付けは引き続きDBで拒否する。
 
 Phase 3Aでsystem_settingsを追加。singleton行に緊急停止、通知再試行方針、Messaging APIとLINE Loginの各設定、暗号化した秘密値、revision、更新者、更新時刻を保持する。不完全な資格情報でLINE通知またはLINE Loginを有効化できないようDB制約を持つ。
 
@@ -127,8 +136,10 @@ WIN5 Phase 2で`prediction_products`、`prediction_product_races`、`prediction_
 
 `prediction_products`は`type + targetDate`を一意にし、当面のtypeは`WIN5_PREVIEW`。`prediction_product_races`は商品内の`legNumber` 1〜5と`raceId`をそれぞれ一意にし、既存レースを順序付きで5件参照する。`prediction_product_selections`は既存出走馬を参照し、対象レースごとの中心馬を1頭に制限する。
 
-`prediction_product_versions`は公開内容全体を凍結した追記専用スナップショットで、商品内版番号と直前版を保持する。WIN5 Phase 4第2区間で`win5_result_drafts`、`win5_result_versions`、`win5_result_legs`を物理追加した。確定版は最終の商品公開版と5件の最新確定レース結果版を固定し、通常馬券の`prediction_performances`へ混在させない。結果版と5脚は同一トランザクションでのみ作成でき、件数・的中数・想定払戻・回収率を遅延制約で照合した上でUPDATE、DELETE、TRUNCATEを拒否する。`double_hit_results`は引き続き後続区間の論理モデルである。
+`prediction_product_versions`は公開内容全体を凍結した追記専用スナップショットで、商品内版番号と直前版を保持する。旧`win5_result_drafts`、`win5_result_versions`、`win5_result_legs`は買い目・金額方式の履歴として保持し、新規利用を休止する。
 
-`notification_events`はPhase 4で既存3種類の公開元にWIN5公開版を加え、常にいずれか1種類だけを参照するXOR制約へ移行した。Phase 2で追加したWIN5公開版とPhase 4第2区間のWIN5確定結果版はDBトリガーで保護する。結果通知参照とダブル的中判定は後続区間で追加する。
+馬評価方式への移行で`prediction_evaluations`、`win5_evaluation_drafts`、`win5_evaluation_versions`、`win5_evaluation_legs`を追加する。通常レースは中心馬の1着・連対・複勝と勝ち馬候補内選出を、WIN5は脚別評価と5レース全体状態を保存する。評価確定版と脚は追記専用とし、UPDATE、DELETE、TRUNCATEをDBで拒否する。`prediction_product_selections.evaluationType`は`PRIMARY`、`SECONDARY`、`WATCH`、`RISK`で、同一馬への重複と複数の`PRIMARY`を拒否する。旧`CENTER`、`SELECTED`は互換列として保持する。
+
+`notification_events`は公開元に加えて通常レース結果版またはWIN5評価結果版を参照でき、常にいずれか1種類だけを参照するXOR制約を持つ。評価結果版と通知イベントは同じ確定トランザクションで作成すること、最新評価が`REVIEW_REQUIRED`でないことをDBトリガーで強制する。結果通知は確認済みの評価事実だけを表示し、通常レースとWIN5を結合した状態は作らない。
 
 次区間候補はStripeの返金・領収書導線、プラン変更、または課金状態の会員向け通知。実Supabase・メール・LINE・Stripe資格情報を使うステージング接続、正式価格、返金、クーポン、試用、CMSは未確定・未実施。

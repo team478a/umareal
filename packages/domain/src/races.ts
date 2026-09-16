@@ -83,3 +83,95 @@ export class CsvRaceDataProvider implements RaceDataProvider {
     return result;
   }
 }
+
+export const jraVanBundleFormatVersion = 'UMAREAL_JRA_VAN_BUNDLE_V1' as const;
+const bundleSha256 = z.string().regex(/^[a-f0-9]{64}$/);
+const bundleFileSchema = z.object({
+  kind: z.enum(['RACES', 'ENTRIES', 'RESULTS']), path: z.string().min(1).max(160),
+  rowCount: z.number().int().positive().max(648), sha256: bundleSha256
+}).strict();
+export const jraVanBundleManifestSchema = z.object({
+  formatVersion: z.literal(jraVanBundleFormatVersion), targetDate: dateSchema,
+  raceCount: z.number().int().positive().max(36), entryRaceCount: z.number().int().positive().max(36),
+  entryCount: z.number().int().positive().max(648), finalizedRaceCount: z.number().int().nonnegative().max(36),
+  resultsIncluded: z.boolean(), sampleData: z.boolean().optional().default(false),
+  source: z.object({
+    raRecordCount: z.number().int().positive().max(100000), raSha256: bundleSha256,
+    seRecordCount: z.number().int().positive().max(100000), seSha256: bundleSha256
+  }).strict(),
+  files: z.array(bundleFileSchema).min(2).max(38),
+  collection: z.record(z.string(), z.number().int().nonnegative()).optional()
+}).strict();
+export type JraVanBundleManifest = z.infer<typeof jraVanBundleManifestSchema>;
+export type JraVanBundleEntryFile = { path: string; csv: string };
+export type JraVanBundleEntryGroup = { path: string; raceDate: string; venue: typeof venues[number]; number: number; entries: EntryInput[] };
+export type JraVanBundleParseResult = {
+  manifest: JraVanBundleManifest | null; races: RaceInput[]; entryGroups: JraVanBundleEntryGroup[]; errors: CsvIssue[];
+};
+const venueCodes = Object.fromEntries(venues.map((venue, index) => [String(index + 1).padStart(2, '0'), venue])) as Record<string, typeof venues[number]>;
+const entryPathPattern = /^entries\/(\d{4}-\d{2}-\d{2})-(0[1-9]|10)-(0[1-9]|1[0-2])R\.csv$/;
+
+export function parseJraVanRaceBundle(
+  input: { manifest: string; racesCsv: string; entries: JraVanBundleEntryFile[] },
+  checksum: (value: string) => string
+): JraVanBundleParseResult {
+  const result: JraVanBundleParseResult = { manifest: null, races: [], entryGroups: [], errors: [] };
+  let rawManifest: unknown;
+  try { rawManifest = JSON.parse(input.manifest); }
+  catch { result.errors.push({ row: 0, field: 'manifest', message: 'manifest.jsonを解析できません。' }); return result; }
+  const checkedManifest = jraVanBundleManifestSchema.safeParse(rawManifest);
+  if (!checkedManifest.success) {
+    checkedManifest.error.issues.forEach(issue => result.errors.push({ row: 0, field: `manifest.${issue.path.join('.')}`, message: issue.message }));
+    return result;
+  }
+  const manifest = checkedManifest.data; result.manifest = manifest;
+  if (manifest.sampleData) result.errors.push({ row: 0, field: 'manifest.sampleData', message: 'リハーサル用の合成データは管理画面へ取り込めません。' });
+  const metadataByPath = new Map<string, z.infer<typeof bundleFileSchema>>();
+  for (const file of manifest.files) {
+    if (metadataByPath.has(file.path)) result.errors.push({ row: 0, field: 'manifest.files', message: `ファイルが重複しています: ${file.path}` });
+    metadataByPath.set(file.path, file);
+  }
+  const raceMetadata = manifest.files.filter(file => file.kind === 'RACES');
+  const entryMetadata = manifest.files.filter(file => file.kind === 'ENTRIES');
+  const resultMetadata = manifest.files.filter(file => file.kind === 'RESULTS');
+  if (raceMetadata.length !== 1 || raceMetadata[0]?.path !== 'races.csv') result.errors.push({ row: 0, field: 'manifest.files', message: 'RACESはraces.csvを1件だけ指定してください。' });
+  if (entryMetadata.length !== manifest.entryRaceCount) result.errors.push({ row: 0, field: 'manifest.entryRaceCount', message: '出走馬ファイル数がmanifestと一致しません。' });
+  if (manifest.resultsIncluded !== (resultMetadata.length === 1) || resultMetadata.length > 1 || (resultMetadata[0] && resultMetadata[0].path !== 'results.csv')) result.errors.push({ row: 0, field: 'manifest.resultsIncluded', message: '結果ファイル情報がmanifestと一致しません。' });
+  if (manifest.finalizedRaceCount > manifest.raceCount || (manifest.resultsIncluded ? manifest.finalizedRaceCount < 1 : manifest.finalizedRaceCount !== 0)) result.errors.push({ row: 0, field: 'manifest.finalizedRaceCount', message: '確定結果レース数が不正です。' });
+
+  if (raceMetadata[0] && checksum(input.racesCsv) !== raceMetadata[0].sha256) result.errors.push({ row: 0, field: 'races.csv', message: 'races.csvのSHA-256がmanifestと一致しません。' });
+  const provider = new CsvRaceDataProvider();
+  const parsedRaces = provider.parse('races', input.racesCsv);
+  result.errors.push(...parsedRaces.errors.map(issue => ({ ...issue, field: `races.csv.${issue.field}` })));
+  result.races = parsedRaces.races;
+  if (parsedRaces.races.length !== manifest.raceCount || raceMetadata[0]?.rowCount !== parsedRaces.races.length) result.errors.push({ row: 0, field: 'manifest.raceCount', message: 'レース件数がmanifestと一致しません。' });
+  if (parsedRaces.races.some(race => race.raceDate !== manifest.targetDate)) result.errors.push({ row: 0, field: 'targetDate', message: 'races.csvに対象日以外のレースがあります。' });
+
+  const uploaded = new Map<string, string>();
+  for (const file of input.entries) {
+    if (uploaded.has(file.path)) result.errors.push({ row: 0, field: 'entries', message: `出走馬ファイルが重複しています: ${file.path}` });
+    uploaded.set(file.path, file.csv);
+  }
+  const expectedPaths = new Set(entryMetadata.map(file => file.path));
+  for (const path of expectedPaths) if (!uploaded.has(path)) result.errors.push({ row: 0, field: 'entries', message: `出走馬ファイルが不足しています: ${path}` });
+  for (const path of uploaded.keys()) if (!expectedPaths.has(path)) result.errors.push({ row: 0, field: 'entries', message: `manifestにない出走馬ファイルです: ${path}` });
+
+  for (const metadata of entryMetadata) {
+    const csv = uploaded.get(metadata.path); if (csv === undefined) continue;
+    const match = entryPathPattern.exec(metadata.path);
+    if (!match || match[1] !== manifest.targetDate) { result.errors.push({ row: 0, field: 'manifest.files.path', message: `出走馬ファイル名が不正です: ${metadata.path}` }); continue; }
+    if (checksum(csv) !== metadata.sha256) result.errors.push({ row: 0, field: metadata.path, message: 'SHA-256がmanifestと一致しません。' });
+    const parsed = provider.parse('entries', csv);
+    result.errors.push(...parsed.errors.map(issue => ({ ...issue, field: `${metadata.path}.${issue.field}` })));
+    if (parsed.entries.length !== metadata.rowCount || parsed.entries.length > 18) result.errors.push({ row: 0, field: metadata.path, message: '出走馬件数がmanifestと一致しないか18頭を超えています。' });
+    result.entryGroups.push({ path: metadata.path, raceDate: match[1], venue: venueCodes[match[2]], number: Number(match[3]), entries: parsed.entries });
+  }
+  const raceKeys = new Set(result.races.map(race => `${race.raceDate}:${race.venue}:${race.number}`));
+  const groupKeys = result.entryGroups.map(group => `${group.raceDate}:${group.venue}:${group.number}`);
+  if (new Set(groupKeys).size !== groupKeys.length) result.errors.push({ row: 0, field: 'entries', message: '同じレースの出走馬ファイルが重複しています。' });
+  for (const key of raceKeys) if (!groupKeys.includes(key)) result.errors.push({ row: 0, field: 'entries', message: `出走馬ファイルがないレースです: ${key}` });
+  for (const key of groupKeys) if (!raceKeys.has(key)) result.errors.push({ row: 0, field: 'entries', message: `races.csvにないレースの出走馬ファイルです: ${key}` });
+  const entryCount = result.entryGroups.reduce((total, group) => total + group.entries.length, 0);
+  if (entryCount !== manifest.entryCount) result.errors.push({ row: 0, field: 'manifest.entryCount', message: '出走馬総数がmanifestと一致しません。' });
+  return result;
+}

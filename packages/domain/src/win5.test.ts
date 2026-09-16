@@ -12,12 +12,13 @@ describe('WIN5 domain', () => {
     expect(() => win5CombinationCount([1, 2, 0, 4, 5])).toThrow();
   });
 
-  it('requires a unique center included in the selections', () => {
+  it('requires one center and exclusive evaluation categories', () => {
     const entry = '11111111-1111-4111-8111-111111111111';
     const other = '22222222-2222-4222-8222-222222222222';
-    const base = { productRevision: 1, legNumber: 1, raceId: '33333333-3333-4333-8333-333333333333', confidence: 'A', strategyType: 'NORMAL', comment: '展開を踏まえた選択', reason: '入力試験' };
-    expect(win5LegUpdateSchema.safeParse({ ...base, selectionEntryIds: [entry], centerEntryId: entry }).success).toBe(true);
-    expect(win5LegUpdateSchema.safeParse({ ...base, selectionEntryIds: [entry, entry], centerEntryId: entry }).success).toBe(false);
-    expect(win5LegUpdateSchema.safeParse({ ...base, selectionEntryIds: [entry], centerEntryId: other }).success).toBe(false);
+    const base = { productRevision: 1, legNumber: 1, raceId: '33333333-3333-4333-8333-333333333333', confidence: 'A', paceView: '先行馬を重視', shortComment: '展開と適性を評価', reason: '入力試験' };
+    const primary = { entryId: entry, evaluationType: 'PRIMARY', reason: '中心馬の理由', displayOrder: 1 };
+    expect(win5LegUpdateSchema.safeParse({ ...base, evaluations: [primary] }).success).toBe(true);
+    expect(win5LegUpdateSchema.safeParse({ ...base, evaluations: [primary, { ...primary, evaluationType: 'WATCH' }] }).success).toBe(false);
+    expect(win5LegUpdateSchema.safeParse({ ...base, evaluations: [primary, { ...primary, entryId: other }] }).success).toBe(false);
   });
 });

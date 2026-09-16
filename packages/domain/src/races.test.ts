@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { CsvRaceDataProvider, dateSchema, entryHeaders, parseCsv, raceHeaders, raceInputSchema } from './races';
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { resolve } from 'node:path';
+import { CsvRaceDataProvider, dateSchema, entryHeaders, parseCsv, parseJraVanRaceBundle, raceHeaders, raceInputSchema } from './races';
 const provider = new CsvRaceDataProvider();
 const race = '2099-01-10,東京,1,"名前,引用",未勝利,1600,TURF,LEFT,2099-01-10T10:00:00+09:00,GOOD,晴,SCHEDULED,';
 describe('CSV validation before mutations', () => {
@@ -38,5 +41,40 @@ describe('CSV validation before mutations', () => {
     expect(parsed.errors).toEqual([]); expect(parsed.entries[0].winOdds).toBeNull();
     expect(provider.parse('entries', `${entryHeaders.join(',')}\n${entry}\n${entry.replace(',1,1,', ',2,1,')}`).errors).toContainEqual(expect.objectContaining({ row: 3, field: 'horseId' }));
     expect(provider.parse('entries', `${entryHeaders.join(',')}\n${entry.replace(',57,', ',200,')}`).errors.length).toBeGreaterThan(0);
+  });
+  it('accepts the deterministic JRA-VAN race and entry bridge samples', () => {
+    const samples = resolve(process.cwd(), 'tools/jra_van_bridge/samples');
+    const races = provider.parse('races', readFileSync(resolve(samples, 'expected-jra-van-races.csv'), 'utf8'));
+    const entries = provider.parse('entries', readFileSync(resolve(samples, 'expected-jra-van-entries.csv'), 'utf8'));
+    expect(races.errors).toEqual([]);
+    expect(races.races[0]).toMatchObject({ venue: '東京', number: 10, expertId: null });
+    expect(entries.errors).toEqual([]);
+    expect(entries.entries[0]).toMatchObject({ number: 6, carriedWeight: 57, winOdds: 3.4 });
+  });
+  it('verifies a complete JRA-VAN bundle manifest before parsing races and entries', () => {
+    const samples = resolve(process.cwd(), 'tools/jra_van_bridge/samples');
+    const racesCsv = readFileSync(resolve(samples, 'expected-jra-van-races.csv'), 'utf8');
+    const entriesCsv = readFileSync(resolve(samples, 'expected-jra-van-entries.csv'), 'utf8');
+    const checksum = (value: string) => createHash('sha256').update(value).digest('hex');
+    const entryPath = 'entries/2026-09-13-05-10R.csv';
+    const manifest = JSON.stringify({
+      formatVersion: 'UMAREAL_JRA_VAN_BUNDLE_V1', targetDate: '2026-09-13', raceCount: 1, entryRaceCount: 1, entryCount: 1,
+      finalizedRaceCount: 0, resultsIncluded: false,
+      source: { raRecordCount: 1, raSha256: 'a'.repeat(64), seRecordCount: 1, seSha256: 'b'.repeat(64) },
+      files: [
+        { kind: 'RACES', path: 'races.csv', rowCount: 1, sha256: checksum(racesCsv) },
+        { kind: 'ENTRIES', path: entryPath, rowCount: 1, sha256: checksum(entriesCsv) }
+      ]
+    });
+    const parsed = parseJraVanRaceBundle({ manifest, racesCsv, entries: [{ path: entryPath, csv: entriesCsv }] }, checksum);
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.races[0]).toMatchObject({ raceDate: '2026-09-13', venue: '東京', number: 10 });
+    expect(parsed.entryGroups[0].entries[0]).toMatchObject({ number: 6, horseName: 'テストホース' });
+    const tampered = parseJraVanRaceBundle({ manifest, racesCsv, entries: [{ path: entryPath, csv: entriesCsv.replace('テストホース', '改変馬') }] }, checksum);
+    expect(tampered.errors).toContainEqual(expect.objectContaining({ field: entryPath, message: expect.stringContaining('SHA-256') }));
+    const missing = parseJraVanRaceBundle({ manifest, racesCsv, entries: [] }, checksum);
+    expect(missing.errors).toContainEqual(expect.objectContaining({ field: 'entries', message: expect.stringContaining('不足') }));
+    const rehearsal = parseJraVanRaceBundle({ manifest: JSON.stringify({ ...JSON.parse(manifest), sampleData: true }), racesCsv, entries: [{ path: entryPath, csv: entriesCsv }] }, checksum);
+    expect(rehearsal.errors).toContainEqual(expect.objectContaining({ field: 'manifest.sampleData', message: expect.stringContaining('合成データ') }));
   });
 });

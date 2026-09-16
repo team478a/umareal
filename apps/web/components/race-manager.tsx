@@ -9,6 +9,7 @@ type Race = Omit<RaceInput, 'expertId'> & { id: string; revision: number; entrie
 type Expert = { id: string; displayName: string };
 type Day = { id: string; raceDate: string; venue: string; _count: { races: number } };
 type Preview = { batchId: string | null; expiresAt?: string; errors: { row: number; field: string; message: string }[]; changes: { key: string; action: string; fields: { field: string; before: unknown; after: unknown }[] }[] };
+type BundlePreview = Preview & { targetDate?: string; sourceChecksum: string; resultsIncluded?: boolean; raceCount?: number; entryCount?: number };
 const labels: Record<string, string> = { raceDate: '開催日', venue: '競馬場', number: '番号', name: 'レース名', raceClass: 'クラス', distance: '距離（m）', surface: '馬場', direction: 'コース', startsAt: '発走日時（JST）', going: '馬場状態', weather: '天候', status: '状態', expertId: '担当専門家', horseId: '馬ID', gate: '枠番', horseName: '馬名', sex: '性別', age: '年齢', carriedWeight: '斤量（kg）', jockey: '騎手', trainer: '調教師', winOdds: '単勝オッズ', popularity: '人気' };
 const choices: Record<string, Record<string, string>> = {
   surface: { TURF: '芝', DIRT: 'ダート' }, direction: { RIGHT: '右回り', LEFT: '左回り', STRAIGHT: '直線' },
@@ -71,6 +72,7 @@ export function RaceManager() {
       <div className="table-scroll"><table className="race-data-table"><thead><tr><th>馬番 / 枠</th><th>馬名</th><th>性齢 / 斤量</th><th>騎手</th><th>状態</th><th>操作</th></tr></thead><tbody>{selected.entries?.map(e => <tr key={e.id}><td>{e.number} / {e.gate}</td><td>{e.horseName}</td><td>{choices.sex[e.sex]}{e.age} · {e.carriedWeight}kg</td><td>{e.jockey}</td><td>{e.status === 'ACTIVE' ? '出走予定' : choices.status[e.status]}</td><td><button className="button secondary small" onClick={() => setEntry(e)}>編集</button></td></tr>)}</tbody></table></div>
       <EntryEditor key={`${selected.id}-${selected.revision}-${entry?.id ?? 'new'}`} race={selected} entry={entry} onSaved={async () => { await open(selected.id); await load(); setMessage('出走馬を保存しました。'); }} />
     </section>}
+    <JraVanBundleImport onConfirmed={async targetDate => { setDate(targetDate); setPage(1); setEditing(false); setSelected(null); await load(); }} />
     <CsvImport key={selected?.id ?? 'races'} race={selected} onConfirmed={async () => { await load(); if (selected) await open(selected.id); }} />
   </>;
 }
@@ -114,6 +116,55 @@ function EntryEditor({ race, entry, onSaved }: { race: Race; entry: Entry | null
     <Field name="winOdds" type="number" step="0.1" required={false} value={entry?.winOdds} /><Field name="popularity" type="number" required={false} value={entry?.popularity} /><Field name="status" value={entry?.status ?? 'ACTIVE'} options={Object.fromEntries(entryStatuses.map(s => [s, s === 'ACTIVE' ? '出走予定' : choices.status[s]]))} />
     <Field name="reason" label="出走馬の登録・変更理由" />
   </div><p className="muted form-note">既存の馬は同じ馬IDを使ってください。登録済みの馬は一覧の「編集」から変更します。取消・除外は状態を変更して記録します。</p><button className="button" disabled={busy}>{busy ? '保存中…' : '出走馬を保存'}</button></form>;
+}
+
+async function readUtf8(file: File, maximum: number, label: string) {
+  if (file.size > maximum) throw new Error(`${label}は${Math.floor(maximum / 1024)}KB以内にしてください。`);
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer()); }
+  catch { throw new Error(`${label}はUTF-8形式にしてください。`); }
+}
+
+function JraVanBundleImport({ onConfirmed }: { onConfirmed: (targetDate: string) => Promise<void> }) {
+  const [manifest, setManifest] = useState(''); const [racesCsv, setRacesCsv] = useState('');
+  const [entries, setEntries] = useState<{ path: string; csv: string }[]>([]); const [preview, setPreview] = useState<BundlePreview | null>(null);
+  const [reason, setReason] = useState(''); const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
+  async function manifestChanged(file?: File) { setPreview(null); setError(''); if (!file) { setManifest(''); return; } try { if (file.name !== 'manifest.json') throw new Error('manifest.jsonを選択してください。'); setManifest(await readUtf8(file, 30000, 'manifest.json')); } catch (e) { setError((e as Error).message); } }
+  async function racesChanged(file?: File) { setPreview(null); setError(''); if (!file) { setRacesCsv(''); return; } try { if (file.name !== 'races.csv') throw new Error('races.csvを選択してください。'); setRacesCsv(await readUtf8(file, 65536, 'races.csv')); } catch (e) { setError((e as Error).message); } }
+  async function entriesChanged(files?: FileList | null) {
+    setPreview(null); setError(''); if (!files?.length) { setEntries([]); return; }
+    try {
+      const selected = await Promise.all([...files].map(async file => {
+        const relative = file.webkitRelativePath.replace(/\\/g, '/'); const marker = relative.indexOf('/entries/');
+        const path = marker >= 0 ? relative.slice(marker + 1) : `entries/${file.name}`;
+        return { path, csv: await readUtf8(file, 65536, file.name) };
+      }));
+      if (new Set(selected.map(file => file.path)).size !== selected.length) throw new Error('同じ名前の出走馬CSVが重複しています。');
+      setEntries(selected.sort((a, b) => a.path.localeCompare(b.path)));
+    } catch (e) { setEntries([]); setError((e as Error).message); }
+  }
+  async function check() {
+    setBusy(true); setError(''); setMessage(''); setPreview(null);
+    try {
+      const total = manifest.length + racesCsv.length + entries.reduce((sum, file) => sum + file.path.length + file.csv.length, 0);
+      if (total > 90000) throw new Error('一括取込データは合計90,000文字以内にしてください。');
+      setPreview(await request<BundlePreview>('races/import/bundle/preview', 'POST', { manifest, racesCsv, entries }));
+    }
+    catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  }
+  async function confirm() {
+    if (!preview?.batchId) return; setBusy(true); setError('');
+    try {
+      const result = await request<{ targetDate: string; raceCount: number; entryCount: number; resultsIncluded: boolean }>(`races/import/bundle/${preview.batchId}/confirm`, 'POST', { reason });
+      setPreview(null); setReason(''); setMessage(`${result.targetDate}の${result.raceCount}レース・${result.entryCount}頭を取り込みました。${result.resultsIncluded ? '結果CSVは結果管理で別途確認してください。' : ''}`); await onConfirmed(result.targetDate);
+    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  }
+  const ready = manifest.trim() && racesCsv.trim() && entries.length;
+  return <section className="panel"><div className="panel-heading"><div><span className="eyebrow">JRA-VAN BUNDLE</span><h2>開催日一括取込</h2></div><FileUp size={22} /></div><div className="panel-body"><ErrorMessage error={error} />{message && <div className="notice" role="status">{message}</div>}
+    <div className="race-form-grid"><label className="field">manifest.json<input aria-label="JRA-VAN manifest" type="file" accept=".json,application/json" onChange={event => void manifestChanged(event.target.files?.[0])} /></label><label className="field">races.csv<input aria-label="JRA-VANレースCSV" type="file" accept=".csv,text/csv" onChange={event => void racesChanged(event.target.files?.[0])} /></label><label className="field">entriesフォルダー内の全CSV<input aria-label="JRA-VAN出走馬CSV" type="file" multiple accept=".csv,text/csv" onChange={event => void entriesChanged(event.target.files)} /><small>{entries.length ? `${entries.length}ファイル選択済み` : '対象日の全ファイルをまとめて選択'}</small></label></div>
+    <p className="muted form-note">Windowsブリッジが生成したmanifest、races.csv、entries内の全CSVを選択します。SHA-256と対象レースの対応をサーバーで検証し、確認後に全体を一括反映します。results.csvは結果管理で別途照合します。</p>
+    <button className="button secondary" disabled={busy || !ready} onClick={() => void check()}>{busy ? '確認中…' : '一括差分を確認'}</button>
+    {preview && <div className="import-preview"><h3>一括取込前の確認</h3>{preview.errors.length ? <div role="alert"><ul>{preview.errors.map((issue, index) => <li key={index}>{issue.row ? `${issue.row}行目 · ` : ''}{issue.field}：{issue.message}</li>)}</ul></div> : <><p className="muted form-note">対象日 {preview.targetDate} · {preview.raceCount}レース · {preview.entryCount}頭 · ファイル指紋 {preview.sourceChecksum.slice(0, 12)}…</p>{preview.resultsIncluded && <div className="notice">確定結果ファイルが含まれています。この画面では反映せず、レース・出走馬の取込後に結果管理で照合します。</div>}<p className="muted form-note">追加 {preview.changes.filter(change => change.action === '追加').length}件 ／ 変更 {preview.changes.filter(change => change.action === '変更').length}件 ／ 変更なし {preview.changes.filter(change => change.action === '変更なし').length}件</p>{preview.changes.map((change, index) => <details key={index} open={change.action === '変更'}><summary><span className="status-tag">{change.action}</span> {change.key}</summary>{change.fields.length > 0 && <div className="table-scroll"><table className="race-data-table"><thead><tr><th>項目</th><th>現在</th><th>取込後</th></tr></thead><tbody>{change.fields.map(field => <tr key={field.field}><td>{labels[field.field] ?? field.field}</td><td>{String(field.before ?? '—')}</td><td>{String(field.after ?? '—')}</td></tr>)}</tbody></table></div>}</details>)}<label className="field">一括取込の理由<input aria-label="開催日一括取込の理由" value={reason} onChange={event => setReason(event.target.value)} maxLength={500} /></label><button className="button" disabled={busy || !reason.trim() || !preview.batchId} onClick={() => void confirm()}>確認した開催日データを取り込む</button><p className="muted form-note">プレビューは15分間有効です。レースまたは出走馬が変更された場合は全体を再確認します。</p></>}</div>}
+  </div></section>;
 }
 
 function CsvImport({ race, onConfirmed }: { race: Race | null; onConfirmed: () => Promise<void> }) {

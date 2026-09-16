@@ -41,6 +41,20 @@ async function request<T>(method = 'GET', body?: unknown): Promise<T> {
   return value;
 }
 
+export function OperatorSettingsStatus() {
+  const [settings, setSettings] = useState<Settings | null>(null); const [error, setError] = useState('');
+  useEffect(() => { request<Settings>().then(setSettings).catch(value => setError(value.message)); }, []);
+  if (!settings) return <><div className="page-heading"><span className="eyebrow">OPERATIONS STATUS</span><h1>運用・連携状態</h1><p>運営担当は状態を確認できます。設定変更は管理者が行います。</p></div><p role={error ? 'alert' : 'status'}>{error || '読み込み中…'}</p></>;
+  const operations = [
+    ['新規会員登録', settings.operations.newRegistrationsEnabled], ['メール通知', settings.operations.emailNotificationsEnabled], ['予想公開', settings.operations.predictionPublicationEnabled], ['CSV取込', settings.operations.csvImportEnabled],
+    ['LINE通知', settings.operations.lineNotificationsEnabled], ['LINEログイン', settings.operations.lineLoginEnabled], ['新規購入', settings.operations.newPurchasesEnabled]
+  ] as const;
+  const connections = [
+    ['無料登録Bot対策', settings.captcha.connectionStatus], ['Stripe', settings.stripe.connectionStatus], ['メール配信', settings.mail.connectionStatus], ['LINE通知', settings.line.connectionStatus], ['LINEログイン', settings.line.loginConnectionStatus]
+  ] as const;
+  return <><div className="page-heading"><span className="eyebrow">OPERATIONS STATUS</span><h1>運用・連携状態</h1><p>停止状態と外部連携の準備状況を確認します。変更は管理者へ依頼してください。</p></div>{error && <div className="notice error" role="alert">{error}</div>}<div className="notice">設定版 {settings.revision}・最終更新 {new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(settings.updatedAt))} JST</div><section className="panel"><div className="panel-heading"><h2>運用機能</h2></div><div className="settings-status-grid">{operations.map(([label, enabled]) => <div key={label}><span>{label}</span><strong className={enabled ? 'ready' : 'blocked'}>{enabled ? '稼働中' : '停止中'}</strong></div>)}</div></section><section className="panel"><div className="panel-heading"><h2>外部連携</h2></div><div className="settings-status-grid">{connections.map(([label, status]) => <div key={label}><span>{label}</span><strong className={status === 'CONFIGURED_NOT_VERIFIED' ? 'ready' : 'blocked'}>{status === 'CONFIGURED_NOT_VERIFIED' ? '設定済み・未疎通' : status === 'INCOMPLETE' ? '設定不足' : status === 'DISABLED' ? '無効' : '未設定'}</strong></div>)}</div></section><div className="notice">秘密値、料金、通知再試行方針の入力内容は表示しません。</div></>;
+}
+
 export function AdminSettings() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [channelSecret, setChannelSecret] = useState(''); const [channelAccessToken, setChannelAccessToken] = useState('');

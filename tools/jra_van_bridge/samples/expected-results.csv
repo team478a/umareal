@@ -1,0 +1,4 @@
+recordType,raceDate,venueCode,raceNumber,horseNumber,abnormalCode,finishPosition,popularity,finalOdds,raceCanceled
+SE,2026-09-13,05,10,1,0,1,2,3.4,false
+SE,2026-09-13,05,10,2,1,,,,false
+SE,2026-09-13,06,11,1,0,1,1,2.0,false

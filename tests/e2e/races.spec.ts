@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { account, Client, db } from '../helpers';
-import { entryHeaders } from '../../packages/domain/src/races';
+import { entryHeaders, raceHeaders } from '../../packages/domain/src/races';
 test.afterAll(() => db.$disconnect());
 test('register a race, import entries with preview, and see it as the assigned expert', async ({ page }, testInfo) => {
   if (process.env.AUTH_PROVIDER !== 'local' || !['localhost', '127.0.0.1'].includes(new URL(process.env.DATABASE_URL ?? '').hostname)) throw new Error('Local database required');
@@ -62,4 +62,31 @@ test('register a race, import entries with preview, and see it as the assigned e
   await page.goto('/expert');
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
   expect((await page.request.get('/api/v1/admin/races')).status()).toBe(403);
+});
+
+test('selects a verified JRA-VAN bundle and confirms the whole race day', async ({ page }) => {
+  if (process.env.AUTH_PROVIDER !== 'local' || !['localhost', '127.0.0.1'].includes(new URL(process.env.DATABASE_URL ?? '').hostname)) throw new Error('Local database required');
+  const admin = await account('ADMIN'); const client = new Client(); await client.login(admin); await client.mfa();
+  await page.context().addCookies([{ name: 'keiba_session', value: client.cookie.split('=')[1], domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
+  let day = `2096-02-${String(Math.floor(Math.random() * 25) + 1).padStart(2, '0')}`;
+  while (await db.race.count({ where: { raceDate: day, venue: '東京' } })) day = new Date(new Date(`${day}T00:00:00Z`).getTime() + 86400000).toISOString().slice(0, 10);
+  const horseId = randomUUID();
+  const race = [day, '東京', '9', '一括取込画面試験', '3勝クラス', '1600', 'TURF', 'LEFT', `${day}T15:00:00+09:00`, 'GOOD', '晴', 'SCHEDULED', ''].join(',');
+  const racesCsv = `${raceHeaders.join(',')}\n${race}`;
+  const entriesCsv = `${entryHeaders.join(',')}\n${horseId},1,1,一括取込試験馬,MALE,3,57,試験騎手,試験調教師,,,ACTIVE`;
+  const checksum = (value: string) => createHash('sha256').update(value).digest('hex'), entryPath = `entries/${day}-05-09R.csv`;
+  const manifest = JSON.stringify({ formatVersion: 'UMAREAL_JRA_VAN_BUNDLE_V1', targetDate: day, raceCount: 1, entryRaceCount: 1, entryCount: 1, finalizedRaceCount: 0, resultsIncluded: false, source: { raRecordCount: 1, raSha256: 'a'.repeat(64), seRecordCount: 1, seSha256: 'b'.repeat(64) }, files: [{ kind: 'RACES', path: 'races.csv', rowCount: 1, sha256: checksum(racesCsv) }, { kind: 'ENTRIES', path: entryPath, rowCount: 1, sha256: checksum(entriesCsv) }] });
+  await page.goto('/admin/races');
+  await page.getByLabel('JRA-VAN manifest').setInputFiles({ name: 'manifest.json', mimeType: 'application/json', buffer: Buffer.from(manifest) });
+  await page.getByLabel('JRA-VANレースCSV').setInputFiles({ name: 'races.csv', mimeType: 'text/csv', buffer: Buffer.from(racesCsv) });
+  await page.getByLabel('JRA-VAN出走馬CSV').setInputFiles({ name: `${day}-05-09R.csv`, mimeType: 'text/csv', buffer: Buffer.from(entriesCsv) });
+  await expect(page.getByText('1ファイル選択済み')).toBeVisible();
+  await page.getByRole('button', { name: '一括差分を確認' }).click();
+  await expect(page.getByRole('heading', { name: '一括取込前の確認' })).toBeVisible();
+  expect(await db.race.count({ where: { raceDate: day, venue: '東京', number: 9 } })).toBe(0);
+  await page.getByLabel('開催日一括取込の理由').fill('画面から開催日一括取込');
+  await page.getByRole('button', { name: '確認した開催日データを取り込む' }).click();
+  await expect(page.getByRole('status')).toContainText('1レース・1頭を取り込みました');
+  const imported = await db.race.findUniqueOrThrow({ where: { raceDate_venue_number: { raceDate: day, venue: '東京', number: 9 } }, include: { entries: true } });
+  expect(imported.entries[0]).toMatchObject({ horseId, horseName: '一括取込試験馬' });
 });

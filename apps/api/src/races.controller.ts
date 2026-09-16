@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req } from '@nestjs/common';
-import { canManage, CsvRaceDataProvider, dateSchema, entryInputSchema, jstDate, raceDaySchema, raceInputSchema, requiresMfa } from '@keiba/domain';
+import { canManage, CsvRaceDataProvider, dateSchema, entryInputSchema, jraVanBundleFormatVersion, jstDate, parseJraVanRaceBundle, raceDaySchema, raceInputSchema, requiresMfa, venues } from '@keiba/domain';
 import type { EntryInput, ImportKind, RaceInput } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -9,6 +9,15 @@ import { hashToken } from './security';
 
 const reasonSchema = z.string().trim().min(1).max(500);
 const pageSchema = z.object({ page: z.coerce.number().int().min(1).default(1), limit: z.coerce.number().int().min(1).max(50).default(20) });
+const bundleInputSchema = z.object({
+  manifest: z.string().min(1).max(30000), racesCsv: z.string().min(1).max(90000),
+  entries: z.array(z.object({ path: z.string().min(1).max(160), csv: z.string().min(1).max(90000) }).strict()).min(1).max(36)
+}).strict().refine(value => value.manifest.length + value.racesCsv.length + value.entries.reduce((total, file) => total + file.path.length + file.csv.length, 0) <= 90000, '一括取込データは合計90,000文字以内にしてください。');
+const bundleStoredSchema = z.object({
+  formatVersion: z.literal(jraVanBundleFormatVersion), targetDate: dateSchema, sourceChecksum: z.string().regex(/^[a-f0-9]{64}$/), resultsIncluded: z.boolean(),
+  races: z.array(raceInputSchema).min(1).max(36),
+  entryGroups: z.array(z.object({ path: z.string().min(1).max(160), raceDate: dateSchema, venue: z.enum(venues), number: z.number().int().min(1).max(12), entries: z.array(entryInputSchema).min(1).max(18) }).strict()).min(1).max(36)
+}).strict();
 const fullRace = { entries: { orderBy: { number: 'asc' as const } }, assignments: { orderBy: { userId: 'asc' as const } } };
 type Tx = Prisma.TransactionClient;
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
@@ -174,6 +183,85 @@ export class RacesController {
       }
     }
     return { baselineHash: hashToken(JSON.stringify(before)), changes };
+  }
+  private async bundleAnalysis(tx: Tx, races: RaceInput[], entryGroups: z.infer<typeof bundleStoredSchema>['entryGroups']) {
+    const before = await Promise.all(races.map(row => tx.race.findUnique({ where: { raceDate_venue_number: { raceDate: row.raceDate, venue: row.venue, number: row.number } }, include: fullRace })));
+    const raceChanges: Change[] = [], entryChanges: Change[] = [];
+    for (const [index, row] of races.entries()) {
+      await this.validateExpert(tx, row.expertId);
+      const old = before[index];
+      const fields = differences(old ? { ...old, startsAt: old.startsAt.toISOString(), expertId: old.assignments[0]?.userId ?? null } : null, { ...row, startsAt: new Date(row.startsAt).toISOString() });
+      raceChanges.push({ key: `レース · ${row.raceDate} ${row.venue} ${row.number}R`, action: !old ? '追加' : fields.length ? '変更' : '変更なし', fields });
+    }
+    for (const group of entryGroups) {
+      const index = races.findIndex(race => race.raceDate === group.raceDate && race.venue === group.venue && race.number === group.number);
+      if (index < 0) throw new BadRequestException({ code: 'BUNDLE_RACE_MISMATCH', message: '出走馬ファイルに対応するレースがありません。' });
+      const oldRace = before[index];
+      for (const row of group.entries) {
+        const old = oldRace?.entries.find(entry => entry.number === row.number);
+        const other = oldRace?.entries.find(entry => entry.horseId === row.horseId && entry.number !== row.number);
+        if (other) throw new ConflictException({ code: 'HORSE_ALREADY_ENTERED', message: `${group.venue} ${group.number}Rの馬番${row.number}の馬IDは馬番${other.number}で登録済みです。` });
+        const fields = differences(old ? { ...old, carriedWeight: Number(old.carriedWeight), winOdds: old.winOdds === null ? null : Number(old.winOdds) } : null, row);
+        entryChanges.push({ key: `出走馬 · ${group.venue} ${group.number}R ${row.number}番 ${row.horseName}`, action: !old ? '追加' : fields.length ? '変更' : '変更なし', fields });
+      }
+    }
+    return { before, raceChanges, entryChanges, changes: [...raceChanges, ...entryChanges], baselineHash: hashToken(JSON.stringify(before)) };
+  }
+  private async confirmedBundleByChecksum(tx: Tx, sourceChecksum: string, excludeBatchId?: string) {
+    return tx.importBatch.findFirst({ where: { kind: 'race-day-bundle', confirmedAt: { not: null }, rows: { path: ['sourceChecksum'], equals: sourceChecksum }, ...(excludeBatchId ? { id: { not: excludeBatchId } } : {}) }, orderBy: { confirmedAt: 'desc' } });
+  }
+  @Post('races/import/bundle/preview') async bundlePreview(@Req() req: AppRequest, @Body() body: unknown) {
+    const actor = await this.staff(req); const input = bundleInputSchema.parse(body);
+    const parsed = parseJraVanRaceBundle(input, hashToken);
+    const sourceChecksum = hashToken([parsed.manifest ? JSON.stringify(parsed.manifest) : input.manifest, input.racesCsv, ...[...input.entries].sort((a, b) => a.path.localeCompare(b.path)).flatMap(file => [file.path, file.csv])].join('\0'));
+    if (parsed.errors.length || !parsed.manifest) return { errors: parsed.errors, changes: [], batchId: null, sourceChecksum };
+    return this.locked(async tx => {
+      await this.ensureCsvEnabled(tx);
+      const duplicate = await this.confirmedBundleByChecksum(tx, sourceChecksum);
+      if (duplicate) return { errors: [{ row: 0, field: 'sourceChecksum', message: '同じ開催日一括データは反映済みです。監査履歴を確認してください。' }], changes: [], batchId: null, sourceChecksum, duplicateOf: { batchId: duplicate.id, confirmedAt: duplicate.confirmedAt } };
+      const stored = { formatVersion: parsed.manifest!.formatVersion, targetDate: parsed.manifest!.targetDate, sourceChecksum, resultsIncluded: parsed.manifest!.resultsIncluded, races: parsed.races, entryGroups: parsed.entryGroups };
+      const analysis = await this.bundleAnalysis(tx, stored.races, stored.entryGroups);
+      const batch = await tx.importBatch.create({ data: { actorId: actor.id, kind: 'race-day-bundle', rows: json(stored), baselineHash: analysis.baselineHash, expiresAt: new Date(Date.now() + 15 * 60000) } });
+      return { batchId: batch.id, expiresAt: batch.expiresAt, targetDate: stored.targetDate, sourceChecksum, resultsIncluded: stored.resultsIncluded, raceCount: stored.races.length, entryCount: stored.entryGroups.reduce((total, group) => total + group.entries.length, 0), changes: analysis.changes, errors: [] };
+    });
+  }
+  @Post('races/import/bundle/:batchId/confirm') async bundleConfirm(@Req() req: AppRequest, @Param('batchId') batchId: string, @Body() body: unknown) {
+    const actor = await this.staff(req); z.string().uuid().parse(batchId);
+    const { reason } = z.object({ reason: reasonSchema }).strict().parse(body);
+    return this.locked(async tx => {
+      await this.ensureCsvEnabled(tx);
+      const batch = await tx.importBatch.findUnique({ where: { id: batchId } });
+      if (!batch || batch.actorId !== actor.id || batch.kind !== 'race-day-bundle' || batch.raceId !== null) throw new NotFoundException();
+      const stored = bundleStoredSchema.parse(batch.rows);
+      if (batch.confirmedAt) return { confirmed: true, batchId, alreadyConfirmed: true, targetDate: stored.targetDate, raceCount: stored.races.length, entryCount: stored.entryGroups.reduce((total, group) => total + group.entries.length, 0), resultsIncluded: stored.resultsIncluded };
+      if (batch.expiresAt <= new Date()) throw new ConflictException({ code: 'PREVIEW_EXPIRED', message: 'プレビューの有効期限が切れました。再確認してください。' });
+      const duplicate = await this.confirmedBundleByChecksum(tx, stored.sourceChecksum, batchId);
+      if (duplicate) throw new ConflictException({ code: 'DUPLICATE_RACE_DAY_BUNDLE', message: '同じ開催日一括データは反映済みです。監査履歴を確認してください。', previousBatchId: duplicate.id });
+      const analysis = await this.bundleAnalysis(tx, stored.races, stored.entryGroups);
+      if (analysis.baselineHash !== batch.baselineHash) throw new ConflictException({ code: 'STALE_PREVIEW', message: 'プレビュー後に対象データが変更されました。一括データを再確認してください。' });
+
+      const raceIds = new Map<string, string>();
+      for (const [index, row] of stored.races.entries()) {
+        const old = analysis.before[index];
+        const saved = analysis.raceChanges[index].action === '変更なし' ? old! : await this.saveRace(tx, row, old?.id);
+        raceIds.set(`${row.raceDate}:${row.venue}:${row.number}`, saved.id);
+      }
+      let changedEntries = 0;
+      for (const group of stored.entryGroups) {
+        const raceId = raceIds.get(`${group.raceDate}:${group.venue}:${group.number}`)!;
+        const current = await tx.race.findUniqueOrThrow({ where: { id: raceId }, include: { entries: true } });
+        let raceChanged = false;
+        for (const row of group.entries) {
+          const old = current.entries.find(entry => entry.number === row.number);
+          const fields = differences(old ? { ...old, carriedWeight: Number(old.carriedWeight), winOdds: old.winOdds === null ? null : Number(old.winOdds) } : null, row);
+          if (!old || fields.length) { await this.saveEntry(tx, raceId, row); raceChanged = true; changedEntries++; }
+        }
+        if (raceChanged) await tx.race.update({ where: { id: raceId }, data: { revision: { increment: 1 } } });
+      }
+      await tx.importBatch.update({ where: { id: batchId }, data: { confirmedAt: new Date() } });
+      await this.log(tx, req, 'JRA_VAN_RACE_DAY_BUNDLE_IMPORT_CONFIRMED', 'IMPORT_BATCH', batchId, reason, { formatVersion: stored.formatVersion, targetDate: stored.targetDate, sourceChecksum: stored.sourceChecksum, raceCount: stored.races.length, entryCount: stored.entryGroups.reduce((total, group) => total + group.entries.length, 0), changedEntries, resultsIncluded: stored.resultsIncluded });
+      return { confirmed: true, batchId, alreadyConfirmed: false, targetDate: stored.targetDate, raceCount: stored.races.length, entryCount: stored.entryGroups.reduce((total, group) => total + group.entries.length, 0), resultsIncluded: stored.resultsIncluded };
+    });
   }
   @Post('races/import/preview') async preview(@Req() req: AppRequest, @Body() body: unknown) {
     const actor = await this.staff(req);

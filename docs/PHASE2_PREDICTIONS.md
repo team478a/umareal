@@ -1,5 +1,7 @@
 # Phase 2 第3区間 実装報告
 
+> この文書は旧方式の実装履歴です。現行仕様は [SPEC.md](SPEC.md) と [HORSE_EVALUATION_MIGRATION.md](HORSE_EVALUATION_MIGRATION.md) を参照してください。
+
 ## 実装した動作
 
 - 担当専門家と管理者向けの最終予想下書き、見送り、印、参考買い目入力

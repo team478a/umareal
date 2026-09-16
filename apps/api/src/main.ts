@@ -38,6 +38,8 @@ import { AdminContinuityController } from './admin-continuity.controller';
 import { OperationalAlertsController } from './operational-alerts.controller';
 import { Win5Controller } from './win5.controller';
 import { Win5ResultsController } from './win5-results.controller';
+import { SocialSharesController } from './social-shares.controller';
+import { StaffController } from './staff.controller';
 config({ path: resolve(process.cwd(), '../../.env'), quiet: true });
 
 @Catch()
@@ -60,7 +62,7 @@ class ErrorFilter implements ExceptionFilter {
     res.status(status).json({ code, message, requestId: req.requestId, details });
   }
 }
-@Module({ controllers: [AuthController, AppController, RacesController, AssessmentsController, PredictionsController, Win5Controller, Win5ResultsController, AdminSettingsController, AdminContinuityController, OperationalAlertsController, NotificationsController, MemberNotificationsController, AdminFreeReportsController, MemberFreeReportsController, PublicationSchedulesController, LineWebhookController, ResendWebhookController, RegistrationFollowupsController, LineLoginController, ResultsController, BillingController], providers: [DbService, AuthService, SupabaseAuthService, LineLoginService, MailService, RegistrationCaptchaService] })
+@Module({ controllers: [AuthController, AppController, RacesController, AssessmentsController, PredictionsController, Win5Controller, Win5ResultsController, SocialSharesController, AdminSettingsController, AdminContinuityController, StaffController, OperationalAlertsController, NotificationsController, MemberNotificationsController, AdminFreeReportsController, MemberFreeReportsController, PublicationSchedulesController, LineWebhookController, ResendWebhookController, RegistrationFollowupsController, LineLoginController, ResultsController, BillingController], providers: [DbService, AuthService, SupabaseAuthService, LineLoginService, MailService, RegistrationCaptchaService] })
 class AppModule {}
 
 async function main() {

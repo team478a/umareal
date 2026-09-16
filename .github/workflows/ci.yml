@@ -43,6 +43,9 @@ jobs:
         with:
           node-version: '22'
           cache: pnpm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
       - run: pnpm install --frozen-lockfile
       - name: Generate ephemeral test encryption key
         run: node -e "require('fs').appendFileSync(process.env.GITHUB_ENV, 'ENCRYPTION_KEY=' + require('crypto').randomBytes(32).toString('base64') + '\n')"
@@ -52,6 +55,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
+      - run: python -m unittest discover -s tools/jra_van_bridge/tests -t . -v
       - run: pnpm build
       - name: Build production container image
         run: docker build --tag umareal:ci .

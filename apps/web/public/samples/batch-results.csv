@@ -1,0 +1,5 @@
+raceDate,venue,raceNumber,horseNumber,status,finishPosition,popularity,finalOdds
+2099-09-12,東京,10,1,FINISHED,1,2,3.4
+2099-09-12,東京,10,2,FINISHED,2,1,2.1
+2099-09-12,東京,11,1,FINISHED,1,1,1.8
+2099-09-12,東京,11,2,WITHDRAWN,,,

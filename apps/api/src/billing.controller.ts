@@ -95,6 +95,7 @@ export class BillingController {
   @Post('billing/checkout')
   async checkout(@Req() req: AppRequest, @Body() body: unknown) {
     const transport = this.transport(); const actor = await this.auth.authenticate(req); const input = subscriptionCheckoutSchema.parse(body);
+    if (actor.role !== 'MEMBER') throw new ForbiddenException({ code: 'MEMBER_REQUIRED', message: '会員本人としてログインしてください。' });
     if (!actor.user.emailVerifiedAt || !actor.user.passwordHash) throw new ForbiddenException({ code: 'FALLBACK_AUTH_REQUIRED', message: '申込前に確認済みメールアドレスとパスワードを設定してください。' });
     const key = this.key(req, 'subscription-checkout', actor.id); const requestHash = hashToken(JSON.stringify(input));
     if (transport === 'stripe') return this.createStripeCheckout(req, actor.id, actor.user.email, 'SUBSCRIPTION', input.planCode, null, key, requestHash);
@@ -130,6 +131,7 @@ export class BillingController {
   @Post('billing/day-pass')
   async dayPass(@Req() req: AppRequest, @Body() body: unknown) {
     const transport = this.transport(); const actor = await this.auth.authenticate(req); const input = dayPassCheckoutSchema.parse(body);
+    if (actor.role !== 'MEMBER') throw new ForbiddenException({ code: 'MEMBER_REQUIRED', message: '会員本人としてログインしてください。' });
     if (!actor.user.emailVerifiedAt || !actor.user.passwordHash) throw new ForbiddenException({ code: 'FALLBACK_AUTH_REQUIRED', message: '申込前に確認済みメールアドレスとパスワードを設定してください。' });
     if (input.raceDate < jstDate(new Date())) throw new BadRequestException({ code: 'PAST_RACE_DATE', message: '過去の日付は購入できません。' });
     const key = this.key(req, 'day-pass', actor.id); const requestHash = hashToken(JSON.stringify(input));

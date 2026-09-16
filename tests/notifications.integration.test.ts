@@ -10,11 +10,9 @@ beforeAll(async () => {
   await db.systemSetting.update({ where: { id: 'global' }, data: { emailNotificationsEnabled: true, lineNotificationsEnabled: true, lineChannelId: 'notification-test', lineChannelSecretEncrypted: 'test-encrypted', lineAccessTokenEncrypted: 'test-encrypted', notificationMaxAttempts: 3, notificationBaseDelaySeconds: 10 } });
   // A developer database can contain pending events from an interrupted earlier run. Never turn those into email during this test run.
   await db.notificationEvent.updateMany({ where: { emailExpandedAt: null }, data: { emailExpandedAt: new Date(), updatedAt: new Date() } });
-  // Preserve the append-only history while draining due work left by earlier local runs.
-  for (let index = 0; index < 100; index += 1) {
-    const result = await runNotificationBatch({ db, transport: new TestNotificationTransport(), limit: 200 });
-    if (!result.expandedEvents && !result.claimedDeliveries) break;
-  }
+  // Isolate the suite from due work left by interrupted local runs.
+  await db.notificationDelivery.updateMany({ where: { status: { in: ['PENDING', 'RETRY_WAIT'] } }, data: { status: 'SKIPPED', forceAttempt: false, lastErrorCode: 'TEST_SETUP_CLEANUP', lockedAt: null, leaseToken: null, updatedAt: new Date() } });
+  await db.notificationEvent.updateMany({ where: { expandedAt: null }, data: { expandedAt: new Date(), status: 'SKIPPED', updatedAt: new Date() } });
 }, 120000);
 afterAll(async () => {
   await db.systemSetting.update({ where: { id: 'global' }, data: { emailNotificationsEnabled: settingsBefore.emailNotificationsEnabled, lineNotificationsEnabled: settingsBefore.lineNotificationsEnabled, lineChannelId: settingsBefore.lineChannelId, lineChannelSecretEncrypted: settingsBefore.lineChannelSecretEncrypted, lineAccessTokenEncrypted: settingsBefore.lineAccessTokenEncrypted, notificationMaxAttempts: settingsBefore.notificationMaxAttempts, notificationBaseDelaySeconds: settingsBefore.notificationBaseDelaySeconds } });
@@ -45,32 +43,69 @@ async function win5Publication() {
     return { product, version, event, firstRaceId: races[0].id };
   });
 }
+async function raceEvaluationResult(status: 'PRIMARY_WIN' | 'REVIEW_REQUIRED' = 'PRIMARY_WIN') {
+  const publisher = await account('ADMIN');
+  const suffix = randomUUID().slice(0, 8);
+  return db.$transaction(async tx => {
+    const race = await tx.race.create({ data: { raceDate: '2098-07-01', venue: `結果${suffix}`, number: 6, name: `評価通知試験${suffix}`, startsAt: new Date('2098-07-01T15:00:00+09:00') } });
+    const prediction = await tx.prediction.create({ data: { raceId: race.id, draft: {}, revision: 1, updatedBy: publisher.user.id } });
+    const predictionVersion = await tx.predictionVersion.create({ data: { predictionId: prediction.id, version: 1, status: 'PUBLISHED', visibility: 'PAID', confidence: 'A', stance: null, summary: '会員限定の選定理由', estimatedTotalYen: null, contentSnapshot: { privateHorseNumber: 6 }, assessmentSnapshot: {}, publisherId: publisher.user.id, deadlineAt: race.startsAt, formatVersion: 'HORSE_EVALUATION_V1' } });
+    const resultVersion = await tx.raceResultVersion.create({ data: { raceId: race.id, version: 1, sourceRevision: 1, ruleVersion: 'HORSE_EVALUATION_V1', entriesSnapshot: [{ number: 6, horseName: '非公開馬名' }], payoutsSnapshot: [], reason: '公式結果確認', confirmedBy: publisher.user.id } });
+    const successful = status === 'PRIMARY_WIN';
+    await tx.predictionEvaluation.create({ data: { predictionVersionId: predictionVersion.id, resultVersionId: resultVersion.id, raceId: race.id, primaryFinishedFirst: successful, primaryFinishedTop2: successful, primaryFinishedTop3: successful, winnerInRecommended: successful, status, confirmedBy: publisher.user.id, calculationRuleVersion: 'HORSE_EVALUATION_V1' } });
+    const event = await tx.notificationEvent.create({ data: { raceResultVersionId: resultVersion.id, eventType: 'RACE_EVALUATION_CONFIRMED', status: 'QUEUED', payload: { raceResultVersionId: resultVersion.id, raceId: race.id } } });
+    return { race, resultVersion, event };
+  });
+}
 async function recipient(subject = `test:sent:${randomUUID()}`, entitled = false) {
   const member = await account();
   await db.lineAccount.create({ data: { userId: member.user.id, subject } });
   if (entitled) await db.entitlement.create({ data: { userId: member.user.id, planCode: 'MANUAL', startsAt: new Date('2026-01-01T00:00:00Z'), endsAt: new Date('2099-01-01T00:00:00Z'), reason: '通知権限試験', grantedBy: member.user.id } });
   return member.user;
 }
-async function processFirstAttempt(eventId: string, userId: string, transport: NotificationTransport) {
+async function processFirstAttempt(eventId: string, userId: string, transport: NotificationTransport, limit = 200) {
   for (let index = 0; index < 20; index += 1) {
-    const delivery = await db.notificationDelivery.findFirst({ where: { eventId, userId } });
+    const delivery = await db.notificationDelivery.findFirst({ where: { eventId, userId, channel: 'LINE' } });
     if (delivery?.attemptCount) return delivery;
     if (delivery?.status === 'QUEUED') await db.notificationDelivery.update({ where: { id: delivery.id }, data: { nextAttemptAt: new Date(0) } });
-    await runNotificationBatch({ db, transport, limit: 200 });
+    await runNotificationBatch({ db, transport, limit });
   }
   throw new Error(`Target notification delivery was not attempted for event ${eventId}`);
 }
-async function processFirstEmailAttempt(eventId: string, userId: string, transport: NotificationTransport) {
+async function processFirstEmailAttempt(eventId: string, userId: string, transport: NotificationTransport, limit = 200) {
   for (let index = 0; index < 20; index += 1) {
     const delivery = await db.notificationDelivery.findFirst({ where: { eventId, userId, channel: 'EMAIL' } });
     if (delivery?.attemptCount) return delivery;
     if (delivery?.status === 'QUEUED') await db.notificationDelivery.update({ where: { id: delivery.id }, data: { nextAttemptAt: new Date(0) } });
-    await runEmailNotificationBatch({ db, transport, limit: 200 });
+    await runEmailNotificationBatch({ db, transport, limit });
   }
   throw new Error(`Target email delivery was not attempted for event ${eventId}`);
 }
 
 describe('notification worker and administration', () => {
+  it('sends a verified horse-evaluation result fact to free members on LINE and email', async () => {
+    const subject = `test:result-target:${randomUUID()}`;
+    const member = await recipient(subject);
+    const target = await raceEvaluationResult();
+    await db.$transaction([
+      db.notificationEvent.update({ where: { id: target.event.id }, data: { expandedAt: new Date(), emailExpandedAt: new Date() } }),
+      db.notificationDelivery.create({ data: { eventId: target.event.id, userId: member.id, channel: 'LINE', idempotencyKey: `result-line:${randomUUID()}`, nextAttemptAt: new Date(0) } }),
+      db.notificationDelivery.create({ data: { eventId: target.event.id, userId: member.id, channel: 'EMAIL', idempotencyKey: `result-email:${randomUUID()}`, nextAttemptAt: new Date(0) } })
+    ]);
+    const sent: Array<{ recipient: string; targetId: string; text: string }> = [];
+    const transport: NotificationTransport = { async send(input) { if ([subject, member.email].includes(input.recipient)) sent.push({ recipient: input.recipient, targetId: input.targetId, text: input.message.text }); return { kind: 'SENT', providerMessageId: `result-${input.retryKey}` }; } };
+    expect(await processFirstAttempt(target.event.id, member.id, transport, 1)).toMatchObject({ channel: 'LINE', status: 'SENT' });
+    expect(await processFirstEmailAttempt(target.event.id, member.id, transport, 1)).toMatchObject({ channel: 'EMAIL', status: 'SENT' });
+    const targetMessages = sent.filter(item => item.targetId === target.resultVersion.id);
+    expect(targetMessages).toHaveLength(2);
+    expect(targetMessages.every(item => item.text.includes('パドック直前予想の評価結果') && item.text.includes('本命馬が1着') && item.text.includes(`/races/${target.race.id}`))).toBe(true);
+    expect(targetMessages.map(item => item.text).join('\n')).not.toMatch(/非公開馬名|privateHorseNumber|会員限定の選定理由|馬番|買い目|組み合わせ|購入|払戻|回収率|収支|利益|的中/);
+  }, 120000);
+
+  it('refuses a result notification when the latest evaluation still requires review', async () => {
+    await expect(raceEvaluationResult('REVIEW_REQUIRED')).rejects.toThrow(/requires a confirmed evaluation/);
+  });
+
   it('sends a metadata-only WIN5 notice to free members on LINE and email', async () => {
     const target = await win5Publication();
     const subject = `test:win5-target:${randomUUID()}`;
@@ -87,7 +122,7 @@ describe('notification worker and administration', () => {
     const listed = await admin.call(`admin/notifications?raceId=${target.firstRaceId}&limit=50`);
     expect(listed.status).toBe(200);
     expect(listed.body.items.some((item: { event: { productVersion: { id: string; product: { title: string } } | null } }) => item.event.productVersion?.id === target.version.id && item.event.productVersion.product.title === target.product.title)).toBe(true);
-  });
+  }, 120000);
 
   it('sends safe publication email only to verified members who opted in', async () => {
     const target = await publication('FREE');
@@ -161,9 +196,9 @@ describe('notification worker and administration', () => {
     await Promise.all([runNotificationBatch({ db, transport, limit: 200 }), runNotificationBatch({ db, transport, limit: 200 })]);
     await processFirstAttempt(target.event.id, member.id, transport);
     const deliveries = await db.notificationDelivery.findMany({ where: { eventId: target.event.id }, include: { attempts: true } });
-    expect(deliveries.filter(item => item.userId === member.id)).toHaveLength(1);
-    expect(deliveries.find(item => item.userId === member.id)).toMatchObject({ status: 'SENT', attemptCount: 1 });
-    expect(deliveries.find(item => item.userId === member.id)?.attempts).toHaveLength(1);
+    expect(deliveries.filter(item => item.userId === member.id && item.channel === 'LINE')).toHaveLength(1);
+    expect(deliveries.find(item => item.userId === member.id && item.channel === 'LINE')).toMatchObject({ status: 'SENT', attemptCount: 1 });
+    expect(deliveries.find(item => item.userId === member.id && item.channel === 'LINE')?.attempts).toHaveLength(1);
     expect(sends).toBe(1);
     expect(message).toContain('内容は会員ページでご確認ください。');
     expect(message).not.toMatch(/買い目|本命|円/);

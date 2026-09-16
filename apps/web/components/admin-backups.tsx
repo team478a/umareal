@@ -55,7 +55,7 @@ export function AdminBackups() {
       <li><CheckCircle2 /><div><strong>ハッシュ照合</strong><small>バックアップと復元前コピーの全ファイルを照合</small></div></li>
       <li><CheckCircle2 /><div><strong>隔離ポートで起動</strong><small>元DBと異なるポート55433だけで復元確認</small></div></li>
       <li><CheckCircle2 /><div><strong>データ件数を比較</strong><small>主要5テーブルとマイグレーションを照合</small></div></li>
-      <li><CheckCircle2 /><div><strong>不変化設定を確認</strong><small>予想公開版・印・買い目・操作履歴の保護トリガーを確認</small></div></li>
+        <li><CheckCircle2 /><div><strong>不変化設定を確認</strong><small>予想公開版・凍結評価・休止中の旧履歴・操作履歴の保護トリガーを確認</small></div></li>
       <li><CheckCircle2 /><div><strong>一時データを削除</strong><small>復元検証用ディレクトリだけを停止後に消去</small></div></li>
     </ol><div className="panel-foot backup-command"><span>実行コマンド</span><code>pnpm db:backup:verify</code></div></section>
     <div className="notice">ローカル検証ファイルは暗号化されず、<code>.local/backups</code> に保存されます。本番では保存先の暗号化、世代管理、別拠点保管、RPO/RTOを運用基盤に合わせて決めます。管理画面からバックアップは実行できません。</div>

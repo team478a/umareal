@@ -4,7 +4,7 @@ import { account, Client, db } from '../helpers';
 
 test.afterAll(() => db.$disconnect());
 
-test('staff publishes the LP free report and a member can read only that offer', async ({ page }, testInfo) => {
+test('staff publishes the legacy free report and a member receives metadata only', async ({ page }, testInfo) => {
   const admin = await account('ADMIN'); const member = await account(); const suffix = randomUUID().slice(0, 6); const raceDate = '2099-10-17';
   const race = await db.race.create({ data: { raceDate, venue: `無料E2E${suffix}`, number: 6, name: `無料パドック速報${suffix}`, startsAt: new Date(`${raceDate}T15:00:00+09:00`) } });
   const horses = await Promise.all(['上向きホース', '注意ホース'].map(async (name, index) => {
@@ -29,9 +29,10 @@ test('staff publishes the LP free report and a member can read only that offer',
   const memberClient = new Client(); await memberClient.login(member); await page.context().clearCookies();
   await page.context().addCookies([{ name: 'keiba_session', value: memberClient.cookie.split('=')[1], domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
   await page.goto(`/races/${race.id}`);
-  await expect(page.getByRole('heading', { name: '無料パドック速報', exact: true })).toBeVisible();
-  await expect(page.getByText(`1番 ${horses[0].horseName}`)).toBeVisible(); await expect(page.getByText(`2番 ${horses[1].horseName}`)).toBeVisible();
-  await expect(page.getByText('無料速報には最終本命・全頭評価・対抗・穴馬・買い目を含みません。')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '無料パドック速報を公開済みです', exact: true })).toBeVisible();
+  await expect(page.getByText('第1版 · 発走前速報', { exact: false })).toBeVisible();
+  await expect(page.getByText(horses[0].horseName)).toHaveCount(0); await expect(page.getByText(horses[1].horseName)).toHaveCount(0);
+  await expect(page.getByText('無料会員には公開状況のみをお知らせしています。馬の評価や詳細見解は有料会員向けの最終評価で確認できます。')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('free-report.png'), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

@@ -1,0 +1,2 @@
+horseId,number,gate,horseName,sex,age,carriedWeight,jockey,trainer,winOdds,popularity,status
+b17761fa-2467-54f6-88da-2eb89455840c,6,3,テストホース,MALE,3,57.0,試験騎手,試験調教,3.4,2,ACTIVE
