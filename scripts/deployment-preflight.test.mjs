@@ -29,13 +29,16 @@ describe('deployment environment preflight', () => {
     assert.equal(validateDeploymentEnvironment('web', { NODE_ENV: 'production', API_BASE_URL: 'https://user:secret@example.test/path' }).ok, false);
   });
 
-  it('keeps staging noindex checks without enabling paid features', () => {
-    const api = validateDeploymentEnvironment('api', { ...common, LAUNCH_MODE: 'CLOUD_STAGING', AUTH_PROVIDER: 'supabase', ADMIN_BASE_URL: common.APP_BASE_URL, SUPABASE_URL: 'https://project.supabase.co', SUPABASE_ANON_KEY: 'configured', JOB_SECRET: 'x'.repeat(32), RESEND_WEBHOOK_SECRET: 'configured', CAPTCHA_TRANSPORT: 'turnstile', LINE_OAUTH_TRANSPORT: 'disabled', BILLING_TRANSPORT: 'disabled', STRIPE_LIVE_MODE: 'false', AUTH_RATE_LIMIT: '60' });
+  it('keeps staging noindex checks and permits only no-charge billing rehearsal', () => {
+    const api = validateDeploymentEnvironment('api', { ...common, LAUNCH_MODE: 'CLOUD_STAGING', AUTH_PROVIDER: 'supabase', ADMIN_BASE_URL: common.APP_BASE_URL, SUPABASE_URL: 'https://project.supabase.co', SUPABASE_ANON_KEY: 'configured', JOB_SECRET: 'x'.repeat(32), RESEND_WEBHOOK_SECRET: 'configured', CAPTCHA_TRANSPORT: 'turnstile', LINE_OAUTH_TRANSPORT: 'disabled', BILLING_TRANSPORT: 'test', STRIPE_LIVE_MODE: 'false', AUTH_RATE_LIMIT: '60' });
     assert.equal(api.ok, true);
     assert.ok(api.manual.some(item => item.code === 'STAGING_DRAFT_LEGAL_ONLY'));
     assert.equal(api.manual.some(item => item.code === 'LEGAL_RELEASE'), false);
     const web = validateDeploymentEnvironment('web', { NODE_ENV: 'production', LAUNCH_MODE: 'CLOUD_STAGING', API_BASE_URL: 'umareal-staging-api:10000' });
     assert.equal(web.ok, true);
     assert.ok(web.manual.some(item => item.code === 'STAGING_NOINDEX'));
+    const unsafe = validateDeploymentEnvironment('api', { ...common, LAUNCH_MODE: 'CLOUD_STAGING', AUTH_PROVIDER: 'supabase', ADMIN_BASE_URL: common.APP_BASE_URL, SUPABASE_URL: 'https://project.supabase.co', SUPABASE_ANON_KEY: 'configured', JOB_SECRET: 'x'.repeat(32), RESEND_WEBHOOK_SECRET: 'configured', CAPTCHA_TRANSPORT: 'turnstile', LINE_OAUTH_TRANSPORT: 'disabled', BILLING_TRANSPORT: 'stripe', STRIPE_LIVE_MODE: 'false', AUTH_RATE_LIMIT: '60' });
+    assert.equal(unsafe.ok, false);
+    assert.ok(unsafe.errors.some(item => item.code === 'BILLING_TRANSPORT'));
   });
 });

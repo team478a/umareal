@@ -90,9 +90,11 @@ async function main() {
   if (process.env.NODE_ENV === 'production' && !capabilities.lineNotifications && process.env.NOTIFICATION_TRANSPORT !== 'disabled') throw new Error('Free registration launch requires LINE notifications to be disabled');
   if (process.env.NODE_ENV === 'production' && !capabilities.lineLogin && process.env.LINE_OAUTH_TRANSPORT !== 'disabled') throw new Error('Free registration launch requires LINE OAuth to be disabled');
   if (!['test', 'stripe', 'disabled'].includes(process.env.BILLING_TRANSPORT ?? '')) throw new Error('Set BILLING_TRANSPORT explicitly');
-  if (process.env.NODE_ENV === 'production' && capabilities.billing && process.env.BILLING_TRANSPORT !== 'stripe') throw new Error('Full production launch requires an external billing transport');
-  if (process.env.NODE_ENV === 'production' && capabilities.billing && process.env.STRIPE_LIVE_MODE !== 'true') throw new Error('Full production launch requires Stripe live mode');
-  if (process.env.NODE_ENV === 'production' && !capabilities.billing && process.env.BILLING_TRANSPORT !== 'disabled') throw new Error('Free registration launch requires billing to be disabled');
+  if (process.env.NODE_ENV === 'production' && launchMode === 'FULL' && process.env.BILLING_TRANSPORT !== 'stripe') throw new Error('Full production launch requires an external billing transport');
+  if (process.env.NODE_ENV === 'production' && launchMode === 'FULL' && process.env.STRIPE_LIVE_MODE !== 'true') throw new Error('Full production launch requires Stripe live mode');
+  if (process.env.NODE_ENV === 'production' && launchMode === 'CLOUD_STAGING' && process.env.BILLING_TRANSPORT !== 'test') throw new Error('Cloud staging requires the no-charge billing test transport');
+  if (process.env.NODE_ENV === 'production' && launchMode === 'CLOUD_STAGING' && process.env.STRIPE_LIVE_MODE === 'true') throw new Error('Cloud staging forbids Stripe live mode');
+  if (process.env.NODE_ENV === 'production' && launchMode === 'FREE_REGISTRATION' && process.env.BILLING_TRANSPORT !== 'disabled') throw new Error('Free registration launch requires billing to be disabled');
   if (!['test', 'resend'].includes(process.env.MAIL_TRANSPORT ?? '')) throw new Error('Set MAIL_TRANSPORT explicitly');
   if (process.env.NODE_ENV === 'production' && process.env.MAIL_TRANSPORT !== 'resend') throw new Error('Production requires an external mail transport');
   if (!['test', 'turnstile'].includes(process.env.CAPTCHA_TRANSPORT ?? '')) throw new Error('Set CAPTCHA_TRANSPORT explicitly');

@@ -12,13 +12,13 @@ describe('launch capabilities', () => {
     });
   });
 
-  it('keeps external billing and LINE disabled in restricted cloud staging', () => {
+  it('allows no-charge billing rehearsal while keeping external LINE disabled in cloud staging', () => {
     expect(launchCapabilities(resolveLaunchMode('CLOUD_STAGING'))).toEqual({
       emailRegistration: true,
       freeContent: true,
       lineLogin: false,
       lineNotifications: false,
-      billing: false
+      billing: true
     });
   });
 

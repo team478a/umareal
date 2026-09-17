@@ -35,7 +35,7 @@ services:
       - key: LINE_OAUTH_TRANSPORT
         value: disabled
       - key: BILLING_TRANSPORT
-        value: disabled
+        value: test
       - key: STRIPE_LIVE_MODE
         value: "false"
       - key: MAIL_TRANSPORT

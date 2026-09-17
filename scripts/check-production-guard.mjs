@@ -25,6 +25,18 @@ const billing = spawnSync(process.execPath, ['dist/main.js'], {
 });
 if (billing.status === 0 || !billing.stderr.includes('Full production launch requires an external billing transport')) throw new Error('Production billing guard did not reject test mode');
 console.info('PASS: compiled API refuses the local billing test transport in production.');
+const stagingExternalBilling = spawnSync(process.execPath, ['dist/main.js'], {
+  cwd: resolve('apps/api'), env: { ...process.env, ...productionBase, LAUNCH_MODE: 'CLOUD_STAGING', NODE_ENV: 'production', AUTH_PROVIDER: 'supabase', NOTIFICATION_TRANSPORT: 'disabled', LINE_OAUTH_TRANSPORT: 'disabled', BILLING_TRANSPORT: 'stripe', STRIPE_LIVE_MODE: 'false' },
+  encoding: 'utf8', timeout: 20000, windowsHide: true
+});
+if (stagingExternalBilling.status === 0 || !stagingExternalBilling.stderr.includes('Cloud staging requires the no-charge billing test transport')) throw new Error('Cloud staging billing guard did not reject external Stripe transport');
+console.info('PASS: cloud staging refuses the external Stripe transport.');
+const stagingLiveBilling = spawnSync(process.execPath, ['dist/main.js'], {
+  cwd: resolve('apps/api'), env: { ...process.env, ...productionBase, LAUNCH_MODE: 'CLOUD_STAGING', NODE_ENV: 'production', AUTH_PROVIDER: 'supabase', NOTIFICATION_TRANSPORT: 'disabled', LINE_OAUTH_TRANSPORT: 'disabled', BILLING_TRANSPORT: 'test', STRIPE_LIVE_MODE: 'true' },
+  encoding: 'utf8', timeout: 20000, windowsHide: true
+});
+if (stagingLiveBilling.status === 0 || !stagingLiveBilling.stderr.includes('Cloud staging forbids Stripe live mode')) throw new Error('Cloud staging billing guard did not reject Stripe live mode');
+console.info('PASS: cloud staging refuses Stripe live mode.');
 const encryption = spawnSync(process.execPath, ['dist/main.js'], {
   cwd: resolve('apps/api'), env: { ...process.env, ...productionBase, ENCRYPTION_KEY: '', NODE_ENV: 'production', AUTH_PROVIDER: 'supabase', NOTIFICATION_TRANSPORT: 'line', LINE_OAUTH_TRANSPORT: 'line', BILLING_TRANSPORT: 'stripe', STRIPE_LIVE_MODE: 'true' },
   encoding: 'utf8', timeout: 20000, windowsHide: true

@@ -197,6 +197,21 @@ describe('Supabase free-member registration boundary', () => {
     const aal1 = await fetch(`${apiBase}/api/v1/me`, { headers: { Cookie: loginCookies } });
     expect(await aal1.json()).toMatchObject({ aal: 1, mfaEnabled: false, hasPassword: true });
 
+    const settings = await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { newPurchasesEnabled: true } });
+    await db.systemSetting.update({ where: { id: 'global' }, data: { newPurchasesEnabled: true } });
+    try {
+      const checkout = await fetch(`${apiBase}/api/v1/billing/checkout`, {
+        method: 'POST',
+        headers: { Origin: 'http://localhost:3000', Cookie: loginCookies, 'Content-Type': 'application/json', 'Idempotency-Key': randomUUID() },
+        body: JSON.stringify({ planCode: 'STANDARD' })
+      });
+      expect(checkout.status).toBe(201);
+      expect(await checkout.json()).toMatchObject({ status: 'ACTIVE' });
+      expect(await db.subscription.count({ where: { userId: user.id, provider: 'LOCAL_TEST', status: 'ACTIVE' } })).toBe(1);
+    } finally {
+      await db.systemSetting.update({ where: { id: 'global' }, data: { newPurchasesEnabled: settings.newPurchasesEnabled } });
+    }
+
     const enrollment = await fetch(`${apiBase}/api/v1/auth/mfa/enroll`, { method: 'POST', headers: { Origin: 'http://localhost:3000', Cookie: loginCookies, 'Content-Type': 'application/json' }, body: '{}' });
     expect(enrollment.status).toBe(201);
     const enrollmentBody = await enrollment.json() as { factorId: string; secret: string };

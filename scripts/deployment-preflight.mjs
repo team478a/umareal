@@ -61,7 +61,8 @@ export function validateDeploymentEnvironment(service, env) {
   requireValue('RESEND_WEBHOOK_SECRET', present(env.RESEND_WEBHOOK_SECRET), 'RESEND_WEBHOOK_SECRET is required.');
   requireValue('CAPTCHA_TRANSPORT', env.CAPTCHA_TRANSPORT === 'turnstile', 'CAPTCHA_TRANSPORT must be turnstile.');
   requireValue('LINE_OAUTH_TRANSPORT', env.LINE_OAUTH_TRANSPORT === (limitedLaunch ? 'disabled' : 'line'), `LINE_OAUTH_TRANSPORT must be ${limitedLaunch ? 'disabled' : 'line'} for ${launchMode ?? 'the selected launch mode'}.`);
-  requireValue('BILLING_TRANSPORT', env.BILLING_TRANSPORT === (limitedLaunch ? 'disabled' : 'stripe'), `BILLING_TRANSPORT must be ${limitedLaunch ? 'disabled' : 'stripe'} for ${launchMode ?? 'the selected launch mode'}.`);
+  const expectedBillingTransport = launchMode === 'FULL' ? 'stripe' : launchMode === 'CLOUD_STAGING' ? 'test' : 'disabled';
+  requireValue('BILLING_TRANSPORT', env.BILLING_TRANSPORT === expectedBillingTransport, `BILLING_TRANSPORT must be ${expectedBillingTransport} for ${launchMode ?? 'the selected launch mode'}.`);
   requireValue('STRIPE_LIVE_MODE', env.STRIPE_LIVE_MODE === (limitedLaunch ? 'false' : 'true'), `STRIPE_LIVE_MODE must be ${limitedLaunch ? 'false' : 'true'} for ${launchMode ?? 'the selected launch mode'}.`);
   const rateLimit = Number(env.AUTH_RATE_LIMIT);
   requireValue('AUTH_RATE_LIMIT', Number.isInteger(rateLimit) && rateLimit >= 1 && rateLimit <= 60, 'AUTH_RATE_LIMIT must be an integer from 1 to 60.');
@@ -69,7 +70,9 @@ export function validateDeploymentEnvironment(service, env) {
   manual.push(launchMode === 'CLOUD_STAGING'
     ? { code: 'STAGING_DRAFT_LEGAL_ONLY', message: 'Draft legal documents are allowed only for the staging test environment; never use this mode for public recruitment.' }
     : { code: 'LEGAL_RELEASE', message: 'Confirm that reviewed legal documents are published in the application.' });
-  manual.push({ code: 'PROVIDER_LIVE_TESTS', message: `Complete Supabase, Resend, and Turnstile live tests${limitedLaunch ? '.' : ', plus LINE and Stripe live tests.'}` });
+  manual.push({ code: 'PROVIDER_LIVE_TESTS', message: launchMode === 'CLOUD_STAGING'
+    ? 'Complete Supabase, Resend, and Turnstile live tests. Billing remains a no-charge rehearsal in this mode.'
+    : `Complete Supabase, Resend, and Turnstile live tests${limitedLaunch ? '.' : ', plus LINE and Stripe live tests.'}` });
   return { service, launchMode, ok: errors.length === 0, errors, manual };
 }
 

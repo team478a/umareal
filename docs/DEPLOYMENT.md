@@ -2,7 +2,7 @@
 
 ## 一般公開前のクラウド試験
 
-最初のRender配備は、staging専用PostgreSQLを先に作成・移行した後、`render.staging.yaml`をBlueprint Pathに指定して`CLOUD_STAGING`で実施する。`render.yaml`の一般公開用リソースとは名前とDBを分ける。Basic認証は使用せず、Web応答へ`no-store`と`X-Robots-Tag: noindex, nofollow`を付与する。管理機能と会員情報はアプリのログイン・ロール・AAL2で保護し、LINE Login、LINE通知、Stripe決済を停止する。APIはprivate serviceのため外部URLを持たない。staging Blueprintは既存DBの重複作成を避けるためAPI、Web、workerだけを管理し、DBはDashboardで独立管理する。
+最初のRender配備は、staging専用PostgreSQLを先に作成・移行した後、`render.staging.yaml`をBlueprint Pathに指定して`CLOUD_STAGING`で実施する。`render.yaml`の一般公開用リソースとは名前とDBを分ける。Basic認証は使用せず、Web応答へ`no-store`と`X-Robots-Tag: noindex, nofollow`を付与する。管理機能と会員情報はアプリのログイン・ロール・AAL2で保護し、LINE Login、LINE通知、実Stripe決済を停止する。課金は`BILLING_TRANSPORT=test`の請求なしテスト申込だけを許可し、月額・1日利用・解約・権限反映を確認する。APIはprivate serviceのため外部URLを持たない。staging Blueprintは既存DBの重複作成を避けるためAPI、Web、workerだけを管理し、DBはDashboardで独立管理する。
 
 クラウド試験のプランは、APIとworkerを`0.5c-512mb`、WebとPostgreSQLを`free`へ固定する。Renderの2026年9月時点の表示価格では基本compute料金は月額14 USD（API 7 USD + worker 7 USD、秒単位の日割り）である。無料PostgreSQLは作成30日後に失効し、超過した帯域・build pipeline等は別条件となるため、作成直前にDashboardの最新見積りを再確認する。
 

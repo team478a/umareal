@@ -50,7 +50,7 @@
 | GET | /admin/support | ADMIN+AAL2またはOPERATOR。状態で絞り込み、会員、内容、担当者、優先度、対応期限、内部対応理由、会員向け回答を含む履歴と有効な担当候補を返す。期限超過、優先度、期限の順に表示する |
 | POST | /admin/support/:id/status | ADMIN+AAL2またはOPERATOR。理由付きで確認開始・回答解決・再開を追記し、解決時は会員向け回答を必須にする。回答済みイベントと本人宛通知を同一トランザクションで作成する |
 | POST | /admin/support/:id/triage | ADMIN+AAL2またはOPERATOR。理由付きで優先度、担当者、対応期限を更新する。担当者は有効なADMINまたはOPERATORに限定する |
-| POST | /billing/checkout | MEMBER本人。月額申込。スタッフロールは申込不可。test transportはローカル即時確定、stripe transportはCheckout URLを返し権限をまだ付与しない |
+| POST | /billing/checkout | MEMBER本人。月額申込。スタッフロールは申込不可。test transportはローカルまたはクラウド試験で即時確定し、stripe transportはCheckout URLを返して権限をまだ付与しない |
 | POST | /billing/day-pass | MEMBER本人。JST開催日の1日利用。スタッフロールは申込不可。stripe transportでは署名済みWebhook後だけ有効化 |
 | POST | /webhooks/stripe | Stripe署名必須。Checkout申込、会員、金額、通貨、動作モードを照合し、契約・支払・有限期間権限を冪等作成 |
 | POST | /billing/subscriptions/:id/cancel | 本人の月額解約予約。Stripe契約は外部API成功後にローカルへ反映 |
@@ -91,8 +91,8 @@
 | GET | /results/stats | 最新結果版を使った本命馬1着・連対・複勝・見送りの集計 |
 | GET | /billing/plans | 税込価格、販売可否、創設会員残枠。開発条件フラグ付き |
 | GET | /billing/me | 本人の月額契約、1日利用、追記専用支払履歴 |
-| POST | /billing/checkout | 本人。確認済みメール・パスワード必須。FOUNDER/STANDARDの申込。Stripe時はHosted Checkout URLを返す。Idempotency-Key必須 |
-| POST | /billing/day-pass | 本人。確認済みメール・パスワード必須。JST開催日単位の申込。Stripe時はHosted Checkout URLを返す。Idempotency-Key必須 |
+| POST | /billing/checkout | 本人。確認済みメールと有効なログインID必須。FOUNDER/STANDARDの申込。Stripe時はHosted Checkout URLを返す。Idempotency-Key必須 |
+| POST | /billing/day-pass | 本人。確認済みメールと有効なログインID必須。JST開催日単位の申込。Stripe時はHosted Checkout URLを返す。Idempotency-Key必須 |
 | POST | /webhooks/stripe | Stripe署名必須。Checkout完了、月額更新、支払失敗・回復、解約予約・終了を冪等反映 |
 | POST | /billing/subscriptions/:id/cancel | 本人。次回更新を停止し、支払済み期間の権限を維持 |
 | GET | /admin/billing | ADMIN+AAL2。全会員の契約・1日利用・支払試行履歴 |
@@ -173,7 +173,7 @@ WIN5初版・訂正版の公開時は商品公開版と通知eventを同じDBト
 
 ## 料金・契約
 
-`BILLING_TRANSPORT=test` はローカル検証専用で、外部通信、カード入力、実請求を行わない。`stripe` はHosted Checkoutと署名付きWebhookを使用する。`LAUNCH_MODE=CLOUD_STAGING` または `FREE_REGISTRATION` では `disabled` を必須にし、購入画面を表示せず、CheckoutとWebhookを503で拒否する。新規購入停止は月額と1日利用の両方へ適用する。
+`BILLING_TRANSPORT=test` はローカルと`CLOUD_STAGING`の請求なし検証専用で、外部通信、カード入力、実請求を行わない。`stripe` はHosted Checkoutと署名付きWebhookを使用する。`CLOUD_STAGING`では`test`、`FREE_REGISTRATION`では`disabled`、`FULL`本番では`stripe`だけを許可する。新規購入停止は月額と1日利用の両方へ適用する。
 
 `GET /api/v1/auth/config` は新規登録の受付状態と、停止中だけ会員向け案内を返す。`POST /api/v1/auth/register`、LINEの新規登録開始・確定は、管理設定で停止中の場合 `REGISTRATION_PAUSED`（503）を返す。ログイン、メール確認、パスワード再設定は停止対象に含めない。切替は `PATCH /api/v1/admin/settings` でADMIN+AAL2、現在のrevision、変更理由、停止時の会員向け案内を必須とする。
 

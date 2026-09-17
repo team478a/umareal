@@ -178,7 +178,7 @@ WIN5は先に対象5レースそれぞれの通常結果を確定し、`/admin/w
 
 ## Stripe Checkout
 
-`LAUNCH_MODE=FREE_REGISTRATION` では `BILLING_TRANSPORT=disabled` とし、会員向け購入画面と購入APIを停止する。`FULL`へ進むときに `BILLING_TRANSPORT=stripe` を配備時の安全スイッチとして設定し、Secret key、Webhook secret、テスト／本番モード、創設・通常・1日利用のPrice IDは `/admin/settings` で管理する。管理画面の秘密値は暗号化され、保存後は再表示されない。管理画面未設定時だけ同名の環境変数を互換用フォールバックとして使う。Webhook URLは `{API公開URL}/api/v1/webhooks/stripe`。Checkoutの完了画面だけでは権限を付けず、`checkout.session.completed` の署名、live/testモード、JPY金額、内部申込ID、会員ID、プランを照合してから反映する。
+`LAUNCH_MODE=CLOUD_STAGING`では`BILLING_TRANSPORT=test`とし、カードや外部請求なしで月額・1日利用・解約・権限反映を確認する。`FREE_REGISTRATION`では`BILLING_TRANSPORT=disabled`として会員向け購入画面と購入APIを停止する。`FULL`へ進むときに`BILLING_TRANSPORT=stripe`を配備時の安全スイッチとして設定し、Secret key、Webhook secret、テスト／本番モード、創設・通常・1日利用のPrice IDは`/admin/settings`で管理する。管理画面の秘密値は暗号化され、保存後は再表示されない。管理画面未設定時だけ同名の環境変数を互換用フォールバックとして使う。Webhook URLは`{API公開URL}/api/v1/webhooks/stripe`。Checkoutの完了画面だけでは権限を付けず、`checkout.session.completed`の署名、live/testモード、JPY金額、内部申込ID、会員ID、プランを照合してから反映する。
 
 新規会員募集を一時停止する場合は、ADMINがAAL2で `/admin/settings` を開き、「新規会員登録」を無効化し、会員向け案内と監査用の変更理由を入力する。保存後にシークレットブラウザーで `/register` の案内と、既存会員の `/login` が利用できることを確認する。再開時はスイッチを有効化し、停止案内を空にして理由付きで保存する。停止中もメール確認とパスワード再設定を止めない。
 

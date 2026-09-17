@@ -22,7 +22,7 @@ export function launchCapabilities(mode: LaunchMode): LaunchCapabilities {
     freeContent: true,
     lineLogin: full,
     lineNotifications: full,
-    billing: full
+    billing: full || mode === 'CLOUD_STAGING'
   };
 }
 

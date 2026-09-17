@@ -1,5 +1,13 @@
 # 設計判断と保留事項
 
+## クラウド試験での有料会員フロー確認（2026-09-17）
+
+- 実稼働は有料機能の確認後に行う方針に合わせ、`CLOUD_STAGING`では`BILLING_TRANSPORT=test`だけを許可し、月額、1日利用、解約予約、支払失敗・回復、有限期間権限を請求なしで確認できるようにする。
+- テスト申込はStripe、カード情報、外部請求へ接続しない。画面は請求なしのテストであることを明示し、支払・契約・権限・監査のレコードはstaging DBへ通常どおり保存して運用確認に使う。
+- 申込時の本人確認は、確認済みメールに加えてローカルpassword hashまたはSupabaseの認証subjectのどちらかを必須とする。Supabase会員のパスワードはアプリDBへ保存せず、`/me`の申込可否表示と申込APIで同じ判定を使う。
+- `CLOUD_STAGING`で`stripe` transportまたはStripe live modeを指定した起動を拒否する。`FULL`本番は従来どおりStripe transportとlive modeを必須とし、`FREE_REGISTRATION`は課金を停止する。
+- この試験は正式価格、返金基準、領収書、特商法表示、ライブStripe疎通の承認を代替しない。
+
 ## クラウド試験のBasic認証解除（2026-09-17）
 
 - ユーザーの明示指示により、Render staging WebのBasic認証と専用Cookieを廃止する。`STAGING_ACCESS_USERNAME`と`STAGING_ACCESS_PASSWORD`はBlueprintおよび配備前検査の必須値から外す。
@@ -840,7 +848,7 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 - 一般募集前のクラウド結合試験を`CLOUD_STAGING`として分離する。SingaporeのWeb、private API、worker、PostgreSQLを本番とは別名のリソースで構成し、本番DBや資格情報を共有しない。
 - 当初はWeb入口をBasic認証で保護したが、2026-09-17の判断で廃止した。現在は検索除外ヘッダーを維持し、アプリ内の認証・権限で保護する。
 - `/health`はRenderヘルスチェック、LINE・Stripe・Resend webhookは各署名検証のため検索除外middlewareの対象外とする。APIはprivate serviceのまま外部公開しない。
-- stagingでも`NODE_ENV=production`、Supabase、Resend、Turnstile、HTTPS、制限付きDBロールを必須とし、本番相当のCookie・Origin・権限境界を検証する。LINE Login、LINE通知、Stripe決済は停止する。
+- stagingでも`NODE_ENV=production`、Supabase、Resend、Turnstile、HTTPS、制限付きDBロールを必須とし、本番相当のCookie・Origin・権限境界を検証する。LINE Login、LINE通知、実Stripe決済は停止し、請求なしのtest transportで契約・権限フローを検証する。
 - 開発版法務文書の例外は`CLOUD_STAGING`に限定する。管理画面の本番準備判定では引き続き未公開法務文書をブロッカーとして表示し、`FREE_REGISTRATION`と`FULL`では起動を拒否する。
 - stagingの料金を予測可能にするため、APIとworkerは最小の有料`0.5c-512mb`、Webと30日限定PostgreSQLは`free`へ固定する。2026年9月時点の基本compute料金は月額14 USDで、実際は秒単位の日割りとする。一般公開用`render.yaml`のプランは、利用量とバックアップ要件を確認するまで固定しない。
 
