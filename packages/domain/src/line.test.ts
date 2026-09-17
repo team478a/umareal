@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildPredictionLineMessage, buildRaceResultLineMessage, buildSupportReplyLineMessage, buildWin5LineMessage, buildWin5ResultLineMessage } from './line';
+import { buildBillingLineMessage, buildPredictionLineMessage, buildRaceResultLineMessage, buildSupportReplyLineMessage, buildWin5LineMessage, buildWin5ResultLineMessage } from './line';
 
 const base = { eventType: 'PREDICTION_PUBLISHED' as const, raceId: '38bbc51a-2aa4-4b43-8661-c3c6164e2f64', raceDate: '2026-09-12', venue: '東京', raceNumber: 11, raceName: 'テストステークス', version: 1, visibility: 'PAID' as const, appBaseUrl: 'https://members.example.jp' };
 describe('LINE notification message preparation', () => {
@@ -69,5 +69,20 @@ describe('evaluation result notification message preparation', () => {
     const message = buildWin5ResultLineMessage({ eventType: 'WIN5_EVALUATION_CONFIRMED', productId: base.raceId, targetDate: base.raceDate, title: 'WIN5紙面', resultVersion: 1, status: 'WIN5_ALL_WINNERS_RECOMMENDED', recommendedLegs: 5, appBaseUrl: base.appBaseUrl });
     expect(message.text).toContain('対象5レースすべてで勝ち馬を候補内に選出');
     expect(message.text).not.toMatch(/買い目|組み合わせ|購入|払戻|回収率|収支|利益|的中|馬番/);
+  });
+});
+
+describe('billing notification message preparation', () => {
+  it.each([
+    ['PAYMENT_SUCCEEDED', 'お支払いを確認しました'],
+    ['PAYMENT_FAILED', 'お支払いを確認できませんでした'],
+    ['PAYMENT_RECOVERED', 'お支払い状態が回復しました'],
+    ['CANCELLATION_SCHEDULED', '解約予約を受け付けました'],
+    ['SUBSCRIPTION_ENDED', '月額契約が終了しました']
+  ] as const)('builds a safe %s member notice', (eventType, heading) => {
+    const message = buildBillingLineMessage({ eventType, planCode: 'STANDARD', currentPeriodEndsAt: new Date('2026-10-17T00:00:00Z'), appBaseUrl: base.appBaseUrl });
+    expect(message.text).toContain(heading);
+    expect(message.text).toContain('/account');
+    expect(message.text).not.toMatch(/card|token|secret|provider/i);
   });
 });

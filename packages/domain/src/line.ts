@@ -50,6 +50,13 @@ const supportReplyNotificationInputSchema = z.object({
   appBaseUrl: z.string().url()
 }).strict();
 
+const billingNotificationInputSchema = z.object({
+  eventType: z.enum(['PAYMENT_SUCCEEDED', 'PAYMENT_FAILED', 'PAYMENT_RECOVERED', 'CANCELLATION_SCHEDULED', 'SUBSCRIPTION_ENDED']),
+  planCode: z.enum(['FOUNDER', 'STANDARD']),
+  currentPeriodEndsAt: z.coerce.date(),
+  appBaseUrl: z.string().url()
+}).strict();
+
 export type LineTextMessage = { type: 'text'; text: string };
 
 function singleLine(value: string) { return value.replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim(); }
@@ -117,6 +124,29 @@ export function buildSupportReplyLineMessage(raw: z.input<typeof supportReplyNot
   const url = checkedBaseUrl(input.appBaseUrl);
   const link = new URL('/support', url).toString();
   const text = ['お問い合わせへの回答があります', '回答内容は会員ページでご確認ください。', link].join('\n');
+  if (text.length > 5000) throw new Error('LINE text message exceeds the supported length');
+  return { type: 'text', text };
+}
+
+export function buildBillingLineMessage(raw: z.input<typeof billingNotificationInputSchema>): LineTextMessage {
+  const input = billingNotificationInputSchema.parse(raw);
+  const url = checkedBaseUrl(input.appBaseUrl);
+  const heading = {
+    PAYMENT_SUCCEEDED: 'お支払いを確認しました',
+    PAYMENT_FAILED: 'お支払いを確認できませんでした',
+    PAYMENT_RECOVERED: 'お支払い状態が回復しました',
+    CANCELLATION_SCHEDULED: '月額契約の解約予約を受け付けました',
+    SUBSCRIPTION_ENDED: '月額契約が終了しました'
+  }[input.eventType];
+  const plan = input.planCode === 'FOUNDER' ? '創設会員' : '通常月額会員';
+  const end = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', dateStyle: 'medium', timeStyle: 'short' }).format(input.currentPeriodEndsAt);
+  const detail = input.eventType === 'PAYMENT_FAILED'
+    ? `ご契約：${plan}\n支払い状態と閲覧期限をマイページでご確認ください。`
+    : input.eventType === 'SUBSCRIPTION_ENDED'
+      ? `ご契約：${plan}\n契約と閲覧権限の状態をマイページでご確認ください。`
+      : `ご契約：${plan}\n現在の閲覧期限：${end} JST`;
+  const link = new URL('/account', url).toString();
+  const text = [heading, detail, '詳細はマイページでご確認ください。', link].join('\n');
   if (text.length > 5000) throw new Error('LINE text message exceeds the supported length');
   return { type: 'text', text };
 }

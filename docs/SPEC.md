@@ -473,6 +473,8 @@ WIN5公開版は5レース、出走馬、中心馬、相手候補、注目馬、
 
 - 管理画面で成功率、失敗理由、未送信数、手動再送結果を確認できる。
 
+- ADMIN+AAL2は、通常予想、WIN5予想、課金状態の通知をログイン中の管理者本人へテスト送信できる。宛先はサーバーが本人の有効なLINE連携または確認済みメールに固定し、公開版、会員向け通知、配送、支払・契約・閲覧権限を変更しない。
+
 - 通知失敗を理由にWeb上のWIN5公開版を取消・削除しない。
 
 ### 10.3 性能目標
@@ -915,6 +917,8 @@ POST   /api/v1/admin/races/import
 POST   /api/v1/admin/races/:raceId/results/import
 POST   /api/v1/admin/races/:raceId/results/confirm
 POST   /api/v1/admin/notifications/:notificationId/retry
+GET    /api/v1/admin/notifications/test-options
+POST   /api/v1/admin/notifications/test-send
 
 POST   /api/v1/billing/checkout
 POST   /api/v1/billing/day-pass

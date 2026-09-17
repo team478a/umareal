@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req, ServiceUnavailableException } from '@nestjs/common';
-import { buildPredictionLineMessage, canManage, notificationListQuerySchema, notificationRetrySchema, notificationTestSendSchema, requiresMfa } from '@keiba/domain';
+import { buildBillingLineMessage, buildPredictionLineMessage, buildWin5LineMessage, canManage, notificationListQuerySchema, notificationRetrySchema, notificationTestSendSchema, publishablePredictionSchema, requiresMfa } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { decryptSecret, loadMailConfig, notificationRecipientWhere, Prisma } from '@keiba/db';
@@ -65,6 +65,90 @@ export class NotificationsController {
     } catch { throw new ServiceUnavailableException({ code: 'EMAIL_TEST_CONNECTION_FAILED', message: 'メールテスト送信に接続できませんでした。' }); }
     if (!response.ok) throw new ServiceUnavailableException({ code: `EMAIL_TEST_HTTP_${response.status}`, message: 'メールテスト送信が受理されませんでした。' });
     return 'RESEND' as const;
+  }
+
+  private async previewRacePredictionTest(raceId: string) {
+    const race = await this.auth.db.race.findUnique({ where: { id: raceId }, select: {
+      id: true, raceDate: true, venue: true, number: true, name: true,
+      prediction: { select: { draft: true, versions: { orderBy: { version: 'desc' }, take: 1, select: { version: true } } } }
+    } });
+    if (!race?.prediction) throw new NotFoundException({ code: 'PREDICTION_DRAFT_NOT_FOUND', message: '最終予想の下書きを保存してください。' });
+    const parsed = publishablePredictionSchema.safeParse(race.prediction.draft);
+    if (!parsed.success) throw new BadRequestException({ code: 'PREDICTION_DRAFT_NOT_READY', message: '公開できる状態の最終予想を保存してからテストしてください。' });
+    const previous = race.prediction.versions[0]?.version ?? 0;
+    const eventType = previous ? 'PREDICTION_CORRECTED' as const : 'PREDICTION_PUBLISHED' as const;
+    const version = previous + 1;
+    return {
+      eventType, contentLabel: previous ? 'パドック直前予想の訂正通知' : 'パドック直前予想の公開通知', version,
+      targetType: 'RACE', targetId: race.id,
+      message: buildPredictionLineMessage({ eventType, raceId: race.id, raceDate: race.raceDate, venue: race.venue, raceNumber: race.number, raceName: race.name, version, visibility: parsed.data.visibility!, appBaseUrl: process.env.APP_BASE_URL ?? 'http://127.0.0.1:3000' })
+    };
+  }
+
+  private async previewWin5PredictionTest(productId: string) {
+    const product = await this.auth.db.predictionProduct.findUnique({ where: { id: productId }, select: {
+      id: true, targetDate: true, title: true, summary: true, _count: { select: { races: true } }, versions: { orderBy: { version: 'desc' }, take: 1, select: { version: true } }
+    } });
+    if (!product) throw new NotFoundException({ code: 'WIN5_NOT_FOUND', message: 'WIN5予想が見つかりません。' });
+    if (product._count.races !== 5 || !product.summary.trim()) throw new BadRequestException({ code: 'WIN5_DRAFT_NOT_READY', message: '5レースと全体総評を保存してからテストしてください。' });
+    const previous = product.versions[0]?.version ?? 0;
+    const eventType = previous ? 'WIN5_PREVIEW_CORRECTED' as const : 'WIN5_PREVIEW_PUBLISHED' as const;
+    const version = previous + 1;
+    return {
+      eventType, contentLabel: previous ? 'WIN5紙面予想の訂正通知' : 'WIN5紙面予想の公開通知', version,
+      targetType: 'WIN5', targetId: product.id,
+      message: buildWin5LineMessage({ eventType, productId: product.id, targetDate: product.targetDate, title: product.title, version, appBaseUrl: process.env.APP_BASE_URL ?? 'http://127.0.0.1:3000' })
+    };
+  }
+
+  private async previewBillingTest(contentType: Extract<z.infer<typeof notificationTestSendSchema>, { subscriptionId: string }>['contentType'], subscriptionId: string) {
+    const subscription = await this.auth.db.subscription.findUnique({ where: { id: subscriptionId }, select: { id: true, planCode: true, currentPeriodEndsAt: true } });
+    if (!subscription) throw new NotFoundException({ code: 'SUBSCRIPTION_NOT_FOUND', message: '月額契約が見つかりません。' });
+    const eventType = {
+      BILLING_PAYMENT_SUCCEEDED: 'PAYMENT_SUCCEEDED', BILLING_PAYMENT_FAILED: 'PAYMENT_FAILED', BILLING_PAYMENT_RECOVERED: 'PAYMENT_RECOVERED',
+      BILLING_CANCELLATION_SCHEDULED: 'CANCELLATION_SCHEDULED', BILLING_SUBSCRIPTION_ENDED: 'SUBSCRIPTION_ENDED'
+    }[contentType] as 'PAYMENT_SUCCEEDED' | 'PAYMENT_FAILED' | 'PAYMENT_RECOVERED' | 'CANCELLATION_SCHEDULED' | 'SUBSCRIPTION_ENDED';
+    const contentLabel = {
+      PAYMENT_SUCCEEDED: '支払成功通知', PAYMENT_FAILED: '支払失敗通知', PAYMENT_RECOVERED: '支払回復通知',
+      CANCELLATION_SCHEDULED: '解約予約通知', SUBSCRIPTION_ENDED: '契約終了通知'
+    }[eventType];
+    return {
+      eventType, contentLabel, version: 1, targetType: 'SUBSCRIPTION', targetId: subscription.id,
+      message: buildBillingLineMessage({ eventType, planCode: z.enum(['FOUNDER', 'STANDARD']).parse(subscription.planCode), currentPeriodEndsAt: subscription.currentPeriodEndsAt, appBaseUrl: process.env.APP_BASE_URL ?? 'http://127.0.0.1:3000' })
+    };
+  }
+
+  private async resolveTestPreview(req: AppRequest, input: z.infer<typeof notificationTestSendSchema>) {
+    if (input.contentType === 'RACE_ANNOUNCEMENT') {
+      const preview = await this.previewRaceAnnouncement(req, { raceId: input.raceId });
+      return { ...preview, targetType: 'RACE', targetId: input.raceId };
+    }
+    if (input.contentType === 'FREE_REPORT_PRE_RACE' || input.contentType === 'FREE_REPORT_POST_RACE_REVIEW') {
+      const preview = await this.previewFreeReport(req, { raceId: input.raceId, kind: input.contentType === 'FREE_REPORT_PRE_RACE' ? 'PRE_RACE' : 'POST_RACE_REVIEW', revision: input.draftRevision });
+      return { ...preview, targetType: 'RACE', targetId: input.raceId };
+    }
+    if (input.contentType === 'RACE_PREDICTION') return this.previewRacePredictionTest(input.raceId);
+    if (input.contentType === 'WIN5_PREDICTION') return this.previewWin5PredictionTest(input.productId);
+    return this.previewBillingTest(input.contentType, input.subscriptionId);
+  }
+
+  @Get('test-options')
+  async testOptions(@Req() req: AppRequest) {
+    const actor = await this.staff(req, ['ADMIN']);
+    const [races, products, subscriptions, settings, user] = await this.auth.db.$transaction([
+      this.auth.db.race.findMany({ where: { prediction: { isNot: null } }, orderBy: { startsAt: 'desc' }, take: 50, select: { id: true, raceDate: true, venue: true, number: true, name: true } }),
+      this.auth.db.predictionProduct.findMany({ orderBy: { targetDate: 'desc' }, take: 50, select: { id: true, targetDate: true, title: true, status: true } }),
+      this.auth.db.subscription.findMany({ orderBy: { updatedAt: 'desc' }, take: 50, select: { id: true, planCode: true, status: true, currentPeriodEndsAt: true, user: { select: { displayName: true } } } }),
+      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { lineNotificationsEnabled: true, emailNotificationsEnabled: true } }),
+      this.auth.db.user.findUniqueOrThrow({ where: { id: actor.id }, select: { email: true, emailVerifiedAt: true, emailDeliveryDisabledAt: true, lineAccount: { select: { unlinkedAt: true, notificationDisabledAt: true } } } })
+    ]);
+    return {
+      channels: {
+        email: settings.emailNotificationsEnabled && !!user.email && !!user.emailVerifiedAt && !user.emailDeliveryDisabledAt,
+        line: settings.lineNotificationsEnabled && !!user.lineAccount && !user.lineAccount.unlinkedAt && !user.lineAccount.notificationDisabledAt
+      },
+      races, products, subscriptions
+    };
   }
 
   @Get('previews/race-announcement')
@@ -151,16 +235,14 @@ export class NotificationsController {
       if (previous.requestHash !== requestHash) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: '同じテスト送信キーが異なる内容で使われています。' });
       return previous.response;
     }
-    const preview = input.contentType === 'RACE_ANNOUNCEMENT'
-      ? await this.previewRaceAnnouncement(req, { raceId: input.raceId })
-      : await this.previewFreeReport(req, { raceId: input.raceId, kind: input.contentType === 'FREE_REPORT_PRE_RACE' ? 'PRE_RACE' : 'POST_RACE_REVIEW', revision: input.draftRevision });
+    const preview = await this.resolveTestPreview(req, input);
     const [settings, user] = await this.auth.db.$transaction([
       this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { lineNotificationsEnabled: true, emailNotificationsEnabled: true } }),
       this.auth.db.user.findUniqueOrThrow({ where: { id: actor.id }, select: { email: true, emailVerifiedAt: true, emailDeliveryDisabledAt: true, lineAccount: { select: { subject: true, unlinkedAt: true, notificationDisabledAt: true } } } })
     ]);
     const reject = async (error: BadRequestException | ServiceUnavailableException): Promise<never> => {
       const detail = error.getResponse(); const errorCode = typeof detail === 'object' && detail && 'code' in detail && typeof detail.code === 'string' ? detail.code : 'NOTIFICATION_TEST_REJECTED';
-      await this.auth.db.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: 'NOTIFICATION_TEST_SEND_FAILED', targetType: 'RACE', targetId: input.raceId, reason: input.reason, details: { channel: input.channel, contentType: input.contentType, eventType: preview.eventType, errorCode }, requestId: req.requestId } });
+      await this.auth.db.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: 'NOTIFICATION_TEST_SEND_FAILED', targetType: preview.targetType, targetId: preview.targetId, reason: input.reason, details: { channel: input.channel, contentType: input.contentType, eventType: preview.eventType, errorCode }, requestId: req.requestId } });
       throw error;
     };
     if (input.channel === 'LINE' && !settings.lineNotificationsEnabled) await reject(new ServiceUnavailableException({ code: 'LINE_NOTIFICATIONS_STOPPED', message: 'LINE通知が停止中です。管理設定を確認してください。' }));
@@ -175,7 +257,7 @@ export class NotificationsController {
     } catch (error) {
       const detail = error instanceof ServiceUnavailableException ? error.getResponse() : null;
       const errorCode = typeof detail === 'object' && detail && 'code' in detail && typeof detail.code === 'string' ? detail.code : 'NOTIFICATION_TEST_FAILED';
-      await this.auth.db.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: 'NOTIFICATION_TEST_SEND_FAILED', targetType: 'RACE', targetId: input.raceId, reason: input.reason, details: { channel: input.channel, contentType: input.contentType, eventType: preview.eventType, errorCode }, requestId: req.requestId } });
+      await this.auth.db.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: 'NOTIFICATION_TEST_SEND_FAILED', targetType: preview.targetType, targetId: preview.targetId, reason: input.reason, details: { channel: input.channel, contentType: input.contentType, eventType: preview.eventType, errorCode }, requestId: req.requestId } });
       throw error;
     }
     const response = { status: transport === 'TEST_ONLY' ? 'SIMULATED' : 'SENT', channel: input.channel, transport, contentLabel: preview.contentLabel, version: preview.version, sentAt: new Date() };
@@ -186,7 +268,7 @@ export class NotificationsController {
         if (stored.requestHash !== requestHash) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: '同じテスト送信キーが異なる内容で使われています。' });
         return stored.response;
       }
-      await tx.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: 'NOTIFICATION_TEST_SENT', targetType: 'RACE', targetId: input.raceId, reason: input.reason, details: { channel: input.channel, contentType: input.contentType, eventType: preview.eventType, transport, status: response.status, version: preview.version }, requestId: req.requestId } });
+      await tx.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: 'NOTIFICATION_TEST_SENT', targetType: preview.targetType, targetId: preview.targetId, reason: input.reason, details: { channel: input.channel, contentType: input.contentType, eventType: preview.eventType, transport, status: response.status, version: preview.version }, requestId: req.requestId } });
       await tx.idempotencyKey.create({ data: { key: idempotencyKey, requestHash, response } });
       return response;
     });
