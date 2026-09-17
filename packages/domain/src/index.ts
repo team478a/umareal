@@ -12,6 +12,7 @@ export * from './line-login';
 export * from './results';
 export * from './billing';
 export * from './billing-support';
+export * from './support';
 export * from './free-report';
 export * from './publication-schedule';
 export * from './legal';

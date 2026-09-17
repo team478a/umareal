@@ -10,7 +10,8 @@ const subjects: Record<string, string> = {
   FREE_REPORT_PUBLISHED: '無料パドック速報を公開しました',
   FREE_REPORT_REVIEW_PUBLISHED: '無料速報のレース後検証を公開しました',
   WIN5_PREVIEW_PUBLISHED: 'WIN5紙面予想を公開しました',
-  WIN5_PREVIEW_CORRECTED: 'WIN5紙面予想を訂正しました'
+  WIN5_PREVIEW_CORRECTED: 'WIN5紙面予想を訂正しました',
+  SUPPORT_RESPONSE_POSTED: 'お問い合わせへの回答があります'
 };
 
 export class ResendEmailTransport implements NotificationTransport {

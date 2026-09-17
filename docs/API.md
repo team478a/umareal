@@ -18,7 +18,7 @@
 | POST | /auth/mfa/verify | code、Supabase初回だけfactorId。challenge検証後にセッションをAAL2へ昇格。localは使用済み時刻ステップも拒否 |
 | GET | /me | 本人の会員・通知・同意・有限期間権限。秘密情報を選択除外 |
 | PATCH | /me/preferences | 本人。emailEnabled/predictions/changes/articles/billing（boolean）。配信拒否検出後のemailEnabled再開は拒否 |
-| GET | /me/notifications | 本人。会員登録後に発生した対象レース告知、WIN5紙面公開案内、閲覧権限内の予想公開履歴、通常レース・WIN5の評価結果確定履歴。結果通知は概要と詳細ページURLだけを返す。`page`、`limit`、`unread` |
+| GET | /me/notifications | 本人。会員登録後に発生した対象レース告知、WIN5紙面公開案内、閲覧権限内の予想公開履歴、通常レース・WIN5の評価結果確定履歴、本人の一般問い合わせへの回答通知。結果通知は概要と詳細ページURLだけを返す。問い合わせ回答は本人だけに件名と`/support`導線を返す。`page`、`limit`、`unread` |
 | POST | /me/notifications/:eventId/read | 本人。閲覧可能なお知らせを冪等に既読化 |
 | GET | /races | 全員。`date`、`venue`、`publication=ALL\|ANNOUNCED\|PUBLISHED\|UNPUBLISHED`、ページネーション。予想本文を含めない |
 | GET | /races | 公開情報のみ、date（既定JST当日）、page/limit（既定1/20、最大50） |
@@ -34,12 +34,22 @@
 | GET | /admin/acquisition/export.csv | ADMIN+AAL2。`days=1..365`の個人情報を含まない流入別集計CSV |
 | GET | /admin/operations?date=YYYY-MM-DD | ADMIN+AAL2またはOPERATOR。JST運用日のレース進捗・期限・警告、6段階のリハーサル判定、運用機能の事前確認を返す |
 | GET | /admin/incidents | ADMIN+AAL2またはOPERATOR。機能停止、通知遅延・失敗・停滞、未照合Webhook、案内文案を返す。秘密値は返さない |
+| GET | /admin/operational-alerts | ADMIN+AAL2またはOPERATOR。配信・予約公開・公開期限・問い合わせ期限の運用アラート、外部配送結果、状態別件数を返す |
+| GET/PATCH | /admin/operational-alerts/settings | 読取はADMIN+AAL2またはOPERATOR、変更はADMIN+AAL2。最低重大度と最大10件の運営メール通知先を管理する |
+| POST | /admin/operational-alerts/:alertId/acknowledge | ADMIN+AAL2またはOPERATOR。理由付きでアラートを確認済みにする |
+| POST | /admin/operational-alerts/:alertId/resolve | ADMIN+AAL2またはOPERATOR。理由付きでアラートを解決済みにする。問い合わせ期限条件は解消時にワーカーも自動解決する |
 | GET | /admin/backups/status | ADMIN+AAL2。最後のローカル隔離復元検証の状態、ハッシュ、件数照合結果を返す。資格情報と絶対パスは返さない |
 | GET | /admin/readiness | ADMIN+AAL2。認証・外部接続・法務データ・運用復旧の準備状態、根拠、次の対応を返す。秘密値を返さず、公開承認には使わない |
 | GET | /me/closure | 本人。退会可否、契約・1日利用の阻害要因、保持対象を返す |
 | POST | /me/close | MEMBER本人。確認文言と、パスワード設定済みなら現在のパスワードが必須。セッション、通知、LINE、閲覧権限を停止し退会記録を追記 |
 | GET | /admin/account-closures | ADMIN+AAL2。退会処理済み会員と保持方針バージョンをページング表示 |
 | POST | /me/journey | MEMBER本人。`LINE_GUIDANCE_VIEWED`、`PLAN_VIEWED`または`CHECKOUT_REVIEWED`の初回到達を冪等記録。初回ログインは認証成功時にサーバーが記録 |
+| GET | /support/me | MEMBER本人。自分の一般問い合わせと会員向け回答だけを返し、内部対応理由を返さない |
+| POST | /support/requests | MEMBER本人。種別、件名、本文をIdempotency-Key付きで受付し、内容と作成履歴を追記保護する |
+| POST | /support/requests/:id/messages | MEMBER本人。所有する問い合わせへ追加情報をIdempotency-Key付きで追記する。回答済みなら受付済みへ再開し、他会員の問い合わせは存在を明かさず404にする |
+| GET | /admin/support | ADMIN+AAL2またはOPERATOR。状態で絞り込み、会員、内容、担当者、優先度、対応期限、内部対応理由、会員向け回答を含む履歴と有効な担当候補を返す。期限超過、優先度、期限の順に表示する |
+| POST | /admin/support/:id/status | ADMIN+AAL2またはOPERATOR。理由付きで確認開始・回答解決・再開を追記し、解決時は会員向け回答を必須にする。回答済みイベントと本人宛通知を同一トランザクションで作成する |
+| POST | /admin/support/:id/triage | ADMIN+AAL2またはOPERATOR。理由付きで優先度、担当者、対応期限を更新する。担当者は有効なADMINまたはOPERATORに限定する |
 | POST | /billing/checkout | MEMBER本人。月額申込。スタッフロールは申込不可。test transportはローカル即時確定、stripe transportはCheckout URLを返し権限をまだ付与しない |
 | POST | /billing/day-pass | MEMBER本人。JST開催日の1日利用。スタッフロールは申込不可。stripe transportでは署名済みWebhook後だけ有効化 |
 | POST | /webhooks/stripe | Stripe署名必須。Checkout申込、会員、金額、通貨、動作モードを照合し、契約・支払・有限期間権限を冪等作成 |

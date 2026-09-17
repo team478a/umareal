@@ -51,6 +51,9 @@ model User {
   billingCheckouts               BillingCheckout[]
   billingSupportRequests         BillingSupportRequest[]    @relation("BillingSupportRequester")
   billingSupportEvents           BillingSupportEvent[]      @relation("BillingSupportActor")
+  supportRequests                SupportRequest[]           @relation("SupportRequester")
+  assignedSupportRequests        SupportRequest[]           @relation("SupportAssignee")
+  supportEvents                  SupportEvent[]             @relation("SupportActor")
   journeyEvents                  MemberJourneyEvent[]
   assignments                    ExpertAssignment[]
   resets                         PasswordReset[]
@@ -387,6 +390,47 @@ model BillingSupportEvent {
 
   @@index([requestId, occurredAt])
   @@map("billing_support_events")
+}
+
+model SupportRequest {
+  id        String         @id @default(uuid()) @db.Uuid
+  userId    String         @db.Uuid
+  user      User           @relation("SupportRequester", fields: [userId], references: [id])
+  category  String
+  subject   String
+  message   String
+  status    String         @default("OPEN")
+  priority  String         @default("NORMAL")
+  assignedToId String?     @db.Uuid
+  assignee  User?          @relation("SupportAssignee", fields: [assignedToId], references: [id])
+  dueAt     DateTime?      @db.Timestamptz(3)
+  createdAt DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime       @default(now()) @db.Timestamptz(3)
+  events    SupportEvent[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([status, priority, dueAt])
+  @@index([assignedToId, status])
+  @@map("support_requests")
+}
+
+model SupportEvent {
+  id            String         @id @default(uuid()) @db.Uuid
+  requestId     String         @db.Uuid
+  request       SupportRequest @relation(fields: [requestId], references: [id])
+  eventType     String
+  actorId       String         @db.Uuid
+  actor         User           @relation("SupportActor", fields: [actorId], references: [id])
+  actorRole     String
+  reason        String
+  publicMessage String?
+  occurredAt    DateTime       @default(now()) @db.Timestamptz(3)
+  createdTxId   BigInt         @default(dbgenerated("txid_current()"))
+  notificationEvent NotificationEvent?
+
+  @@index([requestId, occurredAt])
+  @@map("support_events")
 }
 
 model BillingEvent {
@@ -884,6 +928,8 @@ model NotificationEvent {
   raceResultVersion       RaceResultVersion?        @relation(fields: [raceResultVersionId], references: [id])
   win5EvaluationVersionId String?                   @unique @db.Uuid
   win5EvaluationVersion   Win5EvaluationVersion?    @relation(fields: [win5EvaluationVersionId], references: [id])
+  supportEventId          String?                   @unique @db.Uuid
+  supportEvent            SupportEvent?             @relation(fields: [supportEventId], references: [id])
   eventType               String
   status                  String
   payload                 Json

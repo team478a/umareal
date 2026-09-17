@@ -59,6 +59,10 @@ erDiagram
   notification_events ||--o{ notification_deliveries : expands
   users ||--o{ notification_deliveries : receives
   notification_deliveries ||--o{ notification_attempts : records
+  users ||--o{ support_requests : asks
+  users ||--o{ support_requests : assigned_to
+  support_requests ||--o{ support_events : records
+  support_events ||--o| notification_events : queues
   races ||--o| race_result_drafts : edits
   races ||--o{ race_result_versions : confirms
   race_result_versions ||--o| notification_events : queues
@@ -128,9 +132,11 @@ Phase 6Yでsystem_settingsにメール登録Bot対策の有効状態、Turnstile
 
 Phase 6ZでusersにSupabaseの予備TOTP factor IDと、15分有効の登録途中factor ID・用途・期限を追加した。主・予備・登録途中のfactor IDには一意索引を持たせ、主と予備が同じIDになること、および登録途中3項目の部分保存をDB制約で拒否する。TOTP secretは自社DBへ保存しない。
 
-Phase 7Aでoperational_alert_settings、operational_alerts、operational_alert_deliveriesを追加した。設定はsingletonで有効状態、最低重大度、運営メール通知先、revisionを保持する。アラートは異常元の一意キー、重大度、安全な要約、未確認・確認済み・解決済みの各記録を保持する。外部配送はアラートと通知先の組を一意にし、lease、再試行回数、結果だけを保存する。会員ID、会員メール、LINE subject、予想本文は保持しない。
+Phase 7Aでoperational_alert_settings、operational_alerts、operational_alert_deliveriesを追加した。設定はsingletonで有効状態、最低重大度、運営メール通知先、revisionを保持する。アラートは異常元の一意キー、重大度、安全な要約、未確認・確認済み・解決済みの各記録を保持する。外部配送はアラートと通知先の組を一意にし、lease、再試行回数、結果だけを保存する。Phase 7Dでは問い合わせ期限の接近・超過も同じアラート基盤で検知し、条件解消時の自動解決は`SYSTEM:`理由と解決者なしの組だけをDB制約で許可する。外部本文には会員ID、会員メール、LINE subject、予想本文、問い合わせ件名・本文・回答を含めない。
 
 Phase 7B第1区間でbilling_support_requestsとbilling_support_eventsを追加した。問い合わせは会員と任意の本人所有支払に紐づき、分類、本文、現在状態を保持する。返金・領収書分類では対象支払をDB制約でも必須にする。問い合わせ本体は削除禁止、状態変更eventは追記専用とし、管理者の対応理由と監査履歴を残す。
+
+Phase 7Dでsupport_requestsとsupport_eventsを追加した。一般問い合わせの件名と本文は作成後に変更・削除できず、状態変更は追記専用eventとして内部理由と会員向け回答を分離する。会員の追加情報は`MEMBER_MESSAGE`イベントとして本人だけが追記でき、回答済み問い合わせは受付済みへ再開する。運営用の優先度、任意の担当者、任意の対応期限を本体へ保持し、担当者は有効なADMIN/OPERATORだけに制限する。振り分けは`TRIAGED`イベントと監査へ追記する。回答済みeventはnotification_eventsと同一トランザクションで1対1に結び、本人だけへWeb・メール・LINE通知を展開する。外部通知には問い合わせ内容と回答内容を含めない。
 
 WIN5 Phase 2で`prediction_products`、`prediction_product_races`、`prediction_product_selections`、`prediction_product_previews`、`prediction_product_versions`を物理追加した。既存の`predictions`系は1レース単位のパドック直前予想として残し、WIN5データを混在させない。
 

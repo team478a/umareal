@@ -39,8 +39,13 @@ describe('staff role management', () => {
     const expertFixture = await account('EXPERT');
     const nextExpertFixture = await account('EXPERT');
     const suffix = Math.random().toString(36).slice(2, 9);
-    const future = new Date(Date.now() + 3 * 86400000);
-    const targetDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(future);
+    const existingTargetDates = new Set((await db.predictionProduct.findMany({ where: { type: 'WIN5_PREVIEW' }, select: { targetDate: true } })).map(item => item.targetDate));
+    let future = new Date(Date.now() + 3 * 86400000);
+    let targetDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(future);
+    while (existingTargetDates.has(targetDate)) {
+      future = new Date(future.getTime() + 86400000);
+      targetDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(future);
+    }
     const race = await db.race.create({ data: { raceDate: targetDate, venue: `権限${suffix}`, number: 1, name: '担当解除保護', startsAt: future, status: 'SCHEDULED' } });
     await db.expertAssignment.create({ data: { raceId: race.id, userId: expertFixture.user.id } });
     const product = await db.predictionProduct.create({ data: { targetDate, title: '担当解除保護WIN5', expertId: expertFixture.user.id, scheduledPublishAt: new Date(Date.now() + 3600000), confidence: 'B', updatedBy: actorFixture.user.id } });

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { buildPredictionLineMessage, buildRaceResultLineMessage, buildWin5LineMessage, buildWin5ResultLineMessage, notificationIdempotencyKey, retryDelayMs } from '@keiba/domain';
+import { buildPredictionLineMessage, buildRaceResultLineMessage, buildSupportReplyLineMessage, buildWin5LineMessage, buildWin5ResultLineMessage, notificationIdempotencyKey, retryDelayMs } from '@keiba/domain';
 import type { LineTextMessage } from '@keiba/domain';
 import { notificationRecipientWhere, PrismaClient } from '@keiba/db';
 
@@ -48,9 +48,9 @@ async function refreshEventStatus(db: PrismaClient, eventId: string) {
   await db.notificationEvent.update({ where: { id: eventId }, data: { status, updatedAt: new Date() } });
 }
 
-async function expandEvents(db: PrismaClient, limit: number, channel: DeliveryChannel) {
+async function expandEvents(db: PrismaClient, limit: number, channel: DeliveryChannel, eventId?: string) {
   const marker = channel === 'LINE' ? 'expandedAt' : 'emailExpandedAt';
-  const candidates = await db.notificationEvent.findMany({ where: { [marker]: null }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: limit, select: { id: true } });
+  const candidates = await db.notificationEvent.findMany({ where: { [marker]: null, ...(eventId ? { id: eventId } : {}) }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: limit, select: { id: true } });
   let expanded = 0;
   for (const candidate of candidates) {
     const didExpand = await db.$transaction(async tx => {
@@ -58,13 +58,15 @@ async function expandEvents(db: PrismaClient, limit: number, channel: DeliveryCh
         ? await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM notification_events WHERE id = ${candidate.id}::uuid AND "expandedAt" IS NULL FOR UPDATE`
         : await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM notification_events WHERE id = ${candidate.id}::uuid AND "emailExpandedAt" IS NULL FOR UPDATE`;
       if (!locked.length) return false;
-      const event = await tx.notificationEvent.findUniqueOrThrow({ where: { id: candidate.id }, include: { version: { include: { prediction: { include: { race: true } } } }, announcement: { include: { race: true } }, freeReportVersion: { include: { race: true } }, productVersion: { include: { product: { include: { races: { orderBy: { legNumber: 'asc' }, include: { race: true } } } } } }, raceResultVersion: { include: { race: true } }, win5EvaluationVersion: { include: { product: { include: { races: { orderBy: { legNumber: 'asc' }, include: { race: true } } } } } } } });
+      const event = await tx.notificationEvent.findUniqueOrThrow({ where: { id: candidate.id }, include: { version: { include: { prediction: { include: { race: true } } } }, announcement: { include: { race: true } }, freeReportVersion: { include: { race: true } }, productVersion: { include: { product: { include: { races: { orderBy: { legNumber: 'asc' }, include: { race: true } } } } } }, raceResultVersion: { include: { race: true } }, win5EvaluationVersion: { include: { product: { include: { races: { orderBy: { legNumber: 'asc' }, include: { race: true } } } } } }, supportEvent: { include: { request: true } } } });
       const race = event.version?.prediction.race ?? event.announcement?.race ?? event.freeReportVersion?.race ?? event.productVersion?.product.races[0]?.race ?? event.raceResultVersion?.race ?? event.win5EvaluationVersion?.product.races[0]?.race;
-      if (!race) throw new Error('Notification event target is missing');
+      if (!race && !event.supportEvent) throw new Error('Notification event target is missing');
       const now = new Date();
-      const recipients = await tx.user.findMany({ where: notificationRecipientWhere({ channel, eventType: event.eventType, visibility: event.productVersion ? 'FREE' : (event.version?.visibility ?? 'FREE') as 'FREE' | 'PAID', raceDate: event.productVersion?.product.targetDate ?? event.win5EvaluationVersion?.product.targetDate ?? race.raceDate, now }), select: { id: true } });
-      const targetVersion = event.version?.version ?? event.announcement?.version ?? event.freeReportVersion?.version ?? event.productVersion?.version ?? event.raceResultVersion?.version ?? event.win5EvaluationVersion!.version;
-      const targetId = event.productVersion?.id ?? event.raceResultVersion?.id ?? event.win5EvaluationVersion?.id ?? race.id;
+      const recipients = event.supportEvent
+        ? [{ id: event.supportEvent.request.userId }]
+        : await tx.user.findMany({ where: notificationRecipientWhere({ channel, eventType: event.eventType, visibility: event.productVersion ? 'FREE' : (event.version?.visibility ?? 'FREE') as 'FREE' | 'PAID', raceDate: event.productVersion?.product.targetDate ?? event.win5EvaluationVersion?.product.targetDate ?? race!.raceDate, now }), select: { id: true } });
+      const targetVersion = event.version?.version ?? event.announcement?.version ?? event.freeReportVersion?.version ?? event.productVersion?.version ?? event.raceResultVersion?.version ?? event.win5EvaluationVersion?.version ?? 1;
+      const targetId = event.supportEvent?.id ?? event.productVersion?.id ?? event.raceResultVersion?.id ?? event.win5EvaluationVersion?.id ?? race!.id;
       if (recipients.length) await tx.notificationDelivery.createMany({ data: recipients.map(recipient => ({ eventId: event.id, userId: recipient.id, channel, idempotencyKey: notificationIdempotencyKey({ eventType: event.eventType, targetId, recipientId: recipient.id, version: targetVersion, channel }) })), skipDuplicates: true });
       await tx.notificationEvent.update({ where: { id: event.id }, data: { [marker]: now, updatedAt: now } });
       return true;
@@ -77,19 +79,21 @@ async function expandEvents(db: PrismaClient, limit: number, channel: DeliveryCh
   return expanded;
 }
 
-async function claimDeliveries(db: PrismaClient, channel: DeliveryChannel, limit: number) {
+async function claimDeliveries(db: PrismaClient, channel: DeliveryChannel, limit: number, eventId?: string) {
   const leaseToken = randomUUID();
   const staleAt = new Date(Date.now() - 5 * 60_000);
   const now = new Date();
   const ids = await db.$transaction(async tx => {
-    const rows = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM notification_deliveries WHERE channel = ${channel} AND ((status = 'QUEUED' AND "nextAttemptAt" <= ${now}) OR (status = 'SENDING' AND "lockedAt" < ${staleAt})) ORDER BY "nextAttemptAt", id FOR UPDATE SKIP LOCKED LIMIT ${limit}`;
+    const rows = eventId
+      ? await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM notification_deliveries WHERE channel = ${channel} AND "eventId" = ${eventId}::uuid AND ((status = 'QUEUED' AND "nextAttemptAt" <= ${now}) OR (status = 'SENDING' AND "lockedAt" < ${staleAt})) ORDER BY "nextAttemptAt", id FOR UPDATE SKIP LOCKED LIMIT ${limit}`
+      : await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM notification_deliveries WHERE channel = ${channel} AND ((status = 'QUEUED' AND "nextAttemptAt" <= ${now}) OR (status = 'SENDING' AND "lockedAt" < ${staleAt})) ORDER BY "nextAttemptAt", id FOR UPDATE SKIP LOCKED LIMIT ${limit}`;
     if (rows.length) await tx.notificationDelivery.updateMany({ where: { id: { in: rows.map(row => row.id) } }, data: { status: 'SENDING', leaseToken, lockedAt: now, updatedAt: now } });
     return rows.map(row => row.id);
   });
   return { ids, leaseToken };
 }
 
-async function runChannelBatch(input: { db: PrismaClient; channel: DeliveryChannel; transport?: NotificationTransport; limit?: number; now?: () => Date }): Promise<BatchResult> {
+async function runChannelBatch(input: { db: PrismaClient; channel: DeliveryChannel; transport?: NotificationTransport; limit?: number; now?: () => Date; eventId?: string }): Promise<BatchResult> {
   const { db, channel } = input;
   const limit = Math.min(Math.max(input.limit ?? 50, 1), 200);
   const now = input.now ?? (() => new Date());
@@ -98,8 +102,8 @@ async function runChannelBatch(input: { db: PrismaClient; channel: DeliveryChann
   const result: BatchResult = { disabled: !enabled, expandedEvents: 0, claimedDeliveries: 0, sent: 0, retried: 0, failed: 0, skipped: 0 };
   if (result.disabled) return result;
   const transport = input.transport ?? new TestNotificationTransport();
-  result.expandedEvents = await expandEvents(db, limit, channel);
-  const claim = await claimDeliveries(db, channel, limit);
+  result.expandedEvents = await expandEvents(db, limit, channel, input.eventId);
+  const claim = await claimDeliveries(db, channel, limit, input.eventId);
   result.claimedDeliveries = claim.ids.length;
 
   for (const id of claim.ids) {
@@ -116,7 +120,8 @@ async function runChannelBatch(input: { db: PrismaClient; channel: DeliveryChann
             freeReportVersion: { include: { race: true } },
             productVersion: { include: { product: { include: { races: { orderBy: { legNumber: 'asc' }, include: { race: true } } } } } },
             raceResultVersion: { include: { race: true, predictionEvaluations: { include: { predictionVersion: { select: { version: true } } } } } },
-            win5EvaluationVersion: { include: { product: { include: { races: { orderBy: { legNumber: 'asc' }, include: { race: true } } } } } }
+            win5EvaluationVersion: { include: { product: { include: { races: { orderBy: { legNumber: 'asc' }, include: { race: true } } } } } },
+            supportEvent: { include: { request: true } }
           }
         }
       }
@@ -136,10 +141,11 @@ async function runChannelBatch(input: { db: PrismaClient; channel: DeliveryChann
     const productVersion = delivery.event.productVersion;
     const raceResultVersion = delivery.event.raceResultVersion;
     const win5EvaluationVersion = delivery.event.win5EvaluationVersion;
+    const supportEvent = delivery.event.supportEvent;
     const race = version?.prediction.race ?? announcement?.race ?? freeReport?.race ?? productVersion?.product.races[0]?.race ?? raceResultVersion?.race ?? win5EvaluationVersion?.product.races[0]?.race;
-    if (!race) throw new Error('Notification event target is missing');
-    const preferenceEnabled = ['PREDICTION_CORRECTED', 'WIN5_PREVIEW_CORRECTED'].includes(delivery.event.eventType) ? delivery.user.preferences?.changes !== false : delivery.user.preferences?.predictions !== false;
-    const entitlementActive = !!productVersion || !version || version.visibility === 'FREE' || delivery.user.entitlements.some(item => !item.revokedAt && item.startsAt <= startedAt && item.endsAt > startedAt && (!item.raceDate || item.raceDate === race.raceDate));
+    if (!race && !supportEvent) throw new Error('Notification event target is missing');
+    const preferenceEnabled = supportEvent ? true : ['PREDICTION_CORRECTED', 'WIN5_PREVIEW_CORRECTED'].includes(delivery.event.eventType) ? delivery.user.preferences?.changes !== false : delivery.user.preferences?.predictions !== false;
+    const entitlementActive = !!supportEvent || !!productVersion || !version || version.visibility === 'FREE' || delivery.user.entitlements.some(item => !item.revokedAt && item.startsAt <= startedAt && item.endsAt > startedAt && (!item.raceDate || item.raceDate === race!.raceDate));
     const channelSkipCode = channel === 'LINE'
       ? !delivery.user.lineAccount || delivery.user.lineAccount.unlinkedAt ? 'LINE_UNLINKED' : delivery.user.lineAccount.notificationDisabledAt ? 'LINE_BLOCKED' : null
       : !delivery.user.email ? 'EMAIL_MISSING' : !delivery.user.emailVerifiedAt ? 'EMAIL_UNVERIFIED' : delivery.user.emailDeliveryDisabledAt ? 'EMAIL_BLOCKED' : delivery.user.preferences?.emailEnabled === false ? 'EMAIL_DISABLED' : null;
@@ -167,18 +173,20 @@ async function runChannelBatch(input: { db: PrismaClient; channel: DeliveryChann
     const appBaseUrl = process.env.APP_BASE_URL ?? 'http://127.0.0.1:3000';
     const latestRaceEvaluation = raceResultVersion?.predictionEvaluations.sort((a, b) => b.predictionVersion.version - a.predictionVersion.version)[0];
     let message: LineTextMessage;
-    if (win5EvaluationVersion) {
+    if (supportEvent) {
+      message = buildSupportReplyLineMessage({ eventType: 'SUPPORT_RESPONSE_POSTED', requestId: supportEvent.requestId, appBaseUrl });
+    } else if (win5EvaluationVersion) {
       message = buildWin5ResultLineMessage({ eventType: 'WIN5_EVALUATION_CONFIRMED', productId: win5EvaluationVersion.productId, targetDate: win5EvaluationVersion.product.targetDate, title: win5EvaluationVersion.product.title, resultVersion: win5EvaluationVersion.version, status: win5EvaluationVersion.status as 'WIN5_ALL_WINNERS_RECOMMENDED' | 'WIN5_PARTIAL' | 'WIN5_MISSED', recommendedLegs: win5EvaluationVersion.recommendedLegs, appBaseUrl });
     } else if (raceResultVersion) {
       if (!latestRaceEvaluation) throw new Error('Race evaluation result notification target has no evaluation');
-      message = buildRaceResultLineMessage({ eventType: 'RACE_EVALUATION_CONFIRMED', raceId: race.id, raceDate: race.raceDate, venue: race.venue, raceNumber: race.number, raceName: race.name, resultVersion: raceResultVersion.version, status: latestRaceEvaluation.status as 'PRIMARY_WIN' | 'PRIMARY_TOP2' | 'PRIMARY_TOP3' | 'WINNER_IN_RECOMMENDED' | 'WINNER_NOT_RECOMMENDED' | 'SKIPPED' | 'EXCLUDED' | 'CANCELED', appBaseUrl });
+      message = buildRaceResultLineMessage({ eventType: 'RACE_EVALUATION_CONFIRMED', raceId: race!.id, raceDate: race!.raceDate, venue: race!.venue, raceNumber: race!.number, raceName: race!.name, resultVersion: raceResultVersion.version, status: latestRaceEvaluation.status as 'PRIMARY_WIN' | 'PRIMARY_TOP2' | 'PRIMARY_TOP3' | 'WINNER_IN_RECOMMENDED' | 'WINNER_NOT_RECOMMENDED' | 'SKIPPED' | 'EXCLUDED' | 'CANCELED', appBaseUrl });
     } else if (productVersion) {
       message = buildWin5LineMessage({ eventType: delivery.event.eventType as 'WIN5_PREVIEW_PUBLISHED' | 'WIN5_PREVIEW_CORRECTED', productId: productVersion.productId, targetDate: productVersion.product.targetDate, title: productVersion.product.title, version: productVersion.version, appBaseUrl });
     } else {
-      message = buildPredictionLineMessage({ eventType: delivery.event.eventType as 'PREDICTION_PUBLISHED' | 'PREDICTION_CORRECTED' | 'RACE_ANNOUNCED' | 'FREE_REPORT_PUBLISHED' | 'FREE_REPORT_REVIEW_PUBLISHED', raceId: race.id, raceDate: race.raceDate, venue: race.venue, raceNumber: race.number, raceName: race.name, version: version?.version ?? announcement?.version ?? freeReport!.version, visibility: (version?.visibility ?? 'FREE') as 'FREE' | 'PAID', appBaseUrl });
+      message = buildPredictionLineMessage({ eventType: delivery.event.eventType as 'PREDICTION_PUBLISHED' | 'PREDICTION_CORRECTED' | 'RACE_ANNOUNCED' | 'FREE_REPORT_PUBLISHED' | 'FREE_REPORT_REVIEW_PUBLISHED', raceId: race!.id, raceDate: race!.raceDate, venue: race!.venue, raceNumber: race!.number, raceName: race!.name, version: version?.version ?? announcement?.version ?? freeReport!.version, visibility: (version?.visibility ?? 'FREE') as 'FREE' | 'PAID', appBaseUrl });
     }
     const recipient = channel === 'LINE' ? delivery.user.lineAccount!.subject : delivery.user.email!;
-    const outcome = await transport.send({ recipient, idempotencyKey: delivery.idempotencyKey, retryKey: delivery.id, eventType: delivery.event.eventType, targetId: version?.id ?? announcement?.id ?? freeReport?.id ?? productVersion?.id ?? raceResultVersion?.id ?? win5EvaluationVersion!.id, raceId: race.id, message });
+    const outcome = await transport.send({ recipient, idempotencyKey: delivery.idempotencyKey, retryKey: delivery.id, eventType: delivery.event.eventType, targetId: supportEvent?.id ?? version?.id ?? announcement?.id ?? freeReport?.id ?? productVersion?.id ?? raceResultVersion?.id ?? win5EvaluationVersion!.id, raceId: race?.id ?? supportEvent!.requestId, message });
     const finishedAt = now();
     const nextAttemptCount = delivery.attemptCount + 1;
     if (outcome.kind === 'SENT') {
@@ -197,10 +205,10 @@ async function runChannelBatch(input: { db: PrismaClient; channel: DeliveryChann
   return result;
 }
 
-export async function runNotificationBatch(input: { db: PrismaClient; transport?: NotificationTransport; limit?: number; now?: () => Date }): Promise<BatchResult> {
+export async function runNotificationBatch(input: { db: PrismaClient; transport?: NotificationTransport; limit?: number; now?: () => Date; eventId?: string }): Promise<BatchResult> {
   return runChannelBatch({ ...input, channel: 'LINE' });
 }
 
-export async function runEmailNotificationBatch(input: { db: PrismaClient; transport?: NotificationTransport; limit?: number; now?: () => Date }): Promise<BatchResult> {
+export async function runEmailNotificationBatch(input: { db: PrismaClient; transport?: NotificationTransport; limit?: number; now?: () => Date; eventId?: string }): Promise<BatchResult> {
   return runChannelBatch({ ...input, channel: 'EMAIL' });
 }

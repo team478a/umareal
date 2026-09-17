@@ -801,6 +801,42 @@ td { padding:17px 24px; border-top:1px solid var(--line); }
 .billing-support-item ol { margin:8px 0 0; padding-left:22px; color:var(--muted); font-size:12px; }
 .billing-support-item .review-actions { justify-content:flex-end; }
 @media(max-width:650px) { .billing-support-item { grid-template-columns:1fr; padding:19px 20px; } .billing-support-item .review-actions { display:grid; grid-template-columns:1fr; } .billing-support-item .button { width:100%; min-height:44px; } }
+.support-form { display:grid; gap:16px; }
+.support-list { display:grid; }
+.support-item { padding:22px 24px; border-top:1px solid var(--line); }
+.support-item:first-child { border-top:0; }
+.support-item-head { display:flex; justify-content:space-between; gap:18px; align-items:flex-start; }
+.support-item h3 { margin:4px 0 0; }
+.support-item > p { white-space:pre-wrap; overflow-wrap:anywhere; }
+.support-item > small { color:var(--muted); }
+.support-reply { margin-top:18px; padding:16px 18px; border-radius:12px; background:var(--soft); border-left:4px solid var(--green); }
+.support-reply p { margin:7px 0; white-space:pre-wrap; overflow-wrap:anywhere; }
+.support-reply small { color:var(--muted); }
+.support-thread-message { margin-top:14px; padding:16px 18px; border-radius:12px; border:1px solid var(--line); }
+.support-thread-message.staff { background:var(--soft); border-left:4px solid var(--green); }
+.support-thread-message.member { margin-left:clamp(0px,4vw,44px); background:var(--surface); border-right:4px solid var(--gold); }
+.support-thread-message p { margin:7px 0; white-space:pre-wrap; overflow-wrap:anywhere; }
+.support-thread-message small { color:var(--muted); }
+.support-item details { margin-top:16px; }
+.support-item summary { cursor:pointer; color:var(--green); font-weight:700; min-height:36px; }
+.support-item ol { padding-left:22px; color:var(--muted); }
+.support-item ol li { margin-top:9px; }
+.support-response { display:grid; gap:12px; margin-top:18px; padding-top:18px; border-top:1px solid var(--line); }
+.support-response .review-actions { justify-content:flex-end; }
+.support-tags { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; }
+.priority-tag { display:inline-flex; align-items:center; min-height:28px; padding:4px 9px; border-radius:999px; background:var(--soft); color:var(--muted); font-size:12px; font-weight:700; }
+.priority-high { background:#fff3d6; color:#8a5700; }
+.priority-urgent { background:#ffebe8; color:#a5261d; }
+.support-assignment-summary { display:flex; flex-wrap:wrap; gap:8px 20px; margin-top:14px; padding:12px 14px; border-radius:10px; background:var(--soft); font-size:13px; }
+.support-assignment-summary span { color:var(--muted); }
+.support-assignment-summary .deadline-overdue { color:#b42318; font-weight:800; }
+.support-overdue { box-shadow:inset 4px 0 #d92d20; }
+.support-triage { display:grid; gap:12px; margin-top:18px; padding:16px; border:1px solid var(--line); border-radius:12px; background:var(--soft); }
+.support-triage-grid { display:grid; grid-template-columns:minmax(120px,.7fr) minmax(180px,1fr) minmax(190px,1fr); gap:12px; }
+.support-triage .review-actions { justify-content:flex-end; }
+.compact-filter { display:flex; gap:8px; align-items:center; color:var(--muted); font-size:13px; }
+.compact-filter select { min-height:38px; border:1px solid var(--line); border-radius:8px; background:var(--paper); padding:0 34px 0 10px; color:var(--ink); }
+@media(max-width:650px) { .support-item { padding:19px 20px; } .support-item-head { display:grid; } .support-tags { justify-content:flex-start; } .support-thread-message.member { margin-left:12px; } .support-triage-grid { grid-template-columns:1fr; } .support-response .review-actions,.support-triage .review-actions { display:grid; grid-template-columns:1fr; } .support-response .button,.support-triage .button { width:100%; min-height:44px; } .compact-filter { width:100%; justify-content:space-between; } }
 .staff-policy { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:18px; padding:22px 24px; margin-bottom:20px; }
 .staff-policy>div:first-child { display:grid; place-items:center; width:46px; height:46px; border-radius:50%; color:var(--green); background:#eef5f2; }
 .staff-policy h2 { margin:4px 0; }

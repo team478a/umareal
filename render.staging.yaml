@@ -73,10 +73,6 @@ services:
           type: pserv
           name: umareal-staging-api
           property: hostport
-      - key: STAGING_ACCESS_USERNAME
-        sync: false
-      - key: STAGING_ACCESS_PASSWORD
-        sync: false
 
   - type: worker
     name: umareal-staging-worker

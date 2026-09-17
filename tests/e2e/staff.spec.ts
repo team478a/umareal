@@ -74,9 +74,7 @@ test('administrator must complete MFA before viewing member management', async (
   await expect(page.locator('.onboarding-funnel-list')).toContainText('LINE案内到達');
   await expect(page.locator('.onboarding-funnel-list')).toContainText('未到達');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await page.goto('/admin');
-  await expect(page.getByRole('heading', { name: '運用メニュー', exact: true })).toBeVisible();
-  await page.getByRole('main').getByRole('link', { name: '運用・連携設定 LINE、通知方針、緊急停止を管理' }).click();
+  await page.goto('/admin/settings');
   await expect(page.getByRole('heading', { name: '運用・連携設定', exact: true })).toBeVisible();
   await page.getByLabel('LINE Channel ID').fill('1234567890');
   await page.getByLabel('LINE Channel secret').fill('0123456789abcdef0123456789abcdef');
@@ -152,8 +150,7 @@ test('administrator must complete MFA before viewing member management', async (
   await expect(page.getByRole('heading', { name: '管理者を追加', exact: true })).toBeVisible();
   await expect(page.getByText('現在は開発用認証です。予備認証アプリはSupabase本番認証へ接続した後に登録できます。', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await page.goto('/admin');
-  await page.getByRole('main').getByRole('link', { name: '会員管理 登録会員とロールを確認' }).click();
+  await page.goto('/admin/users');
   await expect(page.getByRole('heading', { name: '会員管理', exact: true })).toBeVisible();
   await expect(page.getByRole('cell', { name: new RegExp(`^${fixture.user.email}確認済み$`) })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

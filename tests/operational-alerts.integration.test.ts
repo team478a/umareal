@@ -6,6 +6,34 @@ import { account, Client, db } from './helpers';
 afterAll(() => db.$disconnect());
 
 describe('external operational alerts', () => {
+  it('escalates support deadlines without exposing inquiry content and resolves them automatically', async () => {
+    const original = await db.operationalAlertSetting.findUniqueOrThrow({ where: { id: 'global' } });
+    const member = await account(); const base = new Date('2035-04-12T00:00:00.000Z');
+    const support = await db.supportRequest.create({ data: { userId: member.user.id, category: 'TECHNICAL', subject: '外部へ出してはいけない問い合わせ件名', message: '外部へ出してはいけない問い合わせ本文です。', dueAt: new Date(base.getTime() + 30 * 60_000) } });
+    await db.operationalAlertSetting.update({ where: { id: 'global' }, data: { enabled: true, minimumSeverity: 'WARNING', destinationEmails: ['support-ops@example.test'] } });
+    const messages: string[] = []; const transport: OperationalAlertTransport = { async send(input) { messages.push(input.text); return { kind: 'SENT', providerMessageId: randomUUID() }; } };
+    try {
+      await runOperationalAlerts({ db, transport, sourceId: support.id, now: () => base });
+      const warning = await db.operationalAlert.findUniqueOrThrow({ where: { dedupeKey: `SUPPORT_DEADLINE:${support.id}` } });
+      expect(warning).toMatchObject({ code: 'SUPPORT_DEADLINE_DUE_SOON', severity: 'WARNING', sourceType: 'SUPPORT_REQUEST', status: 'OPEN' });
+
+      await runOperationalAlerts({ db, transport, sourceId: support.id, now: () => new Date(base.getTime() + 31 * 60_000) });
+      const critical = await db.operationalAlert.findUniqueOrThrow({ where: { dedupeKey: `SUPPORT_DEADLINE:${support.id}` } });
+      expect(critical).toMatchObject({ code: 'SUPPORT_DEADLINE_OVERDUE', severity: 'CRITICAL', status: 'OPEN' });
+      expect(critical.id).not.toBe(warning.id);
+      expect(messages.join('\n')).toContain('/admin/support');
+      expect(messages.join('\n')).not.toContain(support.subject); expect(messages.join('\n')).not.toContain(support.message);
+
+      await db.supportRequest.update({ where: { id: support.id }, data: { status: 'RESOLVED' } });
+      await runOperationalAlerts({ db, transport, sourceId: support.id, now: () => new Date(base.getTime() + 32 * 60_000) });
+      const resolved = await db.operationalAlert.findUniqueOrThrow({ where: { id: critical.id } });
+      expect(resolved).toMatchObject({ status: 'RESOLVED', resolutionReason: 'SYSTEM: 問い合わせの対応期限条件が解消されました。' });
+      expect(await db.operationalAlert.count({ where: { sourceId: support.id } })).toBe(2);
+    } finally {
+      await db.operationalAlertSetting.update({ where: { id: 'global' }, data: { enabled: original.enabled, minimumSeverity: original.minimumSeverity, destinationEmails: original.destinationEmails, revision: original.revision, updatedBy: original.updatedBy, updatedAt: original.updatedAt } });
+    }
+  });
+
   it('records source failures once, sends safe external mail, and audits acknowledgement and resolution', async () => {
     const original = await db.operationalAlertSetting.findUniqueOrThrow({ where: { id: 'global' } });
     const adminFixture = await account('ADMIN'); const recipient = await account(); const now = new Date();

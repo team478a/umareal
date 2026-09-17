@@ -30,11 +30,7 @@ export function validateDeploymentEnvironment(service, env) {
     requireValue('API_BASE_URL', privateHttpOrigin(env.API_BASE_URL), 'API_BASE_URL must be an HTTP(S) origin or private host:port without credentials or a path.');
     const webLaunchMode = env.LAUNCH_MODE ?? null;
     if (present(webLaunchMode)) requireValue('LAUNCH_MODE', ['CLOUD_STAGING', 'FREE_REGISTRATION', 'FULL'].includes(webLaunchMode), 'LAUNCH_MODE must be CLOUD_STAGING, FREE_REGISTRATION or FULL.');
-    if (webLaunchMode === 'CLOUD_STAGING') {
-      requireValue('STAGING_ACCESS_USERNAME', /^[A-Za-z0-9._-]{1,64}$/.test(env.STAGING_ACCESS_USERNAME ?? ''), 'STAGING_ACCESS_USERNAME must contain 1-64 ASCII letters, numbers, dots, underscores or hyphens.');
-      requireValue('STAGING_ACCESS_PASSWORD', Buffer.byteLength(env.STAGING_ACCESS_PASSWORD ?? '') >= 24, 'STAGING_ACCESS_PASSWORD must contain at least 24 bytes.');
-      manual.push({ code: 'STAGING_ACCESS_GATE', message: 'Confirm that unauthenticated page and API requests receive 401 while /health and signed provider webhooks remain reachable.' });
-    }
+    if (webLaunchMode === 'CLOUD_STAGING') manual.push({ code: 'STAGING_NOINDEX', message: 'Confirm that page and same-origin API responses include no-store and X-Robots-Tag: noindex, nofollow.' });
     manual.push({ code: 'WEB_CUSTOM_DOMAIN', message: 'Confirm the custom domain, TLS certificate, and /health response in the hosting dashboard.' });
     return { service, launchMode: webLaunchMode, ok: errors.length === 0, errors, manual };
   }
@@ -71,7 +67,7 @@ export function validateDeploymentEnvironment(service, env) {
   requireValue('AUTH_RATE_LIMIT', Number.isInteger(rateLimit) && rateLimit >= 1 && rateLimit <= 60, 'AUTH_RATE_LIMIT must be an integer from 1 to 60.');
   manual.push({ code: 'DATABASE_RUNTIME_ROLE', message: 'Verify that DATABASE_URL uses the restricted runtime role.' });
   manual.push(launchMode === 'CLOUD_STAGING'
-    ? { code: 'STAGING_DRAFT_LEGAL_ONLY', message: 'Draft legal documents are allowed only behind the staging access gate; never use this mode for public recruitment.' }
+    ? { code: 'STAGING_DRAFT_LEGAL_ONLY', message: 'Draft legal documents are allowed only for the staging test environment; never use this mode for public recruitment.' }
     : { code: 'LEGAL_RELEASE', message: 'Confirm that reviewed legal documents are published in the application.' });
   manual.push({ code: 'PROVIDER_LIVE_TESTS', message: `Complete Supabase, Resend, and Turnstile live tests${limitedLaunch ? '.' : ', plus LINE and Stripe live tests.'}` });
   return { service, launchMode, ok: errors.length === 0, errors, manual };

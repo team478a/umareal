@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { buildPredictionLineMessage, buildRaceResultLineMessage, buildWin5LineMessage, buildWin5ResultLineMessage } from './line';
+import { buildPredictionLineMessage, buildRaceResultLineMessage, buildSupportReplyLineMessage, buildWin5LineMessage, buildWin5ResultLineMessage } from './line';
 
 const base = { eventType: 'PREDICTION_PUBLISHED' as const, raceId: '38bbc51a-2aa4-4b43-8661-c3c6164e2f64', raceDate: '2026-09-12', venue: '東京', raceNumber: 11, raceName: 'テストステークス', version: 1, visibility: 'PAID' as const, appBaseUrl: 'https://members.example.jp' };
 describe('LINE notification message preparation', () => {
+  it('builds a support reply notice without inquiry content', () => {
+    const message = buildSupportReplyLineMessage({ eventType: 'SUPPORT_RESPONSE_POSTED', requestId: 'e06ec166-69c9-4119-bdd4-0fe2b4cf6228', appBaseUrl: 'https://members.example.jp' });
+    expect(message.text).toContain('お問い合わせへの回答があります');
+    expect(message.text).toContain('https://members.example.jp/support');
+  });
   it('builds a metadata-only member-page notice', () => {
     const message = buildPredictionLineMessage(base);
     expect(message.type).toBe('text');

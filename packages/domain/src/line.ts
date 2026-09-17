@@ -44,6 +44,12 @@ const win5ResultNotificationInputSchema = z.object({
   appBaseUrl: z.string().url()
 }).strict();
 
+const supportReplyNotificationInputSchema = z.object({
+  eventType: z.literal('SUPPORT_RESPONSE_POSTED'),
+  requestId: z.string().uuid(),
+  appBaseUrl: z.string().url()
+}).strict();
+
 export type LineTextMessage = { type: 'text'; text: string };
 
 function singleLine(value: string) { return value.replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim(); }
@@ -102,6 +108,15 @@ export function buildWin5ResultLineMessage(raw: z.input<typeof win5ResultNotific
     : input.status === 'WIN5_PARTIAL' ? `対象5レース中${input.recommendedLegs}レースで勝ち馬を候補内に選出` : '対象5レースの勝ち馬は候補外';
   const link = new URL(`/win5/${input.productId}`, url).toString();
   const text = ['WIN5紙面予想の評価結果が確定しました', input.targetDate, singleLine(input.title), result, `結果版${input.resultVersion}`, '全予想結果は会員ページでご確認ください。', link].join('\n');
+  if (text.length > 5000) throw new Error('LINE text message exceeds the supported length');
+  return { type: 'text', text };
+}
+
+export function buildSupportReplyLineMessage(raw: z.input<typeof supportReplyNotificationInputSchema>): LineTextMessage {
+  const input = supportReplyNotificationInputSchema.parse(raw);
+  const url = checkedBaseUrl(input.appBaseUrl);
+  const link = new URL('/support', url).toString();
+  const text = ['お問い合わせへの回答があります', '回答内容は会員ページでご確認ください。', link].join('\n');
   if (text.length > 5000) throw new Error('LINE text message exceeds the supported length');
   return { type: 'text', text };
 }
