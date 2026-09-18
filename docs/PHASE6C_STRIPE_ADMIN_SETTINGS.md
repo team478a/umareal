@@ -12,7 +12,7 @@
 
 ## 運用境界
 
-`BILLING_TRANSPORT` は配備時の安全スイッチとして環境変数に残す。管理画面へStripe情報を保存しただけでは外部決済へ切り替わらない。本番ではさらに環境変数 `STRIPE_LIVE_MODE=true` を必要とし、DB側も本番モードかつライブSecret keyでなければ購入とWebhook処理を開始しない。
+`BILLING_TRANSPORT` は配備時の安全スイッチとして環境変数に残す。管理画面へStripe情報を保存しただけでは外部決済へ切り替わらない。`STRIPE_SANDBOX`では`STRIPE_LIVE_MODE=false`とテストSecret key、`FULL`では`STRIPE_LIVE_MODE=true`とライブSecret keyを要求し、配備モード・環境変数・DB設定が一致しなければ購入とWebhook処理を開始しない。
 
 Stripe設定を管理画面へ1項目でも保存すると、その一式を設定元として扱う。環境変数とDBの資格情報を混在させない。環境変数から移行するときは、Secret key、Webhook secret、3つのPrice IDをまとめて保存する。
 

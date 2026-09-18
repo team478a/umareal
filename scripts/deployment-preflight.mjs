@@ -29,14 +29,14 @@ export function validateDeploymentEnvironment(service, env) {
   if (service === 'web') {
     requireValue('API_BASE_URL', privateHttpOrigin(env.API_BASE_URL), 'API_BASE_URL must be an HTTP(S) origin or private host:port without credentials or a path.');
     const webLaunchMode = env.LAUNCH_MODE ?? null;
-    if (present(webLaunchMode)) requireValue('LAUNCH_MODE', ['CLOUD_STAGING', 'FREE_REGISTRATION', 'FULL'].includes(webLaunchMode), 'LAUNCH_MODE must be CLOUD_STAGING, FREE_REGISTRATION or FULL.');
-    if (webLaunchMode === 'CLOUD_STAGING') manual.push({ code: 'STAGING_NOINDEX', message: 'Confirm that page and same-origin API responses include no-store and X-Robots-Tag: noindex, nofollow.' });
+    if (present(webLaunchMode)) requireValue('LAUNCH_MODE', ['CLOUD_STAGING', 'STRIPE_SANDBOX', 'FREE_REGISTRATION', 'FULL'].includes(webLaunchMode), 'LAUNCH_MODE must be CLOUD_STAGING, STRIPE_SANDBOX, FREE_REGISTRATION or FULL.');
+    if (['CLOUD_STAGING', 'STRIPE_SANDBOX'].includes(webLaunchMode)) manual.push({ code: 'STAGING_NOINDEX', message: 'Confirm that page and same-origin API responses include no-store and X-Robots-Tag: noindex, nofollow.' });
     manual.push({ code: 'WEB_CUSTOM_DOMAIN', message: 'Confirm the custom domain, TLS certificate, and /health response in the hosting dashboard.' });
     return { service, launchMode: webLaunchMode, ok: errors.length === 0, errors, manual };
   }
 
   const launchMode = env.LAUNCH_MODE;
-  requireValue('LAUNCH_MODE', ['CLOUD_STAGING', 'FREE_REGISTRATION', 'FULL'].includes(launchMode), 'LAUNCH_MODE must be CLOUD_STAGING, FREE_REGISTRATION or FULL.');
+  requireValue('LAUNCH_MODE', ['CLOUD_STAGING', 'STRIPE_SANDBOX', 'FREE_REGISTRATION', 'FULL'].includes(launchMode), 'LAUNCH_MODE must be CLOUD_STAGING, STRIPE_SANDBOX, FREE_REGISTRATION or FULL.');
   requireValue('DATABASE_URL', postgres(env.DATABASE_URL), 'DATABASE_URL must be a PostgreSQL runtime connection URL.');
   requireValue('APP_BASE_URL', origin(env.APP_BASE_URL, ['https:']), 'APP_BASE_URL must be an HTTPS origin without credentials or a path.');
   requireValue('ENCRYPTION_KEY', Buffer.from(env.ENCRYPTION_KEY ?? '', 'base64').length === 32, 'ENCRYPTION_KEY must decode to exactly 32 bytes.');
@@ -61,17 +61,19 @@ export function validateDeploymentEnvironment(service, env) {
   requireValue('RESEND_WEBHOOK_SECRET', present(env.RESEND_WEBHOOK_SECRET), 'RESEND_WEBHOOK_SECRET is required.');
   requireValue('CAPTCHA_TRANSPORT', env.CAPTCHA_TRANSPORT === 'turnstile', 'CAPTCHA_TRANSPORT must be turnstile.');
   requireValue('LINE_OAUTH_TRANSPORT', env.LINE_OAUTH_TRANSPORT === (limitedLaunch ? 'disabled' : 'line'), `LINE_OAUTH_TRANSPORT must be ${limitedLaunch ? 'disabled' : 'line'} for ${launchMode ?? 'the selected launch mode'}.`);
-  const expectedBillingTransport = launchMode === 'FULL' ? 'stripe' : launchMode === 'CLOUD_STAGING' ? 'test' : 'disabled';
+  const expectedBillingTransport = ['FULL', 'STRIPE_SANDBOX'].includes(launchMode) ? 'stripe' : launchMode === 'CLOUD_STAGING' ? 'test' : 'disabled';
   requireValue('BILLING_TRANSPORT', env.BILLING_TRANSPORT === expectedBillingTransport, `BILLING_TRANSPORT must be ${expectedBillingTransport} for ${launchMode ?? 'the selected launch mode'}.`);
   requireValue('STRIPE_LIVE_MODE', env.STRIPE_LIVE_MODE === (limitedLaunch ? 'false' : 'true'), `STRIPE_LIVE_MODE must be ${limitedLaunch ? 'false' : 'true'} for ${launchMode ?? 'the selected launch mode'}.`);
   const rateLimit = Number(env.AUTH_RATE_LIMIT);
   requireValue('AUTH_RATE_LIMIT', Number.isInteger(rateLimit) && rateLimit >= 1 && rateLimit <= 60, 'AUTH_RATE_LIMIT must be an integer from 1 to 60.');
   manual.push({ code: 'DATABASE_RUNTIME_ROLE', message: 'Verify that DATABASE_URL uses the restricted runtime role.' });
-  manual.push(launchMode === 'CLOUD_STAGING'
+  manual.push(['CLOUD_STAGING', 'STRIPE_SANDBOX'].includes(launchMode)
     ? { code: 'STAGING_DRAFT_LEGAL_ONLY', message: 'Draft legal documents are allowed only for the staging test environment; never use this mode for public recruitment.' }
     : { code: 'LEGAL_RELEASE', message: 'Confirm that reviewed legal documents are published in the application.' });
   manual.push({ code: 'PROVIDER_LIVE_TESTS', message: launchMode === 'CLOUD_STAGING'
     ? 'Complete Supabase, Resend, and Turnstile live tests. Billing remains a no-charge rehearsal in this mode.'
+    : launchMode === 'STRIPE_SANDBOX'
+      ? 'Complete Supabase, Resend, Turnstile, and Stripe test-mode Checkout and webhook tests. Stripe live credentials are forbidden.'
     : `Complete Supabase, Resend, and Turnstile live tests${limitedLaunch ? '.' : ', plus LINE and Stripe live tests.'}` });
   return { service, launchMode, ok: errors.length === 0, errors, manual };
 }

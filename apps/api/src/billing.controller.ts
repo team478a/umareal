@@ -42,7 +42,7 @@ export class BillingController {
     const billingEnabled = launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).billing;
     const stripeConfig = billingEnabled && process.env.BILLING_TRANSPORT === 'stripe' ? await loadStripeConfig(this.auth.db) : null;
     const transportAvailable = billingEnabled && (process.env.BILLING_TRANSPORT === 'test' || (process.env.BILLING_TRANSPORT === 'stripe' && stripeConfig?.usable));
-    return { newPurchasesEnabled: billingEnabled && settings.newPurchasesEnabled, developmentTerms: true, billingTransport: process.env.BILLING_TRANSPORT, currency: 'JPY', taxIncluded: true,
+    return { newPurchasesEnabled: billingEnabled && settings.newPurchasesEnabled, developmentTerms: true, billingTransport: process.env.BILLING_TRANSPORT, stripeMode: stripeConfig ? stripeConfig.liveMode ? 'LIVE' : 'TEST' : null, currency: 'JPY', taxIncluded: true,
       plans: [
         { code: 'FOUNDER', name: '創設会員', priceYen: settings.founderPriceYen, interval: 'MONTH', available: transportAvailable && settings.newPurchasesEnabled && settings.founderSalesEnabled && founderSold < settings.founderSalesLimit, remaining: Math.max(0, settings.founderSalesLimit - founderSold) },
         { code: 'STANDARD', name: '通常会員', priceYen: settings.standardPriceYen, interval: 'MONTH', available: transportAvailable && settings.newPurchasesEnabled },

@@ -16,6 +16,14 @@ describe('cloud staging indexing protection', () => {
     expect(allowed.headers.get('x-robots-tag')).toBe('noindex, nofollow');
   });
 
+  it('keeps Stripe sandbox pages out of caches and search indexes', () => {
+    process.env.LAUNCH_MODE = 'STRIPE_SANDBOX';
+    const allowed = proxy();
+    expect(allowed.status).toBe(200);
+    expect(allowed.headers.get('cache-control')).toBe('no-store');
+    expect(allowed.headers.get('x-robots-tag')).toBe('noindex, nofollow');
+  });
+
   it('applies staging headers to pages and same-origin APIs while leaving health and signed webhooks untouched', () => {
     const matches = (url: string) => unstable_doesMiddlewareMatch({ config, nextConfig: {}, url });
     expect(matches('/')).toBe(true);

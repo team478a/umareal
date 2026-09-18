@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 export function proxy() {
-  if (process.env.LAUNCH_MODE !== 'CLOUD_STAGING') return NextResponse.next();
+  if (!['CLOUD_STAGING', 'STRIPE_SANDBOX'].includes(process.env.LAUNCH_MODE ?? '')) return NextResponse.next();
   const response = NextResponse.next();
   response.headers.set('Cache-Control', 'no-store');
   response.headers.set('X-Robots-Tag', 'noindex, nofollow');

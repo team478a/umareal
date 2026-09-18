@@ -92,6 +92,8 @@ async function main() {
   if (!['test', 'stripe', 'disabled'].includes(process.env.BILLING_TRANSPORT ?? '')) throw new Error('Set BILLING_TRANSPORT explicitly');
   if (process.env.NODE_ENV === 'production' && launchMode === 'FULL' && process.env.BILLING_TRANSPORT !== 'stripe') throw new Error('Full production launch requires an external billing transport');
   if (process.env.NODE_ENV === 'production' && launchMode === 'FULL' && process.env.STRIPE_LIVE_MODE !== 'true') throw new Error('Full production launch requires Stripe live mode');
+  if (process.env.NODE_ENV === 'production' && launchMode === 'STRIPE_SANDBOX' && process.env.BILLING_TRANSPORT !== 'stripe') throw new Error('Stripe sandbox requires the Stripe billing transport');
+  if (process.env.NODE_ENV === 'production' && launchMode === 'STRIPE_SANDBOX' && process.env.STRIPE_LIVE_MODE !== 'false') throw new Error('Stripe sandbox requires test mode');
   if (process.env.NODE_ENV === 'production' && launchMode === 'CLOUD_STAGING' && process.env.BILLING_TRANSPORT !== 'test') throw new Error('Cloud staging requires the no-charge billing test transport');
   if (process.env.NODE_ENV === 'production' && launchMode === 'CLOUD_STAGING' && process.env.STRIPE_LIVE_MODE === 'true') throw new Error('Cloud staging forbids Stripe live mode');
   if (process.env.NODE_ENV === 'production' && launchMode === 'FREE_REGISTRATION' && process.env.BILLING_TRANSPORT !== 'disabled') throw new Error('Free registration launch requires billing to be disabled');

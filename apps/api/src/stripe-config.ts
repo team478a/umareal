@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@keiba/db';
+import { resolveLaunchMode, stripeRuntimeModeAllowed } from '@keiba/domain';
 import { decrypt } from './security';
 
 export type StripeRuntimeConfig = {
@@ -34,6 +35,7 @@ export async function loadStripeConfig(db: PrismaClient): Promise<StripeRuntimeC
   const priceDayPass = adminSelected ? settings.stripePriceDayPass : process.env.STRIPE_PRICE_DAY_PASS || null;
   const complete = !!secretKey && !!webhookSecret && !!priceFounder && !!priceStandard && !!priceDayPass;
   const modeConsistent = !!secretKey && secretKey.startsWith(liveMode ? 'sk_live_' : 'sk_test_');
-  const usable = complete && modeConsistent && (process.env.NODE_ENV !== 'production' || liveMode);
+  const runtimeModeAllowed = stripeRuntimeModeAllowed(process.env.NODE_ENV, resolveLaunchMode(process.env.LAUNCH_MODE), liveMode);
+  const usable = complete && modeConsistent && runtimeModeAllowed;
   return { source, secretKey, webhookSecret, liveMode, priceFounder, priceStandard, priceDayPass, complete, modeConsistent, usable };
 }

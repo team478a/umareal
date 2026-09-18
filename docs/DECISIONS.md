@@ -1,5 +1,13 @@
 # 設計判断と保留事項
 
+## Stripeサンドボックス専用クラウドモード（2026-09-18）
+
+- 請求なしの`CLOUD_STAGING`と本番の`FULL`の間に`STRIPE_SANDBOX`を追加する。このモードはStripe Hosted Checkout、テストカード、署名付きテストWebhook、月額更新、失敗、回復、解約、1日利用のクラウド結合試験に使用する。
+- `STRIPE_SANDBOX`は`BILLING_TRANSPORT=stripe`と`STRIPE_LIVE_MODE=false`を必須とする。保存するSecret keyは`sk_test_`に限定し、ライブSecret key、ライブモードの管理設定、ライブWebhookを起動時・設定保存時・決済実行時の三段階で拒否する。
+- 既存の`CLOUD_STAGING`は請求なしtransportとして残し、Stripeへ接続しない。一般公開の`FREE_REGISTRATION`は課金停止、`FULL`はStripe live mode必須を維持する。
+- `STRIPE_SANDBOX`は`CLOUD_STAGING`と同じ検索除外、キャッシュ禁止、LINE停止、開発版法務文書の試験例外を適用し、一般募集に使用しない。料金画面と管理画面にはStripeテスト環境であることを常時表示する。
+- テストと本番ではStripeのProduct、Price、Webhook endpoint、署名secretを共有しない。本番移行では管理画面のSecret key、Webhook secret、3つのPrice IDを同じ操作でライブ値へ置き換え、配備側を`FULL`、`STRIPE_LIVE_MODE=true`へ切り替える。
+
 ## 管理者本人への通知テスト拡張（2026-09-17）
 
 - クラウド環境で本番配信前の文面と外部メール疎通を確認できるよう、既存の対象レース告知・無料速報に加えて、パドック直前予想、WIN5紙面予想、支払成功・失敗・回復、解約予約、契約終了のテスト送信を実装する。
@@ -857,7 +865,7 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 - 当初はWeb入口をBasic認証で保護したが、2026-09-17の判断で廃止した。現在は検索除外ヘッダーを維持し、アプリ内の認証・権限で保護する。
 - `/health`はRenderヘルスチェック、LINE・Stripe・Resend webhookは各署名検証のため検索除外middlewareの対象外とする。APIはprivate serviceのまま外部公開しない。
 - stagingでも`NODE_ENV=production`、Supabase、Resend、Turnstile、HTTPS、制限付きDBロールを必須とし、本番相当のCookie・Origin・権限境界を検証する。LINE Login、LINE通知、実Stripe決済は停止し、請求なしのtest transportで契約・権限フローを検証する。
-- 開発版法務文書の例外は`CLOUD_STAGING`に限定する。管理画面の本番準備判定では引き続き未公開法務文書をブロッカーとして表示し、`FREE_REGISTRATION`と`FULL`では起動を拒否する。
+- 開発版法務文書の例外はクラウド試験用の`CLOUD_STAGING`と`STRIPE_SANDBOX`に限定する。管理画面の本番準備判定では引き続き未公開法務文書をブロッカーとして表示し、`FREE_REGISTRATION`と`FULL`では起動を拒否する。
 - stagingの料金を予測可能にするため、APIとworkerは最小の有料`0.5c-512mb`、Webと30日限定PostgreSQLは`free`へ固定する。2026年9月時点の基本compute料金は月額14 USDで、実際は秒単位の日割りとする。一般公開用`render.yaml`のプランは、利用量とバックアップ要件を確認するまで固定しない。
 
 ## 参照した公式資料
@@ -878,6 +886,8 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 - [Turnstileの明示レンダリング](https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/)
 - [Turnstileのサーバー検証](https://developers.cloudflare.com/turnstile/get-started/server-side-validation/)
 - [Turnstileの試験用キー](https://developers.cloudflare.com/turnstile/troubleshooting/testing/)
+- [Stripe本番公開チェックリスト](https://docs.stripe.com/get-started/checklist/go-live)
+- [Stripe API認証](https://docs.stripe.com/api/authentication)
 ## 管理画面の初回利用ガイドと平易なメニュー表現（2026-09-16）
 
 - 管理ダッシュボードの先頭に、登録済みレース、公開待ち、未確定結果、待機通知から導出した「次に行うこと」を表示する。自動実行はせず、該当する管理機能への導線だけを提示する。

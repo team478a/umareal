@@ -30,6 +30,15 @@ describe('free registration launch API boundaries', () => {
     expect(authenticate).toHaveBeenCalledOnce();
   });
 
+  it('permits Stripe checkout routing in the dedicated sandbox', async () => {
+    process.env.LAUNCH_MODE = 'STRIPE_SANDBOX';
+    process.env.BILLING_TRANSPORT = 'stripe';
+    const authenticate = vi.fn().mockRejectedValue(new Error('AUTH_REACHED'));
+    const controller = new BillingController({ authenticate } as unknown as AuthService);
+    await expect(controller.checkout({} as never, {})).rejects.toThrow('AUTH_REACHED');
+    expect(authenticate).toHaveBeenCalledOnce();
+  });
+
   it('rejects LINE Login before creating an OAuth flow', async () => {
     process.env.LAUNCH_MODE = 'FREE_REGISTRATION';
     const controller = new LineLoginController({} as AuthService, {} as LineLoginService);

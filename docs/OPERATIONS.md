@@ -180,7 +180,7 @@ WIN5は先に対象5レースそれぞれの通常結果を確定し、`/admin/w
 
 ## Stripe Checkout
 
-`LAUNCH_MODE=CLOUD_STAGING`では`BILLING_TRANSPORT=test`とし、カードや外部請求なしで月額・1日利用・解約・権限反映を確認する。`FREE_REGISTRATION`では`BILLING_TRANSPORT=disabled`として会員向け購入画面と購入APIを停止する。`FULL`へ進むときに`BILLING_TRANSPORT=stripe`を配備時の安全スイッチとして設定し、Secret key、Webhook secret、テスト／本番モード、創設・通常・1日利用のPrice IDは`/admin/settings`で管理する。管理画面の秘密値は暗号化され、保存後は再表示されない。管理画面未設定時だけ同名の環境変数を互換用フォールバックとして使う。Webhook URLは`{API公開URL}/api/v1/webhooks/stripe`。Checkoutの完了画面だけでは権限を付けず、`checkout.session.completed`の署名、live/testモード、JPY金額、内部申込ID、会員ID、プランを照合してから反映する。
+`LAUNCH_MODE=CLOUD_STAGING`では`BILLING_TRANSPORT=test`とし、カードや外部請求なしで月額・1日利用・解約・権限反映を確認する。Stripe接続試験へ進むときは`LAUNCH_MODE=STRIPE_SANDBOX`、`BILLING_TRANSPORT=stripe`、`STRIPE_LIVE_MODE=false`へ変更し、`sk_test_`、テストWebhook secret、テスト用の創設・通常・1日利用Price IDを`/admin/settings`へ同時保存する。ライブ資格情報は拒否され、料金画面にはテスト環境であることを表示する。`FREE_REGISTRATION`では`BILLING_TRANSPORT=disabled`として購入を停止し、`FULL`では`BILLING_TRANSPORT=stripe`と`STRIPE_LIVE_MODE=true`を必須にする。管理画面の秘密値は暗号化され、保存後は再表示されない。管理画面未設定時だけ同名の環境変数を互換用フォールバックとして使う。Webhook URLは`{公開URL}/api/v1/webhooks/stripe`。Checkoutの完了画面だけでは権限を付けず、`checkout.session.completed`の署名、live/testモード、JPY金額、内部申込ID、会員ID、プランを照合してから反映する。
 
 新規会員募集を一時停止する場合は、ADMINがAAL2で `/admin/settings` を開き、「新規会員登録」を無効化し、会員向け案内と監査用の変更理由を入力する。保存後にシークレットブラウザーで `/register` の案内と、既存会員の `/login` が利用できることを確認する。再開時はスイッチを有効化し、停止案内を空にして理由付きで保存する。停止中もメール確認とパスワード再設定を止めない。
 
@@ -188,4 +188,4 @@ Webhookには `checkout.session.completed`、`invoice.paid`、`invoice.payment_f
 
 管理者は `/admin/billing` の外部決済申込とWebhook受信結果を確認する。`REJECTED` は金額や申込の不一致、`IGNORED` は対象外イベント、`PROCESSED` は反映済みを示す。Webhook secret、カード情報、イベント本文は保存・表示しない。ライブ接続前にStripe CLIまたはテスト環境で正常完了、重複配信、不正署名、金額不一致を確認する。
 
-環境変数から管理画面へ移行するときは、Secret key、Webhook secret、3つのPrice IDを同じ保存操作で入力する。一部だけ保存するとDB設定が優先され、外部決済は設定不足として停止する。本番モードはライブSecret keyと一致させ、本番配備では環境変数 `STRIPE_LIVE_MODE=true` も必要とする。
+環境変数から管理画面へ移行するときは、Secret key、Webhook secret、3つのPrice IDを同じ保存操作で入力する。一部だけ保存するとDB設定が優先され、外部決済は設定不足として停止する。`STRIPE_SANDBOX`では本番モードをOFF、`FULL`ではONにし、それぞれ`sk_test_`、`sk_live_`と一致させる。本番配備では環境変数`STRIPE_LIVE_MODE=true`も必要とする。

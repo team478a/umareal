@@ -37,6 +37,18 @@ const stagingLiveBilling = spawnSync(process.execPath, ['dist/main.js'], {
 });
 if (stagingLiveBilling.status === 0 || !stagingLiveBilling.stderr.includes('Cloud staging forbids Stripe live mode')) throw new Error('Cloud staging billing guard did not reject Stripe live mode');
 console.info('PASS: cloud staging refuses Stripe live mode.');
+const sandboxTestTransport = spawnSync(process.execPath, ['dist/main.js'], {
+  cwd: resolve('apps/api'), env: { ...process.env, ...productionBase, LAUNCH_MODE: 'STRIPE_SANDBOX', NODE_ENV: 'production', AUTH_PROVIDER: 'supabase', NOTIFICATION_TRANSPORT: 'disabled', LINE_OAUTH_TRANSPORT: 'disabled', BILLING_TRANSPORT: 'test', STRIPE_LIVE_MODE: 'false' },
+  encoding: 'utf8', timeout: 20000, windowsHide: true
+});
+if (sandboxTestTransport.status === 0 || !sandboxTestTransport.stderr.includes('Stripe sandbox requires the Stripe billing transport')) throw new Error('Stripe sandbox guard did not require the Stripe transport');
+console.info('PASS: Stripe sandbox requires the external Stripe transport.');
+const sandboxLiveBilling = spawnSync(process.execPath, ['dist/main.js'], {
+  cwd: resolve('apps/api'), env: { ...process.env, ...productionBase, LAUNCH_MODE: 'STRIPE_SANDBOX', NODE_ENV: 'production', AUTH_PROVIDER: 'supabase', NOTIFICATION_TRANSPORT: 'disabled', LINE_OAUTH_TRANSPORT: 'disabled', BILLING_TRANSPORT: 'stripe', STRIPE_LIVE_MODE: 'true' },
+  encoding: 'utf8', timeout: 20000, windowsHide: true
+});
+if (sandboxLiveBilling.status === 0 || !sandboxLiveBilling.stderr.includes('Stripe sandbox requires test mode')) throw new Error('Stripe sandbox guard did not reject live mode');
+console.info('PASS: Stripe sandbox refuses Stripe live mode.');
 const encryption = spawnSync(process.execPath, ['dist/main.js'], {
   cwd: resolve('apps/api'), env: { ...process.env, ...productionBase, ENCRYPTION_KEY: '', NODE_ENV: 'production', AUTH_PROVIDER: 'supabase', NOTIFICATION_TRANSPORT: 'line', LINE_OAUTH_TRANSPORT: 'line', BILLING_TRANSPORT: 'stripe', STRIPE_LIVE_MODE: 'true' },
   encoding: 'utf8', timeout: 20000, windowsHide: true

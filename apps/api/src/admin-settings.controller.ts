@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, Patch, Req } from '@nestjs/common';
-import { adminSettingsUpdateSchema, canManage, requiresMfa } from '@keiba/domain';
+import { adminSettingsUpdateSchema, canManage, requiresMfa, resolveLaunchMode, stripeRuntimeModeAllowed } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { resolveMailConfig, type SystemSetting } from '@keiba/db';
 import { AuthService } from './auth.service';
@@ -37,11 +37,12 @@ export class AdminSettingsController {
       const key = decrypt(value.stripeSecretKeyEncrypted!);
       stripeModeConsistent = key.startsWith(value.stripeLiveMode ? 'sk_live_' : 'sk_test_');
     }
-    const stripeComplete = stripeSecretKeyConfigured && stripeWebhookSecretConfigured && stripePricesConfigured && stripeModeConsistent;
+    const stripeRuntimeCompatible = stripeRuntimeModeAllowed(process.env.NODE_ENV, resolveLaunchMode(process.env.LAUNCH_MODE), value.stripeLiveMode);
+    const stripeComplete = stripeSecretKeyConfigured && stripeWebhookSecretConfigured && stripePricesConfigured && stripeModeConsistent && stripeRuntimeCompatible;
     const environmentLiveMode = process.env.STRIPE_LIVE_MODE === 'true';
     const environmentCredentials = !!process.env.STRIPE_SECRET_KEY && !!process.env.STRIPE_WEBHOOK_SECRET;
     const environmentPrices = !!process.env.STRIPE_PRICE_FOUNDER && !!process.env.STRIPE_PRICE_STANDARD && !!process.env.STRIPE_PRICE_DAY_PASS;
-    const environmentModeConsistent = !!process.env.STRIPE_SECRET_KEY && process.env.STRIPE_SECRET_KEY.startsWith(environmentLiveMode ? 'sk_live_' : 'sk_test_');
+    const environmentModeConsistent = !!process.env.STRIPE_SECRET_KEY && process.env.STRIPE_SECRET_KEY.startsWith(environmentLiveMode ? 'sk_live_' : 'sk_test_') && stripeRuntimeModeAllowed(process.env.NODE_ENV, resolveLaunchMode(process.env.LAUNCH_MODE), environmentLiveMode);
     const effectiveComplete = stripeAdminSelected ? stripeComplete : environmentCredentials && environmentPrices && environmentModeConsistent;
     const baseUrl = process.env.APP_BASE_URL ?? '';
     let secureApplicationUrl = false;
@@ -97,7 +98,7 @@ export class AdminSettingsController {
         secretKeyConfigured: stripeSecretKeyConfigured, webhookSecretConfigured: stripeWebhookSecretConfigured,
         priceFounder: value.stripePriceFounder, priceStandard: value.stripePriceStandard, priceDayPass: value.stripePriceDayPass,
         connectionStatus: effectiveComplete ? 'CONFIGURED_NOT_VERIFIED' : stripeAdminSelected ? 'INCOMPLETE' : 'NOT_CONFIGURED',
-        readiness: { credentialsStored: stripeAdminSelected ? stripeSecretKeyConfigured && stripeWebhookSecretConfigured : environmentCredentials, secretsReadable: stripeAdminSelected ? stripeSecretKeyReadable && stripeWebhookSecretReadable : environmentCredentials, pricesConfigured: stripeAdminSelected ? stripePricesConfigured : environmentPrices, modeConsistent: stripeAdminSelected ? stripeModeConsistent : environmentModeConsistent, billingTransport: process.env.BILLING_TRANSPORT === 'stripe' ? 'STRIPE' : 'TEST_ONLY', externalConnectionTested: false }
+        readiness: { credentialsStored: stripeAdminSelected ? stripeSecretKeyConfigured && stripeWebhookSecretConfigured : environmentCredentials, secretsReadable: stripeAdminSelected ? stripeSecretKeyReadable && stripeWebhookSecretReadable : environmentCredentials, pricesConfigured: stripeAdminSelected ? stripePricesConfigured : environmentPrices, modeConsistent: stripeAdminSelected ? stripeModeConsistent && stripeRuntimeCompatible : environmentModeConsistent, billingTransport: process.env.BILLING_TRANSPORT === 'stripe' ? 'STRIPE' : 'TEST_ONLY', externalConnectionTested: false }
       },
       mail: {
         source: mail.source,
@@ -160,7 +161,9 @@ export class AdminSettingsController {
       try { stripeSecretKey = stripeSecretKeyEncrypted ? decrypt(stripeSecretKeyEncrypted) : null; }
       catch { throw new BadRequestException({ code: 'STRIPE_CREDENTIALS_UNREADABLE', message: '保存済みStripe資格情報を読み取れません。再設定してください。' }); }
       if (stripeSecretKey && !stripeSecretKey.startsWith(input.stripe.liveMode ? 'sk_live_' : 'sk_test_')) throw new BadRequestException({ code: 'STRIPE_MODE_MISMATCH', message: 'Stripe Secret keyとテスト・本番モードが一致しません。' });
-      if (process.env.BILLING_TRANSPORT === 'stripe' && input.operations.newPurchasesEnabled && (!stripeComplete || !stripeSecretKey || (process.env.NODE_ENV === 'production' && !input.stripe.liveMode))) throw new BadRequestException({ code: 'STRIPE_CONFIGURATION_REQUIRED', message: '新規購入を有効にする前に、この環境で利用できるStripe設定を完了してください。' });
+      const stripeRuntimeCompatible = stripeRuntimeModeAllowed(process.env.NODE_ENV, resolveLaunchMode(process.env.LAUNCH_MODE), input.stripe.liveMode);
+      if (process.env.BILLING_TRANSPORT === 'stripe' && !stripeRuntimeCompatible) throw new BadRequestException({ code: 'STRIPE_RUNTIME_MODE_MISMATCH', message: process.env.LAUNCH_MODE === 'STRIPE_SANDBOX' ? 'Stripeサンドボックスではテストモードだけを使用できます。' : '配備環境とStripeのテスト・本番モードが一致しません。' });
+      if (process.env.BILLING_TRANSPORT === 'stripe' && input.operations.newPurchasesEnabled && (!stripeComplete || !stripeSecretKey)) throw new BadRequestException({ code: 'STRIPE_CONFIGURATION_REQUIRED', message: '新規購入を有効にする前に、この環境で利用できるStripe設定を完了してください。' });
       const mail = resolveMailConfig({ mailApiKeyEncrypted, mailWebhookSecretEncrypted, mailFrom: input.mail.from });
       if (mailApiKeyEncrypted && !mail.secretReadable) throw new BadRequestException({ code: 'MAIL_CREDENTIALS_UNREADABLE', message: '保存済みメール資格情報を読み取れません。再設定してください。' });
       if (mailWebhookSecretEncrypted && !mail.webhookSecretReadable) throw new BadRequestException({ code: 'MAIL_WEBHOOK_CREDENTIALS_UNREADABLE', message: '保存済みメールWebhook資格情報を読み取れません。再設定してください。' });

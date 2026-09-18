@@ -2,7 +2,7 @@
 
 ## 一般公開前のクラウド試験
 
-最初のRender配備は、staging専用PostgreSQLを先に作成・移行した後、`render.staging.yaml`をBlueprint Pathに指定して`CLOUD_STAGING`で実施する。`render.yaml`の一般公開用リソースとは名前とDBを分ける。Basic認証は使用せず、Web応答へ`no-store`と`X-Robots-Tag: noindex, nofollow`を付与する。管理機能と会員情報はアプリのログイン・ロール・AAL2で保護し、LINE Login、LINE通知、実Stripe決済を停止する。課金は`BILLING_TRANSPORT=test`の請求なしテスト申込だけを許可し、月額・1日利用・解約・権限反映を確認する。APIはprivate serviceのため外部URLを持たない。staging Blueprintは既存DBの重複作成を避けるためAPI、Web、workerだけを管理し、DBはDashboardで独立管理する。
+最初のRender配備は、staging専用PostgreSQLを先に作成・移行した後、`render.staging.yaml`をBlueprint Pathに指定して`STRIPE_SANDBOX`で実施する。`render.yaml`の一般公開用リソースとは名前とDBを分ける。Basic認証は使用せず、Web応答へ`no-store`と`X-Robots-Tag: noindex, nofollow`を付与する。管理機能と会員情報はアプリのログイン・ロール・AAL2で保護し、LINE Login、LINE通知、Stripe live modeを停止する。`BILLING_TRANSPORT=stripe`と`STRIPE_LIVE_MODE=false`を固定し、Stripeテストカードと署名付きテストWebhookで月額・1日利用・更新・失敗・回復・解約・権限反映を確認する。請求なし試験へ戻す場合は3サービスを`CLOUD_STAGING`へ、APIを`BILLING_TRANSPORT=test`へ同時変更する。APIはprivate serviceのため外部URLを持たない。
 
 クラウド試験のプランは、APIとworkerを`0.5c-512mb`、WebとPostgreSQLを`free`へ固定する。Renderの2026年9月時点の表示価格では基本compute料金は月額14 USD（API 7 USD + worker 7 USD、秒単位の日割り）である。無料PostgreSQLは作成30日後に失効し、超過した帯域・build pipeline等は別条件となるため、作成直前にDashboardの最新見積りを再確認する。
 
@@ -17,11 +17,13 @@ Render Dashboardで次の値を入力する。値はGit、課題、チャット�
 | `RESEND_WEBHOOK_SECRET` / `JOB_SECRET` | staging API | staging専用の値 |
 | `DATABASE_URL` | staging API、worker | staging DBの制限付きruntime接続 |
 
-配備前にAPI、Web、workerそれぞれの環境値をGit管理外ファイルへ用意し、`scripts/deployment-preflight.mjs`で検査する。Web検査では`CLOUD_STAGING`時の検索除外確認を案内する。画面と同一Origin APIへ`no-store`と`X-Robots-Tag: noindex, nofollow`が付与され、`/health`と署名付きprovider webhookは通常どおり到達できることを確認する。
+配備後、ADMIN+AAL2で`/admin/settings`を開き、Stripeの`sk_test_` Secret key、テストWebhook endpointの`whsec_`、テスト用の3つのPrice IDを同じ保存操作で入力する。本番モードはOFFのままにする。Stripe側のWebhook URLは`https://<staging Webドメイン>/api/v1/webhooks/stripe`とし、`checkout.session.completed`、`invoice.paid`、`invoice.payment_failed`、`customer.subscription.updated`、`customer.subscription.deleted`を購読する。
+
+配備前にAPI、Web、workerそれぞれの環境値をGit管理外ファイルへ用意し、`scripts/deployment-preflight.mjs`で検査する。Web検査では`CLOUD_STAGING`と`STRIPE_SANDBOX`の検索除外確認を案内する。画面と同一Origin APIへ`no-store`と`X-Robots-Tag: noindex, nofollow`が付与され、`/health`と署名付きprovider webhookは通常どおり到達できることを確認する。
 
 staging DBの初回構築では、Blueprintより先に`umareal-staging-db`をSingapore、PostgreSQL 16で作成し、API・workerへ所有者接続を設定しない。Render Postgresの外部接続許可へ作業端末の現在IPだけを一時追加し、所有者接続で`pnpm db:migrate`と`pnpm db:access:configure`を実行する。runtime接続で`pnpm db:access:verify`が成功したら、API・workerへruntime URLを保存し、一時IP許可と端末上の所有者接続ファイルを削除する。以後の常駐サービスは所有者接続を保持しない。
 
-`CLOUD_STAGING`だけは開発版法務文書で起動できるが、管理画面の本番準備では法務ブロッカーを維持する。テスト環境を一般募集へ使用しない。`FREE_REGISTRATION`または`FULL`への切替前に正式文書を反映する。
+`CLOUD_STAGING`と`STRIPE_SANDBOX`だけは開発版法務文書で起動できるが、管理画面の本番準備では法務ブロッカーを維持する。テスト環境を一般募集へ使用しない。`FREE_REGISTRATION`または`FULL`への切替前に正式文書を反映する。
 
 ## 採用する初期構成
 

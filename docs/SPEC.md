@@ -26,7 +26,7 @@
 
 6. 完了報告には、変更内容、確認方法、テスト結果、未対応事項を記載する。
 
-クラウド試験は`CLOUD_STAGING`として一般公開と分離する。Basic認証は使用せず、`no-store`と`X-Robots-Tag: noindex, nofollow`でキャッシュと検索登録を拒否する。管理機能と会員情報はアプリのログイン・ロール・AAL2で保護する。LINE Login、LINE通知、実Stripe決済は停止し、課金は請求なしのtest transportだけで月額・1日利用・解約・権限反映を確認する。開発版法務文書はこのテスト環境だけで使用できる。`FREE_REGISTRATION`と`FULL`の本番起動では引き続き公開済み法務文書を必須とする。
+クラウド試験は一般公開と分離する。`CLOUD_STAGING`では請求なしtransportを、`STRIPE_SANDBOX`ではStripeテストキー、テストカード、テストWebhookを使用する。両モードともBasic認証は使用せず、`no-store`と`X-Robots-Tag: noindex, nofollow`でキャッシュと検索登録を拒否し、LINE Login・LINE通知・Stripe live modeを停止する。管理機能と会員情報はアプリのログイン・ロール・AAL2で保護する。開発版法務文書はこのテスト環境だけで使用できる。`FREE_REGISTRATION`と`FULL`の本番起動では引き続き公開済み法務文書を必須とする。
 
 ### 最優先の完成条件
 

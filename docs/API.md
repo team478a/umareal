@@ -174,7 +174,7 @@ WIN5初版・訂正版の公開時は商品公開版と通知eventを同じDBト
 
 ## 料金・契約
 
-`BILLING_TRANSPORT=test` はローカルと`CLOUD_STAGING`の請求なし検証専用で、外部通信、カード入力、実請求を行わない。`stripe` はHosted Checkoutと署名付きWebhookを使用する。`CLOUD_STAGING`では`test`、`FREE_REGISTRATION`では`disabled`、`FULL`本番では`stripe`だけを許可する。新規購入停止は月額と1日利用の両方へ適用する。
+`BILLING_TRANSPORT=test` はローカルと`CLOUD_STAGING`の請求なし検証専用で、外部通信、カード入力、実請求を行わない。`stripe` はHosted Checkoutと署名付きWebhookを使用する。`STRIPE_SANDBOX`では`stripe`とテストモード、`FREE_REGISTRATION`では`disabled`、`FULL`本番では`stripe`とライブモードだけを許可する。`GET /billing/plans`はStripe接続時に`stripeMode=TEST|LIVE`を返し、テスト画面が実請求と誤認されないようにする。新規購入停止は月額と1日利用の両方へ適用する。
 
 `GET /api/v1/auth/config` は新規登録の受付状態と、停止中だけ会員向け案内を返す。`POST /api/v1/auth/register`、LINEの新規登録開始・確定は、管理設定で停止中の場合 `REGISTRATION_PAUSED`（503）を返す。ログイン、メール確認、パスワード再設定は停止対象に含めない。切替は `PATCH /api/v1/admin/settings` でADMIN+AAL2、現在のrevision、変更理由、停止時の会員向け案内を必須とする。
 

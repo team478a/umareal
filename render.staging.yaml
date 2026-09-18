@@ -19,7 +19,7 @@ services:
       - key: AUTH_PROVIDER
         value: supabase
       - key: LAUNCH_MODE
-        value: CLOUD_STAGING
+        value: STRIPE_SANDBOX
       - key: APP_BASE_URL
         sync: false
       - key: ADMIN_BASE_URL
@@ -35,7 +35,7 @@ services:
       - key: LINE_OAUTH_TRANSPORT
         value: disabled
       - key: BILLING_TRANSPORT
-        value: test
+        value: stripe
       - key: STRIPE_LIVE_MODE
         value: "false"
       - key: MAIL_TRANSPORT
@@ -67,7 +67,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: LAUNCH_MODE
-        value: CLOUD_STAGING
+        value: STRIPE_SANDBOX
       - key: API_BASE_URL
         fromService:
           type: pserv
@@ -90,7 +90,7 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: LAUNCH_MODE
-        value: CLOUD_STAGING
+        value: STRIPE_SANDBOX
       - key: APP_BASE_URL
         sync: false
       - key: ENCRYPTION_KEY

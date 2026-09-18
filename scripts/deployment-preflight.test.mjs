@@ -41,4 +41,17 @@ describe('deployment environment preflight', () => {
     assert.equal(unsafe.ok, false);
     assert.ok(unsafe.errors.some(item => item.code === 'BILLING_TRANSPORT'));
   });
+
+  it('permits Stripe test mode only in the dedicated cloud sandbox', () => {
+    const sandbox = { ...common, LAUNCH_MODE: 'STRIPE_SANDBOX', AUTH_PROVIDER: 'supabase', ADMIN_BASE_URL: common.APP_BASE_URL, SUPABASE_URL: 'https://project.supabase.co', SUPABASE_ANON_KEY: 'configured', JOB_SECRET: 'x'.repeat(32), RESEND_WEBHOOK_SECRET: 'configured', CAPTCHA_TRANSPORT: 'turnstile', LINE_OAUTH_TRANSPORT: 'disabled', BILLING_TRANSPORT: 'stripe', STRIPE_LIVE_MODE: 'false', AUTH_RATE_LIMIT: '60' };
+    const api = validateDeploymentEnvironment('api', sandbox);
+    assert.equal(api.ok, true);
+    assert.ok(api.manual.some(item => item.code === 'STAGING_DRAFT_LEGAL_ONLY'));
+    assert.ok(api.manual.some(item => item.code === 'PROVIDER_LIVE_TESTS' && item.message.includes('Stripe test-mode')));
+    const web = validateDeploymentEnvironment('web', { NODE_ENV: 'production', LAUNCH_MODE: 'STRIPE_SANDBOX', API_BASE_URL: 'umareal-staging-api:10000' });
+    assert.equal(web.ok, true);
+    assert.ok(web.manual.some(item => item.code === 'STAGING_NOINDEX'));
+    assert.equal(validateDeploymentEnvironment('api', { ...sandbox, STRIPE_LIVE_MODE: 'true' }).ok, false);
+    assert.equal(validateDeploymentEnvironment('api', { ...sandbox, BILLING_TRANSPORT: 'test' }).ok, false);
+  });
 });
