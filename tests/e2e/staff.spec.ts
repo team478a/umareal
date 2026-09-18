@@ -5,7 +5,7 @@ test.afterAll(async () => {
   await db.systemSetting.update({ where: { id: 'global' }, data: { stripeSecretKeyEncrypted: null, stripeWebhookSecretEncrypted: null, stripeLiveMode: false, stripePriceFounder: null, stripePriceStandard: null, stripePriceDayPass: null } });
   await db.$disconnect();
 });
-test('operator and expert see their management entry after login', async ({ page }) => {
+test('operator and expert see their management entry after login', async ({ page }, testInfo) => {
   if (process.env.AUTH_PROVIDER !== 'local' || !['127.0.0.1', 'localhost'].includes(new URL(process.env.DATABASE_URL ?? '').hostname)) throw new Error('Staff browser test requires local development database');
   const cases = [
     { fixture: await account('OPERATOR'), href: '/admin', heading: '運営担当用の管理画面' },
@@ -19,6 +19,13 @@ test('operator and expert see their management entry after login', async ({ page
     await expect(page.getByRole('heading', { name: item.heading, exact: true })).toBeVisible();
     const managementLink = page.getByRole('link', { name: '管理画面へ', exact: true });
     await expect(managementLink).toHaveAttribute('href', item.href);
+    if (testInfo.project.name.includes('mobile')) {
+      await page.getByRole('button', { name: 'メニューを開く' }).click();
+    }
+    const menuManagementLink = page.getByRole('navigation', { name: 'メインメニュー' }).getByRole('link', { name: '管理画面', exact: true });
+    await expect(menuManagementLink).toHaveAttribute('href', item.href);
+    await expect(menuManagementLink).toBeVisible();
+    if (testInfo.project.name.includes('mobile')) await page.locator('.close-menu').click();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.getByRole('button', { name: 'ログアウト', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'おかえりなさい', exact: true })).toBeVisible();
