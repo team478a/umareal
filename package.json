@@ -6,6 +6,12 @@
   "engines": {
     "node": ">=22.15.0"
   },
+  "pnpm": {
+    "overrides": {
+      "deepmerge-ts": "8.0.2",
+      "multer": "2.3.0"
+    }
+  },
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "typecheck": "pnpm -r typecheck",

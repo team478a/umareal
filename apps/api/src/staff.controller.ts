@@ -30,7 +30,7 @@ export class StaffController {
       tx.subscription.count({ where: { userId, status: { in: ['TRIALING', 'ACTIVE', 'PAST_DUE'] }, currentPeriodEndsAt: { gt: now } } }),
       tx.dayPass.count({ where: { userId, status: { in: ['PENDING', 'ACTIVE'] }, endsAt: { gt: now } } }),
       tx.entitlement.count({ where: { userId, revokedAt: null, endsAt: { gt: now } } }),
-      tx.billingCheckout.count({ where: { userId, status: 'INITIATED', completedAt: null, expiresAt: { gt: now } } })
+      tx.billingCheckout.count({ where: { userId, status: { in: ['INITIATED', 'OPEN'] }, completedAt: null, expiresAt: { gt: now } } })
     ]);
     return { activeSubscriptions, activeDayPasses, activeEntitlements, pendingCheckouts };
   }
@@ -61,6 +61,7 @@ export class StaffController {
       return await this.auth.db.$transaction(async tx => {
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(7262026)::text`;
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(7262027)::text`;
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`billing:${userId}`}))::text`;
         const rows = await tx.$queryRaw<Array<{ id: string; email: string | null; role: Role; disabledAt: Date | null; emailVerifiedAt: Date | null }>>`
           SELECT "id", "email", "role", "disabledAt", "emailVerifiedAt"
           FROM "users" WHERE "id" = ${userId}::uuid FOR UPDATE

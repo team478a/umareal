@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@keiba/db';
-import { loadStripeConfig } from './stripe-config';
+import { loadStripeConfig, resolveStripeConfig } from './stripe-config';
 
 const keys = ['NODE_ENV', 'LAUNCH_MODE', 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_LIVE_MODE', 'STRIPE_PRICE_FOUNDER', 'STRIPE_PRICE_STANDARD', 'STRIPE_PRICE_DAY_PASS'] as const;
 const previous = Object.fromEntries(keys.map(key => [key, process.env[key]]));
@@ -49,5 +49,19 @@ describe('Stripe runtime configuration', () => {
   it('rejects test credentials in full production mode', async () => {
     process.env.LAUNCH_MODE = 'FULL';
     await expect(loadStripeConfig(db)).resolves.toMatchObject({ liveMode: false, complete: true, modeConsistent: true, usable: false });
+  });
+
+  it('keeps environment fallback when only the displayed live-mode flag was persisted', () => {
+    process.env.LAUNCH_MODE = 'FULL';
+    process.env.STRIPE_SECRET_KEY = 'sk_live_environment_secret';
+    process.env.STRIPE_LIVE_MODE = 'true';
+    expect(resolveStripeConfig({
+      stripeSecretKeyEncrypted: null,
+      stripeWebhookSecretEncrypted: null,
+      stripeLiveMode: true,
+      stripePriceFounder: null,
+      stripePriceStandard: null,
+      stripePriceDayPass: null
+    })).toMatchObject({ source: 'ENVIRONMENT', liveMode: true, complete: true, modeConsistent: true, runtimeModeAllowed: true, usable: true });
   });
 });

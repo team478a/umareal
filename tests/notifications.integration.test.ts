@@ -68,7 +68,7 @@ async function processFirstAttempt(eventId: string, userId: string, transport: N
     const delivery = await db.notificationDelivery.findFirst({ where: { eventId, userId, channel: 'LINE' } });
     if (delivery?.attemptCount) return delivery;
     if (delivery?.status === 'QUEUED') await db.notificationDelivery.update({ where: { id: delivery.id }, data: { nextAttemptAt: new Date(0) } });
-    await runNotificationBatch({ db, transport, limit });
+    await runNotificationBatch({ db, transport, limit, eventId });
   }
   throw new Error(`Target notification delivery was not attempted for event ${eventId}`);
 }
@@ -77,7 +77,7 @@ async function processFirstEmailAttempt(eventId: string, userId: string, transpo
     const delivery = await db.notificationDelivery.findFirst({ where: { eventId, userId, channel: 'EMAIL' } });
     if (delivery?.attemptCount) return delivery;
     if (delivery?.status === 'QUEUED') await db.notificationDelivery.update({ where: { id: delivery.id }, data: { nextAttemptAt: new Date(0) } });
-    await runEmailNotificationBatch({ db, transport, limit });
+    await runEmailNotificationBatch({ db, transport, limit, eventId });
   }
   throw new Error(`Target email delivery was not attempted for event ${eventId}`);
 }

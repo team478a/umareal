@@ -1,10 +1,11 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, Patch, Req } from '@nestjs/common';
-import { adminSettingsUpdateSchema, canManage, requiresMfa, resolveLaunchMode, stripeRuntimeModeAllowed } from '@keiba/domain';
+import { adminSettingsUpdateSchema, canManage, requiresMfa } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { resolveMailConfig, type SystemSetting } from '@keiba/db';
 import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
 import { decrypt, encrypt } from './security';
+import { resolveStripeConfig } from './stripe-config';
 
 @Controller('admin/settings')
 export class AdminSettingsController {
@@ -26,24 +27,14 @@ export class AdminSettingsController {
     const turnstileSecretConfigured = !!value.turnstileSecretEncrypted;
     const turnstileSecretReadable = readable(value.turnstileSecretEncrypted);
     const loginSecretReadable = readable(value.lineLoginChannelSecretEncrypted);
-    const stripeSecretKeyConfigured = !!value.stripeSecretKeyEncrypted;
-    const stripeWebhookSecretConfigured = !!value.stripeWebhookSecretEncrypted;
-    const stripeSecretKeyReadable = readable(value.stripeSecretKeyEncrypted);
-    const stripeWebhookSecretReadable = readable(value.stripeWebhookSecretEncrypted);
-    const stripePricesConfigured = !!value.stripePriceFounder && !!value.stripePriceStandard && !!value.stripePriceDayPass;
-    const stripeAdminSelected = stripeSecretKeyConfigured || stripeWebhookSecretConfigured || value.stripeLiveMode || !!value.stripePriceFounder || !!value.stripePriceStandard || !!value.stripePriceDayPass;
-    let stripeModeConsistent = false;
-    if (stripeSecretKeyReadable) {
-      const key = decrypt(value.stripeSecretKeyEncrypted!);
-      stripeModeConsistent = key.startsWith(value.stripeLiveMode ? 'sk_live_' : 'sk_test_');
-    }
-    const stripeRuntimeCompatible = stripeRuntimeModeAllowed(process.env.NODE_ENV, resolveLaunchMode(process.env.LAUNCH_MODE), value.stripeLiveMode);
-    const stripeComplete = stripeSecretKeyConfigured && stripeWebhookSecretConfigured && stripePricesConfigured && stripeModeConsistent && stripeRuntimeCompatible;
-    const environmentLiveMode = process.env.STRIPE_LIVE_MODE === 'true';
-    const environmentCredentials = !!process.env.STRIPE_SECRET_KEY && !!process.env.STRIPE_WEBHOOK_SECRET;
-    const environmentPrices = !!process.env.STRIPE_PRICE_FOUNDER && !!process.env.STRIPE_PRICE_STANDARD && !!process.env.STRIPE_PRICE_DAY_PASS;
-    const environmentModeConsistent = !!process.env.STRIPE_SECRET_KEY && process.env.STRIPE_SECRET_KEY.startsWith(environmentLiveMode ? 'sk_live_' : 'sk_test_') && stripeRuntimeModeAllowed(process.env.NODE_ENV, resolveLaunchMode(process.env.LAUNCH_MODE), environmentLiveMode);
-    const effectiveComplete = stripeAdminSelected ? stripeComplete : environmentCredentials && environmentPrices && environmentModeConsistent;
+    const stripe = resolveStripeConfig(value);
+    const stripeAdminSelected = stripe.source === 'ADMIN';
+    const stripeSecretKeyConfigured = stripeAdminSelected ? !!value.stripeSecretKeyEncrypted : !!stripe.secretKey;
+    const stripeWebhookSecretConfigured = stripeAdminSelected ? !!value.stripeWebhookSecretEncrypted : !!stripe.webhookSecret;
+    const stripeSecretsReadable = stripeAdminSelected
+      ? readable(value.stripeSecretKeyEncrypted) && readable(value.stripeWebhookSecretEncrypted)
+      : !!stripe.secretKey && !!stripe.webhookSecret;
+    const stripePricesConfigured = !!stripe.priceFounder && !!stripe.priceStandard && !!stripe.priceDayPass;
     const baseUrl = process.env.APP_BASE_URL ?? '';
     let secureApplicationUrl = false;
     try { const parsed = new URL(baseUrl); secureApplicationUrl = parsed.protocol === 'https:' || (parsed.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(parsed.hostname)); } catch { secureApplicationUrl = false; }
@@ -94,11 +85,11 @@ export class AdminSettingsController {
         founderSalesLimit: value.founderSalesLimit, billingGraceDays: value.billingGraceDays
       },
       stripe: {
-        source: stripeAdminSelected ? 'ADMIN' : 'ENVIRONMENT', liveMode: value.stripeLiveMode,
+        source: stripe.source, liveMode: stripe.liveMode,
         secretKeyConfigured: stripeSecretKeyConfigured, webhookSecretConfigured: stripeWebhookSecretConfigured,
         priceFounder: value.stripePriceFounder, priceStandard: value.stripePriceStandard, priceDayPass: value.stripePriceDayPass,
-        connectionStatus: effectiveComplete ? 'CONFIGURED_NOT_VERIFIED' : stripeAdminSelected ? 'INCOMPLETE' : 'NOT_CONFIGURED',
-        readiness: { credentialsStored: stripeAdminSelected ? stripeSecretKeyConfigured && stripeWebhookSecretConfigured : environmentCredentials, secretsReadable: stripeAdminSelected ? stripeSecretKeyReadable && stripeWebhookSecretReadable : environmentCredentials, pricesConfigured: stripeAdminSelected ? stripePricesConfigured : environmentPrices, modeConsistent: stripeAdminSelected ? stripeModeConsistent && stripeRuntimeCompatible : environmentModeConsistent, billingTransport: process.env.BILLING_TRANSPORT === 'stripe' ? 'STRIPE' : 'TEST_ONLY', externalConnectionTested: false }
+        connectionStatus: stripe.usable ? 'CONFIGURED_NOT_VERIFIED' : stripeAdminSelected ? 'INCOMPLETE' : 'NOT_CONFIGURED',
+        readiness: { credentialsStored: stripeSecretKeyConfigured && stripeWebhookSecretConfigured, secretsReadable: stripeSecretsReadable, pricesConfigured: stripePricesConfigured, modeConsistent: stripe.modeConsistent && stripe.runtimeModeAllowed, billingTransport: process.env.BILLING_TRANSPORT === 'stripe' ? 'STRIPE' : 'TEST_ONLY', externalConnectionTested: false }
       },
       mail: {
         source: mail.source,
@@ -155,15 +146,19 @@ export class AdminSettingsController {
       if (process.env.NODE_ENV === 'production' && input.captcha.enabled && process.env.CAPTCHA_TRANSPORT !== 'turnstile') throw new BadRequestException({ code: 'CAPTCHA_CONFIGURATION_REQUIRED', message: 'Bot対策を有効にする前にTurnstile transportを設定してください。' });
       if (input.operations.lineNotificationsEnabled && (!input.line.channelId || !lineChannelSecretEncrypted || !lineAccessTokenEncrypted)) throw new BadRequestException({ code: 'LINE_CREDENTIALS_REQUIRED', message: 'LINE通知を有効にするにはChannel ID、Channel secret、Channel access tokenが必要です。' });
       if (input.operations.lineLoginEnabled && (!input.line.loginChannelId || !lineLoginChannelSecretEncrypted || !input.line.loginCallbackUrl)) throw new BadRequestException({ code: 'LINE_LOGIN_CREDENTIALS_REQUIRED', message: 'LINE Loginを有効にするにはChannel ID、Channel secret、Callback URLが必要です。' });
-      const stripeComplete = !!stripeSecretKeyEncrypted && !!stripeWebhookSecretEncrypted && !!input.stripe.priceFounder && !!input.stripe.priceStandard && !!input.stripe.priceDayPass;
-      if (input.stripe.liveMode && !stripeComplete) throw new BadRequestException({ code: 'STRIPE_CREDENTIALS_REQUIRED', message: 'Stripe本番モードにはSecret key、Webhook secret、3つのPrice IDが必要です。' });
-      let stripeSecretKey: string | null = null;
-      try { stripeSecretKey = stripeSecretKeyEncrypted ? decrypt(stripeSecretKeyEncrypted) : null; }
-      catch { throw new BadRequestException({ code: 'STRIPE_CREDENTIALS_UNREADABLE', message: '保存済みStripe資格情報を読み取れません。再設定してください。' }); }
-      if (stripeSecretKey && !stripeSecretKey.startsWith(input.stripe.liveMode ? 'sk_live_' : 'sk_test_')) throw new BadRequestException({ code: 'STRIPE_MODE_MISMATCH', message: 'Stripe Secret keyとテスト・本番モードが一致しません。' });
-      const stripeRuntimeCompatible = stripeRuntimeModeAllowed(process.env.NODE_ENV, resolveLaunchMode(process.env.LAUNCH_MODE), input.stripe.liveMode);
-      if (process.env.BILLING_TRANSPORT === 'stripe' && !stripeRuntimeCompatible) throw new BadRequestException({ code: 'STRIPE_RUNTIME_MODE_MISMATCH', message: process.env.LAUNCH_MODE === 'STRIPE_SANDBOX' ? 'Stripeサンドボックスではテストモードだけを使用できます。' : '配備環境とStripeのテスト・本番モードが一致しません。' });
-      if (process.env.BILLING_TRANSPORT === 'stripe' && input.operations.newPurchasesEnabled && (!stripeComplete || !stripeSecretKey)) throw new BadRequestException({ code: 'STRIPE_CONFIGURATION_REQUIRED', message: '新規購入を有効にする前に、この環境で利用できるStripe設定を完了してください。' });
+      const stripe = resolveStripeConfig({
+        stripeSecretKeyEncrypted,
+        stripeWebhookSecretEncrypted,
+        stripeLiveMode: input.stripe.liveMode,
+        stripePriceFounder: input.stripe.priceFounder,
+        stripePriceStandard: input.stripe.priceStandard,
+        stripePriceDayPass: input.stripe.priceDayPass
+      });
+      if (stripe.source === 'ADMIN' && stripeSecretKeyEncrypted && !stripe.secretKey) throw new BadRequestException({ code: 'STRIPE_CREDENTIALS_UNREADABLE', message: '保存済みStripe資格情報を読み取れません。再設定してください。' });
+      if (stripe.source === 'ADMIN' && input.stripe.liveMode && !stripe.complete) throw new BadRequestException({ code: 'STRIPE_CREDENTIALS_REQUIRED', message: 'Stripe本番モードにはSecret key、Webhook secret、3つのPrice IDが必要です。' });
+      if (stripe.source === 'ADMIN' && stripe.secretKey && !stripe.modeConsistent) throw new BadRequestException({ code: 'STRIPE_MODE_MISMATCH', message: 'Stripe Secret keyとテスト・本番モードが一致しません。' });
+      if (process.env.BILLING_TRANSPORT === 'stripe' && stripe.source === 'ADMIN' && !stripe.runtimeModeAllowed) throw new BadRequestException({ code: 'STRIPE_RUNTIME_MODE_MISMATCH', message: process.env.LAUNCH_MODE === 'STRIPE_SANDBOX' ? 'Stripeサンドボックスではテストモードだけを使用できます。' : '配備環境とStripeのテスト・本番モードが一致しません。' });
+      if (process.env.BILLING_TRANSPORT === 'stripe' && input.operations.newPurchasesEnabled && !stripe.usable) throw new BadRequestException({ code: 'STRIPE_CONFIGURATION_REQUIRED', message: '新規購入を有効にする前に、この環境で利用できるStripe設定を完了してください。' });
       const mail = resolveMailConfig({ mailApiKeyEncrypted, mailWebhookSecretEncrypted, mailFrom: input.mail.from });
       if (mailApiKeyEncrypted && !mail.secretReadable) throw new BadRequestException({ code: 'MAIL_CREDENTIALS_UNREADABLE', message: '保存済みメール資格情報を読み取れません。再設定してください。' });
       if (mailWebhookSecretEncrypted && !mail.webhookSecretReadable) throw new BadRequestException({ code: 'MAIL_WEBHOOK_CREDENTIALS_UNREADABLE', message: '保存済みメールWebhook資格情報を読み取れません。再設定してください。' });
@@ -181,7 +176,7 @@ export class AdminSettingsController {
         ...input.billing,
         stripeSecretKeyEncrypted,
         stripeWebhookSecretEncrypted,
-        stripeLiveMode: input.stripe.liveMode,
+        stripeLiveMode: stripe.source === 'ADMIN' ? input.stripe.liveMode : false,
         stripePriceFounder: input.stripe.priceFounder,
         stripePriceStandard: input.stripe.priceStandard,
         stripePriceDayPass: input.stripe.priceDayPass,

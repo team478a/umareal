@@ -62,7 +62,7 @@ export class AdminContinuityController {
       tx.subscription.count({ where: { userId, status: { in: ['TRIALING', 'ACTIVE', 'PAST_DUE'] }, currentPeriodEndsAt: { gt: now } } }),
       tx.dayPass.count({ where: { userId, status: { in: ['PENDING', 'ACTIVE'] }, endsAt: { gt: now } } }),
       tx.entitlement.count({ where: { userId, revokedAt: null, endsAt: { gt: now } } }),
-      tx.billingCheckout.count({ where: { userId, status: 'INITIATED', completedAt: null, expiresAt: { gt: now } } })
+      tx.billingCheckout.count({ where: { userId, status: { in: ['INITIATED', 'OPEN'] }, completedAt: null, expiresAt: { gt: now } } })
     ]);
     return { activeSubscriptions, activeDayPasses, activeEntitlements, pendingCheckouts };
   }
@@ -108,6 +108,7 @@ export class AdminContinuityController {
     try {
       return await this.auth.db.$transaction(async tx => {
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(7262028)::text`;
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`billing:${userId}`}))::text`;
         const rows = await tx.$queryRaw<Array<{ id: string; email: string | null; role: Role; disabledAt: Date | null; emailVerifiedAt: Date | null }>>`
           SELECT "id", "email", "role", "disabledAt", "emailVerifiedAt" FROM "users" WHERE "id" = ${userId}::uuid FOR UPDATE
         `;
@@ -116,6 +117,8 @@ export class AdminContinuityController {
         if (target.disabledAt || !target.email || !target.emailVerifiedAt) throw new ConflictException({ code: 'ADMIN_CANDIDATE_NOT_READY', message: '有効で確認済みのメールアカウントだけを管理者にできます。' });
         if (target.email.toLowerCase() !== input.confirmationEmail) throw new ConflictException({ code: 'ADMIN_CONFIRMATION_MISMATCH', message: '確認用メールアドレスが一致しません。' });
         if (target.role === 'ADMIN') throw new ConflictException({ code: 'ADMIN_ALREADY_ASSIGNED', message: 'このアカウントはすでに管理者です。' });
+        const access = await this.memberAccessDependencies(tx, target.id);
+        if (Object.values(access).some(Boolean)) throw new ConflictException({ code: 'ADMIN_ACTIVE_MEMBER_ACCESS', message: '有効または申込中の契約、1日利用、閲覧権限があります。アクセス終了後に管理者へ変更してください。' });
         await tx.user.update({ where: { id: target.id }, data: { role: 'ADMIN' } });
         const revokedLocalSessions = await tx.session.deleteMany({ where: { userId: target.id } });
         await this.auth.audit(tx, req, 'ADMIN_PROMOTED', target.id, input.reason, { previousRole: target.role, nextRole: 'ADMIN', localSessionsRevoked: revokedLocalSessions.count });
@@ -134,6 +137,7 @@ export class AdminContinuityController {
     try {
       return await this.auth.db.$transaction(async tx => {
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(7262028)::text`;
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`billing:${userId}`}))::text`;
         const rows = await tx.$queryRaw<AdministratorRow[]>`
           SELECT "id", "email", "role", "disabledAt", "emailVerifiedAt", "mfaSecret", "externalMfaFactorId", "externalBackupMfaFactorId"
           FROM "users" WHERE "id" = ${userId}::uuid FOR UPDATE
@@ -172,6 +176,7 @@ export class AdminContinuityController {
     try {
       return await this.auth.db.$transaction(async tx => {
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(7262028)::text`;
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`billing:${userId}`}))::text`;
         const rows = await tx.$queryRaw<AdministratorRow[]>`
           SELECT "id", "email", "role", "disabledAt", "emailVerifiedAt", "mfaSecret", "externalMfaFactorId", "externalBackupMfaFactorId"
           FROM "users" WHERE "id" = ${userId}::uuid FOR UPDATE

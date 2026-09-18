@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { account, Client, db } from './helpers';
 
@@ -32,6 +33,12 @@ describe('staff role management', () => {
     expect((await member.call('admin/staff')).status).toBe(403);
     const administratorChange = await actor.call(`admin/staff/${actorFixture.user.id}/role`, 'PATCH', { expectedRole: 'MEMBER', nextRole: 'OPERATOR', confirmationEmail: actorFixture.user.email, reason: '管理者を直接変更' });
     expect(administratorChange).toMatchObject({ status: 409, body: { code: 'STAFF_ADMIN_MANAGED_SEPARATELY' } });
+
+    const payingMember = await account('MEMBER');
+    await db.billingCheckout.create({ data: { userId: payingMember.user.id, kind: 'SUBSCRIPTION', planCode: 'STANDARD', amountYen: 2980, status: 'OPEN', idempotencyKey: `staff-open-checkout:${payingMember.user.id}:${randomUUID()}`, requestHash: 'staff-open-checkout', providerSessionId: `cs_test_${randomUUID()}`, providerCheckoutUrl: 'https://checkout.stripe.test/session', expiresAt: new Date(Date.now() + 30 * 60000) } });
+    const payingMemberChange = await actor.call(`admin/staff/${payingMember.user.id}/role`, 'PATCH', { expectedRole: 'MEMBER', nextRole: 'EDITOR', confirmationEmail: payingMember.user.email, reason: '決済中の権限変更を拒否' });
+    expect(payingMemberChange).toMatchObject({ status: 409, body: { code: 'STAFF_ACTIVE_MEMBER_ACCESS' } });
+    expect((await db.user.findUniqueOrThrow({ where: { id: payingMember.user.id } })).role).toBe('MEMBER');
   });
 
   it('protects an expert role while future race or active WIN5 responsibility remains', async () => {

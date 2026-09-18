@@ -49,4 +49,26 @@ describe('account closure and retained history', () => {
     expect(response.status).toBe(409); expect(response.body.code).toBe('ACTIVE_BILLING_EXISTS');
     expect((await client.call('me')).status).toBe(200); expect(await db.accountClosure.findUnique({ where: { userId: fixture.user.id } })).toBeNull();
   });
+
+  it('does not close a member while a Stripe checkout can still be paid', async () => {
+    const fixture = await account();
+    await db.billingCheckout.create({ data: {
+      userId: fixture.user.id,
+      kind: 'SUBSCRIPTION',
+      planCode: 'STANDARD',
+      amountYen: 2980,
+      status: 'OPEN',
+      idempotencyKey: `closure-open-checkout:${fixture.user.id}:${randomUUID()}`,
+      requestHash: 'closure-open-checkout',
+      providerSessionId: `cs_test_${randomUUID()}`,
+      providerCheckoutUrl: 'https://checkout.stripe.test/session',
+      expiresAt: new Date(Date.now() + 30 * 60000)
+    } });
+    const client = new Client(); await client.login(fixture);
+    const eligibility = await client.call('me/closure');
+    expect(eligibility.body).toMatchObject({ eligible: false, blockers: [expect.objectContaining({ code: 'PENDING_CHECKOUT' })] });
+    const response = await client.call('me/close', 'POST', { reasonCode: 'PRICE', confirmation: '退会する', currentPassword: fixture.password });
+    expect(response).toMatchObject({ status: 409, body: { code: 'ACTIVE_BILLING_EXISTS' } });
+    expect(await db.accountClosure.findUnique({ where: { userId: fixture.user.id } })).toBeNull();
+  });
 });

@@ -37,13 +37,14 @@ export async function skipPendingNotificationEvents(db: PrismaClient, limit = 10
 }
 
 async function refreshEventStatus(db: PrismaClient, eventId: string) {
-  const deliveries = await db.notificationDelivery.findMany({ where: { eventId }, select: { status: true, attemptCount: true } });
+  const deliveries = await db.notificationDelivery.groupBy({ by: ['status'], where: { eventId }, _count: { _all: true } });
+  const statuses = new Set(deliveries.map(item => item.status));
   let status = 'QUEUED';
   if (!deliveries.length) status = 'SKIPPED';
-  else if (deliveries.some(item => item.status === 'SENDING')) status = 'SENDING';
-  else if (deliveries.some(item => item.status === 'QUEUED')) status = deliveries.some(item => item.attemptCount > 0) ? 'RETRIED' : 'QUEUED';
-  else if (deliveries.some(item => item.status === 'FAILED')) status = 'FAILED';
-  else if (deliveries.some(item => item.status === 'SENT')) status = 'SENT';
+  else if (statuses.has('SENDING')) status = 'SENDING';
+  else if (statuses.has('QUEUED')) status = await db.notificationDelivery.count({ where: { eventId, status: 'QUEUED', attemptCount: { gt: 0 } } }) ? 'RETRIED' : 'QUEUED';
+  else if (statuses.has('FAILED')) status = 'FAILED';
+  else if (statuses.has('SENT')) status = 'SENT';
   else status = 'SKIPPED';
   await db.notificationEvent.update({ where: { id: eventId }, data: { status, updatedAt: new Date() } });
 }
@@ -105,8 +106,11 @@ async function runChannelBatch(input: { db: PrismaClient; channel: DeliveryChann
   result.expandedEvents = await expandEvents(db, limit, channel, input.eventId);
   const claim = await claimDeliveries(db, channel, limit, input.eventId);
   result.claimedDeliveries = claim.ids.length;
+  const touchedEvents = new Set<string>();
 
-  for (const id of claim.ids) {
+  const concurrency = 8;
+  for (let offset = 0; offset < claim.ids.length; offset += concurrency) {
+    await Promise.all(claim.ids.slice(offset, offset + concurrency).map(async id => {
     const startedAt = now();
     const delivery = await db.notificationDelivery.findFirst({
       where: { id, channel, leaseToken: claim.leaseToken, status: 'SENDING' },
@@ -126,14 +130,14 @@ async function runChannelBatch(input: { db: PrismaClient; channel: DeliveryChann
         }
       }
     });
-    if (!delivery) continue;
+    if (!delivery) return;
+    touchedEvents.add(delivery.eventId);
     const stillEnabled = channel === 'LINE'
       ? (await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { lineNotificationsEnabled: true } })).lineNotificationsEnabled
       : (await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { emailNotificationsEnabled: true } })).emailNotificationsEnabled;
     if (!stillEnabled) {
       await db.notificationDelivery.updateMany({ where: { id, leaseToken: claim.leaseToken, status: 'SENDING' }, data: { status: 'QUEUED', lockedAt: null, leaseToken: null, updatedAt: now() } });
-      await refreshEventStatus(db, delivery.eventId);
-      continue;
+      return;
     }
     const version = delivery.event.version;
     const announcement = delivery.event.announcement;
@@ -154,21 +158,18 @@ async function runChannelBatch(input: { db: PrismaClient; channel: DeliveryChann
     if (skipCode) {
       await db.$transaction([db.notificationAttempt.create({ data: { deliveryId: id, attemptNumber, outcome: 'SKIPPED', errorCode: skipCode, startedAt, finishedAt: now() } }), db.notificationDelivery.update({ where: { id }, data: { status: 'SKIPPED', attemptCount: attemptNumber, forceAttempt: false, lastErrorCode: skipCode, lockedAt: null, leaseToken: null, updatedAt: now() } })]);
       result.skipped += 1;
-      await refreshEventStatus(db, delivery.eventId);
-      continue;
+      return;
     }
     if (delivery.attemptCount >= settings.notificationMaxAttempts && !delivery.forceAttempt) {
       await db.notificationDelivery.update({ where: { id }, data: { status: 'FAILED', lastErrorCode: 'ATTEMPT_LIMIT_REACHED', lockedAt: null, leaseToken: null, updatedAt: now() } });
       result.failed += 1;
-      await refreshEventStatus(db, delivery.eventId);
-      continue;
+      return;
     }
     const firstAttemptAt = delivery.attempts[0]?.startedAt ?? startedAt;
     if (delivery.attemptCount > 0 && startedAt.getTime() - firstAttemptAt.getTime() >= 24 * 60 * 60 * 1000) {
       await db.notificationDelivery.update({ where: { id }, data: { status: 'FAILED', forceAttempt: false, lastErrorCode: 'RETRY_WINDOW_EXPIRED', lockedAt: null, leaseToken: null, updatedAt: now() } });
       result.failed += 1;
-      await refreshEventStatus(db, delivery.eventId);
-      continue;
+      return;
     }
     const appBaseUrl = process.env.APP_BASE_URL ?? 'http://127.0.0.1:3000';
     const latestRaceEvaluation = raceResultVersion?.predictionEvaluations.sort((a, b) => b.predictionVersion.version - a.predictionVersion.version)[0];
@@ -200,8 +201,9 @@ async function runChannelBatch(input: { db: PrismaClient; channel: DeliveryChann
       await db.$transaction([db.notificationAttempt.create({ data: { deliveryId: id, attemptNumber, outcome: outcome.kind, errorCode: outcome.errorCode, startedAt, finishedAt } }), db.notificationDelivery.update({ where: { id }, data: { status: retry ? 'QUEUED' : 'FAILED', attemptCount: nextAttemptCount, forceAttempt: false, lastErrorCode, nextAttemptAt: retry ? proposedNextAttempt : finishedAt, lockedAt: null, leaseToken: null, updatedAt: finishedAt } })]);
       if (retry) result.retried += 1; else result.failed += 1;
     }
-    await refreshEventStatus(db, delivery.eventId);
+    }));
   }
+  for (const eventId of touchedEvents) await refreshEventStatus(db, eventId);
   return result;
 }
 

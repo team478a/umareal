@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { account, Client, db } from './helpers';
 
@@ -31,6 +32,11 @@ describe('administrator continuity', () => {
 
     const member = new Client(); await member.login(await account());
     expect((await member.call('admin/continuity')).status).toBe(403);
+
+    const payingMember = await account('MEMBER');
+    await db.billingCheckout.create({ data: { userId: payingMember.user.id, kind: 'SUBSCRIPTION', planCode: 'STANDARD', amountYen: 2980, status: 'OPEN', idempotencyKey: `admin-open-checkout:${payingMember.user.id}:${randomUUID()}`, requestHash: 'admin-open-checkout', providerSessionId: `cs_test_${randomUUID()}`, providerCheckoutUrl: 'https://checkout.stripe.test/session', expiresAt: new Date(Date.now() + 30 * 60000) } });
+    const blockedPromotion = await actor.call(`admin/continuity/administrators/${payingMember.user.id}/promote`, 'POST', { confirmationEmail: payingMember.user.email, reason: '決済中の昇格を拒否' });
+    expect(blockedPromotion).toMatchObject({ status: 409, body: { code: 'ADMIN_ACTIVE_MEMBER_ACCESS' } });
   });
 
   it('suspends, restores and demotes another administrator while preserving continuity and audit history', async () => {

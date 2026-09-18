@@ -45,6 +45,33 @@ stripe('Stripe checkout webhook', () => {
     expect(await db.stripeWebhookEvent.count({ where: { providerEventId: payload.id } })).toBe(0);
   });
 
+  it('records a paid checkout for review without granting access when the account is no longer eligible', async () => {
+    const fixture = await account();
+    const checkout = await db.billingCheckout.create({ data: { userId: fixture.user.id, kind: 'SUBSCRIPTION', planCode: 'STANDARD', amountYen: 2980, status: 'OPEN', idempotencyKey: `disabled-checkout:${fixture.user.id}:${randomUUID()}`, requestHash: 'disabled-checkout', providerSessionId: `cs_test_${randomUUID()}`, providerCheckoutUrl: 'https://checkout.stripe.test/session', expiresAt: new Date(Date.now() + 30 * 60000) } });
+    await db.user.update({ where: { id: fixture.user.id }, data: { disabledAt: new Date() } });
+    const payload = { id: `evt_${randomUUID()}`, object: 'event', type: 'checkout.session.completed', livemode: false, data: { object: { id: checkout.providerSessionId, object: 'checkout.session', metadata: { checkoutId: checkout.id, userId: fixture.user.id, kind: 'SUBSCRIPTION', planCode: 'STANDARD', raceDate: '' }, payment_status: 'paid', currency: 'jpy', amount_total: 2980, subscription: `sub_${randomUUID()}` } } };
+    const response = await new Client().call('webhooks/stripe', 'POST', payload, undefined, { 'Stripe-Signature': signature(payload) });
+    expect(response).toMatchObject({ status: 201, body: { outcome: 'REJECTED_ACCOUNT_STATE', duplicate: false } });
+    expect(await db.entitlement.count({ where: { userId: fixture.user.id } })).toBe(0);
+    expect(await db.subscription.count({ where: { userId: fixture.user.id } })).toBe(0);
+    expect(await db.paymentTransaction.findUniqueOrThrow({ where: { providerPaymentId: `checkout:${checkout.providerSessionId}` } })).toMatchObject({ status: 'REQUIRES_REVIEW', amountYen: 2980 });
+    expect(await db.billingCheckout.findUniqueOrThrow({ where: { id: checkout.id } })).toMatchObject({ status: 'REJECTED_ACCOUNT_STATE', completedAt: expect.any(Date) });
+  });
+
+  it('does not open a second subscription checkout while the first can still be paid', async () => {
+    const fixture = await account();
+    await db.billingCheckout.create({ data: { userId: fixture.user.id, kind: 'SUBSCRIPTION', planCode: 'STANDARD', amountYen: 2980, status: 'OPEN', idempotencyKey: `open-checkout:${fixture.user.id}:${randomUUID()}`, requestHash: 'open-checkout', providerSessionId: `cs_test_${randomUUID()}`, providerCheckoutUrl: 'https://checkout.stripe.test/session', expiresAt: new Date(Date.now() + 30 * 60000) } });
+    const settings = await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { newPurchasesEnabled: true } });
+    await db.systemSetting.update({ where: { id: 'global' }, data: { newPurchasesEnabled: true } });
+    try {
+      const client = new Client(); await client.login(fixture);
+      const response = await client.call('billing/checkout', 'POST', { planCode: 'STANDARD' }, undefined, { 'Idempotency-Key': randomUUID() });
+      expect(response).toMatchObject({ status: 409, body: { code: 'CHECKOUT_ALREADY_OPEN' } });
+    } finally {
+      await db.systemSetting.update({ where: { id: 'global' }, data: { newPurchasesEnabled: settings.newPurchasesEnabled } });
+    }
+  });
+
   it('synchronizes renewal, failure, recovery, cancellation scheduling and termination', async () => {
     const fixture = await account();
     const providerSubscriptionId = `sub_${randomUUID()}`;
