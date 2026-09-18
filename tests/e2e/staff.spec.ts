@@ -5,6 +5,25 @@ test.afterAll(async () => {
   await db.systemSetting.update({ where: { id: 'global' }, data: { stripeSecretKeyEncrypted: null, stripeWebhookSecretEncrypted: null, stripeLiveMode: false, stripePriceFounder: null, stripePriceStandard: null, stripePriceDayPass: null } });
   await db.$disconnect();
 });
+test('operator and expert see their management entry after login', async ({ page }) => {
+  if (process.env.AUTH_PROVIDER !== 'local' || !['127.0.0.1', 'localhost'].includes(new URL(process.env.DATABASE_URL ?? '').hostname)) throw new Error('Staff browser test requires local development database');
+  const cases = [
+    { fixture: await account('OPERATOR'), href: '/admin', heading: '運営担当用の管理画面' },
+    { fixture: await account('EXPERT'), href: '/expert', heading: '専門家の担当管理画面' }
+  ];
+  for (const item of cases) {
+    await page.goto('/login');
+    await page.getByLabel('メールアドレス', { exact: true }).fill(item.fixture.user.email!);
+    await page.getByLabel('パスワード', { exact: true }).fill(item.fixture.password);
+    await page.getByRole('button', { name: 'ログイン', exact: true }).click();
+    await expect(page.getByRole('heading', { name: item.heading, exact: true })).toBeVisible();
+    const managementLink = page.getByRole('link', { name: '管理画面へ', exact: true });
+    await expect(managementLink).toHaveAttribute('href', item.href);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.getByRole('button', { name: 'ログアウト', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'おかえりなさい', exact: true })).toBeVisible();
+  }
+});
 test('administrator must complete MFA before viewing member management', async ({ page }, testInfo) => {
   if (process.env.AUTH_PROVIDER !== 'local' || !['127.0.0.1', 'localhost'].includes(new URL(process.env.DATABASE_URL ?? '').hostname)) throw new Error('Staff browser test requires local development database');
   const fixture = await account('ADMIN');
@@ -18,7 +37,11 @@ test('administrator must complete MFA before viewing member management', async (
   await page.getByLabel('パスワード', { exact: true }).fill(fixture.password);
   await page.getByRole('button', { name: 'ログイン', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'マイページ', exact: true })).toBeVisible();
-  await page.goto('/admin');
+  await expect(page.getByRole('heading', { name: '管理者用の管理画面', exact: true })).toBeVisible();
+  const managementLink = page.getByRole('link', { name: '管理画面へ', exact: true });
+  await expect(managementLink).toHaveAttribute('href', '/admin');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await managementLink.click();
   await expect(page.getByRole('heading', { name: '二段階認証を完了してください' })).toBeVisible();
   await page.getByRole('link', { name: '二段階認証へ' }).click();
   await page.getByRole('button', { name: '設定を始める' }).click();
@@ -26,7 +49,7 @@ test('administrator must complete MFA before viewing member management', async (
   await page.getByLabel('認証コード').fill(totp(secret));
   await page.getByRole('button', { name: 'コードを確認' }).click();
   await expect(page.getByRole('heading', { name: '二段階認証が完了しています' })).toBeVisible();
-  await page.getByRole('link', { name: 'アカウントに戻る' }).click();
+  await page.getByRole('link', { name: '管理画面へ', exact: true }).click();
   await expect(page.getByRole('heading', { name: '管理ダッシュボード', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '開催日運用ボード', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '開催日リハーサル', exact: true })).toBeVisible();
