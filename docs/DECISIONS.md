@@ -929,3 +929,11 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 - 特典は即時の閲覧権限ではなく未使用Rewardとして付与する。本人が対象日を選んだ時だけ既存DayPassとEntitlementを作り、購入由来と紹介由来は`day_passes.source`で区別する。
 - 管理者無効化では成立人数を再計算し、下回ったマイルストーンの未使用Rewardだけを無効化する。使用済みDayPass/Entitlementと期限切れRewardは巻き戻さない。後日再達成した場合は同じ未使用Reward行を再有効化し、二重付与しない。
 - 管理画面はADMIN+AAL2に限定し、会員メールやLINE subjectを表示しない。LINE共有は本人操作の共有画面だけを使い、Messaging APIによる代理送信を行わない。
+
+## 有料運用の例外処理完成（2026-09-25）
+
+- Stripe支払後の再検査で会員状態、重複アクセスまたは創設枠の競合を検出したCheckoutは、契約・一日利用を作らず要確認として保持する。ADMIN+AAL2と理由を必須にし、Stripeの支払・契約状態と現在の会員条件を再検証して権限を付与するか、固定冪等キーで全額返金する。
+- 要確認支払と返金請求eventは`billingCheckoutId`で申込へ関連付ける。既存の`REQUIRES_REVIEW`行はCheckout Session IDで関連付け、元の金額、状態、事業者IDは変更しない。解決結果も成功支払または返金支払を追記し、監査対象は`BillingCheckout`とする。
+- Stripeの`refund.created`と`refund.updated`は署名、test/liveモード、イベントID、返金IDを検証して追記同期する。外部返金だけを理由に、利用開始済み一日券や月額閲覧権限を自動取消ししない。返金可否とアクセス停止条件は正式な返金方針で別途確定する。
+- 会員は解約予約を取消できる。Stripe API再試行は同じ状態遷移では同じ冪等キーを使い、取消後に再び解約予約する場合は契約行の更新時刻を含む新しいキーを使う。
+- Stripe Customer Portalは有効な本人月額契約からCustomer IDを取得して作成し、`billing.stripe.com`のHTTPS URLだけを返す。支払方法変更を許可するPortal設定はStripe Dashboardで本番前に人が確認する。

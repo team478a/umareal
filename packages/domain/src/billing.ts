@@ -7,6 +7,10 @@ export const dayPassCheckoutSchema = z.object({ raceDate: z.string().regex(/^\d{
   const roundTrip = new Date(parsed.getTime() + 9 * 3600000).toISOString().slice(0, 10);
   if (!Number.isFinite(parsed.getTime()) || roundTrip !== value.raceDate) context.addIssue({ code: 'custom', path: ['raceDate'], message: '有効な開催日を指定してください。' });
 });
+export const billingReviewResolutionSchema = z.object({
+  action: z.enum(['GRANT_ACCESS', 'REFUND']),
+  reason: z.string().trim().min(1).max(500)
+}).strict();
 export const billingSettingsSchema = z.object({
   founderSalesEnabled: z.boolean(), founderPriceYen: z.number().int().min(0).max(1_000_000),
   standardPriceYen: z.number().int().min(0).max(1_000_000), dayPassPriceYen: z.number().int().min(0).max(1_000_000),

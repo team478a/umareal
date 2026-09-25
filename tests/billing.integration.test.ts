@@ -35,6 +35,9 @@ describe('local billing lifecycle', () => {
   it('schedules cancellation without cutting off the paid period', async () => {
     const canceled = await member.call(`billing/subscriptions/${subscriptionId}/cancel`, 'POST'); expect(canceled.status).toBe(201); expect(canceled.body.cancelAtPeriodEnd).toBe(true);
     const repeated = await member.call(`billing/subscriptions/${subscriptionId}/cancel`, 'POST'); expect(repeated.status).toBe(201);
+    const resumed = await member.call(`billing/subscriptions/${subscriptionId}/resume`, 'POST'); expect(resumed.status).toBe(201); expect(resumed.body.cancelAtPeriodEnd).toBe(false);
+    const repeatedResume = await member.call(`billing/subscriptions/${subscriptionId}/resume`, 'POST'); expect(repeatedResume.status).toBe(201); expect(repeatedResume.body.cancelAtPeriodEnd).toBe(false);
+    expect(await db.billingEvent.count({ where: { subscriptionId, eventType: 'CANCELLATION_REVERSED' } })).toBe(1);
     const subscription = await db.subscription.findUniqueOrThrow({ where: { id: subscriptionId }, include: { entitlement: true } });
     expect(subscription.entitlement.revokedAt).toBeNull(); expect(subscription.entitlement.endsAt).toEqual(subscription.currentPeriodEndsAt);
   });

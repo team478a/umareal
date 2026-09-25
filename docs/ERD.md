@@ -22,8 +22,10 @@ erDiagram
   day_passes ||--|| entitlements : grants
   subscriptions ||--o{ payment_transactions : records
   day_passes ||--o{ payment_transactions : records
+  billing_checkouts ||--o{ payment_transactions : reviews
   subscriptions ||--o{ billing_events : audits
   day_passes ||--o{ billing_events : audits
+  billing_checkouts ||--o{ billing_events : audits
   users ||--o{ expert_assignments : assigned
   races ||--o{ expert_assignments : has
   race_days ||--o{ races : schedules
@@ -109,6 +111,8 @@ Phase 4Aでsubscriptions、day_passes、payment_transactions、billing_eventsを
 Phase 6Aでbilling_checkoutsとstripe_webhook_eventsを追加。Checkout作成時は申込内容とサーバー価格を固定し、署名付き完了イベントの照合後だけ契約とentitlementを作る。StripeイベントIDは一意で、受信履歴は追記専用とする。決済中の重複申込は会員・対象日・創設会員枠ごとに直列化し、支払後に退会・権限変更・既存アクセスとの競合を検出した場合はCheckoutを拒否状態、payment_transactionsを`REQUIRES_REVIEW`として保持し、契約とentitlementを作らない。
 
 Phase 6Bでは同じ追記専用Stripe受信履歴を使い、Invoice成功・失敗とSubscription更新・終了を既存のsubscriptions、entitlements、payment_transactions、billing_eventsへ同期する。Stripe Invoiceの期間を外部契約の正とし、失敗時は有限の猶予終了時刻までに権限を制限する。
+
+有料運用の例外処理では、支払済みだが権限未付与の`billing_checkouts`を`payment_transactions`と`billing_events`の排他的な対象として参照できるようにした。既存の要確認支払はCheckout Session IDで安全に関連付け、管理者の再検証による権限付与または全額返金を追記履歴として残す。Stripe返金Webhookも同じ対象関係を使い、元の成功支払を更新しない。
 
 Phase 6Cでsystem_settingsにStripeの暗号化Secret key、暗号化Webhook secret、動作モード、3つのPrice IDを追加した。秘密値は設定APIへ返さず、変更理由と設定状態だけを既存の監査ログへ残す。
 

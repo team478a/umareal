@@ -128,7 +128,7 @@ async function runChannelBatch(input: { db: PrismaClient; channel: DeliveryChann
             raceResultVersion: { include: { race: true, predictionEvaluations: { include: { predictionVersion: { select: { version: true } } } } } },
             win5EvaluationVersion: { include: { product: { include: { races: { orderBy: { legNumber: 'asc' }, include: { race: true } } } } } },
             supportEvent: { include: { request: true } },
-            billingEvent: { include: { subscription: true, dayPass: true } }
+            billingEvent: { include: { subscription: true, dayPass: true, billingCheckout: true } }
           }
         }
       }
@@ -185,7 +185,7 @@ async function runChannelBatch(input: { db: PrismaClient; channel: DeliveryChann
         BILLING_SUBSCRIPTION_ENDED: 'SUBSCRIPTION_ENDED', BILLING_REFUND_COMPLETED: 'REFUND_COMPLETED'
       } as const)[delivery.event.eventType as 'BILLING_PAYMENT_SUCCEEDED' | 'BILLING_PAYMENT_FAILED' | 'BILLING_PAYMENT_RECOVERED' | 'BILLING_CANCELLATION_SCHEDULED' | 'BILLING_CANCELLATION_REVERSED' | 'BILLING_SUBSCRIPTION_ENDED' | 'BILLING_REFUND_COMPLETED'];
       if (!eventType) throw new Error('Billing notification event type is invalid');
-      message = buildBillingLineMessage({ eventType, planCode: (billingEvent.subscription?.planCode ?? 'DAY_PASS') as 'FOUNDER' | 'STANDARD' | 'DAY_PASS', currentPeriodEndsAt: billingEvent.subscription?.currentPeriodEndsAt ?? billingEvent.dayPass!.endsAt, appBaseUrl });
+      message = buildBillingLineMessage({ eventType, planCode: (billingEvent.subscription?.planCode ?? billingEvent.billingCheckout?.planCode ?? 'DAY_PASS') as 'FOUNDER' | 'STANDARD' | 'DAY_PASS', currentPeriodEndsAt: billingEvent.subscription?.currentPeriodEndsAt ?? billingEvent.dayPass?.endsAt ?? billingEvent.billingCheckout!.completedAt!, appBaseUrl });
     } else if (supportEvent) {
       message = buildSupportReplyLineMessage({ eventType: 'SUPPORT_RESPONSE_POSTED', requestId: supportEvent.requestId, appBaseUrl });
     } else if (win5EvaluationVersion) {
