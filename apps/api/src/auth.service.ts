@@ -65,7 +65,7 @@ export class AuthService {
       select: { eventType: true, occurredAt: true }
     });
   }
-  audit(tx: Prisma.TransactionClient, req: AppRequest, action: string, targetId: string, reason: string, details: Prisma.InputJsonValue = {}) {
-    return tx.auditLog.create({ data: { actorId: req.auth?.id, actorRole: req.auth?.role, action, targetType: 'USER', targetId, reason, details, requestId: req.requestId } });
+  audit(tx: Prisma.TransactionClient, req: AppRequest, action: string, targetId: string, reason: string, details: Prisma.InputJsonValue = {}, targetType = 'USER') {
+    return tx.auditLog.create({ data: { actorId: req.auth?.id, actorRole: req.auth?.role, action, targetType, targetId, reason, details, requestId: req.requestId } });
   }
 }

@@ -887,9 +887,9 @@ td { padding:17px 24px; border-top:1px solid var(--line); }
 .referral-hero strong small { margin-left:5px; font-size:13px; }
 .referral-meter { height:8px; overflow:hidden; border-radius:999px; background:#dfe8e3; }
 .referral-meter span { display:block; height:100%; border-radius:inherit; background:var(--green); }
-.referral-share { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:16px; align-items:end; padding:24px; border-bottom:1px solid var(--line); }
+.referral-share { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:16px; align-items:end; min-width:0; padding:24px; border-bottom:1px solid var(--line); }
 .referral-share label { display:grid; gap:7px; color:var(--muted); font-size:12px; }
-.referral-share input { width:100%; min-height:44px; }
+.referral-share input { width:100%; min-width:0; max-width:100%; min-height:44px; }
 .referral-share>div { display:flex; gap:9px; }
 .referral-milestones { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; padding:0 24px 24px; }
 .referral-milestones article { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:12px; align-items:center; padding:16px; border:1px solid var(--line); border-radius:7px; background:#fff; }
@@ -901,7 +901,7 @@ td { padding:17px 24px; border-top:1px solid var(--line); }
 .referral-milestones b { color:var(--green); font-size:12px; }
 .referral-rewards { display:grid; gap:12px; padding:0 24px 24px; }
 .referral-rewards h3 { margin:0 0 4px; }
-.reward-card { display:grid; grid-template-columns:auto minmax(190px,1fr) minmax(150px,.5fr) auto; gap:14px; align-items:end; padding:16px; border:1px solid var(--line); border-radius:7px; }
+.reward-card { display:grid; grid-template-columns:auto minmax(190px,1fr) minmax(150px,.5fr) auto; gap:14px; align-items:end; min-width:0; padding:16px; border:1px solid var(--line); border-radius:7px; }
 .reward-card>svg { align-self:center; color:var(--green); }
 .reward-card>div { display:grid; gap:4px; align-self:center; }
 .reward-card small { color:var(--muted); }

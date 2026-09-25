@@ -158,7 +158,6 @@ function AuthForm({ path, onSuccess, lineEnabled, localOnly, registrationEnabled
   return <div className="auth-grid"><div className="auth-intro"><span className="eyebrow">MEMBER’S DESK</span><h1>{title}</h1><p>{registration ? 'あなたのアカウントを作成して、レース情報を確認しましょう。' : forgot ? '登録したメールアドレスを入力してください。' : reset ? '12文字以上のパスワードを設定してください。' : 'メールアドレスとパスワードでログインしてください。'}</p><div className="auth-aside"><ShieldCheck size={24} /><strong>安心して使えるアカウントに</strong><p>管理者と専門家には、認証アプリによる二段階認証が必要です。</p></div></div>
     <section className="panel auth-panel"><form onSubmit={submit}>
       <Notice text={error} error /><Notice text={message} />
-      {registration && memberReferralCode && <div className="notice">友達紹介URLから登録しています。通常の無料会員登録を完了してください。</div>}
       {registration && lineEnabled && <><button type="button" className="button line-button full" disabled={busy} onClick={() => void lineRegister()}>LINEで無料登録<ArrowRight size={17} /></button><div className="auth-divider"><span>またはメールで登録</span></div></>}
       {registration && <label className="field">表示名<input name="displayName" autoComplete="nickname" maxLength={60} required placeholder="例：山田 太郎" /></label>}
       {!reset && <label className="field">メールアドレス<input type="email" name="email" autoComplete="email" required maxLength={254} placeholder="name@example.com" /></label>}

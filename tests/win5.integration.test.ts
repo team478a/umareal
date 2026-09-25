@@ -50,7 +50,16 @@ describe('WIN5 product drafting and publication', () => {
     expect(dayPurchase.status, JSON.stringify(dayPurchase.body)).toBe(201);
     expect(dayPurchase.body.status).toBe('PENDING'); expect(dayPurchase.body.startsAt).toBeNull(); expect(dayPurchase.body.waitingForPublication).toBe(true);
     const pendingPass = await db.dayPass.findUniqueOrThrow({ where: { id: dayPurchase.body.dayPassId } });
-    expect(pendingPass.entitlementId).toBeNull();
+    expect(pendingPass).toMatchObject({ entitlementId: null, source: 'PURCHASE' });
+
+    const referralMember = await account(); const referralClient = new Client(); await referralClient.login(referralMember);
+    const referralMilestone = await db.referralMilestone.findUniqueOrThrow({ where: { requiredReferralCount: 3 } });
+    const referralReward = await db.referralReward.create({ data: { userId: referralMember.user.id, milestoneId: referralMilestone.id, rewardType: 'DAY_PASS', expiresAt: new Date(`${targetDate}T23:59:59+09:00`) } });
+    const referralRedemption = await referralClient.call(`me/referral-rewards/${referralReward.id}/redeem`, 'POST', { targetDate });
+    expect(referralRedemption.status, JSON.stringify(referralRedemption.body)).toBe(201);
+    expect(referralRedemption.body).toMatchObject({ status: 'PENDING', startsAt: null, waitingForPublication: true });
+    const pendingReferralPass = await db.dayPass.findUniqueOrThrow({ where: { id: referralRedemption.body.dayPassId } });
+    expect(pendingReferralPass).toMatchObject({ entitlementId: null, provider: 'REFERRAL_REWARD', source: 'REFERRAL_REWARD', priceYen: 0 });
 
     for (let index = 0; index < races.length; index++) {
       const item = races[index];
@@ -71,8 +80,13 @@ describe('WIN5 product drafting and publication', () => {
     const activePass = await db.dayPass.findUniqueOrThrow({ where: { id: pendingPass.id }, include: { entitlement: true } });
     expect(activePass.status).toBe('ACTIVE'); expect(activePass.startsAt?.toISOString()).toBe(new Date(published.body.publishedAt).toISOString());
     expect(activePass.entitlement?.startsAt.toISOString()).toBe(new Date(published.body.publishedAt).toISOString());
+    const activeReferralPass = await db.dayPass.findUniqueOrThrow({ where: { id: pendingReferralPass.id }, include: { entitlement: true, referralReward: true } });
+    expect(activeReferralPass).toMatchObject({ status: 'ACTIVE', source: 'REFERRAL_REWARD', referralReward: { id: referralReward.id, status: 'REDEEMED' } });
+    expect(activeReferralPass.entitlement).toMatchObject({ planCode: 'DAY_PASS', raceDate: targetDate, startsAt: new Date(published.body.publishedAt) });
     const paidPaper = await dayClient.call(`win5/${created.body.id}`);
     expect(paidPaper.status).toBe(200); expect(paidPaper.body.access).toBe('FULL'); expect(paidPaper.body.version.contentSnapshot.races).toHaveLength(5);
+    const referralPaper = await referralClient.call(`win5/${created.body.id}`);
+    expect(referralPaper.status).toBe(200); expect(referralPaper.body.access).toBe('FULL'); expect(referralPaper.body.version.contentSnapshot.races).toHaveLength(5);
 
     const freeMember = await account(); const freeClient = new Client(); await freeClient.login(freeMember);
     const freeLineSubject = `test:win5-result:${randomUUID()}`;

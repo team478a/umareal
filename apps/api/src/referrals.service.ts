@@ -34,7 +34,7 @@ export class ReferralsService {
     await this.auth.audit(tx, req, 'REFERRAL_QUALIFIED', referral.id, '本人確認完了による友達紹介成立', {
       referrerUserId: referral.referrerUserId,
       referredUserId
-    });
+    }, 'REFERRAL');
     const qualifiedCount = await tx.referral.count({ where: { referrerUserId: referral.referrerUserId, status: 'QUALIFIED' } });
     await this.grantReachedMilestones(tx, referral.referrerUserId, qualifiedCount, now, req);
     return { referralId: referral.id, referrerUserId: referral.referrerUserId, qualifiedCount };
@@ -48,16 +48,20 @@ export class ReferralsService {
     for (const milestone of milestones) {
       const existing = await tx.referralReward.findUnique({ where: { userId_milestoneId: { userId, milestoneId: milestone.id } } });
       if (existing && existing.status !== 'INVALIDATED') continue;
-      const expiresAt = new Date(now.getTime() + milestone.rewardValidityDays * 86400000);
+      // Invalidated rewards may be restored only while their original claim
+      // window is still alive. Re-reaching a milestone after that deadline
+      // must not manufacture a fresh 60-day window.
+      if (existing && existing.expiresAt <= now) continue;
+      const expiresAt = existing?.expiresAt ?? new Date(now.getTime() + milestone.rewardValidityDays * 86400000);
       const reward = existing
-        ? await tx.referralReward.update({ where: { id: existing.id }, data: { status: 'AVAILABLE', grantedAt: now, expiresAt, invalidatedAt: null, invalidatedReason: null } })
+        ? await tx.referralReward.update({ where: { id: existing.id }, data: { status: 'AVAILABLE', invalidatedAt: null, invalidatedReason: null } })
         : await tx.referralReward.create({ data: { userId, milestoneId: milestone.id, rewardType: milestone.rewardType, rewardQuantity: milestone.rewardQuantity, grantedAt: now, expiresAt } });
       await this.auth.audit(tx, req, 'REFERRAL_MILESTONE_REACHED', milestone.id, '友達紹介マイルストーン達成', {
         userId, requiredReferralCount: milestone.requiredReferralCount, qualifiedCount
-      });
+      }, 'REFERRAL_MILESTONE');
       await this.auth.audit(tx, req, 'REFERRAL_REWARD_GRANTED', reward.id, '友達紹介特典付与', {
         userId, milestoneId: milestone.id, rewardType: milestone.rewardType, rewardQuantity: milestone.rewardQuantity, expiresAt: expiresAt.toISOString()
-      });
+      }, 'REFERRAL_REWARD');
     }
   }
 
@@ -103,7 +107,7 @@ export class ReferralsService {
       if (await tx.dayPass.findUnique({ where: { userId_raceDate: { userId, raceDate: targetDate } } })) throw new ConflictException({ code: 'DAY_PASS_ALREADY_EXISTS', message: 'この対象日の一日利用権はすでにあります。' });
       const access = await createDayPassAccess(tx, { userId, raceDate: targetDate, priceYen: 0, provider: 'REFERRAL_REWARD', providerPassId: `referral-${reward.id}`, reason: 'REFERRAL_REWARD_DAY_PASS', actorId: userId, source: 'REFERRAL_REWARD' });
       await tx.referralReward.update({ where: { id: reward.id }, data: { status: 'REDEEMED', usedAt: now, dayPassId: access.pass.id } });
-      await this.auth.audit(tx, req, 'REFERRAL_REWARD_REDEEMED', reward.id, '会員による紹介特典一日券の利用', { targetDate, dayPassId: access.pass.id });
+      await this.auth.audit(tx, req, 'REFERRAL_REWARD_REDEEMED', reward.id, '会員による紹介特典一日券の利用', { targetDate, dayPassId: access.pass.id }, 'REFERRAL_REWARD');
       return { rewardId: reward.id, dayPassId: access.pass.id, status: access.pass.status, startsAt: access.startsAt, endsAt: access.endsAt, waitingForPublication: access.waitingForPublication };
     });
     if ('expired' in result) throw new ConflictException({ code: 'REFERRAL_REWARD_EXPIRED', message: 'この一日券の有効期限は終了しています。' });
@@ -169,9 +173,15 @@ export class ReferralsService {
       const now = new Date();
       await tx.referral.update({ where: { id }, data: { status: 'INVALIDATED', invalidatedAt: now, invalidatedReason: reason, invalidatedById: req.auth!.id } });
       const qualifiedCount = await tx.referral.count({ where: { referrerUserId: referral.referrerUserId, status: 'QUALIFIED' } });
-      const rewards = await tx.referralReward.findMany({ where: { userId: referral.referrerUserId, status: 'AVAILABLE', milestone: { requiredReferralCount: { gt: qualifiedCount } } } });
+      // Expiration wins over later invalidation. Otherwise an expired AVAILABLE
+      // row could become INVALIDATED and then be revived on a future milestone.
+      await tx.referralReward.updateMany({
+        where: { userId: referral.referrerUserId, status: 'AVAILABLE', expiresAt: { lte: now } },
+        data: { status: 'EXPIRED' }
+      });
+      const rewards = await tx.referralReward.findMany({ where: { userId: referral.referrerUserId, status: 'AVAILABLE', expiresAt: { gt: now }, milestone: { requiredReferralCount: { gt: qualifiedCount } } } });
       for (const reward of rewards) await tx.referralReward.update({ where: { id: reward.id }, data: { status: 'INVALIDATED', invalidatedAt: now, invalidatedReason: `紹介無効化: ${reason}` } });
-      await this.auth.audit(tx, req, 'REFERRAL_INVALIDATED', id, reason, { referrerUserId: referral.referrerUserId, qualifiedCount, unusedRewardsInvalidated: rewards.length });
+      await this.auth.audit(tx, req, 'REFERRAL_INVALIDATED', id, reason, { referrerUserId: referral.referrerUserId, qualifiedCount, unusedRewardsInvalidated: rewards.length }, 'REFERRAL');
       return { id, status: 'INVALIDATED', qualifiedCount, unusedRewardsInvalidated: rewards.length };
     });
   }
