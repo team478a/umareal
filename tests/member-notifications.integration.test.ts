@@ -32,6 +32,11 @@ async function events() {
 describe('member notification history', () => {
   it('lists safe public events, applies paid entitlement, and persists idempotent read state', async () => {
     const fixture = await account(); const target = await events(); const client = new Client(); await client.login(fixture);
+    const billingNotification = await db.$transaction(async tx => {
+      const pass = await tx.dayPass.create({ data: { userId: fixture.user.id, raceDate: '2097-04-06', status: 'PENDING', priceYen: 980, startsAt: null, endsAt: new Date('2097-04-06T15:00:00Z'), provider: 'LOCAL_TEST', source: 'PURCHASE', providerPassId: `member-notification-${randomUUID()}`, entitlementId: null } });
+      const billingEvent = await tx.billingEvent.create({ data: { userId: fixture.user.id, eventType: 'DAY_PASS_PENDING', dayPassId: pass.id, actorId: fixture.user.id, details: { amountYen: 980 } } });
+      return tx.notificationEvent.create({ data: { billingEventId: billingEvent.id, eventType: 'BILLING_PAYMENT_SUCCEEDED', status: 'QUEUED', payload: { billingEventId: billingEvent.id } } });
+    });
     expect((await new Client().call('me/notifications')).status).toBe(401);
     const initial = await client.call('me/notifications?limit=50');
     expect(initial.status).toBe(200);
@@ -39,6 +44,7 @@ describe('member notification history', () => {
     expect(ids).toContain(target.announcementEvent.id); expect(ids).toContain(target.freeEvent.id); expect(ids).toContain(target.win5Event.id); expect(ids).not.toContain(target.paidEvent.id);
     const win5Item = initial.body.items.find((item: { id: string }) => item.id === target.win5Event.id);
     expect(win5Item).toMatchObject({ title: 'WIN5紙面予想を公開しました', race: null, href: `/win5/${target.win5.id}`, win5: { id: target.win5.id, title: target.win5.title } });
+    expect(initial.body.items.find((item: { id: string }) => item.id === billingNotification.id)).toMatchObject({ title: 'お支払いを確認しました', race: null, href: '/account', billing: { planCode: 'DAY_PASS', raceDate: '2097-04-06' } });
     expect(JSON.stringify(initial.body)).not.toMatch(/APIへ出さない本文|APIへ出さないWIN5選択馬/);
     expect((await client.call(`me/notifications/${target.paidEvent.id}/read`, 'POST')).status).toBe(404);
     const laterFixture = await account(); const laterClient = new Client(); await laterClient.login(laterFixture);

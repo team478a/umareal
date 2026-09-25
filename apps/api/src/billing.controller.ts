@@ -13,6 +13,7 @@ import { loadStripeConfig, type StripeRuntimeConfig } from './stripe-config';
 import { stripePriceMatchesCheckout } from './stripe-price';
 
 const reasonSchema = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
+type BillingNotificationType = 'BILLING_PAYMENT_SUCCEEDED' | 'BILLING_PAYMENT_FAILED' | 'BILLING_PAYMENT_RECOVERED' | 'BILLING_CANCELLATION_SCHEDULED' | 'BILLING_CANCELLATION_REVERSED' | 'BILLING_SUBSCRIPTION_ENDED' | 'BILLING_REFUND_COMPLETED';
 
 @Controller()
 export class BillingController {
@@ -34,6 +35,13 @@ export class BillingController {
     const actor = await this.auth.authenticate(req);
     if (!canManage(actor, roles)) throw new ForbiddenException({ code: requiresMfa(actor.role) && actor.aal !== 2 ? 'MFA_REQUIRED' : 'FORBIDDEN', message: '管理権限と二段階認証を確認してください。' });
     return actor;
+  }
+  private async recordBillingEvent(tx: Prisma.TransactionClient, input: {
+    userId: string; eventType: string; subscriptionId?: string; dayPassId?: string; actorId: string; details: Prisma.InputJsonValue;
+  }, notificationType?: BillingNotificationType) {
+    const event = await tx.billingEvent.create({ data: { ...input, subscriptionId: input.subscriptionId ?? null, dayPassId: input.dayPassId ?? null } });
+    if (notificationType) await tx.notificationEvent.create({ data: { billingEventId: event.id, eventType: notificationType, status: 'QUEUED', payload: { billingEventId: event.id } } });
+    return event;
   }
 
   @Get('billing/plans')
@@ -66,6 +74,34 @@ export class BillingController {
       this.auth.db.billingSupportRequest.findMany({ where: { userId: actor.id }, select: { id: true, paymentTransactionId: true, category: true, message: true, status: true, createdAt: true, updatedAt: true, events: { select: { eventType: true, occurredAt: true }, orderBy: { occurredAt: 'asc' } } }, orderBy: { createdAt: 'desc' } })
     ]);
     return { subscriptions, dayPasses, payments, supportRequests };
+  }
+
+  @Get('billing/payments/:id/receipt')
+  async receipt(@Param('id') id: string, @Req() req: AppRequest) {
+    const actor = await this.auth.authenticate(req);
+    z.string().uuid().parse(id);
+    const payment = await this.auth.db.paymentTransaction.findUnique({ where: { id } });
+    if (!payment || payment.userId !== actor.id) throw new NotFoundException({ code: 'PAYMENT_NOT_FOUND', message: '対象の支払いを確認できません。' });
+    if (payment.provider !== 'STRIPE' || payment.status !== 'SUCCEEDED') throw new ConflictException({ code: 'RECEIPT_NOT_AVAILABLE', message: 'この支払いには外部決済の領収書がありません。' });
+    const stripeConfig = await this.stripeConfig();
+    const client = this.stripeClient(stripeConfig);
+    let receiptUrl: string | null = null;
+    if (payment.providerPaymentId.startsWith('checkout:')) {
+      const sessionId = payment.providerPaymentId.slice('checkout:'.length);
+      const session = await client.checkout.sessions.retrieve(sessionId, { expand: ['payment_intent.latest_charge', 'invoice'] });
+      const invoice = session.invoice && typeof session.invoice === 'object' ? session.invoice : null;
+      const intent = session.payment_intent && typeof session.payment_intent === 'object' ? session.payment_intent : null;
+      const charge = intent?.latest_charge && typeof intent.latest_charge === 'object' ? intent.latest_charge : null;
+      receiptUrl = charge?.receipt_url ?? invoice?.hosted_invoice_url ?? null;
+    } else if (payment.providerPaymentId.startsWith('invoice:')) {
+      const invoiceId = payment.providerPaymentId.slice('invoice:'.length).replace(/:paid$/, '');
+      const invoice = await client.invoices.retrieve(invoiceId);
+      receiptUrl = invoice.hosted_invoice_url ?? null;
+    }
+    if (!receiptUrl) throw new ConflictException({ code: 'RECEIPT_NOT_READY', message: '領収書はまだ発行されていません。時間をおいて再度お試しください。' });
+    const parsed = new URL(receiptUrl);
+    if (parsed.protocol !== 'https:' || !(parsed.hostname === 'stripe.com' || parsed.hostname.endsWith('.stripe.com'))) throw new ServiceUnavailableException({ code: 'RECEIPT_URL_INVALID', message: '領収書リンクを安全に確認できません。' });
+    return { paymentId: payment.id, receiptUrl: parsed.toString() };
   }
 
   @Post('billing/support-requests')
@@ -125,7 +161,7 @@ export class BillingController {
         const entitlement = await tx.entitlement.create({ data: { userId: actor.id, planCode: input.planCode, startsAt: now, endsAt, reason: 'LOCAL_TEST_SUBSCRIPTION', grantedBy: actor.id } });
         const subscription = await tx.subscription.create({ data: { userId: actor.id, planCode: input.planCode, status: 'ACTIVE', priceYen, currentPeriodStartsAt: now, currentPeriodEndsAt: endsAt, provider: 'LOCAL_TEST', providerSubscriptionId: `local-sub-${randomUUID()}`, entitlementId: entitlement.id } });
         const payment = await tx.paymentTransaction.create({ data: { userId: actor.id, provider: 'LOCAL_TEST', providerPaymentId: `local-pay-${randomUUID()}`, kind: 'SUBSCRIPTION', status: 'SUCCEEDED', amountYen: priceYen, subscriptionId: subscription.id } });
-        await tx.billingEvent.create({ data: { userId: actor.id, eventType: 'SUBSCRIPTION_STARTED', subscriptionId: subscription.id, actorId: actor.id, details: { planCode: input.planCode, priceYen, developmentSimulation: true } } });
+        await this.recordBillingEvent(tx, { userId: actor.id, eventType: 'SUBSCRIPTION_STARTED', subscriptionId: subscription.id, actorId: actor.id, details: { planCode: input.planCode, priceYen, developmentSimulation: true } }, 'BILLING_PAYMENT_SUCCEEDED');
         const response = { subscriptionId: subscription.id, paymentId: payment.id, status: subscription.status, currentPeriodEndsAt: endsAt };
         await tx.idempotencyKey.create({ data: { key, requestHash, response } }); return response;
       }, { timeout: 20000, maxWait: 10000 });
@@ -154,6 +190,7 @@ export class BillingController {
         const access = await createDayPassAccess(tx, { userId: actor.id, raceDate: input.raceDate, priceYen: settings.dayPassPriceYen, provider: 'LOCAL_TEST', providerPassId: `local-pass-${randomUUID()}`, reason: 'LOCAL_TEST_DAY_PASS', actorId: actor.id, source: 'LOCAL_TEST' });
         const pass = access.pass;
         const payment = await tx.paymentTransaction.create({ data: { userId: actor.id, provider: 'LOCAL_TEST', providerPaymentId: `local-pay-${randomUUID()}`, kind: 'DAY_PASS', status: 'SUCCEEDED', amountYen: settings.dayPassPriceYen, dayPassId: pass.id } });
+        await tx.notificationEvent.create({ data: { billingEventId: access.billingEvent.id, eventType: 'BILLING_PAYMENT_SUCCEEDED', status: 'QUEUED', payload: { billingEventId: access.billingEvent.id } } });
         const response = { dayPassId: pass.id, paymentId: payment.id, status: pass.status, startsAt: access.startsAt, endsAt: access.endsAt, waitingForPublication: access.waitingForPublication };
         await tx.idempotencyKey.create({ data: { key, requestHash, response } }); return response;
       });
@@ -237,13 +274,14 @@ export class BillingController {
         const entitlement = await tx.entitlement.create({ data: { userId, planCode: checkout.planCode, startsAt: now, endsAt, reason: 'STRIPE_CHECKOUT_COMPLETED', grantedBy: userId } });
         const subscription = await tx.subscription.create({ data: { userId, planCode: checkout.planCode, status: 'ACTIVE', priceYen: checkout.amountYen, currentPeriodStartsAt: now, currentPeriodEndsAt: endsAt, provider: 'STRIPE', providerSubscriptionId, entitlementId: entitlement.id } });
         await tx.paymentTransaction.create({ data: { userId, provider: 'STRIPE', providerPaymentId: `checkout:${session.id}`, kind: 'SUBSCRIPTION', status: 'SUCCEEDED', amountYen: checkout.amountYen, subscriptionId: subscription.id } });
-        await tx.billingEvent.create({ data: { userId, eventType: 'SUBSCRIPTION_STARTED', subscriptionId: subscription.id, actorId: userId, details: { planCode: checkout.planCode, priceYen: checkout.amountYen, source: 'STRIPE_CHECKOUT' } } });
+        await this.recordBillingEvent(tx, { userId, eventType: 'SUBSCRIPTION_STARTED', subscriptionId: subscription.id, actorId: userId, details: { planCode: checkout.planCode, priceYen: checkout.amountYen, source: 'STRIPE_CHECKOUT' } }, 'BILLING_PAYMENT_SUCCEEDED');
         await tx.billingCheckout.update({ where: { id: checkout.id }, data: { status: 'COMPLETED', completedAt: now, providerSubscriptionId } });
       } else {
         if (!checkout.raceDate) throw new ConflictException({ code: 'DAY_PASS_DATE_MISSING', message: '利用日を確認できません。' });
         const access = await createDayPassAccess(tx, { userId, raceDate: checkout.raceDate, priceYen: checkout.amountYen, provider: 'STRIPE', providerPassId: session.id, reason: 'STRIPE_CHECKOUT_COMPLETED', actorId: userId, source: 'STRIPE_CHECKOUT' });
         const pass = access.pass;
         await tx.paymentTransaction.create({ data: { userId, provider: 'STRIPE', providerPaymentId: `checkout:${session.id}`, kind: 'DAY_PASS', status: 'SUCCEEDED', amountYen: checkout.amountYen, dayPassId: pass.id } });
+        await tx.notificationEvent.create({ data: { billingEventId: access.billingEvent.id, eventType: 'BILLING_PAYMENT_SUCCEEDED', status: 'QUEUED', payload: { billingEventId: access.billingEvent.id } } });
         await tx.billingCheckout.update({ where: { id: checkout.id }, data: { status: 'COMPLETED', completedAt: now } });
       }
       await tx.stripeWebhookEvent.create({ data: { providerEventId: event.id, eventType: event.type, livemode: event.livemode, outcome: 'PROCESSED' } });
@@ -300,7 +338,7 @@ export class BillingController {
     await tx.entitlement.update({ where: { id: subscription.entitlementId }, data: { startsAt: period.startsAt, endsAt: period.endsAt, revokedAt: null } });
     if (!initialInvoice) await tx.paymentTransaction.create({ data: { userId: subscription.userId, provider: 'STRIPE', providerPaymentId: paymentId, kind: 'SUBSCRIPTION', status: 'SUCCEEDED', amountYen: amountPaid, subscriptionId: subscription.id } });
     const recovered = subscription.status === 'PAST_DUE';
-    await tx.billingEvent.create({ data: { userId: subscription.userId, eventType: initialInvoice ? 'INITIAL_PERIOD_SYNCHRONIZED' : recovered ? 'PAYMENT_RECOVERED' : 'SUBSCRIPTION_RENEWED', subscriptionId: subscription.id, actorId: subscription.userId, details: { providerInvoiceId: invoiceId, amountYen: amountPaid, currentPeriodStartsAt: period.startsAt.toISOString(), currentPeriodEndsAt: period.endsAt.toISOString() } } });
+    await this.recordBillingEvent(tx, { userId: subscription.userId, eventType: initialInvoice ? 'INITIAL_PERIOD_SYNCHRONIZED' : recovered ? 'PAYMENT_RECOVERED' : 'SUBSCRIPTION_RENEWED', subscriptionId: subscription.id, actorId: subscription.userId, details: { providerInvoiceId: invoiceId, amountYen: amountPaid, currentPeriodStartsAt: period.startsAt.toISOString(), currentPeriodEndsAt: period.endsAt.toISOString() } }, initialInvoice ? undefined : recovered ? 'BILLING_PAYMENT_RECOVERED' : 'BILLING_PAYMENT_SUCCEEDED');
     await tx.auditLog.create({ data: { actorId: subscription.userId, actorRole: 'MEMBER', action: initialInvoice ? 'STRIPE_INITIAL_PERIOD_SYNC' : recovered ? 'STRIPE_PAYMENT_RECOVERED' : 'STRIPE_SUBSCRIPTION_RENEWED', targetType: 'Subscription', targetId: subscription.id, reason: '署名済みStripe請求成功Webhook', details: { amountYen: amountPaid, currentPeriodEndsAt: period.endsAt }, requestId: req.requestId } });
     return this.stripeOutcome(tx, event, 'PROCESSED');
   }
@@ -325,7 +363,7 @@ export class BillingController {
     await tx.subscription.update({ where: { id: subscription.id }, data: { status: 'PAST_DUE', graceEndsAt, updatedAt: now } });
     await tx.entitlement.update({ where: { id: subscription.entitlementId }, data: { endsAt: finiteEndsAt, revokedAt: accessEndsAt <= now ? now : null } });
     await tx.paymentTransaction.create({ data: { userId: subscription.userId, provider: 'STRIPE', providerPaymentId: `invoice:${invoiceId}:failed:${event.id}`, kind: 'SUBSCRIPTION', status: 'FAILED', amountYen: amountDue, subscriptionId: subscription.id } });
-    await tx.billingEvent.create({ data: { userId: subscription.userId, eventType: 'PAYMENT_FAILED', subscriptionId: subscription.id, actorId: subscription.userId, details: { providerInvoiceId: invoiceId, amountYen: amountDue, graceEndsAt: graceEndsAt.toISOString(), accessEndsAt: accessEndsAt.toISOString() } } });
+    await this.recordBillingEvent(tx, { userId: subscription.userId, eventType: 'PAYMENT_FAILED', subscriptionId: subscription.id, actorId: subscription.userId, details: { providerInvoiceId: invoiceId, amountYen: amountDue, graceEndsAt: graceEndsAt.toISOString(), accessEndsAt: accessEndsAt.toISOString() } }, 'BILLING_PAYMENT_FAILED');
     await tx.auditLog.create({ data: { actorId: subscription.userId, actorRole: 'MEMBER', action: 'STRIPE_PAYMENT_FAILED', targetType: 'Subscription', targetId: subscription.id, reason: '署名済みStripe請求失敗Webhook', details: { amountYen: amountDue, graceEndsAt, accessEndsAt }, requestId: req.requestId } });
     return this.stripeOutcome(tx, event, 'PROCESSED');
   }
@@ -342,7 +380,7 @@ export class BillingController {
     const now = new Date();
     const canceledAt = typeof external.canceled_at === 'number' ? new Date(external.canceled_at * 1000) : cancelAtPeriodEnd ? now : null;
     await tx.subscription.update({ where: { id: subscription.id }, data: { cancelAtPeriodEnd, canceledAt, updatedAt: now } });
-    await tx.billingEvent.create({ data: { userId: subscription.userId, eventType: cancelAtPeriodEnd ? 'CANCELLATION_SCHEDULED' : 'CANCELLATION_REVERSED', subscriptionId: subscription.id, actorId: subscription.userId, details: { source: 'STRIPE_SUBSCRIPTION_UPDATED', accessEndsAt: subscription.currentPeriodEndsAt.toISOString() } } });
+    await this.recordBillingEvent(tx, { userId: subscription.userId, eventType: cancelAtPeriodEnd ? 'CANCELLATION_SCHEDULED' : 'CANCELLATION_REVERSED', subscriptionId: subscription.id, actorId: subscription.userId, details: { source: 'STRIPE_SUBSCRIPTION_UPDATED', accessEndsAt: subscription.currentPeriodEndsAt.toISOString() } }, cancelAtPeriodEnd ? 'BILLING_CANCELLATION_SCHEDULED' : 'BILLING_CANCELLATION_REVERSED');
     await tx.auditLog.create({ data: { actorId: subscription.userId, actorRole: 'MEMBER', action: cancelAtPeriodEnd ? 'STRIPE_CANCELLATION_SCHEDULED' : 'STRIPE_CANCELLATION_REVERSED', targetType: 'Subscription', targetId: subscription.id, reason: '署名済みStripe契約更新Webhook', details: { cancelAtPeriodEnd }, requestId: req.requestId } });
     return this.stripeOutcome(tx, event, 'PROCESSED');
   }
@@ -359,7 +397,7 @@ export class BillingController {
     const canceledAt = typeof external.canceled_at === 'number' ? new Date(external.canceled_at * 1000) : now;
     await tx.subscription.update({ where: { id: subscription.id }, data: { status: 'CANCELED', cancelAtPeriodEnd: false, canceledAt, graceEndsAt: null, updatedAt: now } });
     await tx.entitlement.update({ where: { id: subscription.entitlementId }, data: { revokedAt: now } });
-    await tx.billingEvent.create({ data: { userId: subscription.userId, eventType: 'SUBSCRIPTION_ENDED', subscriptionId: subscription.id, actorId: subscription.userId, details: { source: 'STRIPE_SUBSCRIPTION_DELETED', canceledAt: canceledAt.toISOString() } } });
+    await this.recordBillingEvent(tx, { userId: subscription.userId, eventType: 'SUBSCRIPTION_ENDED', subscriptionId: subscription.id, actorId: subscription.userId, details: { source: 'STRIPE_SUBSCRIPTION_DELETED', canceledAt: canceledAt.toISOString() } }, 'BILLING_SUBSCRIPTION_ENDED');
     await tx.auditLog.create({ data: { actorId: subscription.userId, actorRole: 'MEMBER', action: 'STRIPE_SUBSCRIPTION_ENDED', targetType: 'Subscription', targetId: subscription.id, reason: '署名済みStripe契約終了Webhook', details: { canceledAt }, requestId: req.requestId } });
     return this.stripeOutcome(tx, event, 'PROCESSED');
   }
@@ -372,6 +410,13 @@ export class BillingController {
 
   private stripeClient(config: StripeRuntimeConfig) {
     return new Stripe(config.secretKey!);
+  }
+
+  private async stripePaymentIntentForDayPass(client: Stripe, providerPassId: string) {
+    const session = await client.checkout.sessions.retrieve(providerPassId);
+    const paymentIntentId = this.providerId(session.payment_intent);
+    if (!paymentIntentId) throw new ConflictException({ code: 'STRIPE_PAYMENT_INTENT_MISSING', message: 'Stripeの支払い情報を確認できません。運営で決済状態を確認してください。' });
+    return paymentIntentId;
   }
 
   private async createStripeCheckout(req: AppRequest, userId: string, email: string | null, kind: 'SUBSCRIPTION' | 'DAY_PASS', planCode: 'FOUNDER' | 'STANDARD' | 'DAY_PASS', raceDate: string | null, idempotencyKey: string, requestHash: string) {
@@ -459,7 +504,7 @@ export class BillingController {
       if (current.cancelAtPeriodEnd) return { id, status: current.status, cancelAtPeriodEnd: true, accessEndsAt: current.currentPeriodEndsAt };
       if (!['ACTIVE', 'PAST_DUE', 'TRIALING'].includes(current.status)) throw new ConflictException({ code: 'SUBSCRIPTION_NOT_CANCELABLE', message: 'この契約は解約予約できません。' });
       const now = new Date(); const subscription = await tx.subscription.update({ where: { id }, data: { cancelAtPeriodEnd: true, canceledAt: now } });
-      await tx.billingEvent.create({ data: { userId: actor.id, eventType: 'CANCELLATION_SCHEDULED', subscriptionId: id, actorId: actor.id, details: { accessEndsAt: current.currentPeriodEndsAt.toISOString() } } });
+      await this.recordBillingEvent(tx, { userId: actor.id, eventType: 'CANCELLATION_SCHEDULED', subscriptionId: id, actorId: actor.id, details: { accessEndsAt: current.currentPeriodEndsAt.toISOString() } }, 'BILLING_CANCELLATION_SCHEDULED');
       await this.auth.audit(tx, req, 'SUBSCRIPTION_CANCEL_SCHEDULE', id, '会員本人による解約予約', { accessEndsAt: current.currentPeriodEndsAt });
       return { id, status: subscription.status, cancelAtPeriodEnd: true, accessEndsAt: current.currentPeriodEndsAt };
     });
@@ -468,14 +513,65 @@ export class BillingController {
   @Get('admin/billing')
   async admin(@Req() req: AppRequest) {
     await this.staff(req, ['ADMIN']);
-    const [subscriptions, dayPasses, payments, checkouts, stripeWebhooks, supportRequests] = await Promise.all([
+    const now = new Date();
+    const [subscriptions, dayPasses, payments, checkouts, stripeWebhooks, supportRequests, pendingDayPassReviews] = await Promise.all([
       this.auth.db.subscription.findMany({ include: { user: { select: { email: true, displayName: true } } }, orderBy: { createdAt: 'desc' }, take: 100 }),
       this.auth.db.dayPass.findMany({ include: { user: { select: { email: true, displayName: true } } }, orderBy: { createdAt: 'desc' }, take: 100 }),
       this.auth.db.paymentTransaction.findMany({ select: { id: true, provider: true, providerPaymentId: true, kind: true, status: true, amountYen: true, subscriptionId: true, dayPassId: true, occurredAt: true, user: { select: { email: true, displayName: true } } }, orderBy: { occurredAt: 'desc' }, take: 100 }),
       this.auth.db.billingCheckout.findMany({ select: { id: true, kind: true, planCode: true, raceDate: true, amountYen: true, status: true, createdAt: true, expiresAt: true, completedAt: true, user: { select: { email: true, displayName: true } } }, orderBy: { createdAt: 'desc' }, take: 100 }),
       this.auth.db.stripeWebhookEvent.findMany({ select: { id: true, providerEventId: true, eventType: true, livemode: true, outcome: true, receivedAt: true }, orderBy: { receivedAt: 'desc' }, take: 100 }),
-      this.auth.db.billingSupportRequest.findMany({ select: { id: true, category: true, message: true, status: true, createdAt: true, updatedAt: true, paymentTransaction: { select: { id: true, kind: true, status: true, amountYen: true, occurredAt: true } }, user: { select: { email: true, displayName: true } }, events: { select: { id: true, eventType: true, actorRole: true, reason: true, occurredAt: true }, orderBy: { occurredAt: 'asc' } } }, orderBy: { createdAt: 'desc' }, take: 100 })
-    ]); return { billingTransport: process.env.BILLING_TRANSPORT, subscriptions, dayPasses, payments, checkouts, stripeWebhooks, supportRequests };
+      this.auth.db.billingSupportRequest.findMany({ select: { id: true, category: true, message: true, status: true, createdAt: true, updatedAt: true, paymentTransaction: { select: { id: true, kind: true, status: true, amountYen: true, occurredAt: true } }, user: { select: { email: true, displayName: true } }, events: { select: { id: true, eventType: true, actorRole: true, reason: true, occurredAt: true }, orderBy: { occurredAt: 'asc' } } }, orderBy: { createdAt: 'desc' }, take: 100 }),
+      this.auth.db.dayPass.findMany({ where: { source: 'PURCHASE', status: { in: ['PENDING', 'REFUNDING'] }, startsAt: null, entitlementId: null, endsAt: { lte: now } }, select: { id: true, raceDate: true, status: true, priceYen: true, provider: true, endsAt: true, user: { select: { email: true, displayName: true } } }, orderBy: { endsAt: 'asc' }, take: 100 })
+    ]); return { billingTransport: process.env.BILLING_TRANSPORT, subscriptions, dayPasses, payments, checkouts, stripeWebhooks, supportRequests, pendingDayPassReviews };
+  }
+
+  @Post('admin/billing/day-passes/:id/refund')
+  async refundExpiredPendingDayPass(@Param('id') id: string, @Body() body: unknown, @Req() req: AppRequest) {
+    const actor = await this.staff(req, ['ADMIN']);
+    const { reason } = reasonSchema.parse(body);
+    z.string().uuid().parse(id);
+    const reservation = await this.auth.db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`billing:day-pass-refund:${id}`}))::text`;
+      const current = await tx.dayPass.findUnique({ where: { id }, include: { payments: { orderBy: { occurredAt: 'asc' } } } });
+      if (!current) throw new NotFoundException({ code: 'DAY_PASS_NOT_FOUND', message: '1日利用を確認できません。' });
+      const existingRefund = current.payments.find(payment => payment.status === 'REFUNDED');
+      if (current.status === 'REFUNDED' && existingRefund) return { complete: true as const, response: { dayPassId: id, status: 'REFUNDED', refundPaymentId: existingRefund.id } };
+      if (current.source !== 'PURCHASE' || !['PENDING', 'REFUNDING'].includes(current.status) || current.startsAt || current.entitlementId || current.endsAt > new Date()) throw new ConflictException({ code: 'DAY_PASS_REFUND_NOT_ELIGIBLE', message: '期限を過ぎても公開待ちのままの購入済み一日券だけを返金できます。' });
+      if (!['STRIPE', 'LOCAL_TEST'].includes(current.provider)) throw new ConflictException({ code: 'DAY_PASS_PROVIDER_REVIEW_REQUIRED', message: 'この決済事業者の返金は管理画面から実行できません。' });
+      const succeededPayment = current.payments.find(payment => payment.status === 'SUCCEEDED');
+      if (!succeededPayment || succeededPayment.amountYen !== current.priceYen) throw new ConflictException({ code: 'DAY_PASS_PAYMENT_REVIEW_REQUIRED', message: '元の支払いを確認できません。返金前に決済履歴を確認してください。' });
+      if (current.status === 'PENDING') {
+        const reserved = await tx.dayPass.updateMany({ where: { id, status: 'PENDING', startsAt: null, entitlementId: null, endsAt: { lte: new Date() } }, data: { status: 'REFUNDING', updatedAt: new Date() } });
+        if (!reserved.count) throw new ConflictException({ code: 'DAY_PASS_REFUND_STATE_CHANGED', message: '一日券の状態が変わりました。再読み込みしてください。' });
+      }
+      return { complete: false as const, pass: current };
+    }, { timeout: 20000, maxWait: 10000 });
+    if (reservation.complete) return reservation.response;
+    const initial = reservation.pass;
+
+    let providerRefundId: string;
+    if (initial.provider === 'STRIPE') {
+      const stripeConfig = await this.stripeConfig();
+      const client = this.stripeClient(stripeConfig);
+      const paymentIntentId = await this.stripePaymentIntentForDayPass(client, initial.providerPassId);
+      const refund = await client.refunds.create({ payment_intent: paymentIntentId, amount: initial.priceYen, metadata: { dayPassId: initial.id } }, { idempotencyKey: `expired-pending-day-pass:${initial.id}` });
+      if (refund.status !== 'succeeded') throw new ConflictException({ code: 'STRIPE_REFUND_PENDING', message: 'Stripeの返金処理が完了していません。決済管理画面で状態を確認してください。' });
+      providerRefundId = refund.id;
+    } else if (initial.provider === 'LOCAL_TEST') providerRefundId = `local-${initial.id}`;
+    else throw new ConflictException({ code: 'DAY_PASS_PROVIDER_REVIEW_REQUIRED', message: 'この決済事業者の返金は管理画面から実行できません。' });
+
+    return this.auth.db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`billing:day-pass-refund:${id}`}))::text`;
+      const current = await tx.dayPass.findUniqueOrThrow({ where: { id }, include: { payments: { orderBy: { occurredAt: 'asc' } } } });
+      const currentRefund = current.payments.find(payment => payment.status === 'REFUNDED');
+      if (current.status === 'REFUNDED' && currentRefund) return { dayPassId: id, status: 'REFUNDED', refundPaymentId: currentRefund.id };
+      if (current.source !== 'PURCHASE' || current.status !== 'REFUNDING' || current.startsAt || current.entitlementId || current.endsAt > new Date()) throw new ConflictException({ code: 'DAY_PASS_REFUND_STATE_CHANGED', message: '一日券の状態が変わりました。決済状態を確認してください。' });
+      const refundPayment = await tx.paymentTransaction.create({ data: { userId: current.userId, provider: current.provider, providerPaymentId: `refund:${providerRefundId}`, kind: 'DAY_PASS', status: 'REFUNDED', amountYen: current.priceYen, dayPassId: current.id } });
+      await tx.dayPass.update({ where: { id }, data: { status: 'REFUNDED', updatedAt: new Date() } });
+      await this.recordBillingEvent(tx, { userId: current.userId, eventType: 'DAY_PASS_REFUNDED', dayPassId: current.id, actorId: actor.id, details: { amountYen: current.priceYen, raceDate: current.raceDate, reason, providerRefundId } }, 'BILLING_REFUND_COMPLETED');
+      await this.auth.audit(tx, req, 'DAY_PASS_REFUNDED', current.id, reason, { amountYen: current.priceYen, raceDate: current.raceDate, refundPaymentId: refundPayment.id });
+      return { dayPassId: id, status: 'REFUNDED', refundPaymentId: refundPayment.id };
+    }, { timeout: 20000, maxWait: 10000 });
   }
 
   @Post('admin/billing/support-requests/:id/status')
@@ -508,7 +604,7 @@ export class BillingController {
       await tx.subscription.update({ where: { id }, data: { status: 'PAST_DUE', graceEndsAt } });
       await tx.entitlement.update({ where: { id: current.entitlementId }, data: { endsAt: graceEndsAt > now ? graceEndsAt : new Date(now.getTime() + 1), revokedAt: settings.billingGraceDays ? null : now } });
       await tx.paymentTransaction.create({ data: { userId: current.userId, provider: 'LOCAL_TEST', providerPaymentId: `local-failed-${randomUUID()}`, kind: 'SUBSCRIPTION', status: 'FAILED', amountYen: current.priceYen, subscriptionId: id } });
-      await tx.billingEvent.create({ data: { userId: current.userId, eventType: 'PAYMENT_FAILED', subscriptionId: id, actorId: actor.id, details: { reason, graceEndsAt: graceEndsAt.toISOString() } } });
+      await this.recordBillingEvent(tx, { userId: current.userId, eventType: 'PAYMENT_FAILED', subscriptionId: id, actorId: actor.id, details: { reason, graceEndsAt: graceEndsAt.toISOString() } }, 'BILLING_PAYMENT_FAILED');
       await this.auth.audit(tx, req, 'BILLING_SIMULATE_FAILURE', id, reason, { graceEndsAt }); return { id, status: 'PAST_DUE', graceEndsAt };
     });
   }
@@ -525,7 +621,7 @@ export class BillingController {
       await tx.subscription.update({ where: { id }, data: { status: 'ACTIVE', currentPeriodStartsAt: now, currentPeriodEndsAt: endsAt, graceEndsAt: null } });
       await tx.entitlement.update({ where: { id: current.entitlementId }, data: { startsAt: now, endsAt, revokedAt: null } });
       await tx.paymentTransaction.create({ data: { userId: current.userId, provider: 'LOCAL_TEST', providerPaymentId: `local-recovery-${randomUUID()}`, kind: 'SUBSCRIPTION', status: 'SUCCEEDED', amountYen: current.priceYen, subscriptionId: id } });
-      await tx.billingEvent.create({ data: { userId: current.userId, eventType: 'PAYMENT_RECOVERED', subscriptionId: id, actorId: actor.id, details: { reason, currentPeriodEndsAt: endsAt.toISOString() } } });
+      await this.recordBillingEvent(tx, { userId: current.userId, eventType: 'PAYMENT_RECOVERED', subscriptionId: id, actorId: actor.id, details: { reason, currentPeriodEndsAt: endsAt.toISOString() } }, 'BILLING_PAYMENT_RECOVERED');
       await this.auth.audit(tx, req, 'BILLING_RECOVER', id, reason, { currentPeriodEndsAt: endsAt }); return { id, status: 'ACTIVE', currentPeriodEndsAt: endsAt };
     });
   }

@@ -36,7 +36,7 @@ export async function createDayPassAccess(tx: Tx, input: {
       entitlementId: entitlement?.id ?? null
     }
   });
-  await tx.billingEvent.create({
+  const billingEvent = await tx.billingEvent.create({
     data: {
       userId: input.userId,
       eventType: startsAt ? 'DAY_PASS_STARTED' : 'DAY_PASS_PENDING',
@@ -45,14 +45,17 @@ export async function createDayPassAccess(tx: Tx, input: {
       details: { raceDate: input.raceDate, priceYen: input.priceYen, source: input.source, startsAt }
     }
   });
-  return { pass, startsAt, endsAt: window.endsAt, waitingForPublication: !startsAt };
+  return { pass, billingEvent, startsAt, endsAt: window.endsAt, waitingForPublication: !startsAt };
 }
 
 export async function activatePendingDayPasses(tx: Tx, targetDate: string, publishedAt: Date, actorId: string) {
-  const pending = await tx.dayPass.findMany({
-    where: { raceDate: targetDate, status: 'PENDING', startsAt: null, entitlementId: null, endsAt: { gt: publishedAt } },
-    select: { id: true, userId: true, endsAt: true, priceYen: true }
-  });
+  const pending = await tx.$queryRaw<Array<{ id: string; userId: string; endsAt: Date; priceYen: number }>>`
+    SELECT id, "userId", "endsAt", "priceYen"
+    FROM day_passes
+    WHERE "raceDate" = ${targetDate} AND status = 'PENDING' AND "startsAt" IS NULL AND "entitlementId" IS NULL AND "endsAt" > ${publishedAt}
+    ORDER BY id
+    FOR UPDATE
+  `;
   for (const pass of pending) {
     const entitlement = await tx.entitlement.create({
       data: { userId: pass.userId, planCode: 'DAY_PASS', startsAt: publishedAt, endsAt: pass.endsAt, raceDate: targetDate, reason: 'WIN5_FIRST_PUBLICATION', grantedBy: actorId }

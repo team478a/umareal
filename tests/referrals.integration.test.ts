@@ -7,6 +7,14 @@ import { account, base, Client, db, origin } from './helpers';
 
 const password = 'referral-integration-password-123';
 const jstFutureDate = (days: number) => new Date(Date.now() + days * 86400000 + 9 * 3600000).toISOString().slice(0, 10);
+async function unusedJstFutureDate() {
+  for (let days = 7; days <= 50; days += 1) {
+    const targetDate = jstFutureDate(days);
+    const product = await db.predictionProduct.findUnique({ where: { type_targetDate: { type: 'WIN5_PREVIEW', targetDate } }, select: { id: true } });
+    if (!product) return targetDate;
+  }
+  throw new Error('No unused future date remains in the local integration database');
+}
 async function emailRegistration(memberReferralCode?: string, acquisitionReferralCode?: string) {
   const client = new Client();
   const email = `referral-${randomBytes(8).toString('hex')}@example.test`;
@@ -123,7 +131,7 @@ describe('friend referral V1', () => {
     const summary = await referrerClient.call('me/referrals'); expect(summary.status).toBe(200);
     const available = summary.body.rewards.filter((item: { status: string }) => item.status === 'AVAILABLE') as { id: string; expiresAt: string }[];
     const rewardId = available[0].id;
-    const targetDate = jstFutureDate(7);
+    const targetDate = await unusedJstFutureDate();
     const afterExpiry = new Date(new Date(available[1].expiresAt).getTime() + 86400000 + 9 * 3600000).toISOString().slice(0, 10);
     expect((await referrerClient.call(`me/referral-rewards/${available[1].id}/redeem`, 'POST', { targetDate: afterExpiry })).body.code).toBe('REFERRAL_REWARD_DATE_AFTER_EXPIRY');
     const redeemed = await referrerClient.call(`me/referral-rewards/${rewardId}/redeem`, 'POST', { targetDate });

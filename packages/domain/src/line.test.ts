@@ -85,4 +85,11 @@ describe('billing notification message preparation', () => {
     expect(message.text).toContain('/account');
     expect(message.text).not.toMatch(/card|token|secret|provider/i);
   });
+
+  it('builds a safe one-day-pass refund notice', () => {
+    const message = buildBillingLineMessage({ eventType: 'REFUND_COMPLETED', planCode: 'DAY_PASS', currentPeriodEndsAt: new Date('2026-10-17T00:00:00Z'), appBaseUrl: base.appBaseUrl });
+    expect(message.text).toContain('返金手続きが完了しました');
+    expect(message.text).toContain('1日利用');
+    expect(message.text).toContain('/account');
+  });
 });

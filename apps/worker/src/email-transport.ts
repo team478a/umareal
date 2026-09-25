@@ -11,7 +11,14 @@ const subjects: Record<string, string> = {
   FREE_REPORT_REVIEW_PUBLISHED: '無料速報のレース後検証を公開しました',
   WIN5_PREVIEW_PUBLISHED: 'WIN5紙面予想を公開しました',
   WIN5_PREVIEW_CORRECTED: 'WIN5紙面予想を訂正しました',
-  SUPPORT_RESPONSE_POSTED: 'お問い合わせへの回答があります'
+  SUPPORT_RESPONSE_POSTED: 'お問い合わせへの回答があります',
+  BILLING_PAYMENT_SUCCEEDED: 'お支払いを確認しました',
+  BILLING_PAYMENT_FAILED: 'お支払いを確認できませんでした',
+  BILLING_PAYMENT_RECOVERED: 'お支払い状態が回復しました',
+  BILLING_CANCELLATION_SCHEDULED: '解約予約を受け付けました',
+  BILLING_CANCELLATION_REVERSED: '解約予約を取り消しました',
+  BILLING_SUBSCRIPTION_ENDED: '月額契約が終了しました',
+  BILLING_REFUND_COMPLETED: '返金手続きが完了しました'
 };
 
 export class ResendEmailTransport implements NotificationTransport {

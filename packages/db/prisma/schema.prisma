@@ -511,6 +511,8 @@ model BillingEvent {
   details        Json
   actorId        String        @db.Uuid
   occurredAt     DateTime      @default(now()) @db.Timestamptz(3)
+  createdTxId    BigInt        @default(dbgenerated("txid_current()"))
+  notificationEvent NotificationEvent?
 
   @@index([userId, occurredAt])
   @@map("billing_events")
@@ -996,6 +998,8 @@ model NotificationEvent {
   win5EvaluationVersion   Win5EvaluationVersion?    @relation(fields: [win5EvaluationVersionId], references: [id])
   supportEventId          String?                   @unique @db.Uuid
   supportEvent            SupportEvent?             @relation(fields: [supportEventId], references: [id])
+  billingEventId          String?                   @unique @db.Uuid
+  billingEvent            BillingEvent?             @relation(fields: [billingEventId], references: [id])
   eventType               String
   status                  String
   payload                 Json

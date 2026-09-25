@@ -92,11 +92,13 @@
 | GET | /results/stats | 最新結果版を使った本命馬1着・連対・複勝・見送りの集計 |
 | GET | /billing/plans | 税込価格、販売可否、創設会員残枠。開発条件フラグ付き |
 | GET | /billing/me | 本人の月額契約、1日利用、追記専用支払履歴 |
+| GET | /billing/payments/:id/receipt | 本人所有の成功済みStripe支払。Stripe発行済みのHTTPS領収書・請求書URLだけを返す |
 | POST | /billing/checkout | 本人。確認済みメールと有効なログインID必須。FOUNDER/STANDARDの申込。Stripe時はHosted Checkout URLを返す。Idempotency-Key必須 |
 | POST | /billing/day-pass | 本人。確認済みメールと有効なログインID必須。JST開催日単位の申込。Stripe時はHosted Checkout URLを返す。Idempotency-Key必須 |
 | POST | /webhooks/stripe | Stripe署名必須。Checkout完了、月額更新、支払失敗・回復、解約予約・終了を冪等反映 |
 | POST | /billing/subscriptions/:id/cancel | 本人。次回更新を停止し、支払済み期間の権限を維持 |
 | GET | /admin/billing | ADMIN+AAL2。全会員の契約・1日利用・支払試行履歴 |
+| POST | /admin/billing/day-passes/:id/refund | ADMIN+AAL2・理由必須。WIN5未公開のまま期限切れとなった未開始の購入一日券だけを全額返金。返金開始をDBで予約し、Stripe操作は固定キーで冪等化。中断時は同じ操作で再開 |
 | POST | /admin/billing/subscriptions/:id/simulate-failure | ADMIN+AAL2。理由必須のローカル支払失敗試験 |
 | POST | /admin/billing/subscriptions/:id/recover | ADMIN+AAL2。理由必須のローカル支払回復試験 |
 | POST | /admin/users/:userId/entitlements | ADMIN+AAL2。startsAt/endsAt/reason/planCode=MANUAL。有限期間、監査必須。Idempotency-KeyヘッダーにUUID必須 |
@@ -105,7 +107,7 @@
 
 HTTP 400=入力不正、401=未認証、403=権限/MFA/Origin不正、404=対象なし、409=重複、429=レート超過。内部例外のSQLや秘密値をレスポンスへ返さない。
 
-返金APIは未実装。申込は同じ会員・同じキー・同じ内容なら元の結果を返し、異なる内容の再利用は409。同時実行でも契約、権限、支払履歴が重複しないよう、一意制約、アドバイザリロック、トランザクションで保護する。
+返金APIは未使用・未開始・期限切れの購入一日券に限定する。月額、利用開始済み、紹介特典、一部返金は対象外。申込は同じ会員・同じキー・同じ内容なら元の結果を返し、異なる内容の再利用は409。同時実行でも契約、権限、支払履歴が重複しないよう、一意制約、アドバイザリロック、トランザクションで保護する。
 
 ## WIN5 API（Phase 2 実装済み）
 
