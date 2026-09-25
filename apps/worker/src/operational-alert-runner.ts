@@ -65,8 +65,16 @@ async function detect(db: PrismaClient, now: Date) {
     await db.operationalAlert.update({ where: { id: alert.id }, data: { status: 'RESOLVED', resolvedAt: now, resolvedBy: null, resolutionReason: 'SYSTEM: 問い合わせの対応期限条件が解消されました。', dedupeKey: `${alert.dedupeKey}:ARCHIVED:${alert.id}`, lastObservedAt: now } });
   }
   if (setting.enabled && setting.destinationEmails.length) {
-    const eligible = await db.operationalAlert.findMany({ where: { status: 'OPEN', severity: setting.minimumSeverity === 'CRITICAL' ? 'CRITICAL' : { in: ['CRITICAL', 'WARNING'] } }, orderBy: [{ detectedAt: 'desc' }, { id: 'asc' }], take: 500, select: { id: true } });
-    for (const alert of eligible) await db.operationalAlertDelivery.createMany({ data: setting.destinationEmails.map(recipient => ({ alertId: alert.id, recipient, nextAttemptAt: now })), skipDuplicates: true });
+    const severity = setting.minimumSeverity === 'CRITICAL' ? 'CRITICAL' : { in: ['CRITICAL', 'WARNING'] };
+    for (const recipient of setting.destinationEmails) {
+      const eligible = await db.operationalAlert.findMany({
+        where: { status: 'OPEN', severity, deliveries: { none: { recipient } } },
+        orderBy: [{ detectedAt: 'desc' }, { id: 'asc' }],
+        take: 500,
+        select: { id: true }
+      });
+      if (eligible.length) await db.operationalAlertDelivery.createMany({ data: eligible.map(alert => ({ alertId: alert.id, recipient, nextAttemptAt: now })), skipDuplicates: true });
+    }
   }
   return { observed: found.length, created };
 }

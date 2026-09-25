@@ -11,7 +11,7 @@ let isolatedDb: PrismaClient;
 let isolatedUrl = '';
 
 function command(program: string, args: string[], env: NodeJS.ProcessEnv) {
-  return spawnSync(program, args, { cwd: root, env, encoding: 'utf8', timeout: 30_000, windowsHide: true });
+  return spawnSync(program, args, { cwd: root, env, encoding: 'utf8', timeout: 90_000, windowsHide: true });
 }
 
 beforeAll(async () => {
@@ -22,12 +22,10 @@ beforeAll(async () => {
   await adminDb.$executeRawUnsafe(`CREATE DATABASE "${databaseName}"`);
   const target = new URL(source); target.pathname = `/${databaseName}`; target.search = '';
   isolatedUrl = target.toString();
-  const migrated = process.platform === 'win32'
-    ? command(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', 'pnpm db:migrate'], { ...process.env, DATABASE_URL: isolatedUrl })
-    : command('pnpm', ['db:migrate'], { ...process.env, DATABASE_URL: isolatedUrl });
-  if (migrated.status !== 0) throw new Error('Could not migrate the isolated bootstrap database');
+  const migrated = command(process.execPath, ['packages/db/node_modules/prisma/build/index.js', 'migrate', 'deploy', '--schema', 'packages/db/prisma/schema.prisma'], { ...process.env, DATABASE_URL: isolatedUrl });
+  if (migrated.status !== 0) throw new Error(`Could not migrate the isolated bootstrap database (${migrated.error?.message ?? `exit ${migrated.status}`})`);
   isolatedDb = new PrismaClient({ datasourceUrl: isolatedUrl });
-}, 30_000);
+}, 90_000);
 
 afterAll(async () => {
   await isolatedDb?.$disconnect();
