@@ -4,7 +4,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
-import { db } from './helpers';
+import { account, db } from './helpers';
 
 let authServer: Server;
 let apiProcess: ChildProcess;
@@ -150,6 +150,7 @@ describe('Supabase free-member registration boundary', () => {
   it('binds the provider subject to a server-owned MEMBER with immutable consent and acquisition records', async () => {
     const suffix = randomBytes(6).toString('hex');
     const email = `supabase-${suffix}@example.test`;
+    const referrer = (await account()).user;
     const response = await fetch(`${apiBase}/api/v1/auth/register`, {
       method: 'POST',
       headers: { Origin: 'http://localhost:3000', 'Content-Type': 'application/json' },
@@ -162,6 +163,7 @@ describe('Supabase free-member registration boundary', () => {
         privacy: true,
         termsVersion: 'draft-v1',
         privacyVersion: 'draft-v1',
+        memberReferralCode: referrer.referralCode,
         acquisition: { source: 'LP', medium: 'Owned', campaign: 'supabase-integration' }
       })
     });
@@ -183,12 +185,15 @@ describe('Supabase free-member registration boundary', () => {
     expect(user.consents.map(consent => consent.documentType).sort()).toEqual(['AGE_20', 'PRIVACY', 'TERMS']);
     expect(user.acquisition).toMatchObject({ source: 'lp', medium: 'owned', campaign: 'supabase-integration' });
     expect(await db.auditLog.count({ where: { targetId: user.id, action: 'REGISTER' } })).toBe(1);
+    expect(await db.referral.findUnique({ where: { referredUserId: user.id } })).toMatchObject({ referrerUserId: referrer.id, status: 'PENDING' });
 
     const callback = await fetch(`${apiBase}/api/v1/auth/callback?code=${randomUUID()}`, { headers: { Cookie: flowCookies }, redirect: 'manual' });
     expect(callback.status).toBe(303);
     expect(callback.headers.get('location')).toBe('http://localhost:3000/account?email=verified');
     expect(callback.headers.get('set-cookie')).toContain('keiba_access_token=');
     expect((await db.user.findUniqueOrThrow({ where: { id: user.id } })).emailVerifiedAt).toBeInstanceOf(Date);
+    expect(await db.referral.findUnique({ where: { referredUserId: user.id } })).toMatchObject({ referrerUserId: referrer.id, status: 'QUALIFIED', qualifiedAt: expect.any(Date) });
+    expect(await db.auditLog.count({ where: { targetId: user.id, action: 'EMAIL_VERIFIED' } })).toBe(1);
 
     const login = await fetch(`${apiBase}/api/v1/auth/login`, { method: 'POST', headers: { Origin: 'http://localhost:3000', 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: 'integration-password-123' }) });
     expect(login.status).toBe(201);

@@ -26,6 +26,15 @@ async function verify(registration: Awaited<ReturnType<typeof emailRegistration>
   expect(result.status).toBe(201);
   return result;
 }
+async function qualifyMany(referralCode: string, count: number) {
+  const registrations = [];
+  for (let index = 0; index < count; index += 1) {
+    const registration = await emailRegistration(referralCode);
+    await verify(registration);
+    registrations.push(registration);
+  }
+  return registrations;
+}
 async function lineCallback(client: Client, state: string, subject: string) {
   return fetch(`${base}/api/v1/auth/line/callback?${new URLSearchParams({ state, code: `test.${subject}` })}`, { headers: { Cookie: client.cookie, Origin: origin }, redirect: 'manual' });
 }
@@ -59,7 +68,8 @@ describe('friend referral V1', () => {
   it('does not create a referral for normal or invalid-code registration', async () => {
     const normal = await emailRegistration(); await verify(normal);
     const invalid = await emailRegistration('NOTEXIST12345678'); await verify(invalid);
-    expect(await db.referral.count({ where: { referredUserId: { in: [normal.userId, invalid.userId] } } })).toBe(0);
+    const tampered = await emailRegistration('tampered code!'); await verify(tampered);
+    expect(await db.referral.count({ where: { referredUserId: { in: [normal.userId, invalid.userId, tampered.userId] } } })).toBe(0);
   });
 
   it('grants exactly one reward at 3 and a second at 10, without grants at 4 or 11', async () => {
@@ -83,6 +93,18 @@ describe('friend referral V1', () => {
     expect(await db.referralReward.count({ where: { userId: concurrentReferrer.user.id } })).toBe(1);
     await expect(db.referralReward.create({ data: { userId: concurrentReferrer.user.id, milestoneId: (await db.referralMilestone.findUniqueOrThrow({ where: { requiredReferralCount: 3 } })).id, rewardType: 'DAY_PASS', expiresAt: new Date(Date.now() + 86400000) } })).rejects.toThrow();
   });
+
+  it('grants the 10-person milestone once when the 10th and 11th confirmations race', async () => {
+    const concurrentReferrer = await account();
+    await qualifyMany(concurrentReferrer.user.referralCode, 9);
+    const tenth = await emailRegistration(concurrentReferrer.user.referralCode);
+    const eleventh = await emailRegistration(concurrentReferrer.user.referralCode);
+    await Promise.all([verify(tenth), verify(eleventh)]);
+    const rewards = await db.referralReward.findMany({ where: { userId: concurrentReferrer.user.id }, include: { milestone: true } });
+    expect(await db.referral.count({ where: { referrerUserId: concurrentReferrer.user.id, status: 'QUALIFIED' } })).toBe(11);
+    expect(rewards.map(reward => reward.milestone.requiredReferralCount).sort((a, b) => a - b)).toEqual([3, 10]);
+    expect(rewards.filter(reward => reward.milestone.requiredReferralCount === 10)).toHaveLength(1);
+  }, 45000);
 
   it('qualifies LINE registration with the same immutable relationship', async () => {
     await db.systemSetting.update({ where: { id: 'global' }, data: { lineLoginEnabled: true, lineLoginChannelId: 'referral-integration-channel', lineLoginChannelSecretEncrypted: encryptSecret('referral-integration-secret-value'), lineLoginCallbackUrl: `${base}/api/v1/auth/line/callback` } });
@@ -110,11 +132,14 @@ describe('friend referral V1', () => {
     expect(pass).toMatchObject({ userId: referrer.user.id, raceDate: targetDate, provider: 'REFERRAL_REWARD', source: 'REFERRAL_REWARD', priceYen: 0 });
     expect(pass.entitlement).toMatchObject({ planCode: 'DAY_PASS', raceDate: targetDate, reason: 'REFERRAL_REWARD_DAY_PASS' });
     expect((await referrerClient.call(`me/referral-rewards/${rewardId}/redeem`, 'POST', { targetDate: jstFutureDate(8) })).body.code).toBe('REFERRAL_REWARD_ALREADY_USED');
+    expect((await referrerClient.call(`me/referral-rewards/${available[1].id}/redeem`, 'POST', { targetDate })).body.code).toBe('DAY_PASS_ALREADY_EXISTS');
+    expect((await referrerClient.call(`me/referral-rewards/${available[1].id}/redeem`, 'POST', { targetDate: '2020-01-01' })).body.code).toBe('PAST_TARGET_DATE');
 
     const expiredOwner = await account(); const expiredClient = new Client(); await expiredClient.login(expiredOwner);
     const milestone = await db.referralMilestone.findUniqueOrThrow({ where: { requiredReferralCount: 3 } });
     const expired = await db.referralReward.create({ data: { userId: expiredOwner.user.id, milestoneId: milestone.id, rewardType: 'DAY_PASS', grantedAt: new Date(Date.now() - 2 * 86400000), expiresAt: new Date(Date.now() - 86400000) } });
     expect((await expiredClient.call(`me/referral-rewards/${expired.id}/redeem`, 'POST', { targetDate: '2099-07-01' })).body.code).toBe('REFERRAL_REWARD_EXPIRED');
+    expect((await db.referralReward.findUniqueOrThrow({ where: { id: expired.id } })).status).toBe('EXPIRED');
   });
 
   it('prevents self and duplicate referrals at the database boundary', async () => {
@@ -133,5 +158,75 @@ describe('friend referral V1', () => {
     expect(await db.dayPass.count({ where: { userId: referrer.user.id, source: 'REFERRAL_REWARD' } })).toBe(1);
     const replay = await admin.call(`admin/referrals/${referralId}/invalidate`, 'POST', { reason: 'API再送' });
     expect(replay.status).toBe(201); expect(replay.body.alreadyInvalidated).toBe(true);
+  });
+
+  it('invalidates and safely restores the same unused 3-person reward on re-attainment', async () => {
+    const owner = await account();
+    const registrations = await qualifyMany(owner.user.referralCode, 3);
+    const reward = await db.referralReward.findFirstOrThrow({ where: { userId: owner.user.id }, include: { milestone: true } });
+    expect(reward.milestone.requiredReferralCount).toBe(3);
+    const originalGrantedAt = reward.grantedAt;
+    const originalExpiresAt = reward.expiresAt;
+    const target = await db.referral.findUniqueOrThrow({ where: { referredUserId: registrations[2].userId } });
+    const admin = new Client(); await admin.login(await account('ADMIN')); await admin.mfa();
+    expect((await admin.call(`admin/referrals/${target.id}/invalidate`, 'POST', { reason: '3人到達後の再計算試験' })).body).toMatchObject({ qualifiedCount: 2, unusedRewardsInvalidated: 1 });
+    expect(await db.referralReward.findUniqueOrThrow({ where: { id: reward.id } })).toMatchObject({ status: 'INVALIDATED', dayPassId: null });
+    await qualifyMany(owner.user.referralCode, 1);
+    const restored = await db.referralReward.findUniqueOrThrow({ where: { id: reward.id } });
+    expect(restored).toMatchObject({ status: 'AVAILABLE', grantedAt: originalGrantedAt, expiresAt: originalExpiresAt, invalidatedAt: null, invalidatedReason: null, dayPassId: null });
+    expect(await db.referralReward.count({ where: { userId: owner.user.id, milestoneId: reward.milestoneId } })).toBe(1);
+    expect(await db.auditLog.count({ where: { action: 'REFERRAL_REWARD_GRANTED', targetId: reward.id, targetType: 'REFERRAL_REWARD' } })).toBe(2);
+  }, 45000);
+
+  it('invalidates and restores the same unused 10-person reward on re-attainment', async () => {
+    const owner = await account();
+    const registrations = await qualifyMany(owner.user.referralCode, 10);
+    const milestone = await db.referralMilestone.findUniqueOrThrow({ where: { requiredReferralCount: 10 } });
+    const reward = await db.referralReward.findUniqueOrThrow({ where: { userId_milestoneId: { userId: owner.user.id, milestoneId: milestone.id } } });
+    const originalGrantedAt = reward.grantedAt;
+    const originalExpiresAt = reward.expiresAt;
+    const target = await db.referral.findUniqueOrThrow({ where: { referredUserId: registrations[9].userId } });
+    const admin = new Client(); await admin.login(await account('ADMIN')); await admin.mfa();
+    expect((await admin.call(`admin/referrals/${target.id}/invalidate`, 'POST', { reason: '10人到達後の再計算試験' })).body).toMatchObject({ qualifiedCount: 9, unusedRewardsInvalidated: 1 });
+    expect((await db.referralReward.findUniqueOrThrow({ where: { id: reward.id } })).status).toBe('INVALIDATED');
+    await qualifyMany(owner.user.referralCode, 1);
+    expect(await db.referralReward.findUniqueOrThrow({ where: { id: reward.id } })).toMatchObject({ status: 'AVAILABLE', grantedAt: originalGrantedAt, expiresAt: originalExpiresAt, invalidatedAt: null, invalidatedReason: null });
+    expect(await db.referralReward.count({ where: { userId: owner.user.id, milestoneId: milestone.id } })).toBe(1);
+  }, 60000);
+
+  it('never revives redeemed or expired rewards after invalidation and re-attainment', async () => {
+    const admin = new Client(); await admin.login(await account('ADMIN')); await admin.mfa();
+
+    const redeemedOwner = await account(); const redeemedClient = new Client(); await redeemedClient.login(redeemedOwner);
+    const redeemedRegistrations = await qualifyMany(redeemedOwner.user.referralCode, 3);
+    const redeemedReward = await db.referralReward.findFirstOrThrow({ where: { userId: redeemedOwner.user.id } });
+    expect((await redeemedClient.call(`me/referral-rewards/${redeemedReward.id}/redeem`, 'POST', { targetDate: jstFutureDate(21) })).status).toBe(201);
+    const redeemedReferral = await db.referral.findUniqueOrThrow({ where: { referredUserId: redeemedRegistrations[2].userId } });
+    await admin.call(`admin/referrals/${redeemedReferral.id}/invalidate`, 'POST', { reason: '使用済み特典の非復活試験' });
+    await qualifyMany(redeemedOwner.user.referralCode, 1);
+    expect(await db.referralReward.findUniqueOrThrow({ where: { id: redeemedReward.id } })).toMatchObject({ status: 'REDEEMED', dayPassId: expect.any(String) });
+
+    const expiredOwner = await account();
+    const expiredRegistrations = await qualifyMany(expiredOwner.user.referralCode, 3);
+    const expiredReward = await db.referralReward.findFirstOrThrow({ where: { userId: expiredOwner.user.id } });
+    await db.referralReward.update({ where: { id: expiredReward.id }, data: { grantedAt: new Date(Date.now() - 2 * 86400000), expiresAt: new Date(Date.now() - 86400000) } });
+    const expiredReferral = await db.referral.findUniqueOrThrow({ where: { referredUserId: expiredRegistrations[2].userId } });
+    await admin.call(`admin/referrals/${expiredReferral.id}/invalidate`, 'POST', { reason: '期限切れ特典の非復活試験' });
+    expect((await db.referralReward.findUniqueOrThrow({ where: { id: expiredReward.id } })).status).toBe('EXPIRED');
+    await qualifyMany(expiredOwner.user.referralCode, 1);
+    expect((await db.referralReward.findUniqueOrThrow({ where: { id: expiredReward.id } })).status).toBe('EXPIRED');
+  }, 60000);
+
+  it('keeps member and administrator referral APIs within server-owned roles and AAL2', async () => {
+    const memberFixture = await account(); const member = new Client(); await member.login(memberFixture);
+    expect((await member.call('admin/referrals')).status).toBe(403);
+    const aal1Admin = new Client(); await aal1Admin.login(await account('ADMIN'));
+    expect((await aal1Admin.call('admin/referrals')).body.code).toBe('MFA_REQUIRED');
+    const admin = new Client(); await admin.login(await account('ADMIN')); await admin.mfa();
+    const list = await admin.call('admin/referrals');
+    expect(list.status).toBe(200);
+    expect(JSON.stringify(list.body)).not.toContain('@example.test');
+    const someoneElsesReward = await db.referralReward.findFirstOrThrow({ where: { userId: { not: memberFixture.user.id } } });
+    expect((await member.call(`me/referral-rewards/${someoneElsesReward.id}/redeem`, 'POST', { targetDate: jstFutureDate(30) })).status).toBe(404);
   });
 });

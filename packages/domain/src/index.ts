@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { acquisitionSchema } from './acquisition';
 import { consentVersions } from './legal';
+import { memberReferralCodeInputSchema } from './referrals';
 export * from './races';
 export * from './assessments';
 export * from './predictions';
@@ -35,7 +36,7 @@ export const registrationSchema = z.object({
   adult: z.literal(true), terms: z.literal(true), privacy: z.literal(true),
   termsVersion: z.literal(consentVersions.terms), privacyVersion: z.literal(consentVersions.privacy),
   acquisition: acquisitionSchema.optional(),
-  memberReferralCode: z.string().trim().min(8).max(32).regex(/^[A-Za-z0-9_-]+$/).transform(value => value.toUpperCase()).optional(),
+  memberReferralCode: memberReferralCodeInputSchema,
   captchaToken: z.string().trim().min(1).max(2048).optional()
 }).strict();
 export const loginSchema = z.object({ email: z.string().trim().email().transform(v => v.toLowerCase()), password: z.string().max(128) }).strict();
