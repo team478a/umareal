@@ -138,6 +138,8 @@ Phase 7B第1区間でbilling_support_requestsとbilling_support_eventsを追加�
 
 Phase 7Dでsupport_requestsとsupport_eventsを追加した。一般問い合わせの件名と本文は作成後に変更・削除できず、状態変更は追記専用eventとして内部理由と会員向け回答を分離する。会員の追加情報は`MEMBER_MESSAGE`イベントとして本人だけが追記でき、回答済み問い合わせは受付済みへ再開する。運営用の優先度、任意の担当者、任意の対応期限を本体へ保持し、担当者は有効なADMIN/OPERATORだけに制限する。振り分けは`TRIAGED`イベントと監査へ追記する。回答済みeventはnotification_eventsと同一トランザクションで1対1に結び、本人だけへWeb・メール・LINE通知を展開する。外部通知には問い合わせ内容と回答内容を含めない。
 
+友達紹介V1で`users.referralCode`、`referrals`、`referral_milestones`、`referral_rewards`、`day_passes.source`を追加した。会員紹介と`member_acquisitions.referralCode`は別責務である。被紹介者はReferralを最大1件、紹介者は複数Referral、会員はマイルストーンごとにRewardを最大1件持つ。Rewardは交換後に既存DayPassを最大1件参照し、アクセス権限は従来どおりDayPassからEntitlementへ接続する。LINE OAuthと登録grantには会員紹介コードだけを短時間引き継ぐ。
+
 WIN5 Phase 2で`prediction_products`、`prediction_product_races`、`prediction_product_selections`、`prediction_product_previews`、`prediction_product_versions`を物理追加した。既存の`predictions`系は1レース単位のパドック直前予想として残し、WIN5データを混在させない。
 
 `prediction_products`は`type + targetDate`を一意にし、当面のtypeは`WIN5_PREVIEW`。`prediction_product_races`は商品内の`legNumber` 1〜5と`raceId`をそれぞれ一意にし、既存レースを順序付きで5件参照する。`prediction_product_selections`は既存出走馬を参照し、対象レースごとの中心馬を1頭に制限する。

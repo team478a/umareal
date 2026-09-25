@@ -192,6 +192,21 @@ StripeもSecret keyとWebhook secretは同じ暗号化方式で保存し、設�
 
 設定更新はrevisionによる楽観ロックを使用し、不一致は409 STALE_REVISION。LINE通知の有効化にはMessaging APIのChannel ID、Channel secret、Channel access token、LINE Loginの有効化には専用Channel ID、Channel secret、Callback URLが必要。アプリ検証に加えてDB CHECK制約でも不完全な有効化を拒否する。通知最大試行回数は1〜10、初回待機は10〜3600秒。Messaging API transport、Webhook、LINE Login OAuthは実装済みだが、ライブ疎通は未実施。
 
+## 友達紹介
+
+会員紹介コードは`memberReferralCode`、マーケティング流入は`acquisition.referralCode`として登録APIで分離する。メール確認またはLINE登録完了時だけ紹介を成立させる。詳細な状態、並行処理、無効化ルールは[友達紹介制度 V1](REFERRAL_SYSTEM.md)を参照。
+
+| Method | Path | 動作 |
+| --- | --- | --- |
+| GET | /me/referrals | MEMBER本人の紹介URL、成立人数、次のDBマイルストーン、特典一覧 |
+| GET | /me/referral-rewards | MEMBER本人の特典一覧 |
+| POST | /me/referral-rewards/:id/redeem | `{targetDate}`。未使用・期限内の特典を既存一日利用へ交換 |
+| GET | /admin/referrals | ADMIN+AAL2。`page`、`status`による集計・紹介者・最近の紹介 |
+| GET | /admin/referrals/:id | ADMIN+AAL2。個人情報を抑えた紹介詳細 |
+| POST | /admin/referrals/:id/invalidate | ADMIN+AAL2。`{reason}`必須。未使用特典を安全に再計算し監査 |
+
+同時成立とAPI再送は紹介者・Reward単位のDBロック、状態付き更新、一意制約で冪等化する。紹介特典は購入処理を通さず、既存DayPass/Entitlementへ`source=REFERRAL_REWARD`、0円で接続する。
+
 ## 結果・成績
 
 結果下書きは発走後に全出走馬を揃えて保存し、revision不一致を409で拒否する。現行APIは着順・状態・人気・確定単勝だけを受け付け、払戻情報を受け付けない。結果CSVは選択中の1レース単位、または開催日・競馬場・レース番号を持つ複数レース形式を選べる。複数レース形式は`CANONICAL_CSV`と`JRA_VAN_BRIDGE_V1`を受け付け、後者の競馬場・異常区分コードをサーバーで共通結果形式へ変換する。`UMAREAL_JRA_VAN_BUNDLE_V1`のmanifestは任意で指定でき、指定時はresults.csvのSHA-256、対象日、行数、確定レース数が一致しなければbatchを作らない。各レースの全登録馬を1回ずつ要求し、一部成功を許可しない。プレビュー後に出走馬、レース状態、発走時刻、結果下書きが変わった場合は確定を409で拒否する。CSV確定は取込元・形式版・ファイル指紋と、検証済みの場合だけbundle形式版・対象日・manifest指紋を保存して下書きだけを更新する。担当者が画面で照合して結果確定した時点で初めて評価版と通知を作成する。確定処理は同じ下書きrevisionの再送に元の結果を返し、訂正は次の結果版として追記する。

@@ -52,6 +52,10 @@ test('register, save preferences, sign out and sign in on desktop/mobile', async
   await expect(page.getByLabel('メール通知を受け取る', { exact: true })).not.toBeChecked();
   await expect(page.getByLabel('記事・動画・音声の更新', { exact: false })).toBeChecked();
   await expect(page.getByRole('heading', { name: '同意履歴' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '友達紹介', exact: true })).toBeVisible();
+  await expect(page.getByLabel('あなたの紹介URL')).toHaveValue(/\/register\?invite=[A-Z0-9_-]{8,32}$/);
+  await expect(page.getByRole('link', { name: 'LINEで紹介' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '紹介URLをコピー' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '請求について問い合わせる' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.goto('/admin');

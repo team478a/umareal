@@ -11,6 +11,7 @@ import { MailService } from './mail.service';
 import { SupabaseAuthService } from './supabase-auth.service';
 import type { SupabaseSession } from './supabase-auth.service';
 import { RegistrationCaptchaService } from './registration-captcha.service';
+import { ReferralsService } from './referrals.service';
 
 const publicUser = (user: { id: string; displayName: string; role: string }) => ({ id: user.id, displayName: user.displayName, role: user.role });
 function cookie(res: Response, token: string) { res.cookie('keiba_session', token, { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: 8 * 3600000 }); }
@@ -41,7 +42,7 @@ const externalMfaEnrollSchema = z.object({ kind: z.enum(['PRIMARY', 'BACKUP']).d
 const externalMfaVerifySchema = z.object({ code: z.string().regex(/^\d{6}$/), factor: z.enum(['PRIMARY', 'BACKUP']).default('PRIMARY'), factorId: z.string().uuid().optional() }).strict();
 @Controller('auth')
 export class AuthController {
-  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(SupabaseAuthService) private readonly supabase: SupabaseAuthService, @Inject(MailService) private readonly mail: MailService, @Inject(RegistrationCaptchaService) private readonly captcha: RegistrationCaptchaService) {}
+  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(SupabaseAuthService) private readonly supabase: SupabaseAuthService, @Inject(MailService) private readonly mail: MailService, @Inject(RegistrationCaptchaService) private readonly captcha: RegistrationCaptchaService, @Inject(ReferralsService) private readonly referrals: ReferralsService) {}
   @Get('config') async config() {
     const mode = resolveLaunchMode(process.env.LAUNCH_MODE);
     const capabilities = launchCapabilities(mode);
@@ -86,6 +87,8 @@ export class AuthController {
           ] } } });
         req.auth = { id: created.id, role: created.role, aal: 1, user: created };
         await this.auth.audit(tx, req, 'REGISTER', created.id, 'Supabase会員登録と同意記録');
+        await this.referrals.createPending(tx, created.id, input.memberReferralCode);
+        if (created.emailVerifiedAt) await this.referrals.qualify(tx, created.id, req);
         return created;
       });
       if (result.session) {
@@ -94,6 +97,7 @@ export class AuthController {
         await this.auth.db.$transaction(async tx => {
           await tx.user.updateMany({ where: { id: user.id, emailVerifiedAt: null }, data: { emailVerifiedAt: new Date() } });
           await this.auth.journey(tx, user.id, 'FIRST_LOGIN');
+          await this.referrals.qualify(tx, user.id, req);
         });
       }
       res.clearCookie('keiba_session', { httpOnly: true, sameSite: 'lax', path: '/' });
@@ -111,6 +115,7 @@ export class AuthController {
         ] } } });
       req.auth = { id: user.id, role: user.role, aal: 1, user };
       await this.auth.audit(tx, req, 'REGISTER', user.id, '会員登録と同意記録');
+      await this.referrals.createPending(tx, user.id, input.memberReferralCode);
       return user;
     });
     res.clearCookie('keiba_session', { httpOnly: true, sameSite: 'lax', path: '/' });
@@ -148,6 +153,7 @@ export class AuthController {
       const user = await tx.user.update({ where: { id: verification.userId }, data }); req.auth = { id: user.id, role: user.role, aal: 1, user };
       await tx.emailVerification.updateMany({ where: { userId: user.id, usedAt: null }, data: { usedAt: now } });
       await this.auth.audit(tx, req, verification.purpose === 'ADD_FALLBACK' ? 'FALLBACK_EMAIL_VERIFIED' : 'EMAIL_VERIFIED', user.id, 'メールアドレス確認完了');
+      await this.referrals.qualify(tx, user.id, req);
       return { user, sessionToken: await this.auth.session(tx, user.id) };
     });
     cookie(res, result.sessionToken); return { user: publicUser(result.user), verified: true };
@@ -162,6 +168,7 @@ export class AuthController {
       await this.auth.db.$transaction(async tx => {
         if (!user.emailVerifiedAt && (session.user.email_confirmed_at || session.user.confirmed_at)) await tx.user.update({ where: { id: user.id }, data: { emailVerifiedAt: new Date(session.user.email_confirmed_at ?? session.user.confirmed_at!) } });
         await this.auth.journey(tx, user.id, 'FIRST_LOGIN');
+        if (session.user.email_confirmed_at || session.user.confirmed_at) await this.referrals.qualify(tx, user.id, req);
         await this.auth.audit(tx, req, 'LOGIN', user.id, 'Supabaseログイン');
       });
       externalCookies(res, session);
@@ -200,6 +207,7 @@ export class AuthController {
       await this.auth.db.$transaction(async tx => {
         if (!user.emailVerifiedAt && (session.user.email_confirmed_at || session.user.confirmed_at)) await tx.user.update({ where: { id: user.id }, data: { emailVerifiedAt: new Date(session.user.email_confirmed_at ?? session.user.confirmed_at!) } });
         await this.auth.journey(tx, user.id, 'FIRST_LOGIN');
+        if (flow === 'signup' && (session.user.email_confirmed_at || session.user.confirmed_at)) await this.referrals.qualify(tx, user.id, req);
         await this.auth.audit(tx, req, flow === 'recovery' ? 'PASSWORD_RECOVERY_VERIFIED' : 'EMAIL_VERIFIED', user.id, flow === 'recovery' ? 'Supabaseパスワード再設定本人確認' : 'Supabaseメールアドレス確認完了');
       });
       externalCookies(res, session);

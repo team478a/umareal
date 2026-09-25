@@ -49,11 +49,11 @@ export class LineLoginService {
     catch { throw new ServiceUnavailableException({ code: 'LINE_LOGIN_CONFIGURATION_INVALID', message: 'LINEログインの設定を確認してください。' }); }
   }
 
-  async start(purpose: LineOAuthPurpose, userId?: string, acquisition?: AcquisitionInput) {
+  async start(purpose: LineOAuthPurpose, userId?: string, acquisition?: AcquisitionInput, memberReferralCode?: string) {
     const credentials = await this.credentials();
     const state = randomBytes(32).toString('hex'), nonce = newToken(), verifier = newToken();
     const expiresAt = new Date(Date.now() + 10 * 60000);
-    await this.auth.db.lineOAuthFlow.create({ data: { stateHash: hashToken(state), nonceHash: hashToken(nonce), nonceEncrypted: encrypt(nonce), codeVerifierEncrypted: encrypt(verifier), purpose, userId: purpose === 'LINK' ? userId : null, expiresAt, acquisition: purpose === 'REGISTER' ? acquisition : undefined } });
+    await this.auth.db.lineOAuthFlow.create({ data: { stateHash: hashToken(state), nonceHash: hashToken(nonce), nonceEncrypted: encrypt(nonce), codeVerifierEncrypted: encrypt(verifier), purpose, userId: purpose === 'LINK' ? userId : null, expiresAt, acquisition: purpose === 'REGISTER' ? acquisition : undefined, memberReferralCode: purpose === 'REGISTER' ? memberReferralCode : undefined } });
     return { authorizationUrl: buildLineAuthorizationUrl({ channelId: credentials.channelId, callbackUrl: credentials.callbackUrl, state, nonce, verifier }), expiresAt };
   }
 

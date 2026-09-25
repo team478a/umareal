@@ -5,12 +5,13 @@ import type { AppRequest } from './context';
 import { AuthService } from './auth.service';
 import { LineLoginService } from './line-login.service';
 import { decrypt, encrypt, hashToken, newToken } from './security';
+import { ReferralsService } from './referrals.service';
 
 function sessionCookie(res: Response, token: string) { res.cookie('keiba_session', token, { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: 8 * 3600000 }); }
 
 @Controller('auth/line')
 export class LineLoginController {
-  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(LineLoginService) private readonly line: LineLoginService) {}
+  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(LineLoginService) private readonly line: LineLoginService, @Inject(ReferralsService) private readonly referrals: ReferralsService) {}
 
   private enabled() {
     if (!launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).lineLogin) throw new ServiceUnavailableException({ code: 'LINE_LOGIN_NOT_IN_LAUNCH', message: 'LINEログインは現在の公開範囲では利用できません。' });
@@ -19,10 +20,10 @@ export class LineLoginController {
   @Post('start')
   async start(@Body() body: unknown, @Req() req: AppRequest) {
     this.enabled();
-    const { purpose, acquisition } = lineOAuthStartSchema.parse(body);
+    const { purpose, acquisition, memberReferralCode } = lineOAuthStartSchema.parse(body);
     if (purpose === 'REGISTER') await this.auth.requireNewRegistration();
     const identity = purpose === 'LINK' ? await this.auth.authenticate(req) : undefined;
-    return this.line.start(purpose, identity?.id, acquisition);
+    return this.line.start(purpose, identity?.id, acquisition, memberReferralCode);
   }
 
   @Get('callback')
@@ -43,7 +44,7 @@ export class LineLoginController {
       if (account) throw new ConflictException({ code: 'LINE_ACCOUNT_UNAVAILABLE', message: 'このLINEアカウントは再登録できません。' });
       await this.auth.requireNewRegistration();
       const token = newToken();
-      await this.auth.db.lineRegistrationGrant.create({ data: { tokenHash: hashToken(token), subjectHash, subjectEncrypted: encrypt(identity.subject), expiresAt: new Date(Date.now() + 15 * 60000), acquisition: flow.acquisition ?? undefined } });
+      await this.auth.db.lineRegistrationGrant.create({ data: { tokenHash: hashToken(token), subjectHash, subjectEncrypted: encrypt(identity.subject), expiresAt: new Date(Date.now() + 15 * 60000), acquisition: flow.acquisition ?? undefined, memberReferralCode: flow.memberReferralCode } });
       return res.redirect(303, `${process.env.APP_BASE_URL}/register/line?token=${encodeURIComponent(token)}`);
     }
     if (flow.purpose === 'LINK') {
@@ -90,6 +91,8 @@ export class LineLoginController {
       ] } } });
       req.auth = { id: user.id, role: user.role, aal: 1, user };
       await this.auth.audit(tx, req, 'LINE_REGISTER', user.id, 'LINE無料会員登録', { subjectHash: grant.subjectHash });
+      await this.referrals.createPending(tx, user.id, grant.memberReferralCode ?? undefined);
+      await this.referrals.qualify(tx, user.id, req);
       await this.auth.journey(tx, user.id, 'LINE_GUIDANCE_VIEWED');
       return { user, session: await this.auth.session(tx, user.id) };
     });

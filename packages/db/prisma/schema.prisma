@@ -23,6 +23,7 @@ model User {
   emailDeliveryDisabledAt        DateTime?                  @db.Timestamptz(3)
   emailDeliveryDisabledReason    String?
   registrationMethod             String                     @default("EMAIL")
+  referralCode                   String                     @unique @default(dbgenerated("upper(substr(replace((gen_random_uuid())::text, '-'::text, ''::text), 1, 20))"))
   displayName                    String
   role                           Role                       @default(MEMBER)
   passwordHash                   String?
@@ -70,6 +71,10 @@ model User {
   win5ResultsConfirmed           Win5ResultVersion[]        @relation("Win5ResultConfirmer")
   predictionEvaluationsConfirmed PredictionEvaluation[]     @relation("PredictionEvaluationConfirmer")
   win5EvaluationsConfirmed       Win5EvaluationVersion[]    @relation("Win5EvaluationConfirmer")
+  referralsMade                  Referral[]                 @relation("ReferralReferrer")
+  referralReceived               Referral?                  @relation("ReferralReferred")
+  referralRewards                ReferralReward[]
+  referralsInvalidated           Referral[]                 @relation("ReferralInvalidator")
 
   @@map("users")
 }
@@ -150,14 +155,15 @@ model EmailVerification {
 }
 
 model LineRegistrationGrant {
-  id               String    @id @default(uuid()) @db.Uuid
-  tokenHash        String    @unique
-  subjectHash      String
-  subjectEncrypted String
-  expiresAt        DateTime  @db.Timestamptz(3)
-  usedAt           DateTime? @db.Timestamptz(3)
-  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
-  acquisition      Json?
+  id                 String    @id @default(uuid()) @db.Uuid
+  tokenHash          String    @unique
+  subjectHash        String
+  subjectEncrypted   String
+  expiresAt          DateTime  @db.Timestamptz(3)
+  usedAt             DateTime? @db.Timestamptz(3)
+  createdAt          DateTime  @default(now()) @db.Timestamptz(3)
+  acquisition        Json?
+  memberReferralCode String?
 
   @@index([subjectHash, expiresAt])
   @@map("line_registration_grants")
@@ -238,6 +244,7 @@ model LineOAuthFlow {
   usedAt                DateTime? @db.Timestamptz(3)
   createdAt             DateTime  @default(now()) @db.Timestamptz(3)
   acquisition           Json?
+  memberReferralCode    String?
 
   @@index([expiresAt])
   @@map("line_oauth_flows")
@@ -325,17 +332,76 @@ model DayPass {
   startsAt       DateTime?            @db.Timestamptz(3)
   endsAt         DateTime             @db.Timestamptz(3)
   provider       String
+  source         String               @default("PURCHASE")
   providerPassId String               @unique
   entitlementId  String?              @unique @db.Uuid
   entitlement    Entitlement?         @relation(fields: [entitlementId], references: [id])
   payments       PaymentTransaction[]
   events         BillingEvent[]
+  referralReward ReferralReward?
   createdAt      DateTime             @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime             @default(now()) @db.Timestamptz(3)
 
   @@unique([userId, raceDate])
   @@index([status, endsAt])
   @@map("day_passes")
+}
+
+model Referral {
+  id                String    @id @default(uuid()) @db.Uuid
+  referrerUserId    String    @db.Uuid
+  referrer          User      @relation("ReferralReferrer", fields: [referrerUserId], references: [id])
+  referredUserId    String    @unique @db.Uuid
+  referred          User      @relation("ReferralReferred", fields: [referredUserId], references: [id])
+  status            String    @default("PENDING")
+  qualifiedAt       DateTime? @db.Timestamptz(3)
+  invalidatedAt     DateTime? @db.Timestamptz(3)
+  invalidatedReason String?
+  invalidatedById   String?   @db.Uuid
+  invalidatedBy     User?     @relation("ReferralInvalidator", fields: [invalidatedById], references: [id])
+  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([referrerUserId, status, qualifiedAt])
+  @@index([createdAt])
+  @@map("referrals")
+}
+
+model ReferralMilestone {
+  id                    String           @id @default(uuid()) @db.Uuid
+  requiredReferralCount Int              @unique
+  rewardType            String           @default("DAY_PASS")
+  rewardQuantity        Int              @default(1)
+  rewardValidityDays    Int              @default(60)
+  active                Boolean          @default(true)
+  sortOrder             Int
+  createdAt             DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime         @default(now()) @updatedAt @db.Timestamptz(3)
+  rewards               ReferralReward[]
+
+  @@index([active, sortOrder])
+  @@map("referral_milestones")
+}
+
+model ReferralReward {
+  id                String            @id @default(uuid()) @db.Uuid
+  userId            String            @db.Uuid
+  user              User              @relation(fields: [userId], references: [id])
+  milestoneId       String            @db.Uuid
+  milestone         ReferralMilestone @relation(fields: [milestoneId], references: [id])
+  rewardType        String
+  rewardQuantity    Int               @default(1)
+  status            String            @default("AVAILABLE")
+  grantedAt         DateTime          @default(now()) @db.Timestamptz(3)
+  expiresAt         DateTime          @db.Timestamptz(3)
+  usedAt            DateTime?         @db.Timestamptz(3)
+  invalidatedAt     DateTime?         @db.Timestamptz(3)
+  invalidatedReason String?
+  dayPassId         String?           @unique @db.Uuid
+  dayPass           DayPass?          @relation(fields: [dayPassId], references: [id])
+
+  @@unique([userId, milestoneId])
+  @@index([userId, status, expiresAt])
+  @@map("referral_rewards")
 }
 
 model PaymentTransaction {
@@ -393,20 +459,20 @@ model BillingSupportEvent {
 }
 
 model SupportRequest {
-  id        String         @id @default(uuid()) @db.Uuid
-  userId    String         @db.Uuid
-  user      User           @relation("SupportRequester", fields: [userId], references: [id])
-  category  String
-  subject   String
-  message   String
-  status    String         @default("OPEN")
-  priority  String         @default("NORMAL")
-  assignedToId String?     @db.Uuid
-  assignee  User?          @relation("SupportAssignee", fields: [assignedToId], references: [id])
-  dueAt     DateTime?      @db.Timestamptz(3)
-  createdAt DateTime       @default(now()) @db.Timestamptz(3)
-  updatedAt DateTime       @default(now()) @db.Timestamptz(3)
-  events    SupportEvent[]
+  id           String         @id @default(uuid()) @db.Uuid
+  userId       String         @db.Uuid
+  user         User           @relation("SupportRequester", fields: [userId], references: [id])
+  category     String
+  subject      String
+  message      String
+  status       String         @default("OPEN")
+  priority     String         @default("NORMAL")
+  assignedToId String?        @db.Uuid
+  assignee     User?          @relation("SupportAssignee", fields: [assignedToId], references: [id])
+  dueAt        DateTime?      @db.Timestamptz(3)
+  createdAt    DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime       @default(now()) @db.Timestamptz(3)
+  events       SupportEvent[]
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
@@ -416,17 +482,17 @@ model SupportRequest {
 }
 
 model SupportEvent {
-  id            String         @id @default(uuid()) @db.Uuid
-  requestId     String         @db.Uuid
-  request       SupportRequest @relation(fields: [requestId], references: [id])
-  eventType     String
-  actorId       String         @db.Uuid
-  actor         User           @relation("SupportActor", fields: [actorId], references: [id])
-  actorRole     String
-  reason        String
-  publicMessage String?
-  occurredAt    DateTime       @default(now()) @db.Timestamptz(3)
-  createdTxId   BigInt         @default(dbgenerated("txid_current()"))
+  id                String             @id @default(uuid()) @db.Uuid
+  requestId         String             @db.Uuid
+  request           SupportRequest     @relation(fields: [requestId], references: [id])
+  eventType         String
+  actorId           String             @db.Uuid
+  actor             User               @relation("SupportActor", fields: [actorId], references: [id])
+  actorRole         String
+  reason            String
+  publicMessage     String?
+  occurredAt        DateTime           @default(now()) @db.Timestamptz(3)
+  createdTxId       BigInt             @default(dbgenerated("txid_current()"))
   notificationEvent NotificationEvent?
 
   @@index([requestId, occurredAt])

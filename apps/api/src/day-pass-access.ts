@@ -31,6 +31,7 @@ export async function createDayPassAccess(tx: Tx, input: {
       startsAt,
       endsAt: window.endsAt,
       provider: input.provider,
+      source: input.source === 'REFERRAL_REWARD' ? 'REFERRAL_REWARD' : 'PURCHASE',
       providerPassId: input.providerPassId,
       entitlementId: entitlement?.id ?? null
     }
