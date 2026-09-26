@@ -150,6 +150,35 @@ export const adminNotificationListResponseSchema = z.object({
 
 export type AdminNotificationDelivery = z.infer<typeof adminNotificationDeliverySchema>;
 export type AdminNotificationListResponse = z.infer<typeof adminNotificationListResponseSchema>;
+
+export const adminNotificationTestOptionsResponseSchema = z.object({
+  channels: z.object({
+    email: z.boolean(),
+    line: z.boolean()
+  }).strict(),
+  races: z.array(z.object({
+    id: z.string().uuid(),
+    raceDate: notificationOperationalDateSchema,
+    venue: z.string(),
+    number: z.number().int(),
+    name: z.string()
+  }).strict()),
+  products: z.array(z.object({
+    id: z.string().uuid(),
+    targetDate: notificationOperationalDateSchema,
+    title: z.string(),
+    status: z.string().min(1)
+  }).strict()),
+  subscriptions: z.array(z.object({
+    id: z.string().uuid(),
+    planCode: z.string().min(1),
+    status: z.string().min(1),
+    currentPeriodEndsAt: notificationDateTimeSchema,
+    user: z.object({ displayName: z.string() }).strict()
+  }).strict())
+}).strict();
+
+export type AdminNotificationTestOptionsResponse = z.infer<typeof adminNotificationTestOptionsResponseSchema>;
 export const notificationRetrySchema = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 const notificationTestBase = {
   channel: z.enum(['LINE', 'EMAIL']),

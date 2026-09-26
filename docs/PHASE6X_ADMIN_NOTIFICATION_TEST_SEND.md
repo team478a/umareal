@@ -11,6 +11,9 @@
 
 ## 実装
 
+- `GET /api/v1/admin/notifications/test-options`
+  - ADMIN+AAL2だけに、本人が利用できるチャネルと通常予想・WIN5商品・月額契約の選択候補を返す。
+  - 公開応答はAPIとWebで同じ厳格なContractを参照し、宛先とProvider識別情報は返さない。
 - `POST /api/v1/admin/notifications/test-send`
   - `raceId`、`contentType`、無料情報の場合は`draftRevision`、`channel`、`reason`を受け取る。
   - `Idempotency-Key` UUIDを必須とし、同じキーと本文の再実行は保存済み結果を返す。
