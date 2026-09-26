@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { encryptSecret } from '../packages/db/src';
-import { memberReferralRewardsSchema, memberReferralSummarySchema } from '../packages/domain/src';
+import { memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema } from '../packages/domain/src';
 import { account, base, Client, db, origin } from './helpers';
 
 const password = 'referral-integration-password-123';
@@ -180,6 +180,17 @@ describe('friend referral V1', () => {
     expect((await referrerClient.call(`me/referral-rewards/${available[1].id}/redeem`, 'POST', { targetDate: afterExpiry })).body.code).toBe('REFERRAL_REWARD_DATE_AFTER_EXPIRY');
     const redeemed = await referrerClient.call(`me/referral-rewards/${rewardId}/redeem`, 'POST', { targetDate });
     expect(redeemed.status).toBe(201);
+    expect(memberReferralRewardRedeemResponseSchema.parse(redeemed.body)).toEqual({
+      rewardId,
+      dayPassId: expect.any(String),
+      status: expect.stringMatching(/^(PENDING|ACTIVE)$/),
+      startsAt: redeemed.body.startsAt,
+      endsAt: expect.any(String),
+      waitingForPublication: expect.any(Boolean)
+    });
+    for (const field of ['email', 'passwordHash', 'authSubject', 'lineSubject', 'token', 'secret', 'userId']) {
+      expect(JSON.stringify(redeemed.body)).not.toContain(`"${field}"`);
+    }
     const pass = await db.dayPass.findUniqueOrThrow({ where: { id: redeemed.body.dayPassId }, include: { entitlement: true } });
     expect(pass).toMatchObject({ userId: referrer.user.id, raceDate: targetDate, provider: 'REFERRAL_REWARD', source: 'REFERRAL_REWARD', priceYen: 0 });
     expect(pass.entitlement).toMatchObject({ planCode: 'DAY_PASS', raceDate: targetDate, reason: 'REFERRAL_REWARD_DAY_PASS' });

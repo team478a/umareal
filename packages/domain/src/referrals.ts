@@ -59,6 +59,15 @@ export const memberReferralRewardsSchema = z.object({
   items: z.array(memberReferralRewardSchema)
 }).strict();
 
+export const memberReferralRewardRedeemResponseSchema = z.object({
+  rewardId: z.string().uuid(),
+  dayPassId: z.string().uuid(),
+  status: z.enum(['PENDING', 'ACTIVE']),
+  startsAt: referralResponseDateTimeSchema.nullable(),
+  endsAt: referralResponseDateTimeSchema,
+  waitingForPublication: z.boolean()
+}).strict();
+
 export const memberReferralSummarySchema = z.object({
   referralCode: z.string().min(8).max(32).regex(/^[A-Z0-9_-]+$/),
   referralUrl: z.string().min(1),
@@ -76,4 +85,5 @@ export const memberReferralSummarySchema = z.object({
 export type MemberReferralMilestone = z.infer<typeof memberReferralMilestoneSchema>;
 export type MemberReferralReward = z.infer<typeof memberReferralRewardSchema>;
 export type MemberReferralRewards = z.infer<typeof memberReferralRewardsSchema>;
+export type MemberReferralRewardRedeemResponse = z.infer<typeof memberReferralRewardRedeemResponseSchema>;
 export type MemberReferralSummary = z.infer<typeof memberReferralSummarySchema>;
