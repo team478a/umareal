@@ -82,11 +82,20 @@ erDiagram
     boolean lineNotificationsEnabled
     boolean lineLoginEnabled
   }
+  service_heartbeats {
+    string service PK
+    string releaseCommit
+    datetime heartbeatAt
+    datetime startedAt
+    datetime updatedAt
+  }
 ```
 
 usersはUUID、メールアドレスと外部authSubjectは一意。sessions/password_resetsはトークンのハッシュを一意化。entitlementsは有限期間・理由・付与者を必須にする。racesは開催日＋競馬場＋レース番号で一意。expert_assignmentsはレース＋ユーザーの複合キー。
 
 audit_logsは操作者、ロール、対象、理由、差分、requestId、UTC時刻を保持する追記専用の独立テーブル。ユーザー削除に連動して履歴を消さないため、操作者への削除カスケードを持たない。
+
+service_heartbeatsはworkerの現在の配備コミット、起動時刻、最終生存時刻だけを保持する運用テーブル。会員情報、秘密値、RenderサービスIDは保存せず、公開版や監査履歴の正本にも使用しない。
 
 Phase 2第1区間でrace_days、horses、race_entries、import_batchesを追加。race_daysは開催日＋競馬場で一意。race_entriesはレース＋馬番、およびレース＋馬IDが一意で、斤量・オッズはDecimal。races.revisionは手動更新と取込確定時の競合検出に使用する。import_batchesは操作者、検証済み入力、元データのハッシュ、期限、確定時刻を保持する。結果一括取込では検証済みJSONに提供元ID、形式版、元CSVのSHA-256指紋、共通形式へ変換済みの結果だけを保存する。元CSV、JV-Data固定長レコード、外部サービスの利用キーは保存しない。
 

@@ -1,5 +1,13 @@
 # 設計判断と保留事項
 
+## 配備版数とworker稼働の外部確認（2026-09-26）
+
+- Renderが実行時に提供する`RENDER_GIT_COMMIT`を使用し、Web、API、workerの短縮コミットIDだけを公開ヘルス情報へ含める。任意の環境値、ブランチ名、サービスID、インスタンスID、資格情報は返さない。ローカルと自動テストでは`DEPLOYMENT_RELEASE`を同じ形式の明示値として使用できる。
+- workerは運用専用の`service_heartbeats`へ起動時刻、コミット、最終生存時刻をupsertする。APIはDB疎通と合わせてworker heartbeatを読み、Webの`/health`がWeb・API・workerの3版を照合する。
+- ローリング配備中の一時的な版ずれでRenderのWebヘルスチェックを失敗させない。`/health`はAPIへ到達できる限りHTTP 200を維持し、`deployment.ready=false`と不一致理由を返す。配備完了判定は`pnpm deploy:verify-releases -- <URL>`が厳格に行う。
+- worker heartbeatは60秒を超えて更新されない場合に`STALE`とする。版数不明、版ずれ、heartbeat不明・停止はいずれも配備完了とは扱わない。
+- `service_heartbeats`は運用上の現在値であり、会員・予想・監査の正本ではない。公開版や監査ログの不変条件には使用しない。
+
 ## 有料運用の例外処理（2026-09-25）
 
 - 課金状態の変化は既存の`billing_events`を正本とし、同じDBトランザクションで会員向け`notification_events`を1件だけ作る。支払成功・失敗・回復、解約予約・取消、契約終了、対象一日券の返金をWeb、メール、LINEの共通通知基盤へ流し、通知本文にはStripe ID、支払手段、秘密情報を含めない。
