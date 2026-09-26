@@ -55,6 +55,10 @@ export const memberReferralRewardSchema = z.object({
   }).strict().nullable()
 }).strict();
 
+export const memberReferralRewardsSchema = z.object({
+  items: z.array(memberReferralRewardSchema)
+}).strict();
+
 export const memberReferralSummarySchema = z.object({
   referralCode: z.string().min(8).max(32).regex(/^[A-Z0-9_-]+$/),
   referralUrl: z.string().min(1),
@@ -71,4 +75,5 @@ export const memberReferralSummarySchema = z.object({
 
 export type MemberReferralMilestone = z.infer<typeof memberReferralMilestoneSchema>;
 export type MemberReferralReward = z.infer<typeof memberReferralRewardSchema>;
+export type MemberReferralRewards = z.infer<typeof memberReferralRewardsSchema>;
 export type MemberReferralSummary = z.infer<typeof memberReferralSummarySchema>;
