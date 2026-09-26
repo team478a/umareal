@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adminReferralListQuerySchema, lineOAuthStartSchema, memberReferralCodeSchema, memberReferralSummarySchema, referralInvalidateSchema, referralRewardRedeemSchema, registrationSchema } from './index';
+import { adminReferralListQuerySchema, lineOAuthStartSchema, memberReferralCodeSchema, memberReferralRewardsSchema, memberReferralSummarySchema, referralInvalidateSchema, referralRewardRedeemSchema, registrationSchema } from './index';
 
 describe('referral input boundaries', () => {
   it('normalizes safe member referral codes without changing acquisition referral input', () => {
@@ -43,5 +43,17 @@ describe('referral input boundaries', () => {
     expect(parsed).toEqual({ ...response, rewards: [{ ...response.rewards[0], grantedAt: grantedAt.toISOString() }] });
     expect(memberReferralSummarySchema.safeParse({ ...response, email: 'member@example.test' }).success).toBe(false);
     expect(memberReferralSummarySchema.safeParse({ ...response, rewards: [{ ...response.rewards[0], userId: '33333333-3333-4333-8333-333333333333' }] }).success).toBe(false);
+  });
+
+  it('defines the strict public response contract for GET /me/referral-rewards', () => {
+    const reward = {
+      id: '22222222-2222-4222-8222-222222222222', rewardType: 'DAY_PASS', rewardQuantity: 1, status: 'AVAILABLE',
+      grantedAt: new Date('2026-09-26T01:02:03.000Z'), expiresAt: '2026-11-25T01:02:03.000Z', usedAt: null,
+      milestone: { requiredReferralCount: 3 }, dayPass: null
+    };
+    const parsed = memberReferralRewardsSchema.parse({ items: [reward] });
+    expect(parsed.items[0].grantedAt).toBe(reward.grantedAt.toISOString());
+    expect(memberReferralRewardsSchema.safeParse({ items: [reward], email: 'member@example.test' }).success).toBe(false);
+    expect(memberReferralRewardsSchema.safeParse({ items: [{ ...reward, userId: '33333333-3333-4333-8333-333333333333' }] }).success).toBe(false);
   });
 });

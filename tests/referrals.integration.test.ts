@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { encryptSecret } from '../packages/db/src';
-import { memberReferralSummarySchema } from '../packages/domain/src';
+import { memberReferralRewardsSchema, memberReferralSummarySchema } from '../packages/domain/src';
 import { account, base, Client, db, origin } from './helpers';
 
 const password = 'referral-integration-password-123';
@@ -81,8 +81,9 @@ describe('friend referral V1', () => {
     expect(await db.referral.count({ where: { referredUserId: { in: [normal.userId, invalid.userId, tampered.userId] } } })).toBe(0);
   });
 
-  it('keeps GET /me/referrals authenticated, contract-safe and free of private identity fields', async () => {
+  it('keeps member referral read APIs authenticated, contract-safe and free of private identity fields', async () => {
     expect((await new Client().call('me/referrals')).status).toBe(401);
+    expect((await new Client().call('me/referral-rewards')).status).toBe(401);
     const owner = await account();
     const client = new Client();
     await client.login(owner);
@@ -110,6 +111,17 @@ describe('friend referral V1', () => {
     }
     expect(serialized).not.toContain(owner.user.email!);
     expect(serialized).not.toContain(password);
+
+    const rewardsResponse = await client.call('me/referral-rewards');
+    expect(rewardsResponse.status).toBe(200);
+    const rewards = memberReferralRewardsSchema.parse(rewardsResponse.body);
+    expect(rewards.items).toEqual(summary.rewards);
+    const serializedRewards = JSON.stringify(rewardsResponse.body);
+    for (const field of ['email', 'passwordHash', 'authSubject', 'lineSubject', 'token', 'secret', 'invalidatedReason', 'invalidatedById', 'userId']) {
+      expect(serializedRewards).not.toContain(`"${field}"`);
+    }
+    expect(serializedRewards).not.toContain(owner.user.email!);
+    expect(serializedRewards).not.toContain(password);
   });
 
   it('grants exactly one reward at 3 and a second at 10, without grants at 4 or 11', async () => {
