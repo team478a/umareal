@@ -1,5 +1,5 @@
 import { Body, Controller, ForbiddenException, Get, Inject, Param, Post, Query, Req } from '@nestjs/common';
-import { adminReferralListQuerySchema, canManage, referralInvalidateSchema, referralRewardRedeemSchema } from '@keiba/domain';
+import { adminReferralListQuerySchema, canManage, memberReferralSummarySchema, referralInvalidateSchema, referralRewardRedeemSchema } from '@keiba/domain';
 import type { AppRequest } from './context';
 import { AuthService } from './auth.service';
 import { ReferralsService } from './referrals.service';
@@ -21,7 +21,10 @@ export class ReferralsController {
   }
 
   @Get('me/referrals')
-  async mine(@Req() req: AppRequest) { const actor = await this.member(req); return this.referrals.memberSummary(actor.id); }
+  async mine(@Req() req: AppRequest) {
+    const actor = await this.member(req);
+    return memberReferralSummarySchema.parse(await this.referrals.memberSummary(actor.id));
+  }
 
   @Get('me/referral-rewards')
   async rewards(@Req() req: AppRequest) { const actor = await this.member(req); const summary = await this.referrals.memberSummary(actor.id); return { items: summary.rewards }; }

@@ -1,10 +1,7 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Check, Copy, Gift, Send, TicketCheck, Users } from 'lucide-react';
-
-type Milestone = { id: string; requiredReferralCount: number; rewardType: string; rewardQuantity: number; achieved: boolean };
-type Reward = { id: string; rewardType: string; rewardQuantity: number; status: string; grantedAt: string; expiresAt: string; usedAt: string | null; milestone: { requiredReferralCount: number }; dayPass: { raceDate: string; status: string } | null };
-type Summary = { referralCode: string; referralUrl: string; qualifiedCount: number; nextMilestone: { requiredReferralCount: number; remaining: number; rewardType: string; rewardQuantity: number } | null; milestones: Milestone[]; rewards: Reward[] };
+import type { MemberReferralReward, MemberReferralSummary } from '@keiba/domain';
 
 async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const response = await fetch(`/api/v1/${path}`, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' });
@@ -18,13 +15,13 @@ const dateText = (value: string) => new Intl.DateTimeFormat('ja-JP', { timeZone:
 const rewardLabel: Record<string, string> = { AVAILABLE: '未使用', REDEEMED: '使用済み', EXPIRED: '期限切れ', INVALIDATED: '無効' };
 
 export function ReferralDashboard({ onAccessChanged }: { onAccessChanged: () => Promise<void> }) {
-  const [data, setData] = useState<Summary | null>(null); const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState('');
+  const [data, setData] = useState<MemberReferralSummary | null>(null); const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState('');
   const [dates, setDates] = useState<Record<string, string>>({});
-  const load = useCallback(async () => { try { setData(await request<Summary>('me/referrals')); } catch (e) { setError((e as Error).message); } }, []);
+  const load = useCallback(async () => { try { setData(await request<MemberReferralSummary>('me/referrals')); } catch (e) { setError((e as Error).message); } }, []);
   useEffect(() => { void load(); }, [load]);
   const shareUrl = useMemo(() => data ? `https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(data.referralUrl)}&text=${encodeURIComponent('ウマリアルを紹介します。無料登録後、競馬の注目馬やレース見解を確認できます。')}` : '#', [data]);
   async function copy() { if (!data) return; try { await navigator.clipboard.writeText(data.referralUrl); setMessage('紹介URLをコピーしました。'); setError(''); } catch { setError('URLをコピーできませんでした。長押ししてコピーしてください。'); } }
-  async function redeem(event: FormEvent, reward: Reward) {
+  async function redeem(event: FormEvent, reward: MemberReferralReward) {
     event.preventDefault(); const targetDate = dates[reward.id] ?? today(); setBusy(reward.id); setError(''); setMessage('');
     try { await request(`me/referral-rewards/${reward.id}/redeem`, 'POST', { targetDate }); setMessage(`${targetDate}の一日利用券を有効にしました。`); await Promise.all([load(), onAccessChanged()]); }
     catch (e) { setError((e as Error).message); } finally { setBusy(''); }
