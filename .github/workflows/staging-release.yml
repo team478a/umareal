@@ -1,0 +1,50 @@
+name: Verify staging release
+
+on:
+  workflow_run:
+    workflows: [Validate foundation]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-release-verification
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' ||
+      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DEPLOYMENT_BASE_URL: https://umareal-staging-web.onrender.com
+      EXPECTED_COMMIT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_COMMIT }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Wait for the matching Web, API and worker release
+        id: release
+        run: node scripts/wait-for-deployment.mjs "$DEPLOYMENT_BASE_URL" "$EXPECTED_COMMIT" 720000
+      - name: Add mobile-friendly run summary
+        if: always()
+        env:
+          RELEASE_OUTCOME: ${{ steps.release.outcome }}
+        run: |
+          short_commit="${EXPECTED_COMMIT:0:12}"
+          {
+            echo "### Staging release verification"
+            echo ""
+            echo "- Result: ${RELEASE_OUTCOME}"
+            echo "- Expected commit: \`${short_commit}\`"
+            echo "- Target: ${DEPLOYMENT_BASE_URL}"
+            echo ""
+            echo "A successful result means Web, API and worker use the same commit and the worker heartbeat is current."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -132,3 +132,5 @@ pnpm bridge:jra-van:test
 Renderへ資格情報を保存する前に、Git管理外のサービス別環境ファイルを使って `pnpm deploy:preflight -- api`、`pnpm deploy:preflight -- web`、`pnpm deploy:preflight -- worker` を実行できます。検査結果には秘密値を表示しません。
 
 配備後は `pnpm deploy:verify-releases -- https://<Webドメイン>` でWeb・API・workerのコミット一致とworker heartbeatを確認できます。Renderのローリング配備中は再実行し、成功後にステージング試験を開始します。
+
+mainのCI成功後は`Verify staging release` GitHub ActionsがRenderの公開切替を最大12分待ちます。Actions画面の`Run workflow`からmainを選ぶとスマートフォンでも再確認できます。DB migrationは接続元IPを限定した所有者接続が必要なため、この共有ランナーでは実行しません。
