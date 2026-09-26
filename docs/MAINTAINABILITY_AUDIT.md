@@ -12,8 +12,8 @@
 
 | 区分 | 確認内容 |
 | --- | --- |
-| `main`へ統合済み | 紹介制度V1、本番準備修正、請求例外運用、CI品質ゲート、配備版数確認。基準SHAは上記。紹介制度の詳細は `docs/REFERRAL_SYSTEM.md` を正とする |
-| ブランチ・PRだけ | `codex/readiness-query-service` で、本番準備チェックの読み取り処理をControllerからQuery Serviceへ分離中。API契約、認可、DB schema、業務判定は変更しない |
+| `main`へ統合済み | 紹介制度V1、本番準備修正、請求例外運用、CI品質ゲート、配備版数確認、本番準備チェックのQuery Service分離。基準SHAは上記。紹介制度の詳細は `docs/REFERRAL_SYSTEM.md` を正とする |
+| ブランチ・PRだけ | 監査時点の提案に残る未統合変更なし。各後続phaseは最新mainから別PRで実施する |
 | CIで確認済み | mainのActions run `36221227908`。typecheck、lint、unit、JRA-VAN、DB/API integration、Stripeローカル結合、desktop/mobile E2E、全workspace build、Docker build、本番起動ガードが成功 |
 | CIで意図的に未実行だった範囲 | 外部サービスのライブ疎通、本番・staging DB migration、実機SafariはCIの対象外 |
 | 実環境・実機で未確認 | 本番Supabase、LINE Login/Messaging、Resend到達、Stripe sandbox/liveの外部API、独自ドメイン、実機iPhone、本番DB migration・制限ロール・バックアップ復元 |
@@ -76,7 +76,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 提案: 最初の実装候補は読み取り専用の管理readiness問合せをquery serviceへ移す。次に認証の登録／セッション／MFA orchestration、請求のprovider gateway／Webhook適用処理を別PRで分離する。endpoint、transaction、AuditLog、error codeは維持する。
 - 優先度: P1
 - 検証: 分離前後でAPI contract、DB/API結合、AAL1/AAL2拒否、冪等性、既存E2Eが同じ結果になることをcharacterization testで固定する。
-- 実施状況: `codex/readiness-query-service` で最初のpilotに着手。本番準備チェックのADMIN+AAL2認可はControllerへ残し、認可後の限定select、集計、判定、ローカル復元状態の読み取りだけを`ReadinessService`へ移す。既存15項目の順序と秘密情報非露出をintegration testで固定する。
+- 実施状況: PR #7で最初のpilotをmainへ統合した。本番準備チェックのADMIN+AAL2認可はControllerへ残し、認可後の限定select、集計、判定、ローカル復元状態の読み取りだけを`ReadinessService`へ移した。既存15項目の順序と秘密情報非露出をintegration testで固定している。
 
 ### MA-005 DBアクセス境界（後続PR候補）
 
@@ -98,6 +98,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 優先度: P2
 - 検証: APIの無料／本人／管理者応答、モバイル画面、既存紹介integration/E2Eを固定する。
 - 実施状況: `GET /me/referrals`を最初のpilotとして、公開応答だけを`packages/domain`の厳格なZod schemaで定義し、API境界の実行時検証とWebの型導出を同じContractへ接続した。続く小規模phaseで、同じ公開Reward schemaを再利用して`GET /me/referral-rewards`、`POST /me/referral-rewards/:id/redeem`、`GET /admin/referrals`、`GET /admin/referrals/:id`、`POST /admin/referrals/:id/invalidate`もContract化した。無効化の初回適用と冪等再送は既存の異なる応答形状をunionとして維持する。Prisma model、DB schema、URL、応答項目、紹介制度の業務仕様は変更しない。紹介制度V1の公開API Contract化は完了したが、全システムAPIのContract化は完了していない。
+- 後続pilot: 紹介以外の最初の読み取りAPIとして`GET /admin/readiness`の既存15項目を共有Contractへ接続する。Query Service、ADMIN+AAL2認可、判定条件、順序、画面表示は変更しない。
 
 ### MA-007 CIジョブ構成
 

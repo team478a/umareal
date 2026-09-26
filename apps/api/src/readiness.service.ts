@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { databaseRuntimeAccessRestricted, loadMailConfig } from '@keiba/db';
 import { consentVersions, launchCapabilities, legalDocumentReleaseErrors, resolveLaunchMode } from '@keiba/domain';
+import type { AdminReadinessCheck } from '@keiba/domain';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { z } from 'zod';
@@ -10,16 +11,6 @@ import { loadStripeConfig } from './stripe-config';
 
 const verifiedBackupSchema = z.object({ status: z.literal('VERIFIED'), verifiedAt: z.string().datetime(), backupId: z.string().regex(/^keiba-physical-\d{14}$/), format: z.literal('postgresql-physical-directory'), postgresMajor: z.literal(16), encrypted: z.literal(false), sha256: z.string().regex(/^[a-f0-9]{64}$/), sizeBytes: z.number().int().positive(), fileCount: z.number().int().positive(), migrations: z.number().int().nonnegative(), requiredTriggers: z.number().int().nonnegative(), restoredDatabaseRemoved: z.literal(true), counts: z.object({ users: z.number().int().nonnegative(), races: z.number().int().nonnegative(), predictionVersions: z.number().int().nonnegative(), freeReportVersions: z.number().int().nonnegative(), audioAssets: z.number().int().nonnegative(), publicationSchedules: z.number().int().nonnegative(), memberAcquisitions: z.number().int().nonnegative(), acquisitionCampaigns: z.number().int().nonnegative(), auditLogs: z.number().int().nonnegative(), notificationEvents: z.number().int().nonnegative(), operationalAlerts: z.number().int().nonnegative(), operationalAlertDeliveries: z.number().int().nonnegative(), billingSupportRequests: z.number().int().nonnegative(), billingSupportEvents: z.number().int().nonnegative() }).strict() }).strict();
 const failedBackupSchema = z.object({ status: z.literal('FAILED'), attemptedAt: z.string().datetime(), errorCode: z.literal('BACKUP_VERIFY_FAILED'), backupId: z.string().regex(/^keiba-physical-\d{14}$/).nullable(), restoredDatabaseRemoved: z.boolean() }).strict();
-
-type ReadinessCheck = {
-  code: string;
-  group: 'APPLICATION' | 'CONNECTIONS' | 'LEGAL_DATA' | 'OPERATIONS';
-  status: 'READY' | 'BLOCKED' | 'MANUAL';
-  title: string;
-  evidence: string;
-  action: string;
-  href?: string;
-};
 
 @Injectable()
 export class ReadinessService {
@@ -54,8 +45,8 @@ export class ReadinessService {
       ]),
       this.db.operationalAlertSetting.findUniqueOrThrow({ where: { id: 'global' } })
     ]);
-    const checks: ReadinessCheck[] = [];
-    const add = (check: ReadinessCheck) => checks.push(check);
+    const checks: AdminReadinessCheck[] = [];
+    const add = (check: AdminReadinessCheck) => checks.push(check);
     const baseUrl = process.env.APP_BASE_URL ?? '';
     const authConfigured = process.env.AUTH_PROVIDER === 'supabase' && !!process.env.SUPABASE_URL && !!process.env.SUPABASE_ANON_KEY;
     add({ code: 'PRODUCTION_AUTH', group: 'APPLICATION', status: authConfigured ? 'MANUAL' : 'BLOCKED', title: '本番認証', evidence: authConfigured ? 'Supabase PKCE登録、ログイン、Cookie更新、JWT検証、初回管理者CLI、TOTP MFAの実装があります。実環境でのメール到達と一連の操作は未確認です。' : '現在はローカル認証、またはSupabase設定が不足しています。', action: 'Supabaseの許可Redirect URLとSMTPを設定し、登録・メール確認・ログイン・セッション更新・ログアウト・AAL2を実環境で確認します。' });

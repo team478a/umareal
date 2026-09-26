@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, paddockComplete, preferencesSchema, publicDeploymentRelease, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
+import { acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminReadinessResponseSchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, paddockComplete, preferencesSchema, publicDeploymentRelease, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -354,7 +354,7 @@ export class AppController {
   }
   @Get('admin/readiness') async readiness(@Req() req: AppRequest) {
     await this.staff(req, ['ADMIN']);
-    return this.readinessQuery.getReadiness();
+    return adminReadinessResponseSchema.parse(await this.readinessQuery.getReadiness());
   }
   @Get('admin/account-closures') async accountClosures(@Req() req: AppRequest, @Query() query: unknown) {
     await this.staff(req, ['ADMIN']);
