@@ -10,6 +10,7 @@
 - 一時失敗の指数バックオフ、最大試行回数、恒久失敗分類
 - DBで追記専用に保護した配送試行履歴
 - `/admin/notifications` の状態集計、フィルター、履歴、理由付き手動再送
+- `GET /admin/notifications` の公開応答をAPIとWebで共有する厳格なContract
 - LINE通知の全体停止時にoutboxを保持
 - ローカルtest transportと本番起動拒否
 

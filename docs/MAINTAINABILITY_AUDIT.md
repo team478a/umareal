@@ -98,7 +98,8 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 優先度: P2
 - 検証: APIの無料／本人／管理者応答、モバイル画面、既存紹介integration/E2Eを固定する。
 - 実施状況: `GET /me/referrals`を最初のpilotとして、公開応答だけを`packages/domain`の厳格なZod schemaで定義し、API境界の実行時検証とWebの型導出を同じContractへ接続した。続く小規模phaseで、同じ公開Reward schemaを再利用して`GET /me/referral-rewards`、`POST /me/referral-rewards/:id/redeem`、`GET /admin/referrals`、`GET /admin/referrals/:id`、`POST /admin/referrals/:id/invalidate`もContract化した。無効化の初回適用と冪等再送は既存の異なる応答形状をunionとして維持する。Prisma model、DB schema、URL、応答項目、紹介制度の業務仕様は変更しない。紹介制度V1の公開API Contract化は完了したが、全システムAPIのContract化は完了していない。
-- 後続pilot: 紹介以外の最初の読み取りAPIとして`GET /admin/readiness`の既存15項目を共有Contractへ接続する。Query Service、ADMIN+AAL2認可、判定条件、順序、画面表示は変更しない。
+- 後続pilot: 紹介以外の最初の読み取りAPIとして`GET /admin/readiness`の既存15項目を共有Contractへ接続した。Query Service、ADMIN+AAL2認可、判定条件、順序、画面表示は変更していない。
+- 通知運用pilot: `GET /admin/notifications`の配送一覧、試行履歴、LINE・メールWebhook集計、停止会員の既存応答を共有Contractへ接続する。通知の生成・送信・再送・停止解除、認可、DB schema、画面表示は変更しない。
 
 ### MA-007 CIジョブ構成
 

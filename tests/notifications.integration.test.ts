@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import type { NotificationTransport } from '../apps/worker/src/notification-runner';
 import { runEmailNotificationBatch, runNotificationBatch, skipPendingNotificationEvents, TestNotificationTransport } from '../apps/worker/src/notification-runner';
+import { adminNotificationListResponseSchema } from '../packages/domain/src';
 import { account, Client, db } from './helpers';
 
 let settingsBefore: Awaited<ReturnType<typeof db.systemSetting.findUniqueOrThrow>>;
@@ -252,8 +253,13 @@ describe('notification worker and administration', () => {
     await expect(db.notificationAttempt.delete({ where: { id: attempt.id } })).rejects.toThrow();
 
     const admin = new Client(); await admin.login(await account('ADMIN')); expect((await admin.call('admin/notifications')).body.code).toBe('MFA_REQUIRED'); await admin.mfa();
-    const listed = await admin.call('admin/notifications?status=FAILED&limit=50'); expect(listed.status).toBe(200); expect(listed.body.total).toBeGreaterThan(0); expect(listed.body.items.every((item: { status: string }) => item.status === 'FAILED')).toBe(true);
-    const emailListed = await admin.call('admin/notifications?channel=EMAIL&limit=50'); expect(emailListed.status).toBe(200); expect(emailListed.body.items.every((item: { channel: string }) => item.channel === 'EMAIL')).toBe(true);
+    const listed = await admin.call('admin/notifications?status=FAILED&limit=50'); expect(listed.status).toBe(200);
+    const parsed = adminNotificationListResponseSchema.parse(listed.body);
+    expect(parsed.total).toBeGreaterThan(0); expect(parsed.items.every(item => item.status === 'FAILED')).toBe(true);
+    expect(JSON.stringify(listed.body)).not.toMatch(/passwordHash|authSubject|subjectHash|providerEventId|providerEmailId|idempotencyKey|providerMessageId/i);
+    const emailListed = await admin.call('admin/notifications?channel=EMAIL&limit=50'); expect(emailListed.status).toBe(200); expect(adminNotificationListResponseSchema.parse(emailListed.body).items.every(item => item.channel === 'EMAIL')).toBe(true);
+    const operator = new Client(); await operator.login(await account('OPERATOR')); expect(adminNotificationListResponseSchema.parse((await operator.call('admin/notifications?limit=1')).body).limit).toBe(1);
+    const memberClient = new Client(); await memberClient.login(await account('MEMBER')); expect((await memberClient.call('admin/notifications')).status).toBe(403);
     const retried = await admin.call(`admin/notifications/${delivery.id}/retry`, 'POST', { reason: '試験用配送先を修正したため' });
     expect(retried.status).toBe(201); expect(retried.body).toMatchObject({ status: 'QUEUED', manualRetryCount: 1 });
     const retryAudit = await db.auditLog.findFirstOrThrow({ where: { action: 'NOTIFICATION_RETRY_REQUEST', targetId: delivery.id, reason: '試験用配送先を修正したため' }, orderBy: { createdAt: 'desc' } });

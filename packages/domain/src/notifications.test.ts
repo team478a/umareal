@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { notificationIdempotencyKey, notificationListQuerySchema, notificationRetrySchema, notificationTestSendSchema, retryDelayMs } from './notifications';
+import { adminNotificationListResponseSchema, notificationIdempotencyKey, notificationListQuerySchema, notificationRetrySchema, notificationTestSendSchema, retryDelayMs } from './notifications';
 
 describe('notification operations rules', () => {
   it('builds a recipient and version scoped idempotency key', () => {
@@ -32,5 +32,35 @@ describe('notification operations rules', () => {
     expect(notificationTestSendSchema.parse({ ...common, contentType: 'BILLING_PAYMENT_FAILED', subscriptionId: id })).toMatchObject({ subscriptionId: id });
     expect(() => notificationTestSendSchema.parse({ ...common, contentType: 'WIN5_PREDICTION', raceId: id })).toThrow();
     expect(() => notificationTestSendSchema.parse({ ...common, contentType: 'BILLING_PAYMENT_FAILED', productId: id })).toThrow();
+  });
+  it('normalizes the admin list response and rejects fields outside the public contract', () => {
+    const id = '11111111-1111-4111-8111-111111111111';
+    const now = new Date('2026-09-27T00:00:00.000Z');
+    const response = {
+      items: [{
+        id, status: 'FAILED' as const, channel: 'EMAIL' as const, attemptCount: 1, manualRetryCount: 0,
+        nextAttemptAt: now, lastErrorCode: 'TEST_FAILURE', sentAt: null, createdAt: now, updatedAt: now,
+        user: { id, displayName: '通知確認者', email: 'member@example.test' },
+        event: {
+          id, eventType: 'BILLING_PAYMENT_FAILED', status: 'FAILED', createdAt: now,
+          version: null, announcement: null, freeReportVersion: null, productVersion: null,
+          raceResultVersion: null, win5EvaluationVersion: null,
+          billingEvent: { id, eventType: 'SUBSCRIPTION_PAYMENT_FAILED', subscription: { planCode: 'STANDARD' }, dayPass: null, billingCheckout: { planCode: 'STANDARD' } }
+        },
+        attempts: [{ id, attemptNumber: 1, outcome: 'PERMANENT_FAILURE', errorCode: 'TEST_FAILURE', startedAt: now, finishedAt: now }]
+      }],
+      total: 1, page: 1, limit: 20, channel: 'EMAIL' as const, raceId: null, counts: { FAILED: 1 },
+      webhook: { lastReceivedAt: null, lastEventType: null, lastOutcome: null, received24h: 0, unmatched24h: 0, blockedAccounts: 0 },
+      emailWebhook: {
+        lastReceivedAt: now, lastEventType: 'email.failed', lastOutcome: 'MATCHED', received24h: 1, actionRequired24h: 1, blockedAccounts: 1,
+        recent: [{ id, eventType: 'email.failed', occurredAt: now, receivedAt: now, recipientCount: 1, matchedCount: 1, disabledCount: 0, outcome: 'MATCHED' }],
+        blockedMembers: [{ id, displayName: '通知確認者', email: 'member@example.test', emailDeliveryDisabledAt: now, emailDeliveryDisabledReason: 'BOUNCED' }]
+      }
+    };
+    const parsed = adminNotificationListResponseSchema.parse(response);
+    expect(parsed.items[0]?.createdAt).toBe(now.toISOString());
+    expect(parsed.emailWebhook.recent[0]?.receivedAt).toBe(now.toISOString());
+    expect(adminNotificationListResponseSchema.safeParse({ ...response, databaseUrl: 'postgres://secret' }).success).toBe(false);
+    expect(adminNotificationListResponseSchema.safeParse({ ...response, items: [{ ...response.items[0], user: { ...response.items[0].user, authSubject: 'secret-subject' } }] }).success).toBe(false);
   });
 });
