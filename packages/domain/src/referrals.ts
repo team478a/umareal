@@ -82,8 +82,46 @@ export const memberReferralSummarySchema = z.object({
   rewards: z.array(memberReferralRewardSchema)
 }).strict();
 
+export const adminReferralListResponseSchema = z.object({
+  summary: z.object({
+    qualifiedReferrals: z.number().int().nonnegative(),
+    referrers: z.number().int().nonnegative(),
+    milestoneAchievements: z.array(z.object({
+      requiredReferralCount: z.number().int().positive(),
+      users: z.number().int().nonnegative()
+    }).strict()),
+    rewardsGranted: z.number().int().nonnegative(),
+    rewardsUsed: z.number().int().nonnegative()
+  }).strict(),
+  items: z.array(z.object({
+    user: z.object({
+      id: z.string().uuid(),
+      displayName: z.string().min(1),
+      referralCode: z.string().min(8).max(32).regex(/^[A-Z0-9_-]+$/)
+    }).strict(),
+    referralCount: z.number().int().nonnegative(),
+    achievedMilestones: z.array(z.number().int().positive()),
+    rewardsGranted: z.number().int().nonnegative()
+  }).strict()),
+  recentReferrals: z.array(z.object({
+    id: z.string().uuid(),
+    status: z.enum(['PENDING', 'QUALIFIED', 'INVALIDATED']),
+    createdAt: referralResponseDateTimeSchema,
+    qualifiedAt: referralResponseDateTimeSchema.nullable(),
+    invalidatedAt: referralResponseDateTimeSchema.nullable(),
+    referrer: z.object({ displayName: z.string().min(1) }).strict(),
+    referred: z.object({
+      displayName: z.string().min(1),
+      registrationMethod: z.string().min(1)
+    }).strict()
+  }).strict()),
+  page: z.number().int().positive(),
+  total: z.number().int().nonnegative()
+}).strict();
+
 export type MemberReferralMilestone = z.infer<typeof memberReferralMilestoneSchema>;
 export type MemberReferralReward = z.infer<typeof memberReferralRewardSchema>;
 export type MemberReferralRewards = z.infer<typeof memberReferralRewardsSchema>;
 export type MemberReferralRewardRedeemResponse = z.infer<typeof memberReferralRewardRedeemResponseSchema>;
 export type MemberReferralSummary = z.infer<typeof memberReferralSummarySchema>;
+export type AdminReferralListResponse = z.infer<typeof adminReferralListResponseSchema>;
