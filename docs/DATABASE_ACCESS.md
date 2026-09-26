@@ -31,6 +31,6 @@ DATABASE_RUNTIME_URL={runtime接続URL}
 3. runtime接続で `pnpm db:access:verify` を実行する。新規テーブルを含む全テーブルがCRUD対象で、DDLとトリガー操作権限がないことを確認する。
 4. APIとworkerを起動し、`/health` と管理画面の `DATABASE_LEAST_PRIVILEGE` を確認する。production APIは起動時にも同じ実権限を検査し、所有者や過剰権限の接続を拒否する。
 
-GitHub共有ランナーからstaging migrationは実行しない。ランナーの接続元IPは実行ごとに変わるため、Render Postgresの許可範囲を広げるか、所有者資格情報を常駐サービスへ保存する必要が生じる。作業端末の現在IPだけを一時許可する既存手順を維持し、migration後の公開状態は`Verify staging release` GitHub Actionsから再確認する。
+GitHub共有ランナーからstaging migrationは実行しない。ランナーの接続元IPは実行ごとに変わるため、Render Postgresの許可範囲を広げるか、所有者資格情報を常駐サービスへ保存する必要が生じる。作業端末の現在IPだけを一時許可する既存手順を維持し、migration後の公開状態は`Verify staging release` GitHub Actionsをmainから手動実行して再確認する。
 
 runtimeロールは公開予想や監査履歴を更新・削除するSQL権限自体は持つが、データベースの追記専用トリガーがそれを拒否する。runtimeロールはテーブル所有者ではなくトリガー操作権限も持たないため、その保護を無効化できない。

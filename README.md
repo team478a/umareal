@@ -133,4 +133,4 @@ Renderへ資格情報を保存する前に、Git管理外のサービス別環�
 
 配備後は `pnpm deploy:verify-releases -- https://<Webドメイン>` でWeb・API・workerのコミット一致とworker heartbeatを確認できます。Renderのローリング配備中は再実行し、成功後にステージング試験を開始します。
 
-mainのCI成功後は`Verify staging release` GitHub ActionsがRenderの公開切替を最大12分待ちます。Actions画面の`Run workflow`からmainを選ぶとスマートフォンでも再確認できます。DB migrationは接続元IPを限定した所有者接続が必要なため、この共有ランナーでは実行しません。
+mainのCI成功後はRenderが配備を開始します。配備開始後、GitHub Actionsの`Verify staging release`で`Run workflow`からmainを選ぶと、スマートフォンからWeb・API・workerの公開切替を最大12分確認できます。Renderの`After CI Checks Pass`と相互待ちになるため、この確認workflowは自動起動しません。DB migrationは接続元IPを限定した所有者接続が必要なため、GitHub共有ランナーでは実行しません。

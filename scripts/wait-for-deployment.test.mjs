@@ -80,11 +80,11 @@ test('rejects unsafe URLs and abbreviated expected commits', async () => {
   await assert.rejects(() => waitForDeployment({ baseUrl: 'https://example.test', expectedCommit: '1234567890ab', attempts: 1 }), /full 40-character/);
 });
 
-test('keeps the automatic workflow read-only, main-only and free of deployment secrets', async () => {
+test('keeps the manual workflow read-only, main-only and free of deployment secrets', async () => {
   const workflow = await readFile(new URL('../.github/workflows/staging-release.yml', import.meta.url), 'utf8');
   assert.match(workflow, /permissions:\s+contents: read/);
-  assert.match(workflow, /workflow_run\.event == 'push'/);
-  assert.match(workflow, /workflow_run\.head_branch == 'main'/);
+  assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /github\.ref == 'refs\/heads\/main'/);
+  assert.doesNotMatch(workflow, /workflow_run/);
   assert.doesNotMatch(workflow, /secrets\.|DATABASE_(?:URL|ADMIN_URL|RUNTIME_URL)|RENDER_API_KEY|DEPLOY_HOOK/i);
 });

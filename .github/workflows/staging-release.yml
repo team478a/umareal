@@ -1,9 +1,6 @@
 name: Verify staging release
 
 on:
-  workflow_run:
-    workflows: [Validate foundation]
-    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -15,14 +12,12 @@ concurrency:
 
 jobs:
   verify:
-    if: >-
-      github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' ||
-      github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       DEPLOYMENT_BASE_URL: https://umareal-staging-web.onrender.com
-      EXPECTED_COMMIT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+      EXPECTED_COMMIT: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
