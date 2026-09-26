@@ -130,3 +130,5 @@ pnpm bridge:jra-van:test
 独自ドメイン公開の構成、Render Blueprint、必要な資格情報と公開判定は [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) を参照してください。`render.staging.yaml` はアクセス制限付きクラウド試験、`render.yaml` は一般公開用として、Web、非公開API、ワーカー、PostgreSQLをSingaporeリージョンへ分離します。
 
 Renderへ資格情報を保存する前に、Git管理外のサービス別環境ファイルを使って `pnpm deploy:preflight -- api`、`pnpm deploy:preflight -- web`、`pnpm deploy:preflight -- worker` を実行できます。検査結果には秘密値を表示しません。
+
+配備後は `pnpm deploy:verify-releases -- https://<Webドメイン>` でWeb・API・workerのコミット一致とworker heartbeatを確認できます。Renderのローリング配備中は再実行し、成功後にステージング試験を開始します。

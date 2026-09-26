@@ -9,6 +9,7 @@ import { LineMessagingTransport } from './line-transport';
 import { ResendEmailTransport } from './email-transport';
 import { ResendOperationalAlertTransport } from './operational-alert-transport';
 import { runOperationalAlerts, TestOperationalAlertTransport, type OperationalAlertTransport } from './operational-alert-runner';
+import { recordWorkerHeartbeat } from './service-heartbeat';
 
 config({ path: resolve(process.cwd(), '../../.env'), quiet: true });
 export const workerCapabilities = ['scheduled-publication', 'prediction-notification-outbox', 'email-notifications', 'operational-alerts', 'recipient-authorization', 'retry-policy', 'delivery-attempt-history'] as const;
@@ -25,6 +26,8 @@ async function main() {
   if (process.env.NODE_ENV === 'production' && mailTransportName !== 'resend') throw new Error('Production requires the Resend email transport');
   const db = new PrismaClient();
   const continuous = !process.argv.includes('--once');
+  const startedAt = new Date();
+  let nextHeartbeatAt = 0;
   let stopping = false;
   const requestStop = () => { stopping = true; };
   process.once('SIGTERM', requestStop);
@@ -35,6 +38,10 @@ async function main() {
       ? new LineMessagingTransport(decryptSecret((await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { lineAccessTokenEncrypted: true } })).lineAccessTokenEncrypted ?? ''))
       : transportName === 'test' ? new TestNotificationTransport() : null;
     do {
+      if (Date.now() >= nextHeartbeatAt) {
+        await recordWorkerHeartbeat(db, { startedAt });
+        nextHeartbeatAt = Date.now() + 15_000;
+      }
       let emailTransport: NotificationTransport = new TestNotificationTransport();
       let alertTransport: OperationalAlertTransport = new TestOperationalAlertTransport();
       if (mailTransportName === 'resend') {
@@ -64,3 +71,4 @@ export * from './email-transport';
 export * from './publication-scheduler';
 export * from './operational-alert-runner';
 export * from './operational-alert-transport';
+export * from './service-heartbeat';

@@ -4,7 +4,7 @@
 
 | Method | Path | 権限・動作 |
 | --- | --- | --- |
-| GET | /health | DB接続確認 |
+| GET | /health | DB接続、API短縮コミット、worker短縮コミット・heartbeat確認。Webの`/health`はWebを加えた3サービスの整合状態を返す。秘密値は返さない |
 | GET | /auth/config | 認証モード、公開モード、メール登録・無料情報・LINE・決済・登録CAPTCHAの公開機能状態。CAPTCHAは有効状態、Site key、transport区分だけを返し、秘密値を含まない |
 | POST | /auth/register | メール無料登録を作成し確認メールを送信。有効時は2048文字以下のcaptchaTokenをCloudflareで再検証。任意のacquisition（標準UTM相当）を初回流入として固定。確認完了までセッションを発行しない |
 | POST | /auth/email/resend | 開発認証のみ。未確認の登録メールを再送。登録有無を同一応答で伏せる |

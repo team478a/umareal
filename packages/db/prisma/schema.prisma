@@ -1132,6 +1132,16 @@ model OperationalAlertDelivery {
   @@map("operational_alert_deliveries")
 }
 
+model ServiceHeartbeat {
+  service       String   @id @db.VarChar(32)
+  releaseCommit String?  @db.VarChar(40)
+  heartbeatAt   DateTime @default(now()) @db.Timestamptz(3)
+  startedAt     DateTime @db.Timestamptz(3)
+  updatedAt     DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@map("service_heartbeats")
+}
+
 model PredictionProduct {
   id                 String                     @id @default(uuid()) @db.Uuid
   type               String                     @default("WIN5_PREVIEW")

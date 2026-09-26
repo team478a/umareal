@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, assessmentSchema, canEditRace, canManage, consentVersions, jstDate, launchCapabilities, legalDocumentReleaseErrors, paddockComplete, preferencesSchema, requiresMfa, resolveLaunchMode } from '@keiba/domain';
+import { acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, assessmentSchema, canEditRace, canManage, consentVersions, deploymentConsistency, jstDate, launchCapabilities, legalDocumentReleaseErrors, paddockComplete, preferencesSchema, publicDeploymentRelease, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -35,7 +35,28 @@ function csvCell(value: string | number) {
 @Controller()
 export class AppController {
   constructor(@Inject(AuthService) private readonly auth: AuthService) {}
-  @Get('health') async health() { await this.auth.db.$queryRaw`SELECT 1`; return { status: 'ok', phase: 'win5-phase4-notifications' }; }
+  @Get('health') async health() {
+    const now = new Date();
+    const [, heartbeat] = await Promise.all([
+      this.auth.db.$queryRaw`SELECT 1`,
+      this.auth.db.serviceHeartbeat.findUnique({ where: { service: 'worker' } })
+    ]);
+    const api = publicDeploymentRelease('api');
+    const worker = publicDeploymentRelease('worker', heartbeat?.releaseCommit ?? null);
+    return {
+      status: 'ok',
+      phase: 'win5-phase4-notifications',
+      deployment: {
+        consistency: deploymentConsistency([api.commit, worker.commit]),
+        api,
+        worker: {
+          ...worker,
+          status: workerHeartbeatStatus({ heartbeatAt: heartbeat?.heartbeatAt ?? null, now }),
+          heartbeatAt: heartbeat?.heartbeatAt.toISOString() ?? null
+        }
+      }
+    };
+  }
   @Get('me') async me(@Req() req: AppRequest) {
     const identity = await this.auth.authenticate(req);
     const user = await this.auth.db.user.findUniqueOrThrow({ where: { id: identity.id }, include: { preferences: true, lineAccount: true, entitlements: { where: { revokedAt: null, endsAt: { gt: new Date() } } }, consents: { orderBy: { acceptedAt: 'desc' } } } });

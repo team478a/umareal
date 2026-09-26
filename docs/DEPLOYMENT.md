@@ -25,6 +25,18 @@ staging DBの初回構築では、Blueprintより先に`umareal-staging-db`をSi
 
 `CLOUD_STAGING`と`STRIPE_SANDBOX`だけは開発版法務文書で起動できるが、管理画面の本番準備では法務ブロッカーを維持する。テスト環境を一般募集へ使用しない。`FREE_REGISTRATION`または`FULL`への切替前に正式文書を反映する。
 
+## 配備版数の確認
+
+RenderはWeb、API、workerを別々に配備するため、CI成功直後は一時的に版が揃わないことがある。`/health`はWeb、API、workerの短縮コミットID、worker最終生存時刻、3サービスの整合状態を返す。秘密値、ブランチ名、RenderサービスIDは返さない。
+
+マイグレーション後に3サービスの配備が完了したことを次で確認する。
+
+```bash
+pnpm deploy:verify-releases -- https://umareal-staging-web.onrender.com
+```
+
+`CONSISTENT`かつworkerが`OK`の場合だけ成功する。`RELEASE_UNKNOWN`は旧版またはRender標準コミット値を取得できない状態、`RELEASE_MISMATCH`はサービス間の版ずれ、`WORKER_NOT_READY`はworker停止またはheartbeat遅延を示す。ローリング配備中は`/health`自体を停止させず、検査コマンドを再実行して完了を判定する。
+
 ## 採用する初期構成
 
 初期公開先はRenderを候補にする。現在のモノレポを次の4リソースへ分け、公開入口はWebだけにする。
