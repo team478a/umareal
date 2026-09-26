@@ -146,6 +146,20 @@ export const adminReferralDetailResponseSchema = z.object({
   }).strict().nullable()
 }).strict();
 
+export const adminReferralInvalidateResponseSchema = z.union([
+  z.object({
+    id: z.string().uuid(),
+    status: z.literal('INVALIDATED'),
+    qualifiedCount: z.number().int().nonnegative(),
+    unusedRewardsInvalidated: z.number().int().nonnegative()
+  }).strict(),
+  z.object({
+    id: z.string().uuid(),
+    status: z.literal('INVALIDATED'),
+    alreadyInvalidated: z.literal(true)
+  }).strict()
+]);
+
 export type MemberReferralMilestone = z.infer<typeof memberReferralMilestoneSchema>;
 export type MemberReferralReward = z.infer<typeof memberReferralRewardSchema>;
 export type MemberReferralRewards = z.infer<typeof memberReferralRewardsSchema>;
@@ -153,3 +167,4 @@ export type MemberReferralRewardRedeemResponse = z.infer<typeof memberReferralRe
 export type MemberReferralSummary = z.infer<typeof memberReferralSummarySchema>;
 export type AdminReferralListResponse = z.infer<typeof adminReferralListResponseSchema>;
 export type AdminReferralDetailResponse = z.infer<typeof adminReferralDetailResponseSchema>;
+export type AdminReferralInvalidateResponse = z.infer<typeof adminReferralInvalidateResponseSchema>;

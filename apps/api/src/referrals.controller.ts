@@ -1,5 +1,5 @@
 import { Body, Controller, ForbiddenException, Get, Inject, Param, Post, Query, Req } from '@nestjs/common';
-import { adminReferralDetailResponseSchema, adminReferralListQuerySchema, adminReferralListResponseSchema, canManage, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema, referralInvalidateSchema, referralRewardRedeemSchema } from '@keiba/domain';
+import { adminReferralDetailResponseSchema, adminReferralInvalidateResponseSchema, adminReferralListQuerySchema, adminReferralListResponseSchema, canManage, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema, referralInvalidateSchema, referralRewardRedeemSchema } from '@keiba/domain';
 import type { AppRequest } from './context';
 import { AuthService } from './auth.service';
 import { ReferralsService } from './referrals.service';
@@ -55,6 +55,8 @@ export class ReferralsController {
 
   @Post('admin/referrals/:id/invalidate')
   async invalidate(@Param('id') id: string, @Body() body: unknown, @Req() req: AppRequest) {
-    await this.admin(req); const input = referralInvalidateSchema.parse(body); return this.referrals.invalidate(id, input.reason, req);
+    await this.admin(req);
+    const input = referralInvalidateSchema.parse(body);
+    return adminReferralInvalidateResponseSchema.parse(await this.referrals.invalidate(id, input.reason, req));
   }
 }

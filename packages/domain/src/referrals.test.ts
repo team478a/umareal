@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adminReferralDetailResponseSchema, adminReferralListQuerySchema, adminReferralListResponseSchema, lineOAuthStartSchema, memberReferralCodeSchema, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema, referralInvalidateSchema, referralRewardRedeemSchema, registrationSchema } from './index';
+import { adminReferralDetailResponseSchema, adminReferralInvalidateResponseSchema, adminReferralListQuerySchema, adminReferralListResponseSchema, lineOAuthStartSchema, memberReferralCodeSchema, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema, referralInvalidateSchema, referralRewardRedeemSchema, registrationSchema } from './index';
 
 describe('referral input boundaries', () => {
   it('normalizes safe member referral codes without changing acquisition referral input', () => {
@@ -124,5 +124,13 @@ describe('referral input boundaries', () => {
     expect(parsed.invalidatedAt).toBe(response.invalidatedAt.toISOString());
     expect(adminReferralDetailResponseSchema.safeParse({ ...response, email: 'member@example.test' }).success).toBe(false);
     expect(adminReferralDetailResponseSchema.safeParse({ ...response, referred: { ...response.referred, lineSubject: 'private-line-subject' } }).success).toBe(false);
+  });
+
+  it('preserves applied and idempotent replay responses for POST /admin/referrals/:id/invalidate', () => {
+    const id = '11111111-1111-4111-8111-111111111111';
+    expect(adminReferralInvalidateResponseSchema.parse({ id, status: 'INVALIDATED', qualifiedCount: 2, unusedRewardsInvalidated: 1 })).toEqual({ id, status: 'INVALIDATED', qualifiedCount: 2, unusedRewardsInvalidated: 1 });
+    expect(adminReferralInvalidateResponseSchema.parse({ id, status: 'INVALIDATED', alreadyInvalidated: true })).toEqual({ id, status: 'INVALIDATED', alreadyInvalidated: true });
+    expect(adminReferralInvalidateResponseSchema.safeParse({ id, status: 'INVALIDATED', qualifiedCount: 2, unusedRewardsInvalidated: 1, email: 'member@example.test' }).success).toBe(false);
+    expect(adminReferralInvalidateResponseSchema.safeParse({ id, status: 'INVALIDATED', alreadyInvalidated: true, referrerUserId: '22222222-2222-4222-8222-222222222222' }).success).toBe(false);
   });
 });
