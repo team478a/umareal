@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { encryptSecret } from '../packages/db/src';
+import { memberReferralSummarySchema } from '../packages/domain/src';
 import { account, base, Client, db, origin } from './helpers';
 
 const password = 'referral-integration-password-123';
@@ -78,6 +79,37 @@ describe('friend referral V1', () => {
     const invalid = await emailRegistration('NOTEXIST12345678'); await verify(invalid);
     const tampered = await emailRegistration('tampered code!'); await verify(tampered);
     expect(await db.referral.count({ where: { referredUserId: { in: [normal.userId, invalid.userId, tampered.userId] } } })).toBe(0);
+  });
+
+  it('keeps GET /me/referrals authenticated, contract-safe and free of private identity fields', async () => {
+    expect((await new Client().call('me/referrals')).status).toBe(401);
+    const owner = await account();
+    const client = new Client();
+    await client.login(owner);
+    await qualifyMany(owner.user.referralCode, 3);
+
+    const response = await client.call('me/referrals');
+    expect(response.status).toBe(200);
+    const summary = memberReferralSummarySchema.parse(response.body);
+    expect(summary.referralCode).toBe(owner.user.referralCode);
+    expect(new URL(summary.referralUrl).searchParams.get('invite')).toBe(owner.user.referralCode);
+    expect(summary.qualifiedCount).toBe(3);
+    expect(summary.nextMilestone).toMatchObject({ requiredReferralCount: 10, remaining: 7, rewardType: 'DAY_PASS', rewardQuantity: 1 });
+    expect(summary.milestones).toEqual(expect.arrayContaining([
+      expect.objectContaining({ requiredReferralCount: 3, achieved: true }),
+      expect.objectContaining({ requiredReferralCount: 10, achieved: false })
+    ]));
+    expect(summary.rewards).toHaveLength(1);
+    expect(summary.rewards[0]).toMatchObject({ rewardType: 'DAY_PASS', rewardQuantity: 1, status: 'AVAILABLE', milestone: { requiredReferralCount: 3 }, dayPass: null });
+    expect(new Date(summary.rewards[0].grantedAt).toISOString()).toBe(summary.rewards[0].grantedAt);
+    expect(new Date(summary.rewards[0].expiresAt).toISOString()).toBe(summary.rewards[0].expiresAt);
+
+    const serialized = JSON.stringify(response.body);
+    for (const field of ['email', 'passwordHash', 'authSubject', 'lineSubject', 'token', 'secret', 'invalidatedReason', 'invalidatedById']) {
+      expect(serialized).not.toContain(`"${field}"`);
+    }
+    expect(serialized).not.toContain(owner.user.email!);
+    expect(serialized).not.toContain(password);
   });
 
   it('grants exactly one reward at 3 and a second at 10, without grants at 4 or 11', async () => {

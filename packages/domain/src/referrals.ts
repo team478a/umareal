@@ -26,3 +26,49 @@ export const adminReferralListQuerySchema = z.object({
 export const referralInvalidateSchema = z.object({
   reason: z.string().trim().min(1).max(500)
 }).strict();
+
+const referralResponseDateTimeSchema = z.preprocess(
+  value => value instanceof Date ? value.toISOString() : value,
+  z.string().datetime({ offset: true })
+);
+
+export const memberReferralMilestoneSchema = z.object({
+  id: z.string().uuid(),
+  requiredReferralCount: z.number().int().positive(),
+  rewardType: z.string().min(1),
+  rewardQuantity: z.number().int().positive(),
+  achieved: z.boolean()
+}).strict();
+
+export const memberReferralRewardSchema = z.object({
+  id: z.string().uuid(),
+  rewardType: z.string().min(1),
+  rewardQuantity: z.number().int().positive(),
+  status: z.enum(['AVAILABLE', 'REDEEMED', 'EXPIRED', 'INVALIDATED']),
+  grantedAt: referralResponseDateTimeSchema,
+  expiresAt: referralResponseDateTimeSchema,
+  usedAt: referralResponseDateTimeSchema.nullable(),
+  milestone: z.object({ requiredReferralCount: z.number().int().positive() }).strict(),
+  dayPass: z.object({
+    raceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    status: z.string().min(1)
+  }).strict().nullable()
+}).strict();
+
+export const memberReferralSummarySchema = z.object({
+  referralCode: z.string().min(8).max(32).regex(/^[A-Z0-9_-]+$/),
+  referralUrl: z.string().min(1),
+  qualifiedCount: z.number().int().nonnegative(),
+  nextMilestone: z.object({
+    requiredReferralCount: z.number().int().positive(),
+    remaining: z.number().int().positive(),
+    rewardType: z.string().min(1),
+    rewardQuantity: z.number().int().positive()
+  }).strict().nullable(),
+  milestones: z.array(memberReferralMilestoneSchema),
+  rewards: z.array(memberReferralRewardSchema)
+}).strict();
+
+export type MemberReferralMilestone = z.infer<typeof memberReferralMilestoneSchema>;
+export type MemberReferralReward = z.infer<typeof memberReferralRewardSchema>;
+export type MemberReferralSummary = z.infer<typeof memberReferralSummarySchema>;
