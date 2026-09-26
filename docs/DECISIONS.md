@@ -1,5 +1,12 @@
 # 設計判断と保留事項
 
+## staging配備確認のGitHub自動化（2026-09-26）
+
+- mainの`Validate foundation`成功後、GitHub ActionsはRender stagingの公開`/health`を最大12分監視し、対象mainコミットへWeb、API、workerが揃い、worker heartbeatが現在時刻に追随した場合だけ成功とする。手動再実行もmainに限定する。
+- 検査は公開URLと短縮コミットだけを使用し、Render API key、deploy hook、DB URLを必要としない。ログとGitHub summaryへ資格情報、サービスID、内部URLを出さない。
+- staging Postgresは外部接続元IPを限定している。接続元が変動するGitHub共有ランナーへ所有者DB URLを渡すために`0.0.0.0/0`や広いGitHub IP範囲を許可せず、所有者資格情報を常駐Renderサービスへ保存しない。migrationとruntime権限再設定は従来どおり、作業端末IPだけを一時許可した保護実行環境で行う。
+- 自動検査の失敗は既存サービスの停止や自動ロールバックを行わない。旧版、版ずれ、worker停止、DB migration不足を運用者が確認するためのゲートとして扱う。
+
 ## 配備版数とworker稼働の外部確認（2026-09-26）
 
 - Renderが実行時に提供する`RENDER_GIT_COMMIT`を使用し、Web、API、workerの短縮コミットIDだけを公開ヘルス情報へ含める。任意の環境値、ブランチ名、サービスID、インスタンスID、資格情報は返さない。ローカルと自動テストでは`DEPLOYMENT_RELEASE`を同じ形式の明示値として使用できる。
