@@ -2,12 +2,11 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronRight, CircleHelp, RefreshCw, ShieldCheck } from 'lucide-react';
+import type { AdminReadinessCheck, AdminReadinessResponse } from '@keiba/domain';
 
-type CheckStatus = 'READY' | 'BLOCKED' | 'MANUAL';
-type ReadinessCheck = { code: string; group: 'APPLICATION' | 'CONNECTIONS' | 'LEGAL_DATA' | 'OPERATIONS'; status: CheckStatus; title: string; evidence: string; action: string; href?: string };
-type Readiness = { generatedAt: string; status: 'NOT_READY' | 'MANUAL_REVIEW' | 'READY_FOR_REVIEW'; counts: { ready: number; blocked: number; manual: number; total: number }; checks: ReadinessCheck[]; nextActions: string[]; settingsUpdatedAt: string; declaration: string };
+type CheckStatus = AdminReadinessCheck['status'];
 
-const groups: Array<[ReadinessCheck['group'], string, string]> = [
+const groups: Array<[AdminReadinessCheck['group'], string, string]> = [
   ['APPLICATION', '基盤・認証', '公開URLと利用者認証'],
   ['CONNECTIONS', '外部接続', 'LINE、メール、決済'],
   ['LEGAL_DATA', '法務・データ', '同意文書と個人情報の扱い'],
@@ -17,7 +16,7 @@ const statusText: Record<CheckStatus, string> = { READY: '確認済み', BLOCKED
 const dateTime = (value: string) => new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 
 export function AdminReadiness() {
-  const [data, setData] = useState<Readiness | null>(null);
+  const [data, setData] = useState<AdminReadinessResponse | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const load = useCallback(async () => {
@@ -26,7 +25,7 @@ export function AdminReadiness() {
       const response = await fetch('/api/v1/admin/readiness', { cache: 'no-store' });
       const result = await response.json();
       if (!response.ok) throw new Error(result.message ?? '準備状況を取得できませんでした。');
-      setData(result as Readiness);
+      setData(result as AdminReadinessResponse);
     } catch (e) { setError((e as Error).message); } finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);

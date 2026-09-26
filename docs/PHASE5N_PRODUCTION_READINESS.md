@@ -6,7 +6,7 @@
 
 ## 実装
 
-`GET /api/v1/admin/readiness` はADMIN+AAL2だけに、14項目の状態、根拠、次の対応、関連管理画面を返す。状態は `READY`、`BLOCKED`、`MANUAL` のいずれかで、総合状態は要対応があれば `NOT_READY` になる。暗号化資格情報は有無だけを確認し、値を返さない。
+`GET /api/v1/admin/readiness` はADMIN+AAL2だけに、15項目の状態、根拠、次の対応、関連管理画面を返す。状態は `READY`、`BLOCKED`、`MANUAL` のいずれかで、総合状態は要対応があれば `NOT_READY` になる。暗号化資格情報は有無だけを確認し、値を返さない。公開応答は`packages/domain`の共有ContractでAPIとWebの不整合を検知する。
 
 `/admin/readiness` はスマートフォンでも集計と各項目を縦に確認できる。基盤・認証、外部接続、法務・データ、運用・復旧の4区分から、設定、バックアップ、退会記録、障害対応など既存画面へ移動できる。
 

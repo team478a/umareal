@@ -26,6 +26,7 @@ export * from './social-shares';
 export * from './staff';
 export * from './referrals';
 export * from './deployment';
+export * from './readiness';
 
 export const roles = ['MEMBER', 'EXPERT', 'EDITOR', 'OPERATOR', 'ADMIN'] as const;
 export type Role = typeof roles[number];
