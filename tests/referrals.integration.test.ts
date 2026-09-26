@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { encryptSecret } from '../packages/db/src';
-import { adminReferralListResponseSchema, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema } from '../packages/domain/src';
+import { adminReferralDetailResponseSchema, adminReferralListResponseSchema, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema } from '../packages/domain/src';
 import { account, base, Client, db, origin } from './helpers';
 
 const password = 'referral-integration-password-123';
@@ -214,9 +214,18 @@ describe('friend referral V1', () => {
   });
 
   it('lets AAL2 admin invalidate a qualified referral, audits it, and never revokes a used pass', async () => {
-    const admin = new Client(); await admin.login(await account('ADMIN')); await admin.mfa();
+    const adminAccount = await account('ADMIN');
+    const admin = new Client(); await admin.login(adminAccount); await admin.mfa();
     const invalidated = await admin.call(`admin/referrals/${referralId}/invalidate`, 'POST', { reason: '結合試験で不正登録扱いを確認' });
     expect(invalidated.status).toBe(201); expect(invalidated.body.status).toBe('INVALIDATED');
+    const detailResponse = await admin.call(`admin/referrals/${referralId}`);
+    expect(detailResponse.status).toBe(200);
+    const detail = adminReferralDetailResponseSchema.parse(detailResponse.body);
+    expect(detail).toMatchObject({ id: referralId, status: 'INVALIDATED', invalidatedReason: '結合試験で不正登録扱いを確認', invalidatedBy: { id: adminAccount.user.id, displayName: adminAccount.user.displayName } });
+    const serializedDetail = JSON.stringify(detailResponse.body);
+    for (const field of ['email', 'passwordHash', 'authSubject', 'lineSubject', 'token', 'secret']) {
+      expect(serializedDetail).not.toContain(`"${field}"`);
+    }
     expect(await db.auditLog.findFirst({ where: { action: 'REFERRAL_INVALIDATED', targetId: referralId } })).not.toBeNull();
     expect(await db.dayPass.count({ where: { userId: referrer.user.id, source: 'REFERRAL_REWARD' } })).toBe(1);
     const replay = await admin.call(`admin/referrals/${referralId}/invalidate`, 'POST', { reason: 'API再送' });
@@ -283,8 +292,10 @@ describe('friend referral V1', () => {
   it('keeps member and administrator referral APIs within server-owned roles and AAL2', async () => {
     const memberFixture = await account(); const member = new Client(); await member.login(memberFixture);
     expect((await member.call('admin/referrals')).status).toBe(403);
+    expect((await member.call(`admin/referrals/${referralId}`)).status).toBe(403);
     const aal1Admin = new Client(); await aal1Admin.login(await account('ADMIN'));
     expect((await aal1Admin.call('admin/referrals')).body.code).toBe('MFA_REQUIRED');
+    expect((await aal1Admin.call(`admin/referrals/${referralId}`)).body.code).toBe('MFA_REQUIRED');
     const admin = new Client(); await admin.login(await account('ADMIN')); await admin.mfa();
     const list = await admin.call('admin/referrals');
     expect(list.status).toBe(200);
