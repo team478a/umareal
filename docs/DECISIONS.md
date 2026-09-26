@@ -1,11 +1,12 @@
 # 設計判断と保留事項
 
-## staging配備確認のGitHub自動化（2026-09-26）
+## staging配備確認のGitHub手動実行（2026-09-26）
 
-- mainの`Validate foundation`成功後、GitHub ActionsはRender stagingの公開`/health`を最大12分監視し、対象mainコミットへWeb、API、workerが揃い、worker heartbeatが現在時刻に追随した場合だけ成功とする。手動再実行もmainに限定する。
+- mainの`Validate foundation`成功後はRenderの`After CI Checks Pass`が配備を開始する。配備開始後、GitHub Actionsをmainから手動実行してstagingの公開`/health`を最大12分監視し、対象mainコミットへWeb、API、workerが揃い、worker heartbeatが現在時刻に追随した場合だけ成功とする。
+- 当初は`workflow_run`で自動起動したが、GitHub上の公開確認自体もCI checkになり、Renderはその完了を待ち、公開確認はRenderの配備を待つ相互待ちが実際に発生した。RenderのCI成功後配備を維持するため、自動起動を廃止してスマートフォンから実行できる`workflow_dispatch`だけに限定する。
 - 検査は公開URLと短縮コミットだけを使用し、Render API key、deploy hook、DB URLを必要としない。ログとGitHub summaryへ資格情報、サービスID、内部URLを出さない。
 - staging Postgresは外部接続元IPを限定している。接続元が変動するGitHub共有ランナーへ所有者DB URLを渡すために`0.0.0.0/0`や広いGitHub IP範囲を許可せず、所有者資格情報を常駐Renderサービスへ保存しない。migrationとruntime権限再設定は従来どおり、作業端末IPだけを一時許可した保護実行環境で行う。
-- 自動検査の失敗は既存サービスの停止や自動ロールバックを行わない。旧版、版ずれ、worker停止、DB migration不足を運用者が確認するためのゲートとして扱う。
+- 公開検査の失敗は既存サービスの停止や自動ロールバックを行わない。旧版、版ずれ、worker停止、DB migration不足を運用者が確認するためのゲートとして扱う。
 
 ## 配備版数とworker稼働の外部確認（2026-09-26）
 

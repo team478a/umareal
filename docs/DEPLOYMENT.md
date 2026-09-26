@@ -37,7 +37,7 @@ pnpm deploy:verify-releases -- https://umareal-staging-web.onrender.com
 
 `CONSISTENT`かつworkerが`OK`の場合だけ成功する。`RELEASE_UNKNOWN`は旧版またはRender標準コミット値を取得できない状態、`RELEASE_MISMATCH`はサービス間の版ずれ、`WORKER_NOT_READY`はworker停止またはheartbeat遅延を示す。ローリング配備中は`/health`自体を停止させず、検査コマンドを再実行して完了を判定する。
 
-mainの`Validate foundation`が成功すると、`.github/workflows/staging-release.yml`が同じ確認を最大12分繰り返す。GitHub Actionsの`Verify staging release`はmainに限り手動実行もでき、結果と対象短縮コミットをスマートフォンで読めるsummaryへ表示する。失敗しても既存サービスを停止・ロールバックしない。
+mainの`Validate foundation`成功後、Renderの`After CI Checks Pass`が配備を開始する。配備開始後にGitHub Actionsの`Verify staging release`をmainから手動実行すると、同じ確認を最大12分繰り返し、結果と対象短縮コミットをスマートフォンで読めるsummaryへ表示する。このworkflowを`workflow_run`で自動起動するとRenderがそのチェックの完了を待ち、workflowはRenderの配備を待つ相互待ちになるため、手動実行だけに限定する。失敗しても既存サービスを停止・ロールバックしない。
 
 このGitHub共有ランナーではDB migrationを実行しない。staging Postgresは外部接続元IPを作業端末へ限定しており、共有ランナーの変動IPを許可するためにDBを広く公開しないためである。migrationは本書冒頭と[DATABASE_ACCESS.md](DATABASE_ACCESS.md)のとおり、所有者接続を保護された一時実行環境だけへ設定して行う。完了後にGitHub Actionsの`Run workflow`からmainを再確認する。
 
