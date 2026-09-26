@@ -163,6 +163,7 @@ test('administrator must complete MFA before viewing member management', async (
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.goto('/admin/billing');
   await expect(page.getByRole('heading', { name: '契約・請求管理', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '公開待ち期限切れの一日券', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '請求問い合わせ', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '支払試行履歴', exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

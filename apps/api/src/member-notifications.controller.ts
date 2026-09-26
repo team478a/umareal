@@ -29,6 +29,7 @@ export class MemberNotificationsController {
       { raceResultVersionId: { not: null } },
       { win5EvaluationVersionId: { not: null } },
       { supportEvent: { is: { request: { userId } } } },
+      { billingEvent: { is: { userId } } },
       { version: { is: { visibility: 'FREE' } } }
     ];
     if (allPaid) visible.push({ version: { is: { visibility: 'PAID' } } });
@@ -52,7 +53,8 @@ export class MemberNotificationsController {
       productVersion: { select: { version: true, accessScope: true, publishedAt: true, product: { select: { id: true, targetDate: true, title: true } } } },
       raceResultVersion: { select: { version: true, confirmedAt: true, race: { select: { id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true } } } },
       win5EvaluationVersion: { select: { version: true, confirmedAt: true, product: { select: { id: true, targetDate: true, title: true } } } },
-      supportEvent: { select: { occurredAt: true, request: { select: { id: true, subject: true } } } }
+      supportEvent: { select: { occurredAt: true, request: { select: { id: true, subject: true } } } },
+      billingEvent: { select: { occurredAt: true, eventType: true, subscription: { select: { planCode: true } }, dayPass: { select: { raceDate: true } } } }
     } satisfies Prisma.NotificationEventSelect;
     const [events, total, unreadCount] = await this.auth.db.$transaction([
       this.auth.db.notificationEvent.findMany({ where, select, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: (page - 1) * limit, take: limit }),
@@ -60,6 +62,15 @@ export class MemberNotificationsController {
       this.auth.db.notificationEvent.count({ where: unreadWhere })
     ]);
     const items = events.map(event => {
+      if (event.billingEvent) {
+        const title = {
+          BILLING_PAYMENT_SUCCEEDED: 'お支払いを確認しました', BILLING_PAYMENT_FAILED: 'お支払いを確認できませんでした',
+          BILLING_PAYMENT_RECOVERED: 'お支払い状態が回復しました', BILLING_CANCELLATION_SCHEDULED: '解約予約を受け付けました',
+          BILLING_CANCELLATION_REVERSED: '解約予約を取り消しました', BILLING_SUBSCRIPTION_ENDED: '月額契約が終了しました',
+          BILLING_REFUND_COMPLETED: '返金手続きが完了しました'
+        }[event.eventType] ?? 'お支払いに関するお知らせ';
+        return { id: event.id, eventType: event.eventType, createdAt: event.createdAt, publishedAt: event.billingEvent.occurredAt, version: 1, visibility: 'FREE', readAt: event.memberReads[0]?.readAt ?? null, race: null, win5: null, billing: { planCode: event.billingEvent.subscription?.planCode ?? 'DAY_PASS', raceDate: event.billingEvent.dayPass?.raceDate ?? null }, href: '/account', title };
+      }
       if (event.supportEvent) return { id: event.id, eventType: event.eventType, createdAt: event.createdAt, publishedAt: event.supportEvent.occurredAt, version: 1, visibility: 'FREE', readAt: event.memberReads[0]?.readAt ?? null, race: null, win5: null, support: { requestId: event.supportEvent.request.id, subject: event.supportEvent.request.subject }, href: '/support', title: 'お問い合わせへの回答があります' };
       if (event.win5EvaluationVersion) return { id: event.id, eventType: event.eventType, createdAt: event.createdAt, publishedAt: event.win5EvaluationVersion.confirmedAt, version: event.win5EvaluationVersion.version, visibility: 'FREE', readAt: event.memberReads[0]?.readAt ?? null, race: null, win5: event.win5EvaluationVersion.product, href: `/win5/${event.win5EvaluationVersion.product.id}`, title: 'WIN5紙面予想の評価結果が確定しました' };
       if (event.raceResultVersion) return { id: event.id, eventType: event.eventType, createdAt: event.createdAt, publishedAt: event.raceResultVersion.confirmedAt, version: event.raceResultVersion.version, visibility: 'FREE', readAt: event.memberReads[0]?.readAt ?? null, race: event.raceResultVersion.race, win5: null, href: `/races/${event.raceResultVersion.race.id}`, title: 'パドック直前予想の評価結果が確定しました' };

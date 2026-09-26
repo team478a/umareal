@@ -52,8 +52,10 @@
 | POST | /admin/support/:id/triage | ADMIN+AAL2またはOPERATOR。理由付きで優先度、担当者、対応期限を更新する。担当者は有効なADMINまたはOPERATORに限定する |
 | POST | /billing/checkout | MEMBER本人。月額申込。スタッフロールは申込不可。test transportはローカルまたはクラウド試験で即時確定し、stripe transportはCheckout URLを返して権限をまだ付与しない |
 | POST | /billing/day-pass | MEMBER本人。JST開催日の1日利用。スタッフロールは申込不可。stripe transportでは署名済みWebhook後だけ有効化 |
-| POST | /webhooks/stripe | Stripe署名必須。Checkout申込、会員、金額、通貨、動作モードを照合し、契約・支払・有限期間権限を冪等作成 |
+| POST | /webhooks/stripe | Stripe署名必須。Checkout申込、会員、金額、通貨、動作モードを照合し、契約・支払・有限期間権限を冪等作成。月額ライフサイクルと返金も追記同期 |
 | POST | /billing/subscriptions/:id/cancel | 本人の月額解約予約。Stripe契約は外部API成功後にローカルへ反映 |
+| POST | /billing/subscriptions/:id/resume | 本人の月額解約予約取消。Stripe契約は外部API成功後にローカルへ反映 |
+| POST | /billing/portal | 本人の有効なStripe月額契約から、支払方法・請求情報を変更するStripe Customer Portal URLを発行 |
 | GET | /admin/users | ADMIN+AAL2。page/limit |
 | GET | /admin/audit | ADMIN+AAL2。page/limit |
 | GET | /admin/staff | ADMIN+AAL2。確認済みの会員・専門家・編集担当・運営担当と、専門家の今後の担当レース数・有効なWIN5担当数を返す。秘密情報は返さない |
@@ -91,12 +93,17 @@
 | GET | /races/:raceId/result | 最新確定結果と公開版別の馬評価結果 |
 | GET | /results/stats | 最新結果版を使った本命馬1着・連対・複勝・見送りの集計 |
 | GET | /billing/plans | 税込価格、販売可否、創設会員残枠。開発条件フラグ付き |
-| GET | /billing/me | 本人の月額契約、1日利用、追記専用支払履歴 |
+| GET | /billing/me | 本人の月額契約、1日利用、追記専用支払履歴、Stripe Customer Portal利用可否 |
+| GET | /billing/payments/:id/receipt | 本人所有の成功済みStripe支払。Stripe発行済みのHTTPS領収書・請求書URLだけを返す |
 | POST | /billing/checkout | 本人。確認済みメールと有効なログインID必須。FOUNDER/STANDARDの申込。Stripe時はHosted Checkout URLを返す。Idempotency-Key必須 |
 | POST | /billing/day-pass | 本人。確認済みメールと有効なログインID必須。JST開催日単位の申込。Stripe時はHosted Checkout URLを返す。Idempotency-Key必須 |
-| POST | /webhooks/stripe | Stripe署名必須。Checkout完了、月額更新、支払失敗・回復、解約予約・終了を冪等反映 |
+| POST | /webhooks/stripe | Stripe署名必須。Checkout完了、月額更新、支払失敗・回復、解約予約・終了、`refund.created` / `refund.updated`を冪等反映 |
 | POST | /billing/subscriptions/:id/cancel | 本人。次回更新を停止し、支払済み期間の権限を維持 |
-| GET | /admin/billing | ADMIN+AAL2。全会員の契約・1日利用・支払試行履歴 |
+| POST | /billing/subscriptions/:id/resume | 本人。解約予約を取り消して月額更新を継続 |
+| POST | /billing/portal | 本人。有効なStripe月額契約のCustomer Portal URLを返す。返却先はStripeのHTTPSホストだけを許可 |
+| GET | /admin/billing | ADMIN+AAL2。全会員の契約・1日利用・支払試行履歴と、支払済みだが権限未付与のCheckout |
+| POST | /admin/billing/checkouts/:id/resolve | ADMIN+AAL2・理由必須。要確認CheckoutをStripeで再検証して既存契約・一日利用へ接続するか、冪等に全額返金 |
+| POST | /admin/billing/day-passes/:id/refund | ADMIN+AAL2・理由必須。WIN5未公開のまま期限切れとなった未開始の購入一日券だけを全額返金。返金開始をDBで予約し、Stripe操作は固定キーで冪等化。中断時は同じ操作で再開 |
 | POST | /admin/billing/subscriptions/:id/simulate-failure | ADMIN+AAL2。理由必須のローカル支払失敗試験 |
 | POST | /admin/billing/subscriptions/:id/recover | ADMIN+AAL2。理由必須のローカル支払回復試験 |
 | POST | /admin/users/:userId/entitlements | ADMIN+AAL2。startsAt/endsAt/reason/planCode=MANUAL。有限期間、監査必須。Idempotency-KeyヘッダーにUUID必須 |
@@ -105,7 +112,7 @@
 
 HTTP 400=入力不正、401=未認証、403=権限/MFA/Origin不正、404=対象なし、409=重複、429=レート超過。内部例外のSQLや秘密値をレスポンスへ返さない。
 
-返金APIは未実装。申込は同じ会員・同じキー・同じ内容なら元の結果を返し、異なる内容の再利用は409。同時実行でも契約、権限、支払履歴が重複しないよう、一意制約、アドバイザリロック、トランザクションで保護する。
+返金APIは未使用・未開始・期限切れの購入一日券に限定する。月額、利用開始済み、紹介特典、一部返金は対象外。申込は同じ会員・同じキー・同じ内容なら元の結果を返し、異なる内容の再利用は409。同時実行でも契約、権限、支払履歴が重複しないよう、一意制約、アドバイザリロック、トランザクションで保護する。
 
 ## WIN5 API（Phase 2 実装済み）
 
@@ -180,7 +187,7 @@ WIN5初版・訂正版の公開時は商品公開版と通知eventを同じDBト
 
 確認済みメール会員への公開通知は、メール通知全体と本人の`emailEnabled`・カテゴリ設定を送信直前に確認する。通知eventは共通だが、メールとLINEの配送、冪等キー、展開状態は独立する。既存eventは移行時にメール展開済みとし、導入前の告知を一斉送信しない。公開通知の停止は認証用メールへ影響しない。
 
-ローカル月額契約は申込時刻からUTC基準の暦1か月を計算し、Stripe月額契約はInvoiceの請求期間を正とする。`invoice.paid` は初回期間補正、更新、回復を反映し、`invoice.payment_failed` はPAST_DUEと設定済み猶予期限を反映する。`customer.subscription.updated/deleted` は解約予約・終了を同期する。現行の1日利用は対象日のJST 00:00以上、翌日00:00未満。WIN5 Phase 3で、WIN5商品がある日は初版の実公開時刻から、商品がない日は対象日JST 00:00からへ移行する。支払試行、請求イベント、Stripe受信イベントはDBで更新・削除・TRUNCATEを拒否する。
+ローカル月額契約は申込時刻からUTC基準の暦1か月を計算し、Stripe月額契約はInvoiceの請求期間を正とする。`invoice.paid` は初回期間補正、更新、回復を反映し、`invoice.payment_failed` はPAST_DUEと設定済み猶予期限を反映する。`customer.subscription.updated/deleted` は解約予約・終了を同期する。`refund.created/updated`は返金支払と請求イベントを追記し、開始済み権限を勝手に取消さない。現行の1日利用は対象日のJST 00:00以上、翌日00:00未満。WIN5 Phase 3で、WIN5商品がある日は初版の実公開時刻から、商品がない日は対象日JST 00:00からへ移行する。支払試行、請求イベント、Stripe受信イベントはDBで更新・削除・TRUNCATEを拒否する。
 
 ## 運用・連携設定
 

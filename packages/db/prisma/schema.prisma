@@ -417,11 +417,14 @@ model PaymentTransaction {
   subscription      Subscription?           @relation(fields: [subscriptionId], references: [id])
   dayPassId         String?                 @db.Uuid
   dayPass           DayPass?                @relation(fields: [dayPassId], references: [id])
+  billingCheckoutId String?                 @db.Uuid
+  billingCheckout   BillingCheckout?        @relation(fields: [billingCheckoutId], references: [id])
   supportRequests   BillingSupportRequest[]
   occurredAt        DateTime                @default(now()) @db.Timestamptz(3)
   createdTxId       BigInt                  @default(dbgenerated("txid_current()"))
 
   @@index([userId, occurredAt])
+  @@index([billingCheckoutId])
   @@map("payment_transactions")
 }
 
@@ -508,11 +511,16 @@ model BillingEvent {
   subscription   Subscription? @relation(fields: [subscriptionId], references: [id])
   dayPassId      String?       @db.Uuid
   dayPass        DayPass?      @relation(fields: [dayPassId], references: [id])
+  billingCheckoutId String?    @db.Uuid
+  billingCheckout BillingCheckout? @relation(fields: [billingCheckoutId], references: [id])
   details        Json
   actorId        String        @db.Uuid
   occurredAt     DateTime      @default(now()) @db.Timestamptz(3)
+  createdTxId    BigInt        @default(dbgenerated("txid_current()"))
+  notificationEvent NotificationEvent?
 
   @@index([userId, occurredAt])
+  @@index([billingCheckoutId])
   @@map("billing_events")
 }
 
@@ -533,6 +541,8 @@ model BillingCheckout {
   createdAt              DateTime  @default(now()) @db.Timestamptz(3)
   expiresAt              DateTime  @db.Timestamptz(3)
   completedAt            DateTime? @db.Timestamptz(3)
+  payments               PaymentTransaction[]
+  events                 BillingEvent[]
 
   @@index([userId, status])
   @@map("billing_checkouts")
@@ -996,6 +1006,8 @@ model NotificationEvent {
   win5EvaluationVersion   Win5EvaluationVersion?    @relation(fields: [win5EvaluationVersionId], references: [id])
   supportEventId          String?                   @unique @db.Uuid
   supportEvent            SupportEvent?             @relation(fields: [supportEventId], references: [id])
+  billingEventId          String?                   @unique @db.Uuid
+  billingEvent            BillingEvent?             @relation(fields: [billingEventId], references: [id])
   eventType               String
   status                  String
   payload                 Json

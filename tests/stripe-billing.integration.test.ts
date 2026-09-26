@@ -56,6 +56,71 @@ stripe('Stripe checkout webhook', () => {
     expect(await db.subscription.count({ where: { userId: fixture.user.id } })).toBe(0);
     expect(await db.paymentTransaction.findUniqueOrThrow({ where: { providerPaymentId: `checkout:${checkout.providerSessionId}` } })).toMatchObject({ status: 'REQUIRES_REVIEW', amountYen: 2980 });
     expect(await db.billingCheckout.findUniqueOrThrow({ where: { id: checkout.id } })).toMatchObject({ status: 'REJECTED_ACCOUNT_STATE', completedAt: expect.any(Date) });
+    expect(await db.paymentTransaction.findUniqueOrThrow({ where: { providerPaymentId: `checkout:${checkout.providerSessionId}` } })).toMatchObject({ billingCheckoutId: checkout.id });
+  });
+
+  it('requires an AAL2 administrator before a review resolution can reach Stripe', async () => {
+    const id = randomUUID();
+    const member = new Client(); await member.login(await account());
+    expect((await member.call(`admin/billing/checkouts/${id}/resolve`, 'POST', { action: 'REFUND', reason: '権限境界の確認' })).status).toBe(403);
+    const admin = new Client(); await admin.login(await account('ADMIN'));
+    const aal1 = await admin.call(`admin/billing/checkouts/${id}/resolve`, 'POST', { action: 'REFUND', reason: '多要素認証境界の確認' });
+    expect(aal1.status).toBe(403);
+    expect(aal1.body.code).toBe('MFA_REQUIRED');
+  });
+
+  it('synchronizes a successful Stripe refund for a review checkout exactly once', async () => {
+    const fixture = await account();
+    const checkout = await db.billingCheckout.create({ data: { userId: fixture.user.id, kind: 'DAY_PASS', planCode: 'DAY_PASS', raceDate: '2027-10-03', amountYen: 980, status: 'REJECTED_EXISTING_ACCESS', idempotencyKey: `review-refund:${fixture.user.id}:${randomUUID()}`, requestHash: 'review-refund', providerSessionId: `cs_test_${randomUUID()}`, providerCheckoutUrl: 'https://checkout.stripe.test/session', expiresAt: new Date(Date.now() + 30 * 60000), completedAt: new Date() } });
+    await db.paymentTransaction.create({ data: { userId: fixture.user.id, provider: 'STRIPE', providerPaymentId: `checkout:${checkout.providerSessionId}`, kind: 'DAY_PASS', status: 'REQUIRES_REVIEW', amountYen: 980, billingCheckoutId: checkout.id } });
+    const refundId = `re_${randomUUID()}`;
+    const payload = { id: `evt_${randomUUID()}`, object: 'event', type: 'refund.created', livemode: false, data: { object: { id: refundId, object: 'refund', amount: 980, currency: 'jpy', status: 'succeeded', metadata: { checkoutId: checkout.id }, payment_intent: `pi_${randomUUID()}`, charge: `ch_${randomUUID()}` } } };
+    const client = new Client();
+    const first = await client.call('webhooks/stripe', 'POST', payload, undefined, { 'Stripe-Signature': signature(payload) });
+    expect(first).toMatchObject({ status: 201, body: { outcome: 'PROCESSED' } });
+    expect(await db.billingCheckout.findUniqueOrThrow({ where: { id: checkout.id } })).toMatchObject({ status: 'REVIEW_REFUNDED' });
+    expect(await db.paymentTransaction.findUniqueOrThrow({ where: { providerPaymentId: `refund:${refundId}` } })).toMatchObject({ status: 'REFUNDED', amountYen: 980, billingCheckoutId: checkout.id });
+    const replay = await client.call('webhooks/stripe', 'POST', payload, undefined, { 'Stripe-Signature': signature(payload) });
+    expect(replay.body).toMatchObject({ duplicate: true, outcome: 'PROCESSED' });
+    expect(await db.paymentTransaction.count({ where: { providerPaymentId: `refund:${refundId}` } })).toBe(1);
+  });
+
+  it('records a refunded active day pass without revoking access', async () => {
+    const fixture = await account();
+    const startsAt = new Date(Date.now() - 60000); const endsAt = new Date(Date.now() + 86400000);
+    const entitlement = await db.entitlement.create({ data: { userId: fixture.user.id, planCode: 'DAY_PASS', startsAt, endsAt, raceDate: '2027-10-10', reason: 'refund-sync-test', grantedBy: fixture.user.id } });
+    const pass = await db.dayPass.create({ data: { userId: fixture.user.id, raceDate: '2027-10-10', status: 'ACTIVE', priceYen: 980, startsAt, endsAt, provider: 'STRIPE', source: 'PURCHASE', providerPassId: `cs_test_${randomUUID()}`, entitlementId: entitlement.id } });
+    await db.paymentTransaction.create({ data: { userId: fixture.user.id, provider: 'STRIPE', providerPaymentId: `checkout:${pass.providerPassId}`, kind: 'DAY_PASS', status: 'SUCCEEDED', amountYen: 980, dayPassId: pass.id } });
+    const refundId = `re_${randomUUID()}`;
+    const payload = { id: `evt_${randomUUID()}`, object: 'event', type: 'refund.updated', livemode: false, data: { object: { id: refundId, object: 'refund', amount: 980, currency: 'jpy', status: 'succeeded', metadata: { dayPassId: pass.id }, payment_intent: `pi_${randomUUID()}`, charge: `ch_${randomUUID()}` } } };
+    const response = await new Client().call('webhooks/stripe', 'POST', payload, undefined, { 'Stripe-Signature': signature(payload) });
+    expect(response.body.outcome).toBe('PROCESSED');
+    expect(await db.dayPass.findUniqueOrThrow({ where: { id: pass.id } })).toMatchObject({ status: 'ACTIVE', entitlementId: entitlement.id });
+    expect((await db.entitlement.findUniqueOrThrow({ where: { id: entitlement.id } })).revokedAt).toBeNull();
+  });
+
+  it('records a subscription refund without silently ending paid access', async () => {
+    const fixture = await account();
+    const startsAt = new Date(Date.now() - 60000); const endsAt = new Date(Date.now() + 30 * 86400000);
+    const entitlement = await db.entitlement.create({ data: { userId: fixture.user.id, planCode: 'STANDARD', startsAt, endsAt, reason: 'subscription-refund-sync-test', grantedBy: fixture.user.id } });
+    const subscription = await db.subscription.create({ data: { userId: fixture.user.id, planCode: 'STANDARD', status: 'ACTIVE', priceYen: 2980, currentPeriodStartsAt: startsAt, currentPeriodEndsAt: endsAt, provider: 'STRIPE', providerSubscriptionId: `sub_${randomUUID()}`, entitlementId: entitlement.id } });
+    await db.paymentTransaction.create({ data: { userId: fixture.user.id, provider: 'STRIPE', providerPaymentId: `invoice:in_${randomUUID()}:paid`, kind: 'SUBSCRIPTION', status: 'SUCCEEDED', amountYen: 2980, subscriptionId: subscription.id } });
+    const refundId = `re_${randomUUID()}`;
+    const payload = { id: `evt_${randomUUID()}`, object: 'event', type: 'refund.created', livemode: false, data: { object: { id: refundId, object: 'refund', amount: 2980, currency: 'jpy', status: 'succeeded', metadata: { subscriptionId: subscription.id }, payment_intent: `pi_${randomUUID()}`, charge: `ch_${randomUUID()}` } } };
+    const response = await new Client().call('webhooks/stripe', 'POST', payload, undefined, { 'Stripe-Signature': signature(payload) });
+    expect(response.body.outcome).toBe('PROCESSED');
+    expect(await db.subscription.findUniqueOrThrow({ where: { id: subscription.id } })).toMatchObject({ status: 'ACTIVE' });
+    expect((await db.entitlement.findUniqueOrThrow({ where: { id: entitlement.id } })).revokedAt).toBeNull();
+    expect(await db.paymentTransaction.findUniqueOrThrow({ where: { providerPaymentId: `refund:${refundId}` } })).toMatchObject({ status: 'REFUNDED', subscriptionId: subscription.id });
+  });
+
+  it('acknowledges cancellation webhooks for a reviewed subscription without retrying forever', async () => {
+    const fixture = await account(); const providerSubscriptionId = `sub_${randomUUID()}`;
+    const checkout = await db.billingCheckout.create({ data: { userId: fixture.user.id, kind: 'SUBSCRIPTION', planCode: 'STANDARD', amountYen: 2980, status: 'REVIEW_REFUNDING', idempotencyKey: `review-subscription:${fixture.user.id}:${randomUUID()}`, requestHash: 'review-subscription', providerSessionId: `cs_test_${randomUUID()}`, providerSubscriptionId, providerCheckoutUrl: 'https://checkout.stripe.test/session', expiresAt: new Date(Date.now() + 30 * 60000), completedAt: new Date() } });
+    await db.paymentTransaction.create({ data: { userId: fixture.user.id, provider: 'STRIPE', providerPaymentId: `checkout:${checkout.providerSessionId}`, kind: 'SUBSCRIPTION', status: 'REQUIRES_REVIEW', amountYen: 2980, billingCheckoutId: checkout.id } });
+    const payload = { id: `evt_${randomUUID()}`, object: 'event', type: 'customer.subscription.deleted', livemode: false, data: { object: { id: providerSubscriptionId, object: 'subscription', canceled_at: Math.floor(Date.now() / 1000) } } };
+    const response = await new Client().call('webhooks/stripe', 'POST', payload, undefined, { 'Stripe-Signature': signature(payload) });
+    expect(response).toMatchObject({ status: 201, body: { outcome: 'REVIEW_CHECKOUT_NO_ACCESS' } });
   });
 
   it('does not open a second subscription checkout while the first can still be paid', async () => {

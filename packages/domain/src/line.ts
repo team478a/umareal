@@ -51,8 +51,8 @@ const supportReplyNotificationInputSchema = z.object({
 }).strict();
 
 const billingNotificationInputSchema = z.object({
-  eventType: z.enum(['PAYMENT_SUCCEEDED', 'PAYMENT_FAILED', 'PAYMENT_RECOVERED', 'CANCELLATION_SCHEDULED', 'SUBSCRIPTION_ENDED']),
-  planCode: z.enum(['FOUNDER', 'STANDARD']),
+  eventType: z.enum(['PAYMENT_SUCCEEDED', 'PAYMENT_FAILED', 'PAYMENT_RECOVERED', 'CANCELLATION_SCHEDULED', 'CANCELLATION_REVERSED', 'SUBSCRIPTION_ENDED', 'REFUND_COMPLETED']),
+  planCode: z.enum(['FOUNDER', 'STANDARD', 'DAY_PASS']),
   currentPeriodEndsAt: z.coerce.date(),
   appBaseUrl: z.string().url()
 }).strict();
@@ -136,13 +136,15 @@ export function buildBillingLineMessage(raw: z.input<typeof billingNotificationI
     PAYMENT_FAILED: 'お支払いを確認できませんでした',
     PAYMENT_RECOVERED: 'お支払い状態が回復しました',
     CANCELLATION_SCHEDULED: '月額契約の解約予約を受け付けました',
-    SUBSCRIPTION_ENDED: '月額契約が終了しました'
+    CANCELLATION_REVERSED: '月額契約の解約予約を取り消しました',
+    SUBSCRIPTION_ENDED: '月額契約が終了しました',
+    REFUND_COMPLETED: '返金手続きが完了しました'
   }[input.eventType];
-  const plan = input.planCode === 'FOUNDER' ? '創設会員' : '通常月額会員';
+  const plan = input.planCode === 'FOUNDER' ? '創設会員' : input.planCode === 'STANDARD' ? '通常月額会員' : '1日利用';
   const end = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', dateStyle: 'medium', timeStyle: 'short' }).format(input.currentPeriodEndsAt);
   const detail = input.eventType === 'PAYMENT_FAILED'
     ? `ご契約：${plan}\n支払い状態と閲覧期限をマイページでご確認ください。`
-    : input.eventType === 'SUBSCRIPTION_ENDED'
+    : input.eventType === 'SUBSCRIPTION_ENDED' || input.eventType === 'REFUND_COMPLETED'
       ? `ご契約：${plan}\n契約と閲覧権限の状態をマイページでご確認ください。`
       : `ご契約：${plan}\n現在の閲覧期限：${end} JST`;
   const link = new URL('/account', url).toString();

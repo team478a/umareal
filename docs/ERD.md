@@ -22,8 +22,10 @@ erDiagram
   day_passes ||--|| entitlements : grants
   subscriptions ||--o{ payment_transactions : records
   day_passes ||--o{ payment_transactions : records
+  billing_checkouts ||--o{ payment_transactions : reviews
   subscriptions ||--o{ billing_events : audits
   day_passes ||--o{ billing_events : audits
+  billing_checkouts ||--o{ billing_events : audits
   users ||--o{ expert_assignments : assigned
   races ||--o{ expert_assignments : has
   race_days ||--o{ races : schedules
@@ -110,6 +112,8 @@ Phase 6Aでbilling_checkoutsとstripe_webhook_eventsを追加。Checkout作成�
 
 Phase 6Bでは同じ追記専用Stripe受信履歴を使い、Invoice成功・失敗とSubscription更新・終了を既存のsubscriptions、entitlements、payment_transactions、billing_eventsへ同期する。Stripe Invoiceの期間を外部契約の正とし、失敗時は有限の猶予終了時刻までに権限を制限する。
 
+有料運用の例外処理では、支払済みだが権限未付与の`billing_checkouts`を`payment_transactions`と`billing_events`の排他的な対象として参照できるようにした。既存の要確認支払はCheckout Session IDで安全に関連付け、管理者の再検証による権限付与または全額返金を追記履歴として残す。Stripe返金Webhookも同じ対象関係を使い、元の成功支払を更新しない。
+
 Phase 6Cでsystem_settingsにStripeの暗号化Secret key、暗号化Webhook secret、動作モード、3つのPrice IDを追加した。秘密値は設定APIへ返さず、変更理由と設定状態だけを既存の監査ログへ残す。
 
 Phase 6Dでfree_report_drafts、追記専用free_report_versions、固定1枠のfree_member_benefitsを追加した。無料速報は有料予想版から分離し、UP/DOWN各1頭と理由、音声URL、結果確定後の検証だけを会員へ返す。notification_eventsは予想版、対象レース告知、無料速報版のいずれか1件だけを参照する。
@@ -136,6 +140,8 @@ Phase 7Aでoperational_alert_settings、operational_alerts、operational_alert_d
 
 Phase 7B第1区間でbilling_support_requestsとbilling_support_eventsを追加した。問い合わせは会員と任意の本人所有支払に紐づき、分類、本文、現在状態を保持する。返金・領収書分類では対象支払をDB制約でも必須にする。問い合わせ本体は削除禁止、状態変更eventは追記専用とし、管理者の対応理由と監査履歴を残す。
 
+有料運用の例外処理ではbilling_eventsへ作成トランザクションIDを追加し、notification_eventsからbillingEventIdを一意参照する。DBトリガーは請求eventと通知eventが同一トランザクションかつ許可された対応関係であることを検査する。期限切れ公開待ち一日券の返金は元支払を変更せず、payment_transactionsへREFUNDED行、billing_eventsへDAY_PASS_REFUNDED行を追記する。
+
 Phase 7Dでsupport_requestsとsupport_eventsを追加した。一般問い合わせの件名と本文は作成後に変更・削除できず、状態変更は追記専用eventとして内部理由と会員向け回答を分離する。会員の追加情報は`MEMBER_MESSAGE`イベントとして本人だけが追記でき、回答済み問い合わせは受付済みへ再開する。運営用の優先度、任意の担当者、任意の対応期限を本体へ保持し、担当者は有効なADMIN/OPERATORだけに制限する。振り分けは`TRIAGED`イベントと監査へ追記する。回答済みeventはnotification_eventsと同一トランザクションで1対1に結び、本人だけへWeb・メール・LINE通知を展開する。外部通知には問い合わせ内容と回答内容を含めない。
 
 友達紹介V1で`users.referralCode`、`referrals`、`referral_milestones`、`referral_rewards`、`day_passes.source`を追加した。会員紹介と`member_acquisitions.referralCode`は別責務である。被紹介者はReferralを最大1件、紹介者は複数Referral、会員はマイルストーンごとにRewardを最大1件持つ。Rewardは交換後に既存DayPassを最大1件参照し、アクセス権限は従来どおりDayPassからEntitlementへ接続する。LINE OAuthと登録grantには会員紹介コードだけを短時間引き継ぐ。
@@ -150,4 +156,4 @@ WIN5 Phase 2で`prediction_products`、`prediction_product_races`、`prediction_
 
 `notification_events`は公開元に加えて通常レース結果版またはWIN5評価結果版を参照でき、常にいずれか1種類だけを参照するXOR制約を持つ。評価結果版と通知イベントは同じ確定トランザクションで作成すること、最新評価が`REVIEW_REQUIRED`でないことをDBトリガーで強制する。結果通知は確認済みの評価事実だけを表示し、通常レースとWIN5を結合した状態は作らない。
 
-次区間候補はStripeの返金・領収書導線、プラン変更、または課金状態の会員向け通知。実Supabase・メール・LINE・Stripe資格情報を使うステージング接続、正式価格、返金、クーポン、試用、CMSは未確定・未実施。
+期限切れ公開待ち一日券の全額返金、Stripe領収書導線、課金状態の会員向け通知は実装済み。月額・利用開始後・一部返金、プラン変更、クーポン、試用、実Supabase・メール・LINE・Stripe本番資格情報を使う接続、正式価格、正式返金条件、CMSは未確定・未実施。

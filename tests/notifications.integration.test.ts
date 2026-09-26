@@ -83,6 +83,22 @@ async function processFirstEmailAttempt(eventId: string, userId: string, transpo
 }
 
 describe('notification worker and administration', () => {
+  it('sends a billing notice only to the affected member without provider secrets', async () => {
+    const subject = `test:billing-target:${randomUUID()}`; const member = await recipient(subject); const unrelated = await recipient();
+    const target = await db.$transaction(async tx => {
+      const pass = await tx.dayPass.create({ data: { userId: member.id, raceDate: '2098-05-31', status: 'PENDING', priceYen: 980, startsAt: null, endsAt: new Date('2098-05-31T15:00:00Z'), provider: 'STRIPE', source: 'PURCHASE', providerPassId: `cs_secret_${randomUUID()}`, entitlementId: null } });
+      const billingEvent = await tx.billingEvent.create({ data: { userId: member.id, eventType: 'DAY_PASS_PENDING', dayPassId: pass.id, actorId: member.id, details: { providerPaymentId: 'pi_secret_value', amountYen: 980 } } });
+      const event = await tx.notificationEvent.create({ data: { billingEventId: billingEvent.id, eventType: 'BILLING_PAYMENT_SUCCEEDED', status: 'QUEUED', payload: { billingEventId: billingEvent.id } } });
+      return { billingEvent, event };
+    });
+    const messages: string[] = [];
+    const transport: NotificationTransport = { async send(input) { if (input.recipient === subject) messages.push(input.message.text); return { kind: 'SENT', providerMessageId: `billing-${input.retryKey}` }; } };
+    expect(await processFirstAttempt(target.event.id, member.id, transport)).toMatchObject({ status: 'SENT', channel: 'LINE' });
+    expect(messages).toHaveLength(1); expect(messages[0]).toContain('お支払いを確認しました'); expect(messages[0]).toContain('1日利用'); expect(messages[0]).toContain('/account');
+    expect(messages[0]).not.toMatch(/pi_secret|cs_secret|980|provider/i);
+    expect(await db.notificationDelivery.count({ where: { eventId: target.event.id, userId: unrelated.id } })).toBe(0);
+  });
+
   it('sends a verified horse-evaluation result fact to free members on LINE and email', async () => {
     const subject = `test:result-target:${randomUUID()}`;
     const member = await recipient(subject);

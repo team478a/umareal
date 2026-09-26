@@ -11,12 +11,9 @@ describe('extended administrator notification tests', () => {
     const admin = await account('ADMIN'); const member = await account(); const client = new Client(); await client.login(admin); await client.mfa();
     await db.systemSetting.update({ where: { id: 'global' }, data: { emailNotificationsEnabled: true, lineNotificationsEnabled: false } });
 
-    let dayOffset = Number.parseInt(suffix, 16) % 20_000;
-    let targetDate = new Date(Date.UTC(2199, 0, 1) + dayOffset * 86_400_000).toISOString().slice(0, 10);
-    while (await db.predictionProduct.findFirst({ where: { type: 'WIN5_PREVIEW', targetDate } })) {
-      dayOffset += 1;
-      targetDate = new Date(Date.UTC(2199, 0, 1) + dayOffset * 86_400_000).toISOString().slice(0, 10);
-    }
+    const latestProduct = await db.predictionProduct.findFirst({ orderBy: { targetDate: 'desc' }, select: { targetDate: true } });
+    const latestDay = latestProduct ? Date.parse(`${latestProduct.targetDate}T00:00:00Z`) : Date.UTC(2199, 0, 1);
+    const targetDate = new Date(latestDay + 86_400_000).toISOString().slice(0, 10);
 
     const race = await db.race.create({ data: { raceDate: targetDate, venue: `通知${suffix}`, number: 9, name: `パドック通知${suffix}`, startsAt: new Date(`${targetDate}T15:00:00+09:00`) } });
     await db.prediction.create({ data: { raceId: race.id, revision: 1, updatedBy: admin.user.id, draft: { visibility: 'PAID', confidence: 'SKIP', summary: '状態を確認したうえで見送ります。', marks: [] } } });
