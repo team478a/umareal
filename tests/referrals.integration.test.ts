@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { encryptSecret } from '../packages/db/src';
-import { adminReferralDetailResponseSchema, adminReferralListResponseSchema, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema } from '../packages/domain/src';
+import { adminReferralDetailResponseSchema, adminReferralInvalidateResponseSchema, adminReferralListResponseSchema, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema } from '../packages/domain/src';
 import { account, base, Client, db, origin } from './helpers';
 
 const password = 'referral-integration-password-123';
@@ -217,7 +217,8 @@ describe('friend referral V1', () => {
     const adminAccount = await account('ADMIN');
     const admin = new Client(); await admin.login(adminAccount); await admin.mfa();
     const invalidated = await admin.call(`admin/referrals/${referralId}/invalidate`, 'POST', { reason: '結合試験で不正登録扱いを確認' });
-    expect(invalidated.status).toBe(201); expect(invalidated.body.status).toBe('INVALIDATED');
+    expect(invalidated.status).toBe(201);
+    expect(adminReferralInvalidateResponseSchema.parse(invalidated.body)).toEqual({ id: referralId, status: 'INVALIDATED', qualifiedCount: 10, unusedRewardsInvalidated: 0 });
     const detailResponse = await admin.call(`admin/referrals/${referralId}`);
     expect(detailResponse.status).toBe(200);
     const detail = adminReferralDetailResponseSchema.parse(detailResponse.body);
@@ -229,7 +230,8 @@ describe('friend referral V1', () => {
     expect(await db.auditLog.findFirst({ where: { action: 'REFERRAL_INVALIDATED', targetId: referralId } })).not.toBeNull();
     expect(await db.dayPass.count({ where: { userId: referrer.user.id, source: 'REFERRAL_REWARD' } })).toBe(1);
     const replay = await admin.call(`admin/referrals/${referralId}/invalidate`, 'POST', { reason: 'API再送' });
-    expect(replay.status).toBe(201); expect(replay.body.alreadyInvalidated).toBe(true);
+    expect(replay.status).toBe(201);
+    expect(adminReferralInvalidateResponseSchema.parse(replay.body)).toEqual({ id: referralId, status: 'INVALIDATED', alreadyInvalidated: true });
   });
 
   it('invalidates and safely restores the same unused 3-person reward on re-attainment', async () => {
