@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { encryptSecret } from '../packages/db/src';
-import { memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema } from '../packages/domain/src';
+import { adminReferralListResponseSchema, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema } from '../packages/domain/src';
 import { account, base, Client, db, origin } from './helpers';
 
 const password = 'referral-integration-password-123';
@@ -288,7 +288,14 @@ describe('friend referral V1', () => {
     const admin = new Client(); await admin.login(await account('ADMIN')); await admin.mfa();
     const list = await admin.call('admin/referrals');
     expect(list.status).toBe(200);
-    expect(JSON.stringify(list.body)).not.toContain('@example.test');
+    const parsedList = adminReferralListResponseSchema.parse(list.body);
+    expect(parsedList.page).toBe(1);
+    expect(parsedList.summary.qualifiedReferrals).toBeGreaterThanOrEqual(1);
+    const serializedList = JSON.stringify(list.body);
+    for (const field of ['email', 'passwordHash', 'authSubject', 'lineSubject', 'token', 'secret', 'invalidatedReason', 'invalidatedById']) {
+      expect(serializedList).not.toContain(`"${field}"`);
+    }
+    expect(serializedList).not.toContain('@example.test');
     const someoneElsesReward = await db.referralReward.findFirstOrThrow({ where: { userId: { not: memberFixture.user.id } } });
     expect((await member.call(`me/referral-rewards/${someoneElsesReward.id}/redeem`, 'POST', { targetDate: jstFutureDate(30) })).status).toBe(404);
   });

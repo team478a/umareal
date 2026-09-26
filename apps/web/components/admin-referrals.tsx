@@ -1,18 +1,17 @@
 'use client';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Gift, ShieldAlert, Users } from 'lucide-react';
+import type { AdminReferralListResponse } from '@keiba/domain';
 
-type Item = { user: { id: string; displayName: string; referralCode: string }; referralCount: number; achievedMilestones: number[]; rewardsGranted: number };
-type Recent = { id: string; status: string; createdAt: string; qualifiedAt: string | null; invalidatedAt: string | null; referrer: { displayName: string }; referred: { displayName: string; registrationMethod: string } };
-type ListData = { summary: { qualifiedReferrals: number; referrers: number; milestoneAchievements: { requiredReferralCount: number; users: number }[]; rewardsGranted: number; rewardsUsed: number }; items: Item[]; recentReferrals: Recent[]; page: number; total: number };
-type Detail = Recent & { invalidatedReason: string | null; referrer: { id: string; displayName: string; referralCode: string }; referred: { id: string; displayName: string; registrationMethod: string; createdAt: string }; invalidatedBy: { id: string; displayName: string } | null };
+type Recent = AdminReferralListResponse['recentReferrals'][number];
+type Detail = Omit<Recent, 'referrer' | 'referred'> & { invalidatedReason: string | null; referrer: { id: string; displayName: string; referralCode: string }; referred: { id: string; displayName: string; registrationMethod: string; createdAt: string }; invalidatedBy: { id: string; displayName: string } | null };
 async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> { const response = await fetch(`/api/v1/${path}`, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' }); const result = await response.json(); if (!response.ok) throw new Error(result.message ?? '処理に失敗しました。'); return result as T; }
 const format = (value: string | null) => value ? new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : '—';
 const labels: Record<string, string> = { PENDING: '本人確認待ち', QUALIFIED: '成立', INVALIDATED: '無効' };
 
 export function AdminReferrals() {
-  const [data, setData] = useState<ListData | null>(null); const [status, setStatus] = useState('ALL'); const [page, setPage] = useState(1); const [detail, setDetail] = useState<Detail | null>(null); const [reason, setReason] = useState(''); const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
-  const load = useCallback(async () => { setError(''); try { setData(await request<ListData>(`admin/referrals?page=${page}&status=${status}`)); } catch (e) { setError((e as Error).message); } }, [page, status]);
+  const [data, setData] = useState<AdminReferralListResponse | null>(null); const [status, setStatus] = useState('ALL'); const [page, setPage] = useState(1); const [detail, setDetail] = useState<Detail | null>(null); const [reason, setReason] = useState(''); const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => { setError(''); try { setData(await request<AdminReferralListResponse>(`admin/referrals?page=${page}&status=${status}`)); } catch (e) { setError((e as Error).message); } }, [page, status]);
   useEffect(() => { void load(); }, [load]);
   async function open(id: string) { setError(''); try { setDetail(await request<Detail>(`admin/referrals/${id}`)); setReason(''); } catch (e) { setError((e as Error).message); } }
   async function invalidate(event: FormEvent) { event.preventDefault(); if (!detail) return; setBusy(true); setError(''); setMessage(''); try { await request(`admin/referrals/${detail.id}/invalidate`, 'POST', { reason }); setMessage('紹介を無効化し、未使用特典を安全に再計算しました。'); setDetail(await request<Detail>(`admin/referrals/${detail.id}`)); await load(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }

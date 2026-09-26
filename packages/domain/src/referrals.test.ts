@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adminReferralListQuerySchema, lineOAuthStartSchema, memberReferralCodeSchema, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema, referralInvalidateSchema, referralRewardRedeemSchema, registrationSchema } from './index';
+import { adminReferralListQuerySchema, adminReferralListResponseSchema, lineOAuthStartSchema, memberReferralCodeSchema, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema, referralInvalidateSchema, referralRewardRedeemSchema, registrationSchema } from './index';
 
 describe('referral input boundaries', () => {
   it('normalizes safe member referral codes without changing acquisition referral input', () => {
@@ -70,5 +70,38 @@ describe('referral input boundaries', () => {
     expect(parsed.endsAt).toBe(response.endsAt.toISOString());
     expect(memberReferralRewardRedeemResponseSchema.safeParse({ ...response, userId: '44444444-4444-4444-8444-444444444444' }).success).toBe(false);
     expect(memberReferralRewardRedeemResponseSchema.safeParse({ ...response, email: 'member@example.test' }).success).toBe(false);
+  });
+
+  it('defines the strict public response contract for GET /admin/referrals', () => {
+    const response = {
+      summary: {
+        qualifiedReferrals: 3,
+        referrers: 1,
+        milestoneAchievements: [{ requiredReferralCount: 3, users: 1 }],
+        rewardsGranted: 1,
+        rewardsUsed: 0
+      },
+      items: [{
+        user: { id: '11111111-1111-4111-8111-111111111111', displayName: '紹介者', referralCode: 'AB12CD34EF' },
+        referralCount: 3,
+        achievedMilestones: [3],
+        rewardsGranted: 1
+      }],
+      recentReferrals: [{
+        id: '22222222-2222-4222-8222-222222222222',
+        status: 'QUALIFIED' as const,
+        createdAt: new Date('2026-09-26T01:02:03.000Z'),
+        qualifiedAt: '2026-09-26T01:03:00.000Z',
+        invalidatedAt: null,
+        referrer: { displayName: '紹介者' },
+        referred: { displayName: '被紹介者', registrationMethod: 'EMAIL' }
+      }],
+      page: 1,
+      total: 1
+    };
+    const parsed = adminReferralListResponseSchema.parse(response);
+    expect(parsed.recentReferrals[0].createdAt).toBe(response.recentReferrals[0].createdAt.toISOString());
+    expect(adminReferralListResponseSchema.safeParse({ ...response, email: 'admin@example.test' }).success).toBe(false);
+    expect(adminReferralListResponseSchema.safeParse({ ...response, items: [{ ...response.items[0], user: { ...response.items[0].user, authSubject: 'private-subject' } }] }).success).toBe(false);
   });
 });
