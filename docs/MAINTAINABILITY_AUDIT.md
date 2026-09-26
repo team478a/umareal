@@ -97,7 +97,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 提案: 既に安定している紹介の読み取りAPIを候補に、公開してよい応答だけをdomain packageのschemaから型導出する。秘密情報を含むDB modelの共有や全面移行はしない。
 - 優先度: P2
 - 検証: APIの無料／本人／管理者応答、モバイル画面、既存紹介integration/E2Eを固定する。
-- 実施状況: `GET /me/referrals`を最初のpilotとして、公開応答だけを`packages/domain`の厳格なZod schemaで定義し、API境界の実行時検証とWebの型導出を同じContractへ接続した。続く小規模phaseで、同じ公開Reward schemaを再利用して`GET /me/referral-rewards`の一覧応答もContract化した。Prisma model、DB schema、URL、応答項目、紹介制度の業務仕様は変更しない。紹介特典交換と管理者向け紹介APIは未移行であり、全APIのContract化は完了していない。
+- 実施状況: `GET /me/referrals`を最初のpilotとして、公開応答だけを`packages/domain`の厳格なZod schemaで定義し、API境界の実行時検証とWebの型導出を同じContractへ接続した。続く小規模phaseで、同じ公開Reward schemaを再利用して`GET /me/referral-rewards`の一覧応答と、`POST /me/referral-rewards/:id/redeem`の交換結果もContract化した。Prisma model、DB schema、URL、応答項目、紹介制度の業務仕様は変更しない。管理者向け紹介APIは未移行であり、全APIのContract化は完了していない。
 
 ### MA-007 CIジョブ構成
 

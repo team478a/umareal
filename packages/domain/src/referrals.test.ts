@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adminReferralListQuerySchema, lineOAuthStartSchema, memberReferralCodeSchema, memberReferralRewardsSchema, memberReferralSummarySchema, referralInvalidateSchema, referralRewardRedeemSchema, registrationSchema } from './index';
+import { adminReferralListQuerySchema, lineOAuthStartSchema, memberReferralCodeSchema, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema, referralInvalidateSchema, referralRewardRedeemSchema, registrationSchema } from './index';
 
 describe('referral input boundaries', () => {
   it('normalizes safe member referral codes without changing acquisition referral input', () => {
@@ -55,5 +55,20 @@ describe('referral input boundaries', () => {
     expect(parsed.items[0].grantedAt).toBe(reward.grantedAt.toISOString());
     expect(memberReferralRewardsSchema.safeParse({ items: [reward], email: 'member@example.test' }).success).toBe(false);
     expect(memberReferralRewardsSchema.safeParse({ items: [{ ...reward, userId: '33333333-3333-4333-8333-333333333333' }] }).success).toBe(false);
+  });
+
+  it('defines the strict public response contract for POST /me/referral-rewards/:id/redeem', () => {
+    const response = {
+      rewardId: '22222222-2222-4222-8222-222222222222',
+      dayPassId: '33333333-3333-4333-8333-333333333333',
+      status: 'PENDING' as const,
+      startsAt: null,
+      endsAt: new Date('2026-09-27T15:00:00.000Z'),
+      waitingForPublication: true
+    };
+    const parsed = memberReferralRewardRedeemResponseSchema.parse(response);
+    expect(parsed.endsAt).toBe(response.endsAt.toISOString());
+    expect(memberReferralRewardRedeemResponseSchema.safeParse({ ...response, userId: '44444444-4444-4444-8444-444444444444' }).success).toBe(false);
+    expect(memberReferralRewardRedeemResponseSchema.safeParse({ ...response, email: 'member@example.test' }).success).toBe(false);
   });
 });

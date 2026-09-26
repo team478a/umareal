@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Check, Copy, Gift, Send, TicketCheck, Users } from 'lucide-react';
-import type { MemberReferralReward, MemberReferralSummary } from '@keiba/domain';
+import type { MemberReferralReward, MemberReferralRewardRedeemResponse, MemberReferralSummary } from '@keiba/domain';
 
 async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const response = await fetch(`/api/v1/${path}`, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' });
@@ -23,7 +23,7 @@ export function ReferralDashboard({ onAccessChanged }: { onAccessChanged: () => 
   async function copy() { if (!data) return; try { await navigator.clipboard.writeText(data.referralUrl); setMessage('紹介URLをコピーしました。'); setError(''); } catch { setError('URLをコピーできませんでした。長押ししてコピーしてください。'); } }
   async function redeem(event: FormEvent, reward: MemberReferralReward) {
     event.preventDefault(); const targetDate = dates[reward.id] ?? today(); setBusy(reward.id); setError(''); setMessage('');
-    try { await request(`me/referral-rewards/${reward.id}/redeem`, 'POST', { targetDate }); setMessage(`${targetDate}の一日利用券を有効にしました。`); await Promise.all([load(), onAccessChanged()]); }
+    try { await request<MemberReferralRewardRedeemResponse>(`me/referral-rewards/${reward.id}/redeem`, 'POST', { targetDate }); setMessage(`${targetDate}の一日利用券を有効にしました。`); await Promise.all([load(), onAccessChanged()]); }
     catch (e) { setError((e as Error).message); } finally { setBusy(''); }
   }
   if (!data) return <section className="panel referral-panel"><div className="panel-body" role="status">友達紹介の状況を読み込み中…</div>{error && <div className="notice error" role="alert">{error}</div>}</section>;
