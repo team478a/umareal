@@ -2,7 +2,7 @@
 
 監査日: 2026-09-26
 
-基準: `origin/main` `898142558b7b25752235122ea1c7834346677706`
+基準: `origin/main` `71a6a989ba43599f477b13de5b20c88d904d2015`
 
 対象: 既存挙動を変えない開発規則、CI品質ゲート、将来の分割候補
 
@@ -12,10 +12,10 @@
 
 | 区分 | 確認内容 |
 | --- | --- |
-| `main`へ統合済み | 紹介制度V1と本番準備修正。基準SHAは上記。紹介制度の詳細は `docs/REFERRAL_SYSTEM.md` を正とする |
-| ブランチ・PRだけ | `feat/billing-operations-completion`、PR #1「feat: complete billing exception operations」。監査時点でbaseは`main`、checks成功、mergeable。請求例外運用は`main`へ未統合 |
-| CIで確認済み | mainのActions run `36128067936`。typecheck、lint、単体33ファイル142件、配備事前確認5件、JRA-VAN 22件、DB/API結合36ファイル108件、desktop/mobile E2E 38件、全workspace build、Docker build、本番起動ガードが成功 |
-| CIで意図的に未実行だった範囲 | 上記runではStripe専用結合1ファイル6件が`BILLING_TRANSPORT=test`によりskip。本PRで外部通信しない専用段階を追加する |
+| `main`へ統合済み | 紹介制度V1、本番準備修正、請求例外運用、CI品質ゲート、配備版数確認。基準SHAは上記。紹介制度の詳細は `docs/REFERRAL_SYSTEM.md` を正とする |
+| ブランチ・PRだけ | `codex/readiness-query-service` で、本番準備チェックの読み取り処理をControllerからQuery Serviceへ分離中。API契約、認可、DB schema、業務判定は変更しない |
+| CIで確認済み | mainのActions run `36221227908`。typecheck、lint、unit、JRA-VAN、DB/API integration、Stripeローカル結合、desktop/mobile E2E、全workspace build、Docker build、本番起動ガードが成功 |
+| CIで意図的に未実行だった範囲 | 外部サービスのライブ疎通、本番・staging DB migration、実機SafariはCIの対象外 |
 | 実環境・実機で未確認 | 本番Supabase、LINE Login/Messaging、Resend到達、Stripe sandbox/liveの外部API、独自ドメイン、実機iPhone、本番DB migration・制限ロール・バックアップ復元 |
 
 テスト件数は監査時点の証跡であり、CIの合否条件には固定値として埋め込まない。追加した必須テスト段階は、対象が0件、skip、todo、失敗のいずれでも失敗させる。
@@ -76,6 +76,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 提案: 最初の実装候補は読み取り専用の管理readiness問合せをquery serviceへ移す。次に認証の登録／セッション／MFA orchestration、請求のprovider gateway／Webhook適用処理を別PRで分離する。endpoint、transaction、AuditLog、error codeは維持する。
 - 優先度: P1
 - 検証: 分離前後でAPI contract、DB/API結合、AAL1/AAL2拒否、冪等性、既存E2Eが同じ結果になることをcharacterization testで固定する。
+- 実施状況: `codex/readiness-query-service` で最初のpilotに着手。本番準備チェックのADMIN+AAL2認可はControllerへ残し、認可後の限定select、集計、判定、ローカル復元状態の読み取りだけを`ReadinessService`へ移す。既存15項目の順序と秘密情報非露出をintegration testで固定する。
 
 ### MA-005 DBアクセス境界（後続PR候補）
 
@@ -119,10 +120,9 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 
 ## 後続PRの順序
 
-1. PR #1の請求例外運用をmainへ統合するか判断し、競合を解消する。
-2. 読み取り専用readiness queryを小さなpilotとして分離し、既存の認可・E2Eを固定する。
-3. 紹介読み取り応答の共有schemaを1領域だけ試し、APIから返さない情報が増えていないことを確認する。
-4. 認証と請求の分離はそれぞれ独立PRにし、同時に大規模リファクタリングしない。
+1. 読み取り専用readiness queryのpilotをレビュー・統合し、既存の認可・E2Eを固定する。
+2. 紹介読み取り応答の共有schemaを1領域だけ試し、APIから返さない情報が増えていないことを確認する。
+3. 認証と請求の分離はそれぞれ独立PRにし、同時に大規模リファクタリングしない。
 
 どの段階でも既存migrationの書換え、公開済み予想・監査履歴の変更、本番データ操作、外部課金、実会員通知を含めない。
 

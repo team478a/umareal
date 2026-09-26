@@ -13,7 +13,23 @@ describe('production readiness', () => {
     expect(response.body.status).toBe('NOT_READY');
     expect(response.body.counts).toEqual(expect.objectContaining({ total: 15 }));
     expect(response.body.counts.blocked).toBeGreaterThan(0);
-    expect(response.body.checks.map((item: { code: string }) => item.code)).toEqual(expect.arrayContaining(['PRODUCTION_AUTH', 'ADMIN_CONTINUITY', 'REGISTRATION_CAPTCHA', 'EXTERNAL_BILLING', 'LEGAL_DOCUMENTS', 'DATABASE_LEAST_PRIVILEGE', 'LOCAL_RESTORE_TEST']));
+    expect(response.body.checks.map((item: { code: string }) => item.code)).toEqual([
+      'PRODUCTION_AUTH',
+      'ADMIN_CONTINUITY',
+      'HTTPS_BASE_URL',
+      'REGISTRATION_CAPTCHA',
+      'LINE_MESSAGING',
+      'LINE_LOGIN',
+      'TRANSACTIONAL_MAIL',
+      'EXTERNAL_BILLING',
+      'LEGAL_DOCUMENTS',
+      'DATA_RETENTION',
+      'DATABASE_LEAST_PRIVILEGE',
+      'LOCAL_RESTORE_TEST',
+      'PRODUCTION_BACKUP',
+      'EXTERNAL_MONITORING',
+      'SAFE_FEATURE_FLAGS'
+    ]);
     expect(response.body.checks.find((item: { code: string }) => item.code === 'DATABASE_LEAST_PRIVILEGE')?.status).toBe('BLOCKED');
     expect(['READY', 'BLOCKED']).toContain(response.body.checks.find((item: { code: string }) => item.code === 'LOCAL_RESTORE_TEST')?.status);
     expect(response.body.declaration).toContain('本番公開を承認しません');
