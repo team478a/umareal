@@ -139,7 +139,11 @@ test('administrator must complete MFA before viewing member management', async (
   await expect(page.getByLabel('メール配信接続準備').getByText('Webhook受信処理')).toHaveClass(/ready/);
   await expect(page.getByLabel('メール配信接続準備').getByText('送信元')).toHaveClass(/ready/);
   await page.goto('/admin');
-  await page.screenshot({ path: testInfo.outputPath('admin.png'), fullPage: true });
+  // The mobile admin dashboard is very tall. A full-page capture can exhaust the
+  // Chromium renderer in constrained CI runners and crash the next navigation.
+  // The assertions below cover the complete workflow; keep the mobile artifact
+  // to the visible viewport while retaining the full dashboard on desktop.
+  await page.screenshot({ path: testInfo.outputPath('admin.png'), fullPage: !testInfo.project.name.includes('mobile') });
   await page.goto('/admin/notifications');
   await expect(page.getByRole('heading', { name: '通知運用', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '配送一覧', exact: true })).toBeVisible();
