@@ -49,7 +49,7 @@ jobs:
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
       - name: Generate ephemeral test encryption key
-        run: node -e "require('fs').appendFileSync(process.env.GITHUB_ENV, 'ENCRYPTION_KEY=' + require('crypto').randomBytes(32).toString('base64') + '\n')"
+        run: node -e "const key = require('crypto').randomBytes(32).toString('base64'); console.log('::add-mask::' + key); require('fs').appendFileSync(process.env.GITHUB_ENV, 'ENCRYPTION_KEY=' + key + '\n')"
       - name: Generate Prisma client
         run: pnpm db:generate
       - name: Apply migrations to fresh CI database
