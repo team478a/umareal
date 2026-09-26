@@ -1,20 +1,18 @@
 'use client';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Gift, ShieldAlert, Users } from 'lucide-react';
-import type { AdminReferralListResponse } from '@keiba/domain';
+import type { AdminReferralDetailResponse, AdminReferralListResponse } from '@keiba/domain';
 
-type Recent = AdminReferralListResponse['recentReferrals'][number];
-type Detail = Omit<Recent, 'referrer' | 'referred'> & { invalidatedReason: string | null; referrer: { id: string; displayName: string; referralCode: string }; referred: { id: string; displayName: string; registrationMethod: string; createdAt: string }; invalidatedBy: { id: string; displayName: string } | null };
 async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> { const response = await fetch(`/api/v1/${path}`, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' }); const result = await response.json(); if (!response.ok) throw new Error(result.message ?? '処理に失敗しました。'); return result as T; }
 const format = (value: string | null) => value ? new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : '—';
 const labels: Record<string, string> = { PENDING: '本人確認待ち', QUALIFIED: '成立', INVALIDATED: '無効' };
 
 export function AdminReferrals() {
-  const [data, setData] = useState<AdminReferralListResponse | null>(null); const [status, setStatus] = useState('ALL'); const [page, setPage] = useState(1); const [detail, setDetail] = useState<Detail | null>(null); const [reason, setReason] = useState(''); const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
+  const [data, setData] = useState<AdminReferralListResponse | null>(null); const [status, setStatus] = useState('ALL'); const [page, setPage] = useState(1); const [detail, setDetail] = useState<AdminReferralDetailResponse | null>(null); const [reason, setReason] = useState(''); const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
   const load = useCallback(async () => { setError(''); try { setData(await request<AdminReferralListResponse>(`admin/referrals?page=${page}&status=${status}`)); } catch (e) { setError((e as Error).message); } }, [page, status]);
   useEffect(() => { void load(); }, [load]);
-  async function open(id: string) { setError(''); try { setDetail(await request<Detail>(`admin/referrals/${id}`)); setReason(''); } catch (e) { setError((e as Error).message); } }
-  async function invalidate(event: FormEvent) { event.preventDefault(); if (!detail) return; setBusy(true); setError(''); setMessage(''); try { await request(`admin/referrals/${detail.id}/invalidate`, 'POST', { reason }); setMessage('紹介を無効化し、未使用特典を安全に再計算しました。'); setDetail(await request<Detail>(`admin/referrals/${detail.id}`)); await load(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
+  async function open(id: string) { setError(''); try { setDetail(await request<AdminReferralDetailResponse>(`admin/referrals/${id}`)); setReason(''); } catch (e) { setError((e as Error).message); } }
+  async function invalidate(event: FormEvent) { event.preventDefault(); if (!detail) return; setBusy(true); setError(''); setMessage(''); try { await request(`admin/referrals/${detail.id}/invalidate`, 'POST', { reason }); setMessage('紹介を無効化し、未使用特典を安全に再計算しました。'); setDetail(await request<AdminReferralDetailResponse>(`admin/referrals/${detail.id}`)); await load(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
   return <><div className="page-heading"><span className="eyebrow">REFERRAL OPERATIONS</span><h1>紹介管理</h1><p>紹介成立、特典付与、利用状況を確認します。不正登録の無効化は理由と監査履歴を残します。</p></div>{error && <div className="notice error" role="alert">{error}</div>}{message && <div className="notice" role="status">{message}</div>}
     {!data ? <p role="status">紹介状況を読み込み中…</p> : <>
       <div className="stats-grid referral-admin-stats">{[['紹介経由登録', data.summary.qualifiedReferrals, '人'], ['紹介者', data.summary.referrers, '人'], ...data.summary.milestoneAchievements.map(item => [`${item.requiredReferralCount}人達成`, item.users, '人']), ['特典付与', data.summary.rewardsGranted, '枚'], ['特典使用', data.summary.rewardsUsed, '枚']].map(([label, count, unit]) => <section className="stat" key={String(label)}><span>{label}</span><strong>{count}<small>{unit}</small></strong></section>)}</div>

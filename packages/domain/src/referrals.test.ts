@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adminReferralListQuerySchema, adminReferralListResponseSchema, lineOAuthStartSchema, memberReferralCodeSchema, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema, referralInvalidateSchema, referralRewardRedeemSchema, registrationSchema } from './index';
+import { adminReferralDetailResponseSchema, adminReferralListQuerySchema, adminReferralListResponseSchema, lineOAuthStartSchema, memberReferralCodeSchema, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema, referralInvalidateSchema, referralRewardRedeemSchema, registrationSchema } from './index';
 
 describe('referral input boundaries', () => {
   it('normalizes safe member referral codes without changing acquisition referral input', () => {
@@ -103,5 +103,26 @@ describe('referral input boundaries', () => {
     expect(parsed.recentReferrals[0].createdAt).toBe(response.recentReferrals[0].createdAt.toISOString());
     expect(adminReferralListResponseSchema.safeParse({ ...response, email: 'admin@example.test' }).success).toBe(false);
     expect(adminReferralListResponseSchema.safeParse({ ...response, items: [{ ...response.items[0], user: { ...response.items[0].user, authSubject: 'private-subject' } }] }).success).toBe(false);
+  });
+
+  it('defines the strict public response contract for GET /admin/referrals/:id', () => {
+    const response = {
+      id: '11111111-1111-4111-8111-111111111111',
+      referrerUserId: '22222222-2222-4222-8222-222222222222',
+      referredUserId: '33333333-3333-4333-8333-333333333333',
+      status: 'INVALIDATED' as const,
+      qualifiedAt: '2026-09-26T01:03:00.000Z',
+      invalidatedAt: new Date('2026-09-27T02:00:00.000Z'),
+      invalidatedReason: '不正登録を確認',
+      invalidatedById: '44444444-4444-4444-8444-444444444444',
+      createdAt: '2026-09-26T01:02:03.000Z',
+      referrer: { id: '22222222-2222-4222-8222-222222222222', displayName: '紹介者', referralCode: 'AB12CD34EF' },
+      referred: { id: '33333333-3333-4333-8333-333333333333', displayName: '被紹介者', registrationMethod: 'EMAIL', createdAt: '2026-09-26T01:01:00.000Z' },
+      invalidatedBy: { id: '44444444-4444-4444-8444-444444444444', displayName: '管理者' }
+    };
+    const parsed = adminReferralDetailResponseSchema.parse(response);
+    expect(parsed.invalidatedAt).toBe(response.invalidatedAt.toISOString());
+    expect(adminReferralDetailResponseSchema.safeParse({ ...response, email: 'member@example.test' }).success).toBe(false);
+    expect(adminReferralDetailResponseSchema.safeParse({ ...response, referred: { ...response.referred, lineSubject: 'private-line-subject' } }).success).toBe(false);
   });
 });

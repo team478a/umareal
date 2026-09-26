@@ -119,9 +119,37 @@ export const adminReferralListResponseSchema = z.object({
   total: z.number().int().nonnegative()
 }).strict();
 
+export const adminReferralDetailResponseSchema = z.object({
+  id: z.string().uuid(),
+  referrerUserId: z.string().uuid(),
+  referredUserId: z.string().uuid(),
+  status: z.enum(['PENDING', 'QUALIFIED', 'INVALIDATED']),
+  qualifiedAt: referralResponseDateTimeSchema.nullable(),
+  invalidatedAt: referralResponseDateTimeSchema.nullable(),
+  invalidatedReason: z.string().nullable(),
+  invalidatedById: z.string().uuid().nullable(),
+  createdAt: referralResponseDateTimeSchema,
+  referrer: z.object({
+    id: z.string().uuid(),
+    displayName: z.string().min(1),
+    referralCode: z.string().min(8).max(32).regex(/^[A-Z0-9_-]+$/)
+  }).strict(),
+  referred: z.object({
+    id: z.string().uuid(),
+    displayName: z.string().min(1),
+    registrationMethod: z.string().min(1),
+    createdAt: referralResponseDateTimeSchema
+  }).strict(),
+  invalidatedBy: z.object({
+    id: z.string().uuid(),
+    displayName: z.string().min(1)
+  }).strict().nullable()
+}).strict();
+
 export type MemberReferralMilestone = z.infer<typeof memberReferralMilestoneSchema>;
 export type MemberReferralReward = z.infer<typeof memberReferralRewardSchema>;
 export type MemberReferralRewards = z.infer<typeof memberReferralRewardsSchema>;
 export type MemberReferralRewardRedeemResponse = z.infer<typeof memberReferralRewardRedeemResponseSchema>;
 export type MemberReferralSummary = z.infer<typeof memberReferralSummarySchema>;
 export type AdminReferralListResponse = z.infer<typeof adminReferralListResponseSchema>;
+export type AdminReferralDetailResponse = z.infer<typeof adminReferralDetailResponseSchema>;
