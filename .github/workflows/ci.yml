@@ -46,21 +46,32 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.14'
-      - run: pnpm install --frozen-lockfile
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
       - name: Generate ephemeral test encryption key
-        run: node -e "require('fs').appendFileSync(process.env.GITHUB_ENV, 'ENCRYPTION_KEY=' + require('crypto').randomBytes(32).toString('base64') + '\n')"
-      - run: pnpm db:generate
-      - run: pnpm db:migrate
-      - run: pnpm --filter @keiba/domain build && pnpm --filter @keiba/db build
-      - run: pnpm typecheck
-      - run: pnpm lint
-      - run: pnpm test
-      - run: python -m unittest discover -s tools/jra_van_bridge/tests -t . -v
-      - run: pnpm build
+        run: node -e "const key = require('crypto').randomBytes(32).toString('base64'); console.log('::add-mask::' + key); require('fs').appendFileSync(process.env.GITHUB_ENV, 'ENCRYPTION_KEY=' + key + '\n')"
+      - name: Generate Prisma client
+        run: pnpm db:generate
+      - name: Apply migrations to fresh CI database
+        run: pnpm db:migrate
+      - name: Build shared domain and database packages
+        run: pnpm --filter @keiba/domain build && pnpm --filter @keiba/db build
+      - name: Typecheck all workspaces
+        run: pnpm typecheck
+      - name: Lint repository
+        run: pnpm lint
+      - name: Unit tests and deployment preflight tests
+        run: pnpm test
+      - name: JRA-VAN bridge unit tests
+        run: python -m unittest discover -s tools/jra_van_bridge/tests -t . -v
+      - name: Build all workspaces
+        run: pnpm build
       - name: Build production container image
         run: docker build --tag umareal:ci .
-      - run: node scripts/check-production-guard.mjs
-      - run: pnpm exec playwright install --with-deps chromium
+      - name: Verify unsafe production modes fail closed
+        run: node scripts/check-production-guard.mjs
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
       - name: Start test services
         run: |
           mkdir -p .local
@@ -68,8 +79,38 @@ jobs:
           echo $! > .local/api.pid
           pnpm --filter @keiba/web start > .local/web.log 2>&1 &
           node scripts/wait-services.mjs
-      - run: pnpm test:integration
-      - name: Restart API between independent test stages
+      - name: Database and API integration tests with local transports
+        run: pnpm test:integration
+      - name: Restart API in local Stripe webhook mode
+        env:
+          BILLING_TRANSPORT: stripe
+          STRIPE_LIVE_MODE: 'false'
+          STRIPE_SECRET_KEY: sk_test_ci_local_signature_only
+          STRIPE_WEBHOOK_SECRET: whsec_ci_local_signature_only
+          STRIPE_PRICE_FOUNDER: price_ci_founder
+          STRIPE_PRICE_STANDARD: price_ci_standard
+          STRIPE_PRICE_DAY_PASS: price_ci_day_pass
+        run: |
+          api_test_pid="$(cat .local/api.pid)"
+          kill "$api_test_pid"
+          for attempt in $(seq 1 50); do
+            if ! kill -0 "$api_test_pid" 2>/dev/null; then break; fi
+            sleep 0.2
+          done
+          (cd apps/api && exec node dist/main.js) > .local/api-stripe-local.log 2>&1 &
+          echo $! > .local/api.pid
+          node scripts/wait-services.mjs
+      - name: Stripe webhook integration tests without external Stripe calls
+        env:
+          BILLING_TRANSPORT: stripe
+          STRIPE_LIVE_MODE: 'false'
+          STRIPE_SECRET_KEY: sk_test_ci_local_signature_only
+          STRIPE_WEBHOOK_SECRET: whsec_ci_local_signature_only
+          STRIPE_PRICE_FOUNDER: price_ci_founder
+          STRIPE_PRICE_STANDARD: price_ci_standard
+          STRIPE_PRICE_DAY_PASS: price_ci_day_pass
+        run: pnpm test:integration:stripe-local
+      - name: Restart API in local test transport mode for browser tests
         run: |
           api_test_pid="$(cat .local/api.pid)"
           kill "$api_test_pid"
@@ -79,7 +120,8 @@ jobs:
           done
           (cd apps/api && exec node dist/main.js) > .local/api-e2e.log 2>&1 &
           node scripts/wait-services.mjs
-      - run: pnpm test:e2e
+      - name: Browser E2E on desktop and mobile viewports
+        run: pnpm test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

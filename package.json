@@ -18,6 +18,7 @@
     "lint": "eslint . --max-warnings=0",
     "test": "vitest run && node --test scripts/deployment-preflight.test.mjs",
     "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:integration:stripe-local": "node scripts/run-required-vitest.mjs --config vitest.integration.config.ts tests/stripe-billing.integration.test.ts",
     "test:e2e": "playwright test",
     "build": "pnpm -r build",
     "db:generate": "pnpm --filter @keiba/db generate",
