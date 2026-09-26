@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adminNotificationListResponseSchema, notificationIdempotencyKey, notificationListQuerySchema, notificationRetrySchema, notificationTestSendSchema, retryDelayMs } from './notifications';
+import { adminNotificationListResponseSchema, adminNotificationTestOptionsResponseSchema, notificationIdempotencyKey, notificationListQuerySchema, notificationRetrySchema, notificationTestSendSchema, retryDelayMs } from './notifications';
 
 describe('notification operations rules', () => {
   it('builds a recipient and version scoped idempotency key', () => {
@@ -62,5 +62,18 @@ describe('notification operations rules', () => {
     expect(parsed.emailWebhook.recent[0]?.receivedAt).toBe(now.toISOString());
     expect(adminNotificationListResponseSchema.safeParse({ ...response, databaseUrl: 'postgres://secret' }).success).toBe(false);
     expect(adminNotificationListResponseSchema.safeParse({ ...response, items: [{ ...response.items[0], user: { ...response.items[0].user, authSubject: 'secret-subject' } }] }).success).toBe(false);
+  });
+  it('keeps administrator test options free of recipient addresses and provider identities', () => {
+    const id = '11111111-1111-4111-8111-111111111111';
+    const response = {
+      channels: { email: true, line: false },
+      races: [{ id, raceDate: '2026-09-27', venue: '中山', number: 11, name: 'テスト競走' }],
+      products: [{ id, targetDate: '2026-09-27', title: 'WIN5紙面', status: 'DRAFT' }],
+      subscriptions: [{ id, planCode: 'STANDARD', status: 'ACTIVE', currentPeriodEndsAt: new Date('2026-10-27T00:00:00.000Z'), user: { displayName: '表示名' } }]
+    };
+    const parsed = adminNotificationTestOptionsResponseSchema.parse(response);
+    expect(parsed.subscriptions[0]?.currentPeriodEndsAt).toBe('2026-10-27T00:00:00.000Z');
+    expect(adminNotificationTestOptionsResponseSchema.safeParse({ ...response, email: 'admin@example.test' }).success).toBe(false);
+    expect(adminNotificationTestOptionsResponseSchema.safeParse({ ...response, subscriptions: [{ ...response.subscriptions[0], user: { displayName: '表示名', lineSubject: 'secret-subject' } }] }).success).toBe(false);
   });
 });

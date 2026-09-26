@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { adminNotificationTestOptionsResponseSchema } from '../packages/domain/src';
 import { account, Client, db } from './helpers';
 
 beforeAll(() => { const url = new URL(process.env.DATABASE_URL ?? ''); if (!['localhost', '127.0.0.1'].includes(url.hostname) || process.env.AUTH_PROVIDER !== 'local') throw new Error('Integration suite is limited to a local development database'); });
@@ -8,7 +9,9 @@ afterAll(() => db.$disconnect());
 describe('extended administrator notification tests', () => {
   it('tests race, WIN5 and billing messages without publishing or creating member deliveries', async () => {
     const suffix = randomUUID().slice(0, 8);
-    const admin = await account('ADMIN'); const member = await account(); const client = new Client(); await client.login(admin); await client.mfa();
+    const admin = await account('ADMIN'); const member = await account(); const client = new Client(); await client.login(admin);
+    expect((await client.call('admin/notifications/test-options')).body.code).toBe('MFA_REQUIRED');
+    await client.mfa();
     await db.systemSetting.update({ where: { id: 'global' }, data: { emailNotificationsEnabled: true, lineNotificationsEnabled: false } });
 
     const latestProduct = await db.predictionProduct.findFirst({ orderBy: { targetDate: 'desc' }, select: { targetDate: true } });
@@ -30,9 +33,13 @@ describe('extended administrator notification tests', () => {
 
     const options = await client.call('admin/notifications/test-options');
     expect(options.status).toBe(200);
-    expect(options.body.races).toEqual(expect.arrayContaining([expect.objectContaining({ id: race.id })]));
-    expect(options.body.products).toEqual(expect.arrayContaining([expect.objectContaining({ id: product.id })]));
-    expect(options.body.subscriptions).toEqual(expect.arrayContaining([expect.objectContaining({ id: subscription.id })]));
+    const parsedOptions = adminNotificationTestOptionsResponseSchema.parse(options.body);
+    expect(parsedOptions.races).toEqual(expect.arrayContaining([expect.objectContaining({ id: race.id })]));
+    expect(parsedOptions.products).toEqual(expect.arrayContaining([expect.objectContaining({ id: product.id })]));
+    expect(parsedOptions.subscriptions).toEqual(expect.arrayContaining([expect.objectContaining({ id: subscription.id })]));
+    expect(JSON.stringify(options.body)).not.toMatch(/@|lineSubject|authSubject|token|secret|password/i);
+    const operator = new Client(); await operator.login(await account('OPERATOR')); expect((await operator.call('admin/notifications/test-options')).status).toBe(403);
+    const memberClient = new Client(); await memberClient.login(await account('MEMBER')); expect((await memberClient.call('admin/notifications/test-options')).status).toBe(403);
 
     const beforeEvents = await db.notificationEvent.count();
     const cases = [

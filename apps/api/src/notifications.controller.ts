@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req, ServiceUnavailableException } from '@nestjs/common';
-import { adminNotificationListResponseSchema, buildBillingLineMessage, buildPredictionLineMessage, buildWin5LineMessage, canManage, notificationListQuerySchema, notificationRetrySchema, notificationTestSendSchema, publishablePredictionSchema, requiresMfa } from '@keiba/domain';
+import { adminNotificationListResponseSchema, adminNotificationTestOptionsResponseSchema, buildBillingLineMessage, buildPredictionLineMessage, buildWin5LineMessage, canManage, notificationListQuerySchema, notificationRetrySchema, notificationTestSendSchema, publishablePredictionSchema, requiresMfa } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { decryptSecret, loadMailConfig, notificationRecipientWhere, Prisma } from '@keiba/db';
@@ -142,13 +142,13 @@ export class NotificationsController {
       this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { lineNotificationsEnabled: true, emailNotificationsEnabled: true } }),
       this.auth.db.user.findUniqueOrThrow({ where: { id: actor.id }, select: { email: true, emailVerifiedAt: true, emailDeliveryDisabledAt: true, lineAccount: { select: { unlinkedAt: true, notificationDisabledAt: true } } } })
     ]);
-    return {
+    return adminNotificationTestOptionsResponseSchema.parse({
       channels: {
         email: settings.emailNotificationsEnabled && !!user.email && !!user.emailVerifiedAt && !user.emailDeliveryDisabledAt,
         line: settings.lineNotificationsEnabled && !!user.lineAccount && !user.lineAccount.unlinkedAt && !user.lineAccount.notificationDisabledAt
       },
       races, products, subscriptions
-    };
+    });
   }
 
   @Get('previews/race-announcement')

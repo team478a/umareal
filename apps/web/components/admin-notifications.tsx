@@ -3,15 +3,9 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { RefreshCw, RotateCcw } from 'lucide-react';
-import type { AdminNotificationListResponse } from '@keiba/domain';
+import type { AdminNotificationListResponse, AdminNotificationTestOptionsResponse } from '@keiba/domain';
 
 type TestContentType = 'RACE_PREDICTION' | 'WIN5_PREDICTION' | 'BILLING_PAYMENT_SUCCEEDED' | 'BILLING_PAYMENT_FAILED' | 'BILLING_PAYMENT_RECOVERED' | 'BILLING_CANCELLATION_SCHEDULED' | 'BILLING_SUBSCRIPTION_ENDED';
-type TestOptions = {
-  channels: { email: boolean; line: boolean };
-  races: { id: string; raceDate: string; venue: string; number: number; name: string }[];
-  products: { id: string; targetDate: string; title: string; status: string }[];
-  subscriptions: { id: string; planCode: string; status: string; currentPeriodEndsAt: string; user: { displayName: string } }[];
-};
 const labels: Record<string, string> = { QUEUED: '送信待ち', SENDING: '送信中', SENT: '送信済み', FAILED: '失敗', SKIPPED: '対象外', TRANSIENT_FAILURE: '一時失敗', PERMANENT_FAILURE: '恒久失敗' };
 const summaryStatuses = ['QUEUED', 'SENDING', 'SENT', 'FAILED', 'SKIPPED'] as const;
 const formatDate = (value: string) => new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(value));
@@ -22,10 +16,10 @@ export function AdminNotifications({ canTest }: { canTest: boolean }) {
   const [data, setData] = useState<AdminNotificationListResponse>({ items: [], total: 0, page: 1, limit: 20, channel: null, raceId: null, counts: {}, webhook: { lastReceivedAt: null, lastEventType: null, lastOutcome: null, received24h: 0, unmatched24h: 0, blockedAccounts: 0 }, emailWebhook: { lastReceivedAt: null, lastEventType: null, lastOutcome: null, received24h: 0, actionRequired24h: 0, blockedAccounts: 0, recent: [], blockedMembers: [] } });
   const [status, setStatus] = useState(''); const [channel, setChannel] = useState(''); const [page, setPage] = useState(1); const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [loading, setLoading] = useState(true);
   const [reasons, setReasons] = useState<Record<string, string>>({}); const [busy, setBusy] = useState('');
-  const [testOptions, setTestOptions] = useState<TestOptions | null>(null); const [testType, setTestType] = useState<TestContentType>('RACE_PREDICTION'); const [testTarget, setTestTarget] = useState(''); const [testReason, setTestReason] = useState('');
+  const [testOptions, setTestOptions] = useState<AdminNotificationTestOptionsResponse | null>(null); const [testType, setTestType] = useState<TestContentType>('RACE_PREDICTION'); const [testTarget, setTestTarget] = useState(''); const [testReason, setTestReason] = useState('');
   const load = useCallback(async () => { setLoading(true); setError(''); try { setData(await api<AdminNotificationListResponse>(`admin/notifications?page=${page}${status ? `&status=${status}` : ''}${channel ? `&channel=${channel}` : ''}${raceId ? `&raceId=${raceId}` : ''}`)); } catch (e) { setError((e as Error).message); } finally { setLoading(false); } }, [page, status, channel, raceId]);
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { if (canTest) void api<TestOptions>('admin/notifications/test-options').then(setTestOptions).catch(e => setError((e as Error).message)); }, [canTest]);
+  useEffect(() => { if (canTest) void api<AdminNotificationTestOptionsResponse>('admin/notifications/test-options').then(setTestOptions).catch(e => setError((e as Error).message)); }, [canTest]);
   async function retry(id: string) { setBusy(id); setError(''); setMessage(''); try { await api(`admin/notifications/${id}/retry`, 'POST', { reason: reasons[id] ?? '' }); setMessage('再送を受け付けました。次回のワーカー実行で処理します。'); await load(); } catch (e) { setError((e as Error).message); } finally { setBusy(''); } }
   async function releaseEmailBlock(id: string) { setBusy(id); setError(''); setMessage(''); try { await api(`admin/notifications/email-blocks/${id}/release`, 'POST', { reason: reasons[id] ?? '' }); setMessage('配信停止を解除しました。会員本人がメール通知を再度有効にするまで送信されません。'); await load(); } catch (e) { setError((e as Error).message); } finally { setBusy(''); } }
   async function sendOperationalTest(channel: 'EMAIL' | 'LINE') {
