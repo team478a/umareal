@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { emptyPredictionDraft, evaluationConfidences, finalMarks, publicationVisibilities, type PredictionDraft, type PublicPredictionFullVersion, type PublicPredictionResponse } from '@keiba/domain';
+import { emptyPredictionDraft, evaluationConfidences, finalMarks, publicationVisibilities, type PredictionDraft, type PublicFreeReportMetadataResponse, type PublicPredictionFullVersion, type PublicPredictionResponse } from '@keiba/domain';
 import { RaceResultPanel } from './results';
 
 type Entry = { id: string; number: number; horseName: string; status: string; assessment?: { content: { change?: string | null; paddockComment?: string } } | null };
@@ -88,12 +88,11 @@ export function PredictionEditor({ raceId }: { raceId: string }) {
   </div>}</section>;
 }
 
-type FreeReportMetadata = { versions: { id: string; version: number; kind: 'PRE_RACE' | 'POST_RACE_REVIEW'; publishedAt: string }[] };
 export function PublishedPrediction({ raceId }: { raceId: string }) {
-  const [result, setResult] = useState<PublicPredictionResponse | null>(null); const [freeReport, setFreeReport] = useState<FreeReportMetadata | null>(null); const [error, setError] = useState(''); const [selected, setSelected] = useState(0);
+  const [result, setResult] = useState<PublicPredictionResponse | null>(null); const [freeReport, setFreeReport] = useState<PublicFreeReportMetadataResponse | null>(null); const [error, setError] = useState(''); const [selected, setSelected] = useState(0);
   useEffect(() => {
     fetch(`/api/v1/races/${raceId}/prediction`, { cache: 'no-store' }).then(async response => { const value = await response.json(); if (!response.ok) throw new Error(value.message); setResult(value as PublicPredictionResponse); }).catch(e => setError(e.message));
-    fetch(`/api/v1/races/${raceId}/free-report`, { cache: 'no-store' }).then(async response => response.ok ? setFreeReport(await response.json()) : undefined).catch(() => undefined);
+    fetch(`/api/v1/races/${raceId}/free-report`, { cache: 'no-store' }).then(async response => response.ok ? setFreeReport(await response.json() as PublicFreeReportMetadataResponse) : undefined).catch(() => undefined);
   }, [raceId]);
   if (error) return <div className="notice error" role="alert">{error}</div>;
   if (!result) return <p role="status">予想を読み込み中…</p>;

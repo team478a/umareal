@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { freeReportNotificationPreviewResponseSchema, publicFreeMemberBenefitResponseSchema } from '../packages/domain/src';
+import { freeReportNotificationPreviewResponseSchema, publicFreeMemberBenefitResponseSchema, publicFreeReportMetadataResponseSchema } from '../packages/domain/src';
 import { runNotificationBatch } from '../apps/worker/src/notification-runner';
 import type { NotificationTransport } from '../apps/worker/src/notification-runner';
 import { account, base, Client, db, origin } from './helpers';
@@ -40,6 +40,8 @@ describe('LP free member offer', () => {
   it('publishes a safe append-only free report and sends its notification', async () => {
     const target = await fixture();
     expect((await new Client().call(`races/${target.race.id}/free-report`)).status).toBe(401);
+    const emptyMemberView = publicFreeReportMetadataResponseSchema.parse((await target.memberClient.call(`races/${target.race.id}/free-report`)).body);
+    expect(emptyMemberView).toMatchObject({ race: { id: target.race.id, raceDate: target.race.raceDate }, versions: [] });
     const audioBytes = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x42, 0x86, 0x81, 0x01]);
     expect((await fetch(`${base}/api/v1/admin/free-reports/audio`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'audio/webm' }, body: audioBytes })).status).toBe(401);
     const uploadResponse = await fetch(`${base}/api/v1/admin/free-reports/audio`, { method: 'POST', headers: { Origin: origin, Cookie: target.adminClient.cookie, 'Content-Type': 'audio/webm' }, body: audioBytes });
@@ -64,8 +66,8 @@ describe('LP free member offer', () => {
     const published = await target.adminClient.call(`admin/free-reports/races/${target.race.id}/publish`, 'POST', { revision: 1, kind: 'PRE_RACE', reason: '会員へ公開' }, undefined, { 'Idempotency-Key': randomUUID() });
     expect(published.status).toBe(201); expect(published.body.kind).toBe('PRE_RACE');
     const memberView = await target.memberClient.call(`races/${target.race.id}/free-report`);
-    expect(memberView.status).toBe(200); expect(memberView.body.versions[0]).toMatchObject({ kind: 'PRE_RACE', version: 1 });
-    expect(JSON.stringify(memberView.body)).not.toMatch(/upHorse|downHorse|Reason|audioUrl|reviewText|買い目|estimatedTotalYen|HONMEI/);
+    expect(memberView.status).toBe(200); const memberViewBody = publicFreeReportMetadataResponseSchema.parse(memberView.body); expect(memberViewBody.versions[0]).toMatchObject({ kind: 'PRE_RACE', version: 1 });
+    expect(JSON.stringify(memberViewBody)).not.toMatch(/upHorse|downHorse|Reason|audioUrl|reviewText|買い目|estimatedTotalYen|HONMEI/);
     const audioResponse = await fetch(`${base}${upload.url}`, { headers: { Cookie: target.memberClient.cookie, Range: 'bytes=0-3' } });
     expect(audioResponse.status).toBe(404);
     const version = await db.freeReportVersion.findUniqueOrThrow({ where: { id: published.body.id } });
