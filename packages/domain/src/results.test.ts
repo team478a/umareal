@@ -1,9 +1,37 @@
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { aggregatePerformances, getResultDataProvider, legacyRaceResultInputSchema, parseBatchResultCsv, parseResultCsv, resultDataProviderCatalog, settlePrediction, verifyJraVanResultBundle } from './results';
+import { aggregatePerformances, getResultDataProvider, legacyRaceResultInputSchema, parseBatchResultCsv, parseResultCsv, publicRaceResultResponseSchema, resultDataProviderCatalog, settlePrediction, verifyJraVanResultBundle } from './results';
 
 const entry = (entryId: string, finishPosition: number) => ({ entryId, status: 'FINISHED' as const, finishPosition, popularity: finishPosition, finalOdds: '2.5' });
+
+describe('public race result contract', () => {
+  it('distinguishes an unconfirmed race without exposing internal fields', () => {
+    expect(publicRaceResultResponseSchema.parse({ confirmed: false })).toEqual({ confirmed: false });
+    expect(() => publicRaceResultResponseSchema.parse({ confirmed: false, reason: '内部確認理由' })).toThrow();
+  });
+
+  it('normalizes dates and rejects internal result-version data', () => {
+    const entryId = crypto.randomUUID();
+    const value = {
+      confirmed: true as const,
+      version: 2,
+      ruleVersion: 'HORSE_EVALUATION_V1',
+      raceCanceled: false,
+      confirmedAt: new Date('2026-09-27T03:00:00.000Z'),
+      entries: [{ ...entry(entryId, 1), number: 6, horseName: 'テストホース' }],
+      evaluations: [{
+        status: 'PRIMARY_WIN', primaryFinishedFirst: true, primaryFinishedTop2: true, primaryFinishedTop3: true, winnerInRecommended: true,
+        predictionVersion: { version: 1, confidence: 'A', publishedAt: new Date('2026-09-26T08:00:00.000Z') }
+      }]
+    };
+    expect(publicRaceResultResponseSchema.parse(value)).toMatchObject({ confirmed: true, confirmedAt: '2026-09-27T03:00:00.000Z' });
+    expect(() => publicRaceResultResponseSchema.parse({ ...value, confirmedBy: crypto.randomUUID() })).toThrow();
+    expect(() => publicRaceResultResponseSchema.parse({ ...value, payoutsSnapshot: [] })).toThrow();
+    expect(() => publicRaceResultResponseSchema.parse({ ...value, evaluations: [{ ...value.evaluations[0], calculationRuleVersion: 'HORSE_EVALUATION_V1' }] })).toThrow();
+  });
+});
+
 describe('dormant legacy result settlement', () => {
   it('still verifies frozen historical bets and refunds', () => {
     const one = crypto.randomUUID(), two = crypto.randomUUID();
