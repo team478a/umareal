@@ -103,6 +103,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 通知テスト候補pilot: `GET /admin/notifications/test-options`の利用可能チャネル、通常予想、WIN5商品、月額契約の既存応答を共有Contractへ接続する。候補抽出条件、ADMIN+AAL2認可、テスト送信処理、宛先非公開は変更しない。
 - 対象レース告知preview pilot: `GET /admin/notifications/previews/race-announcement`の既存応答を共有Contractへ接続する。対象人数の算出、ADMINのAAL2要件とOPERATORの既存認可、締切、本文、公開処理、画面表示は変更しない。無料速報previewはこのphaseに含めない。
 - 無料速報preview pilot: `GET /admin/notifications/previews/free-report`の発走前速報・レース後検証の既存応答を共有Contractへ接続し、配信前確認UIの手書きAPI型を共有型へ置き換える。下書き検証、公開条件、対象人数、本文、認可、公開処理、画面表示は変更しない。
+- 通知テスト送信応答pilot: `POST /admin/notifications/test-send`の成功応答と冪等再送の保存済み応答を同じ共有Contractへ接続し、通知管理・無料速報・配信予約画面の重複型を置き換える。宛先、送信処理、ADMIN+AAL2認可、監査、画面表示は変更しない。
 
 ### MA-007 CIジョブ構成
 

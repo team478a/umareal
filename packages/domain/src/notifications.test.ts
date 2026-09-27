@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adminNotificationListResponseSchema, adminNotificationTestOptionsResponseSchema, freeReportNotificationPreviewResponseSchema, notificationIdempotencyKey, notificationListQuerySchema, notificationRetrySchema, notificationTestSendSchema, raceAnnouncementNotificationPreviewResponseSchema, retryDelayMs } from './notifications';
+import { adminNotificationListResponseSchema, adminNotificationTestOptionsResponseSchema, freeReportNotificationPreviewResponseSchema, notificationIdempotencyKey, notificationListQuerySchema, notificationRetrySchema, notificationTestSendResponseSchema, notificationTestSendSchema, raceAnnouncementNotificationPreviewResponseSchema, retryDelayMs } from './notifications';
 
 describe('notification operations rules', () => {
   it('builds a recipient and version scoped idempotency key', () => {
@@ -32,6 +32,15 @@ describe('notification operations rules', () => {
     expect(notificationTestSendSchema.parse({ ...common, contentType: 'BILLING_PAYMENT_FAILED', subscriptionId: id })).toMatchObject({ subscriptionId: id });
     expect(() => notificationTestSendSchema.parse({ ...common, contentType: 'WIN5_PREDICTION', raceId: id })).toThrow();
     expect(() => notificationTestSendSchema.parse({ ...common, contentType: 'BILLING_PAYMENT_FAILED', productId: id })).toThrow();
+  });
+  it('normalizes the test-send response and rejects recipient or provider details', () => {
+    const response = {
+      status: 'SIMULATED', channel: 'EMAIL', transport: 'TEST_ONLY', contentLabel: '対象レース告知', version: 2,
+      sentAt: new Date('2026-09-27T00:00:00.000Z')
+    } as const;
+    expect(notificationTestSendResponseSchema.parse(response)).toEqual({ ...response, sentAt: '2026-09-27T00:00:00.000Z' });
+    expect(notificationTestSendResponseSchema.safeParse({ ...response, recipient: 'admin@example.test' }).success).toBe(false);
+    expect(notificationTestSendResponseSchema.safeParse({ ...response, providerRequestId: 'secret-provider-id' }).success).toBe(false);
   });
   it('normalizes the admin list response and rejects fields outside the public contract', () => {
     const id = '11111111-1111-4111-8111-111111111111';
