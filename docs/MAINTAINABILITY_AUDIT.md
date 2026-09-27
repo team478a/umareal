@@ -125,6 +125,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 会員向け無料速報メタデータpilot: `GET /races/:raceId/free-report`のレース基本情報と公開版番号・種別・時刻の既存応答を共有Contractへ接続し、会員向け予想画面の手書き応答型を置き換える。会員認証、公開処理、画面表示、DB schemaは変更せず、馬名・馬番・評価理由・音声・検証本文は会員Contractに含めない。
 - 無料速報管理レース一覧pilot: `GET /admin/free-reports/races`の開催日別レース基本情報、下書きrevision、最新公開版メタデータの既存応答を共有Contractへ接続し、無料会員向け配信管理画面の手書き応答型を置き換える。ADMIN+AAL2とOPERATORの既存認可、対象抽出、画面表示、公開処理、DB schemaは変更せず、出走馬・評価理由・音声・検証本文・更新者情報は一覧Contractに含めない。
 - 無料速報管理レース詳細pilot: `GET /admin/free-reports/races/:raceId`のレース、出走馬、下書き、公開履歴、結果確定メタデータの既存応答を共有Contractへ接続し、無料会員向け配信管理画面の手書き応答型を置き換える。Prisma modelをContractとして公開せず明示的なselectを使用する。ADMIN+AAL2とOPERATORの既存認可、入力内容、画面表示、保存・公開処理、DB schemaは変更しない。
+- 無料速報管理更新pilot: 音声アップロード、下書き保存、初版・レース後検証公開と冪等再送の既存成功応答を共有Contractへ接続し、管理画面の手書き応答型を置き換える。取得列を明示し、音声形式もAPIとContractで共有する。音声内容検証、公開条件、締切、監査、通知event、画面表示、DB schemaは変更しない。
 
 ### MA-007 CIジョブ構成
 
