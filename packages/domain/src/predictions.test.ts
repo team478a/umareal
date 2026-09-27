@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { emptyPredictionDraft, legacyPredictionDraftSchema, predictionDraftSchema, publishablePredictionSchema, totalYenFor } from './predictions';
+import { emptyPredictionDraft, legacyPredictionDraftSchema, predictionDraftSchema, publicPredictionResponseSchema, publishablePredictionSchema, totalYenFor } from './predictions';
 
 const entryId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const current = { ...emptyPredictionDraft, visibility: 'PAID' as const, confidence: 'A' as const, summary: '展開と適性を評価', marks: [{ entryId, mark: 'HONMEI' as const, reason: '最終本命として評価' }] };
@@ -29,5 +29,34 @@ describe('dormant legacy betting validation', () => {
     expect(legacyPredictionDraftSchema.safeParse(legacy).success).toBe(true);
     expect(totalYenFor(legacy)).toBe(1000);
     expect(predictionDraftSchema.safeParse(legacy).success).toBe(false);
+  });
+});
+
+describe('public prediction response contract', () => {
+  const race = { id: '11111111-1111-4111-8111-111111111111', name: '公開予想試験', venue: '中山', number: 11, startsAt: new Date('2026-09-27T06:00:00.000Z') };
+  const metadata = {
+    id: '22222222-2222-4222-8222-222222222222', version: 1, status: 'PUBLISHED' as const, visibility: 'PAID' as const,
+    publishedAt: new Date('2026-09-27T05:00:00.000Z'), previousVersionId: null
+  };
+
+  it('keeps unpublished and locked responses free of prediction details', () => {
+    const unpublished = publicPredictionResponseSchema.parse({ race, latest: null, versions: [], total: 0, page: 1, limit: 20, locked: false });
+    expect(unpublished.race.startsAt).toBe('2026-09-27T06:00:00.000Z');
+    const locked = { ...metadata, locked: true as const };
+    expect(publicPredictionResponseSchema.parse({ race, latest: locked, versions: [locked], total: 1, page: 1, limit: 20, locked: true }).latest?.locked).toBe(true);
+    expect(publicPredictionResponseSchema.safeParse({ race, latest: { ...locked, summary: '非公開本文' }, versions: [locked], total: 1, page: 1, limit: 20, locked: true }).success).toBe(false);
+  });
+
+  it('normalizes full versions while rejecting database-only prediction fields', () => {
+    const full = {
+      ...metadata, locked: false as const, confidence: 'A' as const, formatVersion: 'HORSE_EVALUATION_V1', summary: '公開本文', assessmentSnapshot: {},
+      publisherId: '33333333-3333-4333-8333-333333333333', deadlineAt: new Date('2026-09-27T06:00:00.000Z'), correctionReason: null,
+      marks: [{ id: '44444444-4444-4444-8444-444444444444', versionId: metadata.id, entryId, horseId: '55555555-5555-4555-8555-555555555555', horseNumber: 6, horseName: '試験馬', mark: 'HONMEI' as const, reason: '中心馬として評価' }]
+    };
+    const response = { race, latest: full, versions: [full], total: 1, page: 1, limit: 20, locked: false };
+    const parsed = publicPredictionResponseSchema.parse(response);
+    expect(parsed.latest?.publishedAt).toBe('2026-09-27T05:00:00.000Z');
+    expect(publicPredictionResponseSchema.safeParse({ ...response, latest: { ...full, contentSnapshot: { secret: true } } }).success).toBe(false);
+    expect(publicPredictionResponseSchema.safeParse({ ...response, latest: { ...full, bets: [{ amountPerPointYen: 100 }] } }).success).toBe(false);
   });
 });

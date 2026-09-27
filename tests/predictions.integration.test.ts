@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { emptyPredictionDraft } from '../packages/domain/src';
+import { emptyPredictionDraft, publicPredictionResponseSchema } from '../packages/domain/src';
 import type { PredictionDraft } from '../packages/domain/src';
 import { assessmentFixture } from './assessment-fixtures';
 import { Client, db } from './helpers';
@@ -30,6 +30,7 @@ describe('prediction drafts, publication and immutable versions', () => {
     const fixture = await assessmentFixture(); const saved = await save(fixture); expect(saved.result.status).toBe(201);
     const checked = await preview(fixture, 1); expect(checked.status).toBe(201); expect(checked.body.totalYen).toBeUndefined(); expect(checked.body.points).toBeUndefined();
     expect(await db.predictionVersion.count({ where: { predictionId: saved.result.body.id } })).toBe(0);
+    const unpublished = await new Client().call(`races/${fixture.race.id}/prediction`); expect(unpublished.status).toBe(200); expect(publicPredictionResponseSchema.parse(unpublished.body)).toMatchObject({ race: { id: fixture.race.id }, latest: null, versions: [], total: 0, locked: false });
     const path = `expert/races/${fixture.race.id}/prediction/publish/${checked.body.previewId}`;
     const published = await fixture.client.call(path, 'POST'); expect(published.status).toBe(201); expect(published.body.version).toBe(1);
     expect((await fixture.client.call(path, 'POST')).body.alreadyPublished).toBe(true);
@@ -54,9 +55,9 @@ describe('prediction drafts, publication and immutable versions', () => {
   });
   it('redacts paid content without entitlement and returns it only inside the active period', async () => {
     const fixture = await assessmentFixture(); const saved = await save(fixture, draftFor(fixture.entries[0].id, 'PAID')); const checked = await preview(fixture, saved.result.body.revision); await fixture.client.call(`expert/races/${fixture.race.id}/prediction/publish/${checked.body.previewId}`, 'POST');
-    const anonymous = await new Client().call(`races/${fixture.race.id}/prediction`); expect(anonymous.body.locked).toBe(true); expect(anonymous.body.latest.summary).toBeUndefined(); expect(anonymous.body.latest.marks).toBeUndefined();
+    const anonymous = await new Client().call(`races/${fixture.race.id}/prediction`); const anonymousBody = publicPredictionResponseSchema.parse(anonymous.body); expect(anonymousBody.locked).toBe(true); expect(anonymousBody.latest).toMatchObject({ locked: true }); expect(JSON.stringify(anonymousBody)).not.toMatch(/結合試験の最終見解|総合評価|assessmentSnapshot|summary|marks|deadlineAt|publisherId/);
     const member = await assessmentFixture('MEMBER'); const now = new Date(); await db.entitlement.create({ data: { userId: member.owner.user.id, planCode: 'TEST', startsAt: new Date(now.getTime() - 1000), endsAt: new Date(now.getTime() + 3600000), raceDate: fixture.race.raceDate, reason: '閲覧結合試験', grantedBy: member.owner.user.id } });
-    const allowed = await member.client.call(`races/${fixture.race.id}/prediction`); expect(allowed.body.locked).toBe(false); expect(allowed.body.latest.summary).toBe('結合試験の最終見解'); expect(JSON.stringify(allowed.body)).not.toMatch(/betType|amountPerPointYen|estimatedTotalYen/);
+    const allowed = await member.client.call(`races/${fixture.race.id}/prediction`); const allowedBody = publicPredictionResponseSchema.parse(allowed.body); expect(allowedBody.locked).toBe(false); expect(allowedBody.latest).toMatchObject({ locked: false, summary: '結合試験の最終見解' }); expect(JSON.stringify(allowedBody)).not.toMatch(/betType|amountPerPointYen|estimatedTotalYen|contentSnapshot|passwordHash|authSubject/);
   });
   it('keeps detailed horse information restricted even when legacy visibility says FREE', async () => {
     const paidFirst = await assessmentFixture();

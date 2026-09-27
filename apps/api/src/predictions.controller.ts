@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req, UnauthorizedException } from '@nestjs/common';
-import { assessmentSchema, canEditRace, canReadPrediction, legacyPredictionDraftSchema, paddockComplete, predictionDraftSchema, predictionSaveSchema, publishablePredictionSchema, publishPreviewSchema } from '@keiba/domain';
+import { assessmentSchema, canEditRace, canReadPrediction, legacyPredictionDraftSchema, paddockComplete, predictionDraftSchema, predictionSaveSchema, publicPredictionResponseSchema, publishablePredictionSchema, publishPreviewSchema } from '@keiba/domain';
 import type { PredictionDraft } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -128,9 +128,10 @@ export class PredictionsController {
     z.string().uuid().parse(raceId); const { page } = z.object({ page: z.coerce.number().int().min(1).max(10000).default(1) }).parse(query);
     const race = await this.auth.db.race.findUnique({ where: { id: raceId }, include: { assignments: true, prediction: true } });
     if (!race) throw new NotFoundException();
-    if (!race.prediction) return { race: { id: race.id, name: race.name, venue: race.venue, number: race.number, startsAt: race.startsAt }, latest: null, versions: [], total: 0, page, limit: 20, locked: false };
+    const raceSummary = { id: race.id, name: race.name, venue: race.venue, number: race.number, startsAt: race.startsAt };
+    if (!race.prediction) return publicPredictionResponseSchema.parse({ race: raceSummary, latest: null, versions: [], total: 0, page, limit: 20, locked: false });
     const [latest, pageVersions, total] = await this.auth.db.$transaction([this.auth.db.predictionVersion.findFirst({ where: { predictionId: race.prediction.id }, orderBy: { version: 'desc' }, select: versionSelect }), this.auth.db.predictionVersion.findMany({ where: { predictionId: race.prediction.id }, orderBy: { version: 'desc' }, take: 20, skip: (page - 1) * 20, select: versionSelect }), this.auth.db.predictionVersion.count({ where: { predictionId: race.prediction.id } })]);
-    if (!latest) return { latest: null, versions: [], total: 0, page, limit: 20, locked: false };
+    if (!latest) return publicPredictionResponseSchema.parse({ race: raceSummary, latest: null, versions: [], total: 0, page, limit: 20, locked: false });
     let identity: AuthContext | null = null;
     try { identity = await this.auth.authenticate(req); } catch (error) { if (!(error instanceof UnauthorizedException)) throw error; }
     const staffAccess = (identity?.role === 'ADMIN' && identity.aal === 2) || (identity?.role === 'EXPERT' && canEditRace(identity, race.assignments.map(a => a.userId)));
@@ -140,6 +141,6 @@ export class PredictionsController {
       ? { ...version, locked: false }
       : { id: version.id, version: version.version, status: version.status, visibility: version.visibility, publishedAt: version.publishedAt, previousVersionId: version.previousVersionId, locked: true };
     const visibleLatest = redact(latest);
-    return { race: { id: race.id, name: race.name, venue: race.venue, number: race.number, startsAt: race.startsAt }, latest: visibleLatest, versions: pageVersions.map(redact), total, page, limit: 20, locked: visibleLatest.locked };
+    return publicPredictionResponseSchema.parse({ race: raceSummary, latest: visibleLatest, versions: pageVersions.map(redact), total, page, limit: 20, locked: visibleLatest.locked });
   }
 }
