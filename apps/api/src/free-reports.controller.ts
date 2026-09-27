@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
-import { canManage, dateSchema, freeMemberBenefitSchema, freeReportDraftSchema, freeReportPublishSchema, jstDate, requiresMfa } from '@keiba/domain';
+import { canManage, dateSchema, freeMemberBenefitSchema, freeReportDraftSchema, freeReportPublishSchema, jstDate, publicFreeMemberBenefitResponseSchema, requiresMfa } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import type { Response } from 'express';
 import { z } from 'zod';
@@ -168,7 +168,7 @@ export class MemberFreeReportsController {
   async benefit(@Req() req: AppRequest) {
     await this.auth.authenticate(req);
     const value = await this.auth.db.freeMemberBenefit.findUnique({ where: { id: 'global' }, select: { title: true, description: true, videoUrl: true, updatedAt: true } });
-    return value ? { configured: true, ...value } : { configured: false };
+    return publicFreeMemberBenefitResponseSchema.parse(value ? { configured: true, ...value } : { configured: false });
   }
 
   @Get('races/:raceId/free-report')
