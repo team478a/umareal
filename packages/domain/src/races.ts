@@ -3,6 +3,10 @@ import { z } from 'zod';
 export const venues = ['札幌', '函館', '福島', '新潟', '東京', '中山', '中京', '京都', '阪神', '小倉'] as const;
 export const raceStatuses = ['SCHEDULED', 'ACTIVE', 'DELAYED', 'FINISHED', 'CANCELLED'] as const;
 export const entryStatuses = ['ACTIVE', 'SCRATCHED', 'EXCLUDED', 'STOPPED'] as const;
+const raceDiscoveryDateTimeSchema = z.preprocess(
+  value => value instanceof Date ? value.toISOString() : value,
+  z.string().datetime({ offset: true })
+);
 const text = (max: number) => z.string().trim().min(1).max(max).refine(v => !/^[=+@\-\t\r]/.test(v) && !Array.from(v).some(c => { const n = c.charCodeAt(0); return n < 32 && n !== 9 && n !== 10 && n !== 13; }), '数式や制御文字で始まる値は使用できません。');
 export const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v => {
   const d = new Date(`${v}T00:00:00Z`); return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === v;
@@ -26,6 +30,47 @@ export const entryInputSchema = z.object({
 }).strict();
 export type RaceInput = z.infer<typeof raceInputSchema>;
 export type EntryInput = z.infer<typeof entryInputSchema>;
+
+export const publicRaceListResponseSchema = z.object({
+  items: z.array(z.object({
+    id: z.string().uuid(),
+    raceDate: dateSchema,
+    venue: z.string(),
+    number: z.number().int().positive(),
+    name: z.string(),
+    startsAt: raceDiscoveryDateTimeSchema,
+    status: z.enum(raceStatuses),
+    raceDayId: z.string().uuid().nullable(),
+    raceClass: z.string().nullable(),
+    distance: z.number().int().positive().nullable(),
+    surface: z.string().nullable(),
+    direction: z.string().nullable(),
+    going: z.string().nullable(),
+    weather: z.string().nullable(),
+    revision: z.number().int().positive(),
+    latestAnnouncement: z.object({
+      version: z.number().int().positive(),
+      publishedAt: raceDiscoveryDateTimeSchema
+    }).strict().nullable(),
+    latestPrediction: z.object({
+      version: z.number().int().positive(),
+      status: z.enum(['PUBLISHED', 'CORRECTED']),
+      visibility: z.enum(['FREE', 'PAID']),
+      publishedAt: raceDiscoveryDateTimeSchema
+    }).strict().nullable()
+  }).strict()),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  limit: z.number().int().min(1).max(50),
+  filters: z.object({
+    date: dateSchema,
+    publication: z.enum(['ALL', 'ANNOUNCED', 'PUBLISHED', 'UNPUBLISHED']),
+    venue: z.string().nullable(),
+    venues: z.array(z.string())
+  }).strict()
+}).strict();
+
+export type PublicRaceListResponse = z.infer<typeof publicRaceListResponseSchema>;
 export type ImportKind = 'races' | 'entries';
 export const raceHeaders = ['raceDate', 'venue', 'number', 'name', 'raceClass', 'distance', 'surface', 'direction', 'startsAt', 'going', 'weather', 'status', 'expertId'];
 export const entryHeaders = ['horseId', 'number', 'gate', 'horseName', 'sex', 'age', 'carriedWeight', 'jockey', 'trainer', 'winOdds', 'popularity', 'status'];

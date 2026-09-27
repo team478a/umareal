@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminReadinessResponseSchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
+import { acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminReadinessResponseSchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -142,7 +142,7 @@ export class AppController {
       this.auth.db.race.findMany({ where: { raceDate: date }, distinct: ['venue'], select: { venue: true }, orderBy: { venue: 'asc' } })
     ]);
     const items = rows.map(({ announcements, prediction, ...race }) => ({ ...race, latestAnnouncement: announcements[0] ?? null, latestPrediction: prediction?.versions[0] ?? null }));
-    return { items, total, page, limit, filters: { date, publication, venue: venue ?? null, venues: venueRows.map(item => item.venue) } };
+    return publicRaceListResponseSchema.parse({ items, total, page, limit, filters: { date, publication, venue: venue ?? null, venues: venueRows.map(item => item.venue) } });
   }
   @Get('announcements') async announcements() {
     const now = new Date();

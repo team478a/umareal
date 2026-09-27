@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
-import { CsvRaceDataProvider, dateSchema, entryHeaders, parseCsv, parseJraVanRaceBundle, raceHeaders, raceInputSchema } from './races';
+import { CsvRaceDataProvider, dateSchema, entryHeaders, parseCsv, parseJraVanRaceBundle, publicRaceListResponseSchema, raceHeaders, raceInputSchema } from './races';
 const provider = new CsvRaceDataProvider();
 const race = '2099-01-10,東京,1,"名前,引用",未勝利,1600,TURF,LEFT,2099-01-10T10:00:00+09:00,GOOD,晴,SCHEDULED,';
 describe('CSV validation before mutations', () => {
@@ -76,5 +76,24 @@ describe('CSV validation before mutations', () => {
     expect(missing.errors).toContainEqual(expect.objectContaining({ field: 'entries', message: expect.stringContaining('不足') }));
     const rehearsal = parseJraVanRaceBundle({ manifest: JSON.stringify({ ...JSON.parse(manifest), sampleData: true }), racesCsv, entries: [{ path: entryPath, csv: entriesCsv }] }, checksum);
     expect(rehearsal.errors).toContainEqual(expect.objectContaining({ field: 'manifest.sampleData', message: expect.stringContaining('合成データ') }));
+  });
+  it('normalizes the public race list without exposing prediction content', () => {
+    const raceId = '11111111-1111-4111-8111-111111111111';
+    const response = {
+      items: [{
+        id: raceId, raceDate: '2026-09-27', venue: '中山', number: 11, name: 'テスト競走',
+        startsAt: new Date('2026-09-27T06:00:00.000Z'), status: 'SCHEDULED' as const, raceDayId: null,
+        raceClass: 'G1', distance: 2000, surface: 'TURF', direction: 'RIGHT', going: 'GOOD', weather: '晴', revision: 1,
+        latestAnnouncement: { version: 1, publishedAt: new Date('2026-09-26T06:00:00.000Z') },
+        latestPrediction: { version: 2, status: 'CORRECTED' as const, visibility: 'PAID' as const, publishedAt: new Date('2026-09-27T05:00:00.000Z') }
+      }],
+      total: 1, page: 1, limit: 20,
+      filters: { date: '2026-09-27', publication: 'ALL' as const, venue: null, venues: ['中山'] }
+    };
+    const parsed = publicRaceListResponseSchema.parse(response);
+    expect(parsed.items[0]?.startsAt).toBe('2026-09-27T06:00:00.000Z');
+    expect(parsed.items[0]?.latestPrediction?.publishedAt).toBe('2026-09-27T05:00:00.000Z');
+    expect(publicRaceListResponseSchema.safeParse({ ...response, items: [{ ...response.items[0], contentSnapshot: { secret: true } }] }).success).toBe(false);
+    expect(publicRaceListResponseSchema.safeParse({ ...response, items: [{ ...response.items[0], assignments: [{ userId: raceId }] }] }).success).toBe(false);
   });
 });

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { publicRaceListResponseSchema } from '../packages/domain/src';
 import { account, Client, db } from './helpers';
 
 beforeAll(() => {
@@ -21,10 +22,10 @@ describe('public race discovery', () => {
     await db.raceAnnouncement.create({ data: { raceId: announcedRace.id, version: 1, publishedBy: publisher.user.id, reason: '一覧の告知試験' } });
 
     const client = new Client(); const all = await client.call(`races?date=${date}&limit=50`);
-    expect(all.status).toBe(200); expect(all.body.total).toBeGreaterThanOrEqual(3); expect(all.body.filters.venues).toEqual(expect.arrayContaining([`一覧A${suffix}`, `一覧B${suffix}`]));
-    expect(all.body.items.map((race: { id: string }) => race.id)).toEqual(expect.arrayContaining([freeRace.id, paidRace.id, announcedRace.id]));
-    expect(all.body.items.find((race: { id: string }) => race.id === paidRace.id).latestPrediction).toMatchObject({ visibility: 'PAID', version: 1 });
-    expect(JSON.stringify(all.body)).not.toMatch(/無料の秘密本文|有料の秘密本文|contentSnapshot|confidence|summary/);
+    expect(all.status).toBe(200); const allBody = publicRaceListResponseSchema.parse(all.body); expect(allBody.total).toBeGreaterThanOrEqual(3); expect(allBody.filters.venues).toEqual(expect.arrayContaining([`一覧A${suffix}`, `一覧B${suffix}`]));
+    expect(allBody.items.map(race => race.id)).toEqual(expect.arrayContaining([freeRace.id, paidRace.id, announcedRace.id]));
+    expect(allBody.items.find(race => race.id === paidRace.id)?.latestPrediction).toMatchObject({ visibility: 'PAID', version: 1 });
+    expect(JSON.stringify(allBody)).not.toMatch(/無料の秘密本文|有料の秘密本文|contentSnapshot|confidence|summary|assessmentSnapshot|marks|bets/i);
     expect((await client.call(`races?date=${date}&publication=PUBLISHED`)).body.items.map((race: { id: string }) => race.id)).toEqual(expect.arrayContaining([freeRace.id, paidRace.id]));
     expect((await client.call(`races?date=${date}&publication=UNPUBLISHED`)).body.items.map((race: { id: string }) => race.id)).toContain(announcedRace.id);
     expect((await client.call(`races?date=${date}&publication=ANNOUNCED`)).body.items.map((race: { id: string }) => race.id)).toContain(announcedRace.id);
