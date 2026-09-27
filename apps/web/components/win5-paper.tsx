@@ -3,14 +3,10 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ArrowRight, CalendarDays, Clock3, Crown, LockKeyhole } from 'lucide-react';
-import type { PublicWin5ListResponse } from '@keiba/domain';
+import type { PublicWin5DetailResponse, PublicWin5ListResponse } from '@keiba/domain';
 
 type Product = PublicWin5ListResponse['items'][number];
-type RaceMeta = Product['races'][number]['race'];
-type VersionMeta = NonNullable<Product['latestVersion']> & { correctionReason?: string | null };
-type Evaluation = { entryId: string; horseId: string; number: number; horseName: string; status: string; evaluationType: 'PRIMARY' | 'SECONDARY' | 'WATCH' | 'RISK'; reason: string; displayOrder: number };
-type Paper = { product: { expertName: string; confidence: string; summary: string }; races: { legNumber: number; confidence: string; paceView: string; shortComment: string; race: RaceMeta & { raceDate: string; name: string }; evaluations: Evaluation[] }[] };
-type Detail = { access: 'FULL' | 'METADATA'; product: Product; version: (VersionMeta & { confidence: string; formatVersion: string; contentSnapshot: Paper; deadlineAt: string; correctionReason: string | null }) | null; versions: VersionMeta[]; locked: boolean };
+type FullWin5Version = Extract<PublicWin5DetailResponse, { access: 'FULL' }>['version'];
 
 async function request<T>(path: string): Promise<T> {
   const response = await fetch(`/api/v1/${path}`, { cache: 'no-store' });
@@ -54,8 +50,8 @@ export function Win5Archive() {
 
 export function Win5Paper({ productId, loggedIn }: { productId: string; loggedIn: boolean }) {
   const search = useSearchParams(); const selectedVersion = search.get('version');
-  const [detail, setDetail] = useState<Detail | null>(null); const [error, setError] = useState('');
-  useEffect(() => { setDetail(null); setError(''); request<Detail>(`win5/${productId}${selectedVersion ? `?version=${selectedVersion}` : ''}`).then(setDetail).catch(e => setError((e as Error).message)); }, [productId, selectedVersion]);
+  const [detail, setDetail] = useState<PublicWin5DetailResponse | null>(null); const [error, setError] = useState('');
+  useEffect(() => { setDetail(null); setError(''); request<PublicWin5DetailResponse>(`win5/${productId}${selectedVersion ? `?version=${selectedVersion}` : ''}`).then(setDetail).catch(e => setError((e as Error).message)); }, [productId, selectedVersion]);
   if (error) return <><div className="page-heading"><span className="eyebrow">WIN5 PAPER</span><h1>WIN5紙面予想</h1></div><div className="notice error">{error}</div></>;
   if (!detail) return <div className="loading" role="status">WIN5紙面を読み込み中…</div>;
   const { product, version } = detail;
@@ -64,11 +60,11 @@ export function Win5Paper({ productId, loggedIn }: { productId: string; loggedIn
     {detail.locked && <section className="panel win5-lock"><LockKeyhole size={30} /><div><h2>評価馬と詳しいレース見解は有料会員向けです</h2><p>月額会員または対象日の1日利用で、公開済み紙面の本文と訂正履歴を確認できます。</p></div><Link className="button" href={loggedIn ? `/plans?date=${product.targetDate}` : `/login?next=/win5/${product.id}`}>{loggedIn ? '閲覧プランを確認' : 'ログイン'}<ArrowRight size={16} /></Link></section>}
     {!version && !detail.locked && <section className="panel"><div className="panel-body"><p>紙面はまだ公開されていません。公開予定時刻になるまでお待ちください。</p></div></section>}
     {version && <PaperBody version={version} />}
-    {detail.versions.length > 0 && <section className="panel"><div className="panel-heading"><div><span className="eyebrow">VERSION HISTORY</span><h2>公開履歴</h2></div></div><div className="win5-history">{detail.versions.map(item => <Link key={item.id} className={`win5-history-row ${version?.version === item.version ? 'current' : ''}`} href={`/win5/${product.id}?version=${item.version}`}><span>v{item.version}・{item.status === 'CORRECTED' ? '訂正' : '初版'}</span><small>{dateTime(item.publishedAt)} JST{item.correctionReason ? `・${item.correctionReason}` : ''}</small></Link>)}</div></section>}
+    {detail.versions.length > 0 && <section className="panel"><div className="panel-heading"><div><span className="eyebrow">VERSION HISTORY</span><h2>公開履歴</h2></div></div><div className="win5-history">{detail.versions.map(item => <Link key={item.id} className={`win5-history-row ${version?.version === item.version ? 'current' : ''}`} href={`/win5/${product.id}?version=${item.version}`}><span>v{item.version}・{item.status === 'CORRECTED' ? '訂正' : '初版'}</span><small>{dateTime(item.publishedAt)} JST{'correctionReason' in item && item.correctionReason ? `・${item.correctionReason}` : ''}</small></Link>)}</div></section>}
   </>;
 }
 
-function PaperBody({ version }: { version: NonNullable<Detail['version']> }) {
+function PaperBody({ version }: { version: FullWin5Version }) {
   const paper = version.contentSnapshot;
   const labels = { PRIMARY: '中心馬', SECONDARY: '相手候補', WATCH: '注目馬', RISK: '危険馬' } as const;
   return <section className="win5-paper-sheet"><header><div><span>WIN5 PREVIEW</span><h2>{paper.product.expertName}の5レース紙面</h2></div><div><small>全体信頼度</small><strong>{paper.product.confidence}</strong></div></header><div className="win5-paper-legs">{paper.races.map(leg => <article key={leg.legNumber}><div className="win5-paper-race"><b>第{leg.legNumber}対象レース</b><div><strong>{leg.race.venue} {leg.race.number}R · {leg.race.name}</strong><small>{dateTime(leg.race.startsAt)} JST</small></div><span>信頼度 {leg.confidence}</span></div><div className="win5-selections">{leg.evaluations.map(horse => <div className={horse.evaluationType === 'PRIMARY' ? 'center' : ''} key={horse.entryId}><span>{labels[horse.evaluationType]}</span><b>{horse.number}</b><strong>{horse.horseName}</strong>{horse.reason && <small>{horse.reason}</small>}</div>)}</div><div className="win5-comment"><span>展開見解</span><p>{leg.paceView}</p><span>レース短評</span><p>{leg.shortComment}</p></div></article>)}</div><footer><div className="win5-summary"><span>WIN5全体の総評</span><p>{paper.product.summary}</p></div><p>公開時刻：{dateTime(version.publishedAt)} JST</p><p>訂正：{version.correctionReason ? `あり（${version.correctionReason}）` : 'なし'}</p><small>本予想は、中心馬、相手候補、レース見解を提供するものです。<br />具体的な組み合わせや購入金額は指定していません。<br />馬券を購入する場合は、ご自身の判断と責任で行ってください。</small></footer></section>;
