@@ -14,6 +14,9 @@
 - `GET /api/v1/admin/notifications/test-options`
   - ADMIN+AAL2だけに、本人が利用できるチャネルと通常予想・WIN5商品・月額契約の選択候補を返す。
   - 公開応答はAPIとWebで同じ厳格なContractを参照し、宛先とProvider識別情報は返さない。
+- `GET /api/v1/admin/notifications/previews/race-announcement`
+  - ADMINはAAL2、OPERATORは既存のサーバー所有ロール判定により、対象レース告知の対象人数・チャネル別件数・安全な送信本文を返す。
+  - 公開応答はレース管理画面とAPIで同じ厳格なContractを参照し、宛先とProvider識別情報は返さない。
 - `POST /api/v1/admin/notifications/test-send`
   - `raceId`、`contentType`、無料情報の場合は`draftRevision`、`channel`、`reason`を受け取る。
   - `Idempotency-Key` UUIDを必須とし、同じキーと本文の再実行は保存済み結果を返す。

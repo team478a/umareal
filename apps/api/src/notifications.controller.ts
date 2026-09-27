@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req, ServiceUnavailableException } from '@nestjs/common';
-import { adminNotificationListResponseSchema, adminNotificationTestOptionsResponseSchema, buildBillingLineMessage, buildPredictionLineMessage, buildWin5LineMessage, canManage, notificationListQuerySchema, notificationRetrySchema, notificationTestSendSchema, publishablePredictionSchema, requiresMfa } from '@keiba/domain';
+import { adminNotificationListResponseSchema, adminNotificationTestOptionsResponseSchema, buildBillingLineMessage, buildPredictionLineMessage, buildWin5LineMessage, canManage, notificationListQuerySchema, notificationRetrySchema, notificationTestSendSchema, publishablePredictionSchema, raceAnnouncementNotificationPreviewResponseSchema, requiresMfa } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { decryptSecret, loadMailConfig, notificationRecipientWhere, Prisma } from '@keiba/db';
@@ -167,12 +167,12 @@ export class NotificationsController {
 
     const version = (race.announcements[0]?.version ?? 0) + 1;
     const message = buildPredictionLineMessage({ eventType: 'RACE_ANNOUNCED', raceId: race.id, raceDate: race.raceDate, venue: race.venue, raceNumber: race.number, raceName: race.name, version, visibility: 'FREE', appBaseUrl: process.env.APP_BASE_URL ?? 'http://127.0.0.1:3000' });
-    return {
+    return raceAnnouncementNotificationPreviewResponseSchema.parse({
       eventType: 'RACE_ANNOUNCED', contentLabel: '対象レース告知', generatedAt, plannedAt, timing: input.scheduledAt ? 'SCHEDULED' : 'IMMEDIATE', version,
       race: { id: race.id, raceDate: race.raceDate, venue: race.venue, number: race.number, name: race.name, startsAt: race.startsAt },
       audience: await this.audience('RACE_ANNOUNCED', race.raceDate, generatedAt),
       message
-    };
+    });
   }
 
   @Get('previews/free-report')

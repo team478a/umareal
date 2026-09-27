@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { raceAnnouncementNotificationPreviewResponseSchema } from '../packages/domain/src';
 import { account, Client, db } from './helpers';
 
 const admin = new Client();
@@ -18,9 +19,13 @@ beforeAll(async () => {
 afterAll(() => db.$disconnect());
 
 describe('race announcement delivery preview', () => {
-  it('requires an authorized AAL2 administrator', async () => {
+  it('preserves server-owned staff and assurance rules', async () => {
     expect((await admin.call(`admin/notifications/previews/race-announcement?raceId=${raceId}`)).body.code).toBe('MFA_REQUIRED');
     await admin.mfa();
+    const operator = new Client(); await operator.login(await account('OPERATOR'));
+    expect((await operator.call(`admin/notifications/previews/race-announcement?raceId=${raceId}`)).status).toBe(200);
+    const member = new Client(); await member.login(await account('MEMBER'));
+    expect((await member.call(`admin/notifications/previews/race-announcement?raceId=${raceId}`)).status).toBe(403);
   });
 
   it('shows the exact current channel audience, safe message, and schedule without creating a publication', async () => {
@@ -37,15 +42,16 @@ describe('race announcement delivery preview', () => {
     const before = await db.$transaction([db.raceAnnouncement.count({ where: { raceId } }), db.notificationEvent.count()]);
     const response = await admin.call(`admin/notifications/previews/race-announcement?raceId=${raceId}&scheduledAt=${encodeURIComponent(plannedAt)}`);
     expect(response.status).toBe(200);
-    expect(response.body).toMatchObject({
+    const parsed = raceAnnouncementNotificationPreviewResponseSchema.parse(response.body);
+    expect(parsed).toMatchObject({
       eventType: 'RACE_ANNOUNCED', contentLabel: '対象レース告知', timing: 'SCHEDULED', version: 1,
       audience: { uniqueMembers: unique, totalDeliveries: lineScheduled + emailScheduled, duplicateChannelMembers: settings.lineNotificationsEnabled && settings.emailNotificationsEnabled ? both : 0, line: { enabled: settings.lineNotificationsEnabled, eligibleRecipients: line, scheduledDeliveries: lineScheduled }, email: { enabled: settings.emailNotificationsEnabled, eligibleRecipients: email, scheduledDeliveries: emailScheduled } },
       message: { type: 'text' }
     });
-    expect(response.body.plannedAt).toBe(new Date(plannedAt).toISOString());
-    expect(response.body.message.text).toContain('予想対象レースのお知らせ');
-    expect(response.body.message.text).toContain('/races/');
-    expect(response.body.message.text).not.toMatch(/買い目|本命|評価理由/);
+    expect(parsed.plannedAt).toBe(new Date(plannedAt).toISOString());
+    expect(parsed.message.text).toContain('予想対象レースのお知らせ');
+    expect(parsed.message.text).toContain('/races/');
+    expect(parsed.message.text).not.toMatch(/買い目|本命|評価理由/);
     expect(JSON.stringify(response.body)).not.toMatch(/@example\.test|passwordHash|tokenHash|subject/);
     expect(await db.$transaction([db.raceAnnouncement.count({ where: { raceId } }), db.notificationEvent.count()])).toEqual(before);
   });

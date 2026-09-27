@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adminNotificationListResponseSchema, adminNotificationTestOptionsResponseSchema, notificationIdempotencyKey, notificationListQuerySchema, notificationRetrySchema, notificationTestSendSchema, retryDelayMs } from './notifications';
+import { adminNotificationListResponseSchema, adminNotificationTestOptionsResponseSchema, notificationIdempotencyKey, notificationListQuerySchema, notificationRetrySchema, notificationTestSendSchema, raceAnnouncementNotificationPreviewResponseSchema, retryDelayMs } from './notifications';
 
 describe('notification operations rules', () => {
   it('builds a recipient and version scoped idempotency key', () => {
@@ -75,5 +75,19 @@ describe('notification operations rules', () => {
     expect(parsed.subscriptions[0]?.currentPeriodEndsAt).toBe('2026-10-27T00:00:00.000Z');
     expect(adminNotificationTestOptionsResponseSchema.safeParse({ ...response, email: 'admin@example.test' }).success).toBe(false);
     expect(adminNotificationTestOptionsResponseSchema.safeParse({ ...response, subscriptions: [{ ...response.subscriptions[0], user: { displayName: '表示名', lineSubject: 'secret-subject' } }] }).success).toBe(false);
+  });
+  it('normalizes the race announcement preview and rejects internal recipient data', () => {
+    const id = '11111111-1111-4111-8111-111111111111';
+    const response = {
+      eventType: 'RACE_ANNOUNCED', contentLabel: '対象レース告知', generatedAt: new Date('2026-09-27T00:00:00.000Z'), plannedAt: new Date('2026-09-27T01:00:00.000Z'), timing: 'SCHEDULED', version: 1,
+      race: { id, raceDate: '2026-09-27', venue: '中山', number: 11, name: 'テスト競走', startsAt: new Date('2026-09-27T02:00:00.000Z') },
+      audience: { uniqueMembers: 2, totalDeliveries: 3, duplicateChannelMembers: 1, line: { enabled: true, eligibleRecipients: 2, scheduledDeliveries: 2 }, email: { enabled: true, eligibleRecipients: 1, scheduledDeliveries: 1 } },
+      message: { type: 'text', text: '対象レースのお知らせ' }
+    } as const;
+    const parsed = raceAnnouncementNotificationPreviewResponseSchema.parse(response);
+    expect(parsed.plannedAt).toBe('2026-09-27T01:00:00.000Z');
+    expect(parsed.race.startsAt).toBe('2026-09-27T02:00:00.000Z');
+    expect(raceAnnouncementNotificationPreviewResponseSchema.safeParse({ ...response, recipientEmail: 'admin@example.test' }).success).toBe(false);
+    expect(raceAnnouncementNotificationPreviewResponseSchema.safeParse({ ...response, audience: { ...response.audience, line: { ...response.audience.line, subject: 'provider-subject' } } }).success).toBe(false);
   });
 });

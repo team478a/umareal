@@ -179,6 +179,35 @@ export const adminNotificationTestOptionsResponseSchema = z.object({
 }).strict();
 
 export type AdminNotificationTestOptionsResponse = z.infer<typeof adminNotificationTestOptionsResponseSchema>;
+
+const notificationPreviewChannelSchema = z.object({
+  enabled: z.boolean(),
+  eligibleRecipients: z.number().int().nonnegative(),
+  scheduledDeliveries: z.number().int().nonnegative()
+}).strict();
+
+export const raceAnnouncementNotificationPreviewResponseSchema = z.object({
+  eventType: z.literal('RACE_ANNOUNCED'),
+  contentLabel: z.literal('対象レース告知'),
+  generatedAt: notificationDateTimeSchema,
+  plannedAt: notificationDateTimeSchema,
+  timing: z.enum(['IMMEDIATE', 'SCHEDULED']),
+  version: z.number().int().positive(),
+  race: adminNotificationRaceSchema,
+  audience: z.object({
+    uniqueMembers: z.number().int().nonnegative(),
+    totalDeliveries: z.number().int().nonnegative(),
+    duplicateChannelMembers: z.number().int().nonnegative(),
+    line: notificationPreviewChannelSchema,
+    email: notificationPreviewChannelSchema
+  }).strict(),
+  message: z.object({
+    type: z.literal('text'),
+    text: z.string()
+  }).strict()
+}).strict();
+
+export type RaceAnnouncementNotificationPreviewResponse = z.infer<typeof raceAnnouncementNotificationPreviewResponseSchema>;
 export const notificationRetrySchema = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 const notificationTestBase = {
   channel: z.enum(['LINE', 'EMAIL']),
