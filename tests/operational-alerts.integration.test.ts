@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { runOperationalAlerts, type OperationalAlertTransport } from '../apps/worker/src/operational-alert-runner';
-import { adminOperationalAlertListResponseSchema } from '../packages/domain/src';
+import { adminOperationalAlertListResponseSchema, adminOperationalAlertSettingsResponseSchema } from '../packages/domain/src';
 import { account, Client, db } from './helpers';
 
 afterAll(() => db.$disconnect());
@@ -79,9 +79,12 @@ describe('external operational alerts', () => {
     const fixture = await account('ADMIN'); const admin = new Client(); await admin.login(fixture);
     try {
       expect((await admin.call('admin/operational-alerts/settings', 'PATCH', { revision: original.revision, enabled: true, minimumSeverity: 'CRITICAL', destinationEmails: ['owner@example.test'], reason: '通知先設定' })).body.code).toBe('MFA_REQUIRED');
-      await admin.mfa(); const current = await admin.call('admin/operational-alerts/settings');
-      const updated = await admin.call('admin/operational-alerts/settings', 'PATCH', { revision: current.body.revision, enabled: true, minimumSeverity: 'CRITICAL', destinationEmails: ['owner@example.test'], reason: '本番運用担当へ通知' }); expect(updated.status).toBe(200);
-      const stale = await admin.call('admin/operational-alerts/settings', 'PATCH', { revision: current.body.revision, enabled: false, minimumSeverity: 'CRITICAL', destinationEmails: [], reason: '競合試験' }); expect(stale.body.code).toBe('STALE_REVISION');
+      const operator = new Client(); await operator.login(await account('OPERATOR'));
+      const operatorView = await operator.call('admin/operational-alerts/settings'); expect(operatorView.status).toBe(200); adminOperationalAlertSettingsResponseSchema.parse(operatorView.body);
+      await admin.mfa(); const currentResponse = await admin.call('admin/operational-alerts/settings'); const current = adminOperationalAlertSettingsResponseSchema.parse(currentResponse.body);
+      const updatedResponse = await admin.call('admin/operational-alerts/settings', 'PATCH', { revision: current.revision, enabled: true, minimumSeverity: 'CRITICAL', destinationEmails: ['owner@example.test'], reason: '本番運用担当へ通知' }); expect(updatedResponse.status).toBe(200);
+      const updated = adminOperationalAlertSettingsResponseSchema.parse(updatedResponse.body); expect(updated.revision).toBe(current.revision + 1);
+      const stale = await admin.call('admin/operational-alerts/settings', 'PATCH', { revision: current.revision, enabled: false, minimumSeverity: 'CRITICAL', destinationEmails: [], reason: '競合試験' }); expect(stale.body.code).toBe('STALE_REVISION');
     } finally {
       await db.operationalAlertSetting.update({ where: { id: 'global' }, data: { enabled: original.enabled, minimumSeverity: original.minimumSeverity, destinationEmails: original.destinationEmails, revision: original.revision, updatedBy: original.updatedBy, updatedAt: original.updatedAt } });
     }

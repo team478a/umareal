@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adminOperationalAlertListResponseSchema } from './operational-alert';
+import { adminOperationalAlertListResponseSchema, adminOperationalAlertSettingsResponseSchema } from './operational-alert';
 
 const id = '11111111-1111-4111-8111-111111111111';
 const staffId = '22222222-2222-4222-8222-222222222222';
@@ -45,5 +45,18 @@ describe('admin operational alert list contract', () => {
     expect(adminOperationalAlertListResponseSchema.safeParse({ ...value, items: [{ ...value.items[0], deliveries: [{ ...value.items[0].deliveries[0], leaseToken: id }] }] }).success).toBe(false);
     expect(adminOperationalAlertListResponseSchema.safeParse({ ...value, items: [{ ...value.items[0], deliveries: [{ ...value.items[0].deliveries[0], providerMessageId: 'provider-secret' }] }] }).success).toBe(false);
     expect(adminOperationalAlertListResponseSchema.safeParse({ ...value, inquiryBody: '非公開本文' }).success).toBe(false);
+  });
+});
+
+describe('admin operational alert settings response contract', () => {
+  it('normalizes the existing response timestamp without changing settings', () => {
+    expect(adminOperationalAlertSettingsResponseSchema.parse({ revision: 3, enabled: true, minimumSeverity: 'WARNING', destinationEmails: ['ops@example.test'], updatedAt: now })).toEqual({ revision: 3, enabled: true, minimumSeverity: 'WARNING', destinationEmails: ['ops@example.test'], updatedAt: now.toISOString() });
+  });
+
+  it('rejects internal ownership and credential fields', () => {
+    const value = { revision: 3, enabled: true, minimumSeverity: 'CRITICAL', destinationEmails: ['ops@example.test'], updatedAt: now } as const;
+    expect(adminOperationalAlertSettingsResponseSchema.safeParse({ ...value, updatedBy: staffId }).success).toBe(false);
+    expect(adminOperationalAlertSettingsResponseSchema.safeParse({ ...value, mailApiKey: 'secret' }).success).toBe(false);
+    expect(adminOperationalAlertSettingsResponseSchema.safeParse({ ...value, reason: '内部変更理由' }).success).toBe(false);
   });
 });
