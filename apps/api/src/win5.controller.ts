@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Put, Query, Req, UnauthorizedException } from '@nestjs/common';
-import { aggregateWin5Evaluations, publicWin5DetailResponseSchema, publicWin5ListResponseSchema, win5LegUpdateSchema, win5PreviewSchema, win5ProductCreateSchema, win5ProductUpdateSchema } from '@keiba/domain';
+import { aggregateWin5Evaluations, publicWin5DetailResponseSchema, publicWin5ListResponseSchema, publicWin5PerformanceResponseSchema, win5LegUpdateSchema, win5PreviewSchema, win5ProductCreateSchema, win5ProductUpdateSchema } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -155,7 +155,7 @@ export class Win5Controller {
     const latest = new Map<string, typeof values[number]>();
     for (const value of values) if (!latest.has(value.productId)) latest.set(value.productId, value);
     const items = [...latest.values()].map(value => ({ status: z.enum(['WIN5_ALL_WINNERS_RECOMMENDED', 'WIN5_PARTIAL', 'WIN5_MISSED', 'REVIEW_REQUIRED']).parse(value.status), recommendedLegs: value.recommendedLegs, legs: value.legs }));
-    return { ruleVersion: 'WIN5_HORSE_EVALUATION_V1', scope: '各WIN5公開の最新評価結果', overall: aggregateWin5Evaluations(items) };
+    return publicWin5PerformanceResponseSchema.parse({ ruleVersion: 'WIN5_HORSE_EVALUATION_V1', scope: '各WIN5公開の最新評価結果', overall: aggregateWin5Evaluations(items) });
   }
 
   @Get('win5/:productId')

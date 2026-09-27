@@ -46,6 +46,25 @@ export type EvaluatedHorse = z.infer<typeof evaluatedHorseSchema>;
 export type PredictionEvaluationStatus = typeof predictionEvaluationStatuses[number];
 export type Win5EvaluationStatus = typeof win5EvaluationStatuses[number];
 
+const publicWin5PerformancePercentageSchema = z.number().min(0).max(100).nullable();
+export const publicWin5PerformanceMetricSchema = z.object({
+  publications: z.number().int().nonnegative(),
+  targetRaces: z.number().int().nonnegative(),
+  winnersRecommended: z.number().int().nonnegative(),
+  winnersRecommendedRatePercent: publicWin5PerformancePercentageSchema,
+  allWinnersRecommended: z.number().int().nonnegative(),
+  primaryWins: z.number().int().nonnegative(),
+  primaryWinRatePercent: publicWin5PerformancePercentageSchema,
+  primaryTop2RatePercent: publicWin5PerformancePercentageSchema,
+  primaryTop3RatePercent: publicWin5PerformancePercentageSchema
+}).strict();
+export const publicWin5PerformanceResponseSchema = z.object({
+  ruleVersion: z.literal('WIN5_HORSE_EVALUATION_V1'),
+  scope: z.literal('各WIN5公開の最新評価結果'),
+  overall: publicWin5PerformanceMetricSchema
+}).strict();
+export type PublicWin5PerformanceResponse = z.infer<typeof publicWin5PerformanceResponseSchema>;
+
 type ResultEntry = {
   entryId: string;
   status: 'FINISHED' | 'WITHDRAWN' | 'EXCLUDED' | 'DNF' | 'CANCELED';

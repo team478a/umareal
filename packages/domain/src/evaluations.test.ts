@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aggregatePredictionEvaluations, aggregateWin5Evaluations, evaluatePrediction, evaluateWin5, evaluatedHorsesSchema } from './evaluations';
+import { aggregatePredictionEvaluations, aggregateWin5Evaluations, evaluatePrediction, evaluateWin5, evaluatedHorsesSchema, publicWin5PerformanceResponseSchema } from './evaluations';
 
 const ids = Array.from({ length: 6 }, (_, index) => `${index + 1}1111111-1111-4111-8111-111111111111`);
 const horses = [
@@ -46,5 +46,21 @@ describe('horse evaluation domain', () => {
     expect(all).toEqual({ status: 'WIN5_ALL_WINNERS_RECOMMENDED', recommendedLegs: 5, allWinnersRecommended: true });
     expect(partial).toMatchObject({ status: 'WIN5_PARTIAL', recommendedLegs: 3 });
     expect(aggregateWin5Evaluations([{ ...all, legs: Array.from({ length: 5 }, () => ({ primaryFinishedFirst: true, primaryFinishedTop2: true, primaryFinishedTop3: true, winnerInRecommended: true })) }])).toMatchObject({ publications: 1, targetRaces: 5, winnersRecommended: 5, winnersRecommendedRatePercent: 100, allWinnersRecommended: 1 });
+  });
+
+  it('keeps the public WIN5 performance response strict and free of evaluation internals', () => {
+    const empty = {
+      ruleVersion: 'WIN5_HORSE_EVALUATION_V1',
+      scope: '各WIN5公開の最新評価結果',
+      overall: {
+        publications: 0, targetRaces: 0, winnersRecommended: 0, winnersRecommendedRatePercent: null,
+        allWinnersRecommended: 0, primaryWins: 0, primaryWinRatePercent: null,
+        primaryTop2RatePercent: null, primaryTop3RatePercent: null
+      }
+    } as const;
+    expect(publicWin5PerformanceResponseSchema.parse(empty)).toEqual(empty);
+    expect(publicWin5PerformanceResponseSchema.safeParse({ ...empty, confirmedBy: ids[0] }).success).toBe(false);
+    expect(publicWin5PerformanceResponseSchema.safeParse({ ...empty, overall: { ...empty.overall, horseName: '非公開馬' } }).success).toBe(false);
+    expect(publicWin5PerformanceResponseSchema.safeParse({ ...empty, overall: { ...empty.overall, assumedPayout: 10000 } }).success).toBe(false);
   });
 });

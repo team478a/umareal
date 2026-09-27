@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { publicWin5DetailResponseSchema, publicWin5ListResponseSchema } from '../packages/domain/src';
+import { publicWin5DetailResponseSchema, publicWin5ListResponseSchema, publicWin5PerformanceResponseSchema } from '../packages/domain/src';
 import { assessmentFixture } from './assessment-fixtures';
 import { account, Client, db } from './helpers';
 import type { NotificationTransport } from '../apps/worker/src/notification-runner';
@@ -174,6 +174,10 @@ describe('WIN5 product drafting and publication', () => {
     expect(JSON.stringify(win5Share)).not.toMatch(/買い目|組み合わせ|購入|払戻|回収率|収支|利益|的中/);
     const memberNotices = await freeClient.call('me/notifications');
     expect(memberNotices.body.items.some((item: { eventType: string; href: string }) => item.eventType === 'WIN5_EVALUATION_CONFIRMED' && item.href === `/win5/${created.body.id}`)).toBe(true);
-    const performance = await new Client().call('win5/performance'); expect(performance.status).toBe(200); expect(performance.body.overall.allWinnersRecommended).toBeGreaterThanOrEqual(1);
+    const performance = await new Client().call('win5/performance');
+    expect(performance.status).toBe(200);
+    const performanceBody = publicWin5PerformanceResponseSchema.parse(performance.body);
+    expect(performanceBody.overall.allWinnersRecommended).toBeGreaterThanOrEqual(1);
+    expect(JSON.stringify(performanceBody)).not.toMatch(/userId|email|confirmedBy|productVersionId|horseName|entryId|payout|returnRate/i);
   });
 });
