@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { publicFreeMemberBenefitResponseSchema, publicFreeReportMetadataResponseSchema } from './free-report';
+import { adminFreeReportRaceListResponseSchema, publicFreeMemberBenefitResponseSchema, publicFreeReportMetadataResponseSchema } from './free-report';
 
 describe('public free-member benefit contract', () => {
   it('keeps configured and unconfigured responses explicit', () => {
@@ -65,5 +65,42 @@ describe('public free-report metadata contract', () => {
     expect(publicFreeReportMetadataResponseSchema.safeParse({ ...response, versions: [{ ...response.versions[0], audioUrl: 'https://media.example.test/secret.mp3' }] }).success).toBe(false);
     expect(publicFreeReportMetadataResponseSchema.safeParse({ ...response, versions: [{ ...response.versions[0], reviewText: '非公開の検証本文' }] }).success).toBe(false);
     expect(publicFreeReportMetadataResponseSchema.safeParse({ ...response, race: { ...response.race, revision: 3 } }).success).toBe(false);
+  });
+});
+
+describe('admin free-report race list contract', () => {
+  const response = {
+    items: [{
+      id: '11111111-1111-4111-8111-111111111111',
+      raceDate: '2026-09-28',
+      venue: '中山',
+      number: 11,
+      name: 'スプリンターズステークス',
+      startsAt: new Date('2026-09-28T06:40:00.000Z'),
+      status: 'SCHEDULED' as const,
+      _count: { entries: 16 },
+      freeReportDraft: { revision: 2 },
+      freeReportVersions: [{
+        version: 1,
+        kind: 'PRE_RACE' as const,
+        publishedAt: new Date('2026-09-28T06:20:00.000Z')
+      }]
+    }]
+  };
+
+  it('keeps list progress fields and normalizes dates', () => {
+    expect(adminFreeReportRaceListResponseSchema.parse(response)).toMatchObject({
+      items: [{
+        startsAt: '2026-09-28T06:40:00.000Z',
+        freeReportVersions: [{ publishedAt: '2026-09-28T06:20:00.000Z' }]
+      }]
+    });
+    expect(adminFreeReportRaceListResponseSchema.parse({ items: [{ ...response.items[0], freeReportDraft: null, freeReportVersions: [] }] }).items[0]).toMatchObject({ freeReportDraft: null, freeReportVersions: [] });
+  });
+
+  it('rejects draft content, horse details and identities', () => {
+    expect(adminFreeReportRaceListResponseSchema.safeParse({ items: [{ ...response.items[0], freeReportDraft: { revision: 2, upReason: '内部の評価理由' } }] }).success).toBe(false);
+    expect(adminFreeReportRaceListResponseSchema.safeParse({ items: [{ ...response.items[0], entries: [{ horseName: '非公開馬' }] }] }).success).toBe(false);
+    expect(adminFreeReportRaceListResponseSchema.safeParse({ items: [{ ...response.items[0], updatedBy: '22222222-2222-4222-8222-222222222222' }] }).success).toBe(false);
   });
 });
