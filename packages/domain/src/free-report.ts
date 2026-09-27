@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { dateSchema, raceStatuses } from './races';
+import { dateSchema, entryStatuses, raceStatuses } from './races';
 
 const httpsUrl = z.string().trim().url().max(1000).refine(value => new URL(value).protocol === 'https:', 'HTTPSのURLを指定してください。');
 const audioSource = z.string().trim().max(1000).refine(value => /^\/api\/v1\/free-report-audio\/[0-9a-f-]{36}$/.test(value) || (() => { try { return new URL(value).protocol === 'https:'; } catch { return false; } })(), '録音済み音声またはHTTPSのURLを指定してください。');
@@ -58,6 +58,56 @@ export const adminFreeReportRaceListResponseSchema = z.object({
   }).strict())
 }).strict();
 export type AdminFreeReportRaceListResponse = z.infer<typeof adminFreeReportRaceListResponseSchema>;
+
+export const adminFreeReportRaceDetailResponseSchema = z.object({
+  id: z.string().uuid(),
+  raceDate: dateSchema,
+  venue: z.string().min(1),
+  number: z.number().int().min(1).max(12),
+  name: z.string().min(1),
+  startsAt: publicFreeReportDateTimeSchema,
+  status: z.enum(raceStatuses),
+  entries: z.array(z.object({
+    id: z.string().uuid(),
+    number: z.number().int().min(1).max(18),
+    horseName: z.string().min(1),
+    status: z.enum(entryStatuses)
+  }).strict()),
+  freeReportDraft: z.object({
+    id: z.string().uuid(),
+    raceId: z.string().uuid(),
+    upEntryId: z.string().uuid(),
+    upReason: z.string(),
+    downEntryId: z.string().uuid(),
+    downReason: z.string(),
+    audioUrl: z.string(),
+    reviewText: z.string(),
+    revision: z.number().int().positive(),
+    updatedBy: z.string().uuid(),
+    updatedAt: publicFreeReportDateTimeSchema
+  }).strict().nullable(),
+  freeReportVersions: z.array(z.object({
+    id: z.string().uuid(),
+    version: z.number().int().positive(),
+    kind: z.enum(['PRE_RACE', 'POST_RACE_REVIEW']),
+    upHorseNumber: z.number().int().min(1).max(18),
+    upHorseName: z.string().min(1),
+    upReason: z.string(),
+    downHorseNumber: z.number().int().min(1).max(18),
+    downHorseName: z.string().min(1),
+    downReason: z.string(),
+    audioUrl: z.string(),
+    reviewText: z.string().nullable(),
+    publishReason: z.string(),
+    publishedAt: publicFreeReportDateTimeSchema
+  }).strict()),
+  resultVersions: z.array(z.object({
+    id: z.string().uuid(),
+    version: z.number().int().positive(),
+    confirmedAt: publicFreeReportDateTimeSchema
+  }).strict()).max(1)
+}).strict();
+export type AdminFreeReportRaceDetailResponse = z.infer<typeof adminFreeReportRaceDetailResponseSchema>;
 
 export const freeReportDraftSchema = z.object({
   revision: z.number().int().min(0),

@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
-import { adminFreeReportRaceListResponseSchema, canManage, dateSchema, freeMemberBenefitSchema, freeReportDraftSchema, freeReportPublishSchema, jstDate, publicFreeMemberBenefitResponseSchema, publicFreeReportMetadataResponseSchema, requiresMfa } from '@keiba/domain';
+import { adminFreeReportRaceDetailResponseSchema, adminFreeReportRaceListResponseSchema, canManage, dateSchema, freeMemberBenefitSchema, freeReportDraftSchema, freeReportPublishSchema, jstDate, publicFreeMemberBenefitResponseSchema, publicFreeReportMetadataResponseSchema, requiresMfa } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import type { Response } from 'express';
 import { z } from 'zod';
@@ -70,12 +70,12 @@ export class AdminFreeReportsController {
     const race = await this.auth.db.race.findUnique({ where: { id: raceId }, select: {
       id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true, status: true,
       entries: { orderBy: { number: 'asc' }, select: { id: true, number: true, horseName: true, status: true } },
-      freeReportDraft: true,
+      freeReportDraft: { select: { id: true, raceId: true, upEntryId: true, upReason: true, downEntryId: true, downReason: true, audioUrl: true, reviewText: true, revision: true, updatedBy: true, updatedAt: true } },
       freeReportVersions: { orderBy: { version: 'desc' }, select: { id: true, version: true, kind: true, upHorseNumber: true, upHorseName: true, upReason: true, downHorseNumber: true, downHorseName: true, downReason: true, audioUrl: true, reviewText: true, publishReason: true, publishedAt: true } },
       resultVersions: { orderBy: { version: 'desc' }, take: 1, select: { id: true, version: true, confirmedAt: true } }
     } });
     if (!race) throw new NotFoundException({ code: 'RACE_NOT_FOUND', message: 'レースが見つかりません。' });
-    return race;
+    return adminFreeReportRaceDetailResponseSchema.parse(race);
   }
 
   @Patch('races/:raceId/draft')
