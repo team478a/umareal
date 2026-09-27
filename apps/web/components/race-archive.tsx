@@ -2,9 +2,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { CalendarDays, ChevronLeft, ChevronRight, LockKeyhole } from 'lucide-react';
+import type { PublicRaceListResponse } from '@keiba/domain';
 
-type Race = { id: string; raceDate: string; venue: string; number: number; name: string; startsAt: string; status: string; raceClass: string | null; distance: number | null; surface: string | null; latestAnnouncement: { version: number; publishedAt: string } | null; latestPrediction: { version: number; status: string; visibility: 'FREE' | 'PAID'; publishedAt: string } | null };
-type Data = { items: Race[]; total: number; page: number; limit: number; filters: { date: string; publication: string; venue: string | null; venues: string[] } };
 type Entitlement = { startsAt: string; endsAt: string; raceDate?: string | null };
 const today = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' });
 const formatTime = (value: string) => new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
@@ -13,8 +12,8 @@ function hasAccess(entitlements: Entitlement[], raceDate: string) { const now = 
 
 export function RaceArchive({ entitlements = [] }: { entitlements?: Entitlement[] }) {
   const [date, setDate] = useState(today); const [publication, setPublication] = useState('ALL'); const [venue, setVenue] = useState(''); const [page, setPage] = useState(1);
-  const [data, setData] = useState<Data | null>(null); const [error, setError] = useState('');
-  const load = useCallback(async () => { setError(''); setData(null); try { const params = new URLSearchParams({ date, publication, page: String(page), limit: '20' }); if (venue) params.set('venue', venue); const response = await fetch(`/api/v1/races?${params}`, { cache: 'no-store' }); const result = await response.json(); if (!response.ok) throw new Error(result.message ?? 'レースを取得できませんでした。'); setData(result); } catch (e) { setError((e as Error).message); } }, [date, publication, venue, page]);
+  const [data, setData] = useState<PublicRaceListResponse | null>(null); const [error, setError] = useState('');
+  const load = useCallback(async () => { setError(''); setData(null); try { const params = new URLSearchParams({ date, publication, page: String(page), limit: '20' }); if (venue) params.set('venue', venue); const response = await fetch(`/api/v1/races?${params}`, { cache: 'no-store' }); const result = await response.json(); if (!response.ok) throw new Error(result.message ?? 'レースを取得できませんでした。'); setData(result as PublicRaceListResponse); } catch (e) { setError((e as Error).message); } }, [date, publication, venue, page]);
   useEffect(() => { void load(); }, [load]);
   function changeDate(next: string) { setDate(next); setVenue(''); setPage(1); }
   return <><div className="page-heading"><span className="eyebrow">RACE ARCHIVE</span><h1>レース一覧</h1><p>開催日と公開状態から、対象レースと公開済み予想を探せます。</p></div>
