@@ -1,6 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { createHash, randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { TOTP, Secret } from 'otpauth';
 import { fallbackEmailSchema, launchCapabilities, loginSchema, mfaCodeSchema, registrationSchema, resolveLaunchMode } from '@keiba/domain';
@@ -9,40 +8,17 @@ import type { AppRequest } from './context';
 import { decrypt, encrypt, hashPassword, hashToken, newToken, verifyPassword } from './security';
 import { MailService } from './mail.service';
 import { SupabaseAuthService } from './supabase-auth.service';
-import type { SupabaseSession } from './supabase-auth.service';
 import { RegistrationCaptchaService } from './registration-captcha.service';
 import { ReferralsService } from './referrals.service';
+import { AuthSessionService } from './auth-session.service';
 
 const publicUser = (user: { id: string; displayName: string; role: string }) => ({ id: user.id, displayName: user.displayName, role: user.role });
-function cookie(res: Response, token: string) { res.cookie('keiba_session', token, { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: 8 * 3600000 }); }
-const externalCookieOptions = () => ({ httpOnly: true, sameSite: 'lax' as const, secure: process.env.NODE_ENV === 'production', path: '/' });
-function externalCookies(res: Response, session: SupabaseSession) {
-  res.cookie('keiba_access_token', session.access_token, { ...externalCookieOptions(), maxAge: session.expires_in * 1000 });
-  res.cookie('keiba_refresh_token', session.refresh_token, { ...externalCookieOptions(), maxAge: 30 * 86400 * 1000 });
-}
-function clearExternalCookies(res: Response) {
-  for (const name of ['keiba_access_token', 'keiba_refresh_token', 'keiba_pkce_verifier', 'keiba_auth_flow']) res.clearCookie(name, externalCookieOptions());
-}
-function pkce() {
-  const verifier = randomBytes(48).toString('base64url');
-  const challenge = createHash('sha256').update(verifier).digest('base64url');
-  return { verifier, challenge };
-}
-function externalFlowCookies(res: Response, verifier: string, flow: 'signup' | 'recovery') {
-  res.cookie('keiba_pkce_verifier', verifier, { ...externalCookieOptions(), maxAge: 24 * 3600000 });
-  res.cookie('keiba_auth_flow', flow, { ...externalCookieOptions(), maxAge: 24 * 3600000 });
-}
-function accessToken(req: AppRequest) {
-  const value: unknown = req.cookies?.keiba_access_token;
-  if (typeof value !== 'string' || value.length > 8192) throw new UnauthorizedException();
-  return value;
-}
 const otp = (secret: string, email: string) => new TOTP({ issuer: '競馬会員メディア 開発用', label: email, algorithm: 'SHA1', digits: 6, period: 30, secret: Secret.fromBase32(secret) });
 const externalMfaEnrollSchema = z.object({ kind: z.enum(['PRIMARY', 'BACKUP']).default('PRIMARY') }).strict();
 const externalMfaVerifySchema = z.object({ code: z.string().regex(/^\d{6}$/), factor: z.enum(['PRIMARY', 'BACKUP']).default('PRIMARY'), factorId: z.string().uuid().optional() }).strict();
 @Controller('auth')
 export class AuthController {
-  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(SupabaseAuthService) private readonly supabase: SupabaseAuthService, @Inject(MailService) private readonly mail: MailService, @Inject(RegistrationCaptchaService) private readonly captcha: RegistrationCaptchaService, @Inject(ReferralsService) private readonly referrals: ReferralsService) {}
+  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(SupabaseAuthService) private readonly supabase: SupabaseAuthService, @Inject(MailService) private readonly mail: MailService, @Inject(RegistrationCaptchaService) private readonly captcha: RegistrationCaptchaService, @Inject(ReferralsService) private readonly referrals: ReferralsService, @Inject(AuthSessionService) private readonly sessions: AuthSessionService) {}
   @Get('config') async config() {
     const mode = resolveLaunchMode(process.env.LAUNCH_MODE);
     const capabilities = launchCapabilities(mode);
@@ -68,10 +44,10 @@ export class AuthController {
     await this.auth.requireNewRegistration();
     await this.captcha.verify(input.captchaToken, req.requestId);
     if (process.env.AUTH_PROVIDER === 'supabase') {
-      const flow = pkce();
+      const flow = this.sessions.createPkce();
       const callbackUrl = `${process.env.APP_BASE_URL}/api/v1/auth/callback`;
       const result = await this.supabase.signUp({ email: input.email, password: input.password }, flow.challenge, callbackUrl);
-      externalFlowCookies(res, flow.verifier, 'signup');
+      this.sessions.setExternalFlow(res, flow.verifier, 'signup');
       // Supabase deliberately returns an identity-less user for an existing email.
       // Do not create a second local membership from that enumeration-safe response.
       if (Array.isArray(result.user.identities) && result.user.identities.length === 0) return { user: null, requiresEmailVerification: true };
@@ -92,15 +68,15 @@ export class AuthController {
         return created;
       });
       if (result.session) {
-        externalCookies(res, result.session);
-        res.clearCookie('keiba_pkce_verifier', externalCookieOptions()); res.clearCookie('keiba_auth_flow', externalCookieOptions());
+        this.sessions.setExternalSession(res, result.session);
+        this.sessions.clearExternalFlow(res);
         await this.auth.db.$transaction(async tx => {
           await tx.user.updateMany({ where: { id: user.id, emailVerifiedAt: null }, data: { emailVerifiedAt: new Date() } });
           await this.auth.journey(tx, user.id, 'FIRST_LOGIN');
           await this.referrals.qualify(tx, user.id, req);
         });
       }
-      res.clearCookie('keiba_session', { httpOnly: true, sameSite: 'lax', path: '/' });
+      this.sessions.clearLocalSession(res);
       return { user: publicUser(user), requiresEmailVerification: !result.session };
     }
     this.auth.ensureLocal();
@@ -118,14 +94,14 @@ export class AuthController {
       await this.referrals.createPending(tx, user.id, input.memberReferralCode);
       return user;
     });
-    res.clearCookie('keiba_session', { httpOnly: true, sameSite: 'lax', path: '/' });
+    this.sessions.clearLocalSession(res);
     await this.mail.sendVerification({ userId: user.id, email: input.email, purpose: 'REGISTRATION' });
     return { user: publicUser(user), requiresEmailVerification: true };
   }
   @Post('email/resend') async resendVerification(@Body() body: unknown, @Res({ passthrough: true }) res: Response) {
     const { email } = z.object({ email: z.string().trim().email().max(254).transform(v => v.toLowerCase()) }).strict().parse(body);
     if (process.env.AUTH_PROVIDER === 'supabase') {
-      const flow = pkce(); externalFlowCookies(res, flow.verifier, 'signup');
+      const flow = this.sessions.createPkce(); this.sessions.setExternalFlow(res, flow.verifier, 'signup');
       await this.supabase.resend(email, flow.challenge);
       return { message: '確認が必要なメールアドレスの場合、案内を送信しました。' };
     }
@@ -156,7 +132,7 @@ export class AuthController {
       await this.referrals.qualify(tx, user.id, req);
       return { user, sessionToken: await this.auth.session(tx, user.id) };
     });
-    cookie(res, result.sessionToken); return { user: publicUser(result.user), verified: true };
+    this.sessions.setLocalSession(res, result.sessionToken); return { user: publicUser(result.user), verified: true };
   }
   @Post('login') async login(@Body() body: unknown, @Req() req: AppRequest, @Res({ passthrough: true }) res: Response) {
     const input = loginSchema.parse(body);
@@ -171,8 +147,8 @@ export class AuthController {
         if (session.user.email_confirmed_at || session.user.confirmed_at) await this.referrals.qualify(tx, user.id, req);
         await this.auth.audit(tx, req, 'LOGIN', user.id, 'Supabaseログイン');
       });
-      externalCookies(res, session);
-      res.clearCookie('keiba_session', { httpOnly: true, sameSite: 'lax', path: '/' });
+      this.sessions.setExternalSession(res, session);
+      this.sessions.clearLocalSession(res);
       return { user: publicUser(user) };
     }
     this.auth.ensureLocal();
@@ -188,21 +164,21 @@ export class AuthController {
       await this.auth.audit(tx, req, 'LOGIN', user.id, 'ログイン');
       return this.auth.session(tx, user.id);
     });
-    cookie(res, token);
+    this.sessions.setLocalSession(res, token);
     return { user: publicUser(user) };
   }
   @Get('callback') async callback(@Query('code') codeValue: unknown, @Req() req: AppRequest, @Res() res: Response) {
     if (process.env.AUTH_PROVIDER !== 'supabase') return res.redirect(303, `${process.env.APP_BASE_URL}/login`);
     const parsed = z.string().uuid().safeParse(codeValue);
-    const verifier: unknown = req.cookies?.keiba_pkce_verifier;
-    const flow: unknown = req.cookies?.keiba_auth_flow;
-    if (!parsed.success || typeof verifier !== 'string' || verifier.length < 43 || !['signup', 'recovery'].includes(String(flow))) {
-      clearExternalCookies(res); return res.redirect(303, `${process.env.APP_BASE_URL}/login?auth=invalid`);
+    const flowState = this.sessions.readExternalFlow(req);
+    if (!parsed.success || !flowState) {
+      this.sessions.clearExternalSession(res); return res.redirect(303, `${process.env.APP_BASE_URL}/login?auth=invalid`);
     }
+    const { verifier, flow } = flowState;
     try {
       const session = await this.supabase.exchangeCode(parsed.data, verifier);
       const user = await this.auth.db.user.findUnique({ where: { authSubject: session.user.id } });
-      if (!user || user.disabledAt) { clearExternalCookies(res); return res.redirect(303, `${process.env.APP_BASE_URL}/login?auth=invalid`); }
+      if (!user || user.disabledAt) { this.sessions.clearExternalSession(res); return res.redirect(303, `${process.env.APP_BASE_URL}/login?auth=invalid`); }
       req.auth = { id: user.id, role: user.role, aal: 1, user };
       await this.auth.db.$transaction(async tx => {
         if (!user.emailVerifiedAt && (session.user.email_confirmed_at || session.user.confirmed_at)) await tx.user.update({ where: { id: user.id }, data: { emailVerifiedAt: new Date(session.user.email_confirmed_at ?? session.user.confirmed_at!) } });
@@ -210,31 +186,31 @@ export class AuthController {
         if (flow === 'signup' && (session.user.email_confirmed_at || session.user.confirmed_at)) await this.referrals.qualify(tx, user.id, req);
         await this.auth.audit(tx, req, flow === 'recovery' ? 'PASSWORD_RECOVERY_VERIFIED' : 'EMAIL_VERIFIED', user.id, flow === 'recovery' ? 'Supabaseパスワード再設定本人確認' : 'Supabaseメールアドレス確認完了');
       });
-      externalCookies(res, session);
-      res.clearCookie('keiba_pkce_verifier', externalCookieOptions()); res.clearCookie('keiba_auth_flow', externalCookieOptions());
+      this.sessions.setExternalSession(res, session);
+      this.sessions.clearExternalFlow(res);
       return res.redirect(303, flow === 'recovery' ? `${process.env.APP_BASE_URL}/reset-password?ready=1` : `${process.env.APP_BASE_URL}/account?email=verified`);
-    } catch { clearExternalCookies(res); return res.redirect(303, `${process.env.APP_BASE_URL}/login?auth=invalid`); }
+    } catch { this.sessions.clearExternalSession(res); return res.redirect(303, `${process.env.APP_BASE_URL}/login?auth=invalid`); }
   }
   @Post('refresh') async refresh(@Req() req: AppRequest, @Res({ passthrough: true }) res: Response) {
     if (process.env.AUTH_PROVIDER !== 'supabase') throw new UnauthorizedException();
-    const refreshToken: unknown = req.cookies?.keiba_refresh_token;
-    if (typeof refreshToken !== 'string' || refreshToken.length > 4096) { clearExternalCookies(res); throw new UnauthorizedException(); }
+    const refreshToken = this.sessions.readExternalRefreshToken(req);
+    if (refreshToken === null) { this.sessions.clearExternalSession(res); throw new UnauthorizedException(); }
     try {
       const session = await this.supabase.refresh(refreshToken);
       const user = await this.auth.db.user.findUnique({ where: { authSubject: session.user.id } });
       if (!user || user.disabledAt) throw new UnauthorizedException();
-      externalCookies(res, session); return { ok: true };
-    } catch (error) { clearExternalCookies(res); throw error; }
+      this.sessions.setExternalSession(res, session); return { ok: true };
+    } catch (error) { this.sessions.clearExternalSession(res); throw error; }
   }
   @Post('logout') async logout(@Req() req: AppRequest, @Res({ passthrough: true }) res: Response) {
     if (process.env.AUTH_PROVIDER === 'supabase') {
-      const accessToken: unknown = req.cookies?.keiba_access_token;
+      const accessToken = this.sessions.readExternalAccessToken(req);
       let identity: Awaited<ReturnType<AuthService['authenticate']>> | undefined;
       try { identity = await this.auth.authenticate(req); } catch { identity = undefined; }
-      if (typeof accessToken === 'string') await this.supabase.logout(accessToken);
+      if (accessToken !== null) await this.supabase.logout(accessToken);
       if (identity) await this.auth.db.$transaction(async tx => this.auth.audit(tx, req, 'LOGOUT', identity!.id, 'Supabaseログアウト'));
-      clearExternalCookies(res);
-      res.clearCookie('keiba_session', { httpOnly: true, sameSite: 'lax', path: '/' });
+      this.sessions.clearExternalSession(res);
+      this.sessions.clearLocalSession(res);
       return { ok: true };
     }
     const identity = await this.auth.authenticate(req);
@@ -242,13 +218,13 @@ export class AuthController {
       await tx.session.deleteMany({ where: { id: identity.sessionId } });
       await this.auth.audit(tx, req, 'LOGOUT', identity.id, 'ログアウト');
     });
-    res.clearCookie('keiba_session', { httpOnly: true, sameSite: 'lax', path: '/' });
+    this.sessions.clearLocalSession(res);
     return { ok: true };
   }
   @Post('password/request') async requestReset(@Body() body: unknown, @Req() req: AppRequest, @Res({ passthrough: true }) res: Response) {
     const { email } = z.object({ email: z.string().email().transform(s => s.toLowerCase()) }).strict().parse(body);
     if (process.env.AUTH_PROVIDER === 'supabase') {
-      const flow = pkce(); externalFlowCookies(res, flow.verifier, 'recovery');
+      const flow = this.sessions.createPkce(); this.sessions.setExternalFlow(res, flow.verifier, 'recovery');
       await this.supabase.recover(email, flow.challenge, `${process.env.APP_BASE_URL}/api/v1/auth/callback`);
       return { message: '登録されたメールアドレスの場合、再設定の案内を送信しました。' };
     }
@@ -268,8 +244,7 @@ export class AuthController {
     if (process.env.AUTH_PROVIDER === 'supabase') {
       const { password } = z.object({ token: z.unknown().optional(), password: z.string().min(12).max(128) }).strict().parse(body);
       const identity = await this.auth.authenticate(req);
-      const accessToken: unknown = req.cookies?.keiba_access_token;
-      if (typeof accessToken !== 'string') throw new UnauthorizedException();
+      const accessToken = this.sessions.requireExternalAccessToken(req);
       await this.supabase.updatePassword(accessToken, password);
       await this.auth.db.$transaction(async tx => this.auth.audit(tx, req, 'PASSWORD_RESET', identity.id, 'Supabaseパスワード再設定'));
       return { ok: true };
@@ -299,7 +274,7 @@ export class AuthController {
         if (!identity.user.externalMfaFactorId) throw new BadRequestException({ code: 'MFA_PRIMARY_REQUIRED', message: '先に主認証アプリを設定してください。' });
         if (identity.user.externalBackupMfaFactorId) throw new ConflictException({ code: 'MFA_BACKUP_ALREADY_ENROLLED', message: '予備認証アプリは設定済みです。' });
       }
-      const factor = await this.supabase.enrollTotp(accessToken(req));
+      const factor = await this.supabase.enrollTotp(this.sessions.requireExternalAccessToken(req, 8192));
       await this.auth.db.$transaction(async tx => {
         await tx.user.update({ where: { id: identity.id }, data: { pendingExternalMfaFactorId: factor.id, pendingExternalMfaKind: kind, pendingExternalMfaExpiresAt: new Date(Date.now() + 15 * 60_000) } });
         await this.auth.audit(tx, req, 'MFA_ENROLL_START', identity.id, kind === 'BACKUP' ? 'Supabase予備認証アプリの登録開始' : 'Supabase二段階認証の登録開始', { factorKind: kind });
@@ -328,7 +303,7 @@ export class AuthController {
       const factorId = submittedFactorId ?? (factor === 'BACKUP' ? identity.user.externalBackupMfaFactorId : identity.user.externalMfaFactorId);
       if (!factorId) throw new BadRequestException({ code: 'MFA_NOT_ENROLLED', message: '二段階認証の設定を開始してください。' });
       const resolvedFactorKind = pending?.kind === 'BACKUP' || factorId === identity.user.externalBackupMfaFactorId ? 'BACKUP' : 'PRIMARY';
-      const token = accessToken(req);
+      const token = this.sessions.requireExternalAccessToken(req, 8192);
       const challenge = await this.supabase.challengeFactor(token, factorId);
       const session = await this.supabase.verifyFactor(token, factorId, challenge.id, code);
       if (session.user.id !== identity.user.authSubject) throw new UnauthorizedException();
@@ -343,7 +318,7 @@ export class AuthController {
           await this.auth.audit(tx, req, 'MFA_VERIFIED', identity.id, resolvedFactorKind === 'BACKUP' ? 'Supabase予備認証アプリで二段階認証成功' : 'Supabase二段階認証成功', { factorKind: resolvedFactorKind });
         }
       });
-      externalCookies(res, session);
+      this.sessions.setExternalSession(res, session);
       return { verified: true };
     }
     this.auth.ensureLocal();
@@ -362,7 +337,7 @@ export class AuthController {
       await this.auth.audit(tx, req, 'MFA_VERIFIED', identity.id, '二段階認証成功');
       return this.auth.session(tx, identity.id, 2);
     });
-    cookie(res, token);
+    this.sessions.setLocalSession(res, token);
     return { ok: true };
   }
   @Post('mfa/backup/revoke') async revokeBackup(@Body() body: unknown, @Req() req: AppRequest, @Res({ passthrough: true }) res: Response) {
@@ -372,16 +347,17 @@ export class AuthController {
     const { reason } = z.object({ reason: z.string().trim().min(1).max(500) }).strict().parse(body);
     const factorId = identity.user.externalBackupMfaFactorId;
     if (!factorId) throw new BadRequestException({ code: 'MFA_BACKUP_NOT_ENROLLED', message: '予備認証アプリは設定されていません。' });
-    await this.supabase.unenrollFactor(accessToken(req), factorId);
-    await this.supabase.logout(accessToken(req));
+    const accessToken = this.sessions.requireExternalAccessToken(req, 8192);
+    await this.supabase.unenrollFactor(accessToken, factorId);
+    await this.supabase.logout(accessToken);
     await this.auth.db.$transaction(async tx => {
       const changed = await tx.user.updateMany({ where: { id: identity.id, externalBackupMfaFactorId: factorId }, data: { externalBackupMfaFactorId: null } });
       if (changed.count !== 1) throw new ConflictException({ code: 'MFA_BACKUP_CHANGED', message: '設定状態が変わりました。最新の状態を確認してください。' });
       const localSessions = await tx.session.deleteMany({ where: { userId: identity.id } });
       await this.auth.audit(tx, req, 'MFA_BACKUP_REVOKED', identity.id, reason, { factorKind: 'BACKUP', providerSessionsRevoked: true, localSessionsRevoked: localSessions.count });
     });
-    clearExternalCookies(res);
-    res.clearCookie('keiba_session', { httpOnly: true, sameSite: 'lax', path: '/' });
+    this.sessions.clearExternalSession(res);
+    this.sessions.clearLocalSession(res);
     return { revoked: true, signedOut: true };
   }
 }

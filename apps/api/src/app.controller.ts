@@ -8,6 +8,7 @@ import type { AppRequest } from './context';
 import { hashToken, verifyPassword } from './security';
 import { Prisma, resolveMailConfig } from '@keiba/db';
 import { ReadinessService } from './readiness.service';
+import { AuthSessionService } from './auth-session.service';
 
 const pagination = z.object({ page: z.coerce.number().int().min(1).max(10000).default(1), limit: z.coerce.number().int().min(1).max(50).default(20) });
 const journeyEventSchema = z.object({ eventType: z.enum(['LINE_GUIDANCE_VIEWED', 'PLAN_VIEWED', 'CHECKOUT_REVIEWED']) }).strict();
@@ -21,7 +22,8 @@ function csvCell(value: string | number) {
 export class AppController {
   constructor(
     @Inject(AuthService) private readonly auth: AuthService,
-    @Inject(ReadinessService) private readonly readinessQuery: ReadinessService
+    @Inject(ReadinessService) private readonly readinessQuery: ReadinessService,
+    @Inject(AuthSessionService) private readonly sessions: AuthSessionService
   ) {}
   @Get('health') async health() {
     const now = new Date();
@@ -120,7 +122,7 @@ export class AppController {
       await tx.session.deleteMany({ where: { userId: identity.id } });
       return { closedAt: closure.accessRevokedAt, alreadyClosed: false };
     });
-    res.clearCookie('keiba_session', { httpOnly: true, sameSite: 'lax', path: '/' });
+    this.sessions.clearLocalSession(res);
     return { ...result, retainedHistory: true };
   }
   @Post('me/journey') async journey(@Body() body: unknown, @Req() req: AppRequest) {

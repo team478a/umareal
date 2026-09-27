@@ -77,6 +77,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 優先度: P1
 - 検証: 分離前後でAPI contract、DB/API結合、AAL1/AAL2拒否、冪等性、既存E2Eが同じ結果になることをcharacterization testで固定する。
 - 実施状況: PR #7で最初のpilotをmainへ統合した。本番準備チェックのADMIN+AAL2認可はControllerへ残し、認可後の限定select、集計、判定、ローカル復元状態の読み取りだけを`ReadinessService`へ移した。既存15項目の順序と秘密情報非露出をintegration testで固定している。
+- 認証セッション境界pilot: ローカル認証とSupabase認証のCookie属性、PKCE生成・flow Cookie、外部token取得を`AuthSessionService`へ集約し、メール認証、LINE Login、MFA、logout、退会が同じセッション境界を使用する。登録条件、Provider呼び出し、監査、API URL・応答、Cookie名・属性・有効時間は変更しない。これはController分離の最初の小規模phaseであり、登録・MFA・請求orchestration全体の分離完了を意味しない。
 
 ### MA-005 DBアクセス境界（後続PR候補）
 
