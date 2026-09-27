@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { runPublicationSchedules } from '../apps/worker/src/publication-scheduler';
-import { notificationTestSendResponseSchema } from '../packages/domain/src';
+import { notificationTestSendResponseSchema, publicationScheduleListResponseSchema } from '../packages/domain/src';
 import { account, Client, db } from './helpers';
 
 beforeAll(() => { const url = new URL(process.env.DATABASE_URL ?? ''); if (!['localhost', '127.0.0.1'].includes(url.hostname) || process.env.AUTH_PROVIDER !== 'local') throw new Error('Integration suite is limited to a local development database'); });
@@ -32,9 +32,11 @@ describe('scheduled publication and alerts', () => {
       { eventId: event.id, userId: target.member.user.id, channel: 'EMAIL', status: 'FAILED', lastErrorCode: 'TEST_PROVIDER_FAILURE', idempotencyKey: `schedule-email:${randomUUID()}` }
     ] });
     const overview = await target.adminClient.call('admin/publication-schedules?date=2098-11-01');
-    const race = overview.body.items.find((item: { id: string }) => item.id === target.race.id);
-    expect(overview.body.failedDeliveries).toBeGreaterThanOrEqual(1);
+    const parsedOverview = publicationScheduleListResponseSchema.parse(overview.body);
+    const race = parsedOverview.items.find(item => item.id === target.race.id)!;
+    expect(parsedOverview.failedDeliveries).toBeGreaterThanOrEqual(1);
     expect(race.deliveryResults[0]).toMatchObject({ eventId: event.id, contentType: 'RACE_ANNOUNCEMENT', label: '対象レース告知', version: 1, eventStatus: 'FAILED', line: { total: 1, sent: 1, failed: 0 }, email: { total: 1, sent: 0, failed: 1 } });
+    expect(JSON.stringify(parsedOverview)).not.toMatch(/@|recipientEmail|displayName|authSubject|payload|token|secret|password/i);
     const filtered = await target.adminClient.call(`admin/notifications?raceId=${target.race.id}`);
     expect(filtered.status).toBe(200); expect(filtered.body).toMatchObject({ raceId: target.race.id, total: 2, counts: { SENT: 1, FAILED: 1 } });
     expect(filtered.body.items.every((item: { event: { announcement: { race: { id: string } } } }) => item.event.announcement.race.id === target.race.id)).toBe(true);
@@ -62,7 +64,7 @@ describe('scheduled publication and alerts', () => {
     await runPublicationSchedules({ db, now: () => scheduledAt });
     expect(await db.publicationSchedule.findUnique({ where: { id: created.body.id } })).toMatchObject({ status: 'FAILED', errorCode: 'SCHEDULE_DRAFT_CHANGED' });
     expect(await db.freeReportVersion.count({ where: { raceId: target.race.id } })).toBe(0);
-    const alerts = await target.adminClient.call('admin/publication-schedules?date=2098-11-01'); const race = alerts.body.items.find((item: { id: string }) => item.id === target.race.id); expect(race.warnings).toContain('失敗した配信予約があります。');
+    const alerts = publicationScheduleListResponseSchema.parse((await target.adminClient.call('admin/publication-schedules?date=2098-11-01')).body); const race = alerts.items.find(item => item.id === target.race.id)!; expect(race.warnings).toContain('失敗した配信予約があります。');
     const next = await target.adminClient.call('admin/publication-schedules', 'POST', { raceId: target.race.id, kind: 'FREE_REPORT_PRE_RACE', draftRevision: 2, scheduledAt: new Date(scheduledAt.getTime() + 60_000).toISOString(), reason: '修正版を予約' }, undefined, { 'Idempotency-Key': randomUUID() });
     const cancelled = await target.adminClient.call(`admin/publication-schedules/${next.body.id}/cancel`, 'POST', { reason: '配信時刻を見直す' }); expect(cancelled.body.status).toBe('CANCELLED');
   });

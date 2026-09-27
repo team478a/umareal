@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req } from '@nestjs/common';
-import { canManage, dateSchema, jstDate, publicationScheduleCancelSchema, publicationScheduleSchema, requiresMfa } from '@keiba/domain';
+import { canManage, dateSchema, jstDate, publicationScheduleCancelSchema, publicationScheduleListResponseSchema, publicationScheduleSchema, requiresMfa } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -69,7 +69,7 @@ export class PublicationSchedulesController {
       if (race.publicationSchedules.some(schedule => schedule.status === 'FAILED')) warnings.push('失敗した配信予約があります。');
       return { ...race, deliveryResults: resultsByRace.get(race.id) ?? [], warnings };
     });
-    return { generatedAt: now, items, alerts: items.reduce((count, race) => count + race.warnings.length, 0) + failedDeliveries, failedDeliveries };
+    return publicationScheduleListResponseSchema.parse({ generatedAt: now, items, alerts: items.reduce((count, race) => count + race.warnings.length, 0) + failedDeliveries, failedDeliveries });
   }
 
   @Post()
