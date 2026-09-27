@@ -26,3 +26,42 @@ export const acquisitionCampaignCreateSchema = z.object({
 }).strict();
 
 export const acquisitionReportQuerySchema = z.object({ days: z.coerce.number().int().min(1).max(365).default(30) });
+
+const acquisitionResponseDateTimeSchema = z.preprocess(
+  value => value instanceof Date ? value.toISOString() : value,
+  z.string().datetime({ offset: true })
+);
+
+export const adminAcquisitionCampaignSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  code: z.string(),
+  source: z.string(),
+  medium: z.string(),
+  content: z.string().nullable(),
+  landingPath: z.string(),
+  referralCode: z.string().nullable(),
+  createdBy: z.string().uuid(),
+  createdAt: acquisitionResponseDateTimeSchema,
+  registrationUrl: z.string().url()
+}).strict();
+
+export const adminAcquisitionBreakdownSchema = z.object({
+  source: z.string(),
+  medium: z.string().nullable(),
+  campaign: z.string().nullable(),
+  registered: z.number().int().nonnegative(),
+  paid: z.number().int().nonnegative()
+}).strict();
+
+export const adminAcquisitionReportResponseSchema = z.object({
+  days: z.number().int().min(1).max(365),
+  since: acquisitionResponseDateTimeSchema,
+  legacyMembers: z.number().int().nonnegative(),
+  campaigns: z.array(adminAcquisitionCampaignSchema),
+  breakdown: z.array(adminAcquisitionBreakdownSchema)
+}).strict();
+
+export type AdminAcquisitionCampaign = z.infer<typeof adminAcquisitionCampaignSchema>;
+export type AdminAcquisitionBreakdown = z.infer<typeof adminAcquisitionBreakdownSchema>;
+export type AdminAcquisitionReportResponse = z.infer<typeof adminAcquisitionReportResponseSchema>;

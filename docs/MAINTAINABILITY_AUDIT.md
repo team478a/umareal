@@ -109,6 +109,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 運用アラート一覧pilot: `GET /admin/operational-alerts`のアラート、外部配送結果、状態別件数の既存応答を共有Contractへ接続し、障害対応画面の手書き応答型を置き換える。検知・配送・確認・解決・再送、認可、画面表示、設定APIは変更しない。
 - 運用アラート設定pilot: `GET /admin/operational-alerts/settings`と`PATCH /admin/operational-alerts/settings`の共通応答を共有Contractへ接続し、障害対応画面の手書き応答型を置き換える。設定値、revision競合制御、ADMIN+AAL2更新、OPERATOR閲覧、監査、画面表示は変更しない。
 - 運用アラート操作pilot: 確認済み、解決済み、外部配送再送APIの既存成功応答を共有Contractへ接続し、障害対応画面も同じ型を参照する。状態遷移、理由必須、ADMINとOPERATORの既存認可、監査、再送条件、返却項目は変更しない。
+- 流入分析pilot: `GET /admin/acquisition`の集計期間、計測開始前会員数、発行済みキャンペーン、流入別登録・有料化件数の既存応答を共有Contractへ接続し、流入管理画面の手書き応答型を置き換える。集計条件、ADMIN+AAL2認可、キャンペーン作成、CSV出力、画面表示は変更しない。
 
 ### MA-007 CIジョブ構成
 

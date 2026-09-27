@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
+import { adminAcquisitionReportResponseSchema } from '../packages/domain/src';
 import { account, base, Client, db, origin } from './helpers';
 
 afterAll(() => db.$disconnect());
@@ -16,7 +17,7 @@ describe('acquisition campaign operations', () => {
     expect(await db.auditLog.count({ where: { action: 'ACQUISITION_CAMPAIGN_CREATE', targetId: created.body.id } })).toBe(1);
 
     const member = await account(); await db.memberAcquisition.create({ data: { userId: member.user.id, source: '=formula', medium: 'test', campaign: code } });
-    const report = await admin.call('admin/acquisition?days=30'); expect(report.status).toBe(200); expect(report.body.campaigns).toEqual(expect.arrayContaining([expect.objectContaining({ id: created.body.id, registrationUrl: created.body.registrationUrl })]));
+    const report = await admin.call('admin/acquisition?days=30'); expect(report.status).toBe(200); const parsedReport = adminAcquisitionReportResponseSchema.parse(report.body); expect(parsedReport.campaigns).toEqual(expect.arrayContaining([expect.objectContaining({ id: created.body.id, registrationUrl: created.body.registrationUrl })])); expect(parsedReport.breakdown).toEqual(expect.arrayContaining([expect.objectContaining({ source: '=formula', medium: 'test', campaign: code, registered: 1, paid: 0 })])); expect(JSON.stringify(parsedReport)).not.toContain(member.user.email!);
     const csv = await fetch(`${base}/api/v1/admin/acquisition/export.csv?days=30`, { headers: { Cookie: admin.cookie, Origin: origin } });
     const text = await csv.text(); expect(csv.status).toBe(200); expect(csv.headers.get('content-type')).toContain('text/csv'); expect(csv.headers.get('content-disposition')).toContain('acquisition-30days.csv'); expect(text).toContain('無料登録数'); expect(text).toContain("'=formula"); expect(text).not.toContain(member.user.email!);
 
