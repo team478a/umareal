@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Req } from '@nestjs/common';
-import { aggregatePredictionEvaluations, canManage, dateSchema, evaluatePrediction, getResultDataProvider, parseResultCsv, raceResultInputSchema, requiresMfa, resultDataProviderCatalog, resultDataProviderIdSchema, resultEntrySchema, verifyJraVanResultBundle } from '@keiba/domain';
+import { aggregatePredictionEvaluations, canManage, dateSchema, evaluatePrediction, getResultDataProvider, parseResultCsv, publicRaceResultResponseSchema, raceResultInputSchema, requiresMfa, resultDataProviderCatalog, resultDataProviderIdSchema, resultEntrySchema, verifyJraVanResultBundle } from '@keiba/domain';
 import type { BatchResultCsvRow, RaceResultInput, ResultEntry, Role } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -461,10 +461,10 @@ export class ResultsController {
         predictionEvaluations: { select: { status: true, primaryFinishedFirst: true, primaryFinishedTop2: true, primaryFinishedTop3: true, winnerInRecommended: true, predictionVersion: { select: { version: true, confidence: true, publishedAt: true } } } }
       }
     });
-    if (!value) return { confirmed: false };
-    const entries = z.array(z.object({ entryId: z.string(), status: z.string(), finishPosition: z.number().nullable(), popularity: z.number().nullable(), finalOdds: z.string().nullable() })).parse(value.entriesSnapshot);
+    if (!value) return publicRaceResultResponseSchema.parse({ confirmed: false });
+    const entries = z.array(resultEntrySchema).parse(value.entriesSnapshot);
     const names = new Map(value.race.entries.map(entry => [entry.id, entry]));
-    return { confirmed: true, version: value.version, ruleVersion: value.ruleVersion, raceCanceled: value.raceCanceled, confirmedAt: value.confirmedAt, entries: entries.map(entry => ({ ...entry, number: names.get(entry.entryId)?.number, horseName: names.get(entry.entryId)?.horseName })), evaluations: value.predictionEvaluations };
+    return publicRaceResultResponseSchema.parse({ confirmed: true, version: value.version, ruleVersion: value.ruleVersion, raceCanceled: value.raceCanceled, confirmedAt: value.confirmedAt, entries: entries.map(entry => ({ ...entry, number: names.get(entry.entryId)?.number, horseName: names.get(entry.entryId)?.horseName })), evaluations: value.predictionEvaluations });
   }
 
   @Get('results/stats')

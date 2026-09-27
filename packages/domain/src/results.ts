@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { evaluationConfidences, predictionEvaluationStatuses } from './evaluations';
 import { betTypes } from './predictions';
 import { dateSchema, jraVanBundleManifestSchema, parseCsv, venues } from './races';
 
@@ -6,6 +7,40 @@ export const resultRuleVersion = 'VERSION_AUDIT_V1';
 export const runnerResultStatuses = ['FINISHED', 'WITHDRAWN', 'EXCLUDED', 'DNF', 'CANCELED'] as const;
 export const resultEntrySchema = z.object({ entryId: z.string().uuid(), status: z.enum(runnerResultStatuses), finishPosition: z.number().int().min(1).max(18).nullable(), popularity: z.number().int().min(1).max(18).nullable(), finalOdds: z.string().regex(/^\d{1,7}(\.\d)?$/).nullable() }).strict();
 export type ResultEntry = z.infer<typeof resultEntrySchema>;
+
+const publicResultDateTimeSchema = z.preprocess(
+  value => value instanceof Date ? value.toISOString() : value,
+  z.string().datetime({ offset: true })
+);
+const publicRaceResultEntrySchema = resultEntrySchema.extend({
+  number: z.number().int().min(1).max(18),
+  horseName: z.string()
+}).strict();
+const publicRaceResultEvaluationSchema = z.object({
+  status: z.enum(predictionEvaluationStatuses),
+  primaryFinishedFirst: z.boolean(),
+  primaryFinishedTop2: z.boolean(),
+  primaryFinishedTop3: z.boolean(),
+  winnerInRecommended: z.boolean(),
+  predictionVersion: z.object({
+    version: z.number().int().positive(),
+    confidence: z.enum(evaluationConfidences),
+    publishedAt: publicResultDateTimeSchema
+  }).strict()
+}).strict();
+export const publicRaceResultResponseSchema = z.discriminatedUnion('confirmed', [
+  z.object({ confirmed: z.literal(false) }).strict(),
+  z.object({
+    confirmed: z.literal(true),
+    version: z.number().int().positive(),
+    ruleVersion: z.string().min(1),
+    raceCanceled: z.boolean(),
+    confirmedAt: publicResultDateTimeSchema,
+    entries: z.array(publicRaceResultEntrySchema).max(18),
+    evaluations: z.array(publicRaceResultEvaluationSchema)
+  }).strict()
+]);
+export type PublicRaceResultResponse = z.infer<typeof publicRaceResultResponseSchema>;
 export const resultCsvHeaders = ['number', 'status', 'finishPosition', 'popularity', 'finalOdds'] as const;
 export const resultCsvRowSchema = z.object({
   number: z.number().int().min(1).max(18), status: z.enum(runnerResultStatuses), finishPosition: z.number().int().min(1).max(18).nullable(),

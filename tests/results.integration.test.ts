@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
-import { emptyPredictionDraft } from '../packages/domain/src';
+import { emptyPredictionDraft, publicRaceResultResponseSchema } from '../packages/domain/src';
 import { assessmentFixture } from './assessment-fixtures';
 import { account, Client, db } from './helpers';
 
@@ -21,6 +21,9 @@ function resultBody(entries: { id: string; number: number }[], revision = 0) { r
 describe('immutable results and horse-evaluation performance', () => {
   it('authorizes operations, evaluates frozen marks and preserves corrections', async () => {
     const { fixture, predictionVersionId } = await publishedRace();
+    const unconfirmedResult = await new Client().call(`races/${fixture.race.id}/result`);
+    expect(unconfirmedResult.status).toBe(200);
+    expect(publicRaceResultResponseSchema.parse(unconfirmedResult.body)).toEqual({ confirmed: false });
     const member = new Client(); await member.login(await account());
     expect((await member.call(`admin/results/races/${fixture.race.id}`)).status).toBe(403);
     const adminWithoutMfa = new Client(); await adminWithoutMfa.login(await account('ADMIN'));
@@ -54,7 +57,10 @@ describe('immutable results and horse-evaluation performance', () => {
     await expect(db.notificationEvent.create({ data: { raceResultVersionId: confirmed.body.versionId, eventType: 'RACE_EVALUATION_CONFIRMED', status: 'QUEUED', payload: {} } })).rejects.toThrow();
     expect(await db.raceResultVersion.count({ where: { raceId: fixture.race.id } })).toBe(2);
     const publicResult = await new Client().call(`races/${fixture.race.id}/result`);
-    expect(publicResult.status).toBe(200); expect(publicResult.body.version).toBe(2); expect(publicResult.body.evaluations[0].status).toBe('PRIMARY_WIN'); expect(JSON.stringify(publicResult.body)).not.toMatch(/payout|stakeYen|returnYen|recovery/);
+    expect(publicResult.status).toBe(200);
+    const publicResultValue = publicRaceResultResponseSchema.parse(publicResult.body);
+    expect(publicResultValue).toMatchObject({ confirmed: true, version: 2, evaluations: [{ status: 'PRIMARY_WIN' }] });
+    expect(JSON.stringify(publicResult.body)).not.toMatch(/payout|stakeYen|returnYen|recovery|confirmedBy|reason|sourceRevision|calculationRuleVersion|predictionVersionId/i);
     expect((await member.call('admin/social-shares')).status).toBe(403);
     expect((await adminWithoutMfa.call('admin/social-shares')).body.code).toBe('MFA_REQUIRED');
     const shares = await fixture.client.call('admin/social-shares');
