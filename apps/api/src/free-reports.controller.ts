@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
-import { adminFreeReportRaceDetailResponseSchema, adminFreeReportRaceListResponseSchema, canManage, dateSchema, freeMemberBenefitSchema, freeReportDraftSchema, freeReportPublishSchema, jstDate, publicFreeMemberBenefitResponseSchema, publicFreeReportMetadataResponseSchema, requiresMfa } from '@keiba/domain';
+import { adminFreeMemberBenefitResponseSchema, adminFreeReportRaceDetailResponseSchema, adminFreeReportRaceListResponseSchema, canManage, dateSchema, freeMemberBenefitSchema, freeReportDraftSchema, freeReportPublishSchema, jstDate, publicFreeMemberBenefitResponseSchema, publicFreeReportMetadataResponseSchema, requiresMfa } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import type { Response } from 'express';
 import { z } from 'zod';
@@ -8,6 +8,7 @@ import type { AppRequest } from './context';
 import { hashToken } from './security';
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+const freeMemberBenefitSelect = { id: true, title: true, description: true, videoUrl: true, revision: true, updatedBy: true, updatedAt: true } satisfies Prisma.FreeMemberBenefitSelect;
 const maxAudioBytes = 8 * 1024 * 1024;
 const audioTypes = new Set(['audio/webm', 'audio/mp4', 'audio/m4a', 'audio/x-m4a', 'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/x-wav', 'audio/aac']);
 function hasAudioSignature(contentType: string, data: Buffer) {
@@ -141,7 +142,8 @@ export class AdminFreeReportsController {
   @Get('benefit')
   async benefit(@Req() req: AppRequest) {
     await this.staff(req);
-    return (await this.auth.db.freeMemberBenefit.findUnique({ where: { id: 'global' } })) ?? { id: 'global', title: '', description: '', videoUrl: '', revision: 0, updatedAt: null };
+    const benefit = (await this.auth.db.freeMemberBenefit.findUnique({ where: { id: 'global' }, select: freeMemberBenefitSelect })) ?? { id: 'global' as const, title: '' as const, description: '' as const, videoUrl: '' as const, revision: 0 as const, updatedAt: null };
+    return adminFreeMemberBenefitResponseSchema.parse(benefit);
   }
 
   @Patch('benefit')
@@ -152,10 +154,10 @@ export class AdminFreeReportsController {
       const before = await tx.freeMemberBenefit.findUnique({ where: { id: 'global' } });
       if ((before?.revision ?? 0) !== input.revision) throw new ConflictException({ code: 'FREE_BENEFIT_CONFLICT', message: '登録特典が変更されています。再読み込みしてください。' });
       const benefit = before
-        ? await tx.freeMemberBenefit.update({ where: { id: 'global' }, data: { title: input.title, description: input.description, videoUrl: input.videoUrl, updatedBy: actor.id, updatedAt: new Date(), revision: { increment: 1 } } })
-        : await tx.freeMemberBenefit.create({ data: { id: 'global', title: input.title, description: input.description, videoUrl: input.videoUrl, updatedBy: actor.id } });
+        ? await tx.freeMemberBenefit.update({ where: { id: 'global' }, data: { title: input.title, description: input.description, videoUrl: input.videoUrl, updatedBy: actor.id, updatedAt: new Date(), revision: { increment: 1 } }, select: freeMemberBenefitSelect })
+        : await tx.freeMemberBenefit.create({ data: { id: 'global', title: input.title, description: input.description, videoUrl: input.videoUrl, updatedBy: actor.id }, select: freeMemberBenefitSelect });
       await this.auth.audit(tx, req, 'FREE_MEMBER_BENEFIT_UPDATE', benefit.id, input.reason, { revision: benefit.revision, videoConfigured: true });
-      return benefit;
+      return adminFreeMemberBenefitResponseSchema.parse(benefit);
     }, { timeout: 20000, maxWait: 10000 });
   }
 }

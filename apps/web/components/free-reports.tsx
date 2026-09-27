@@ -1,11 +1,12 @@
 'use client';
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { ArrowRight, Eye, Mic, PlayCircle, Square, Upload } from 'lucide-react';
-import type { AdminFreeReportRaceDetailResponse, AdminFreeReportRaceListResponse, FreeReportNotificationPreviewResponse, NotificationTestSendResponse, PublicFreeMemberBenefitResponse } from '@keiba/domain';
+import type { AdminFreeMemberBenefitResponse, AdminFreeReportRaceDetailResponse, AdminFreeReportRaceListResponse, FreeReportNotificationPreviewResponse, NotificationTestSendResponse, PublicFreeMemberBenefitResponse } from '@keiba/domain';
 import { NotificationPreview } from './notification-preview';
 
 type Draft = { revision: number; upEntryId: string; upReason: string; downEntryId: string; downReason: string; audioUrl: string; reviewText: string };
-type Benefit = { revision: number; title: string; description: string; videoUrl: string };
+type BenefitForm = Pick<AdminFreeMemberBenefitResponse, 'revision' | 'title' | 'description' | 'videoUrl'>;
+const benefitForm = (value: AdminFreeMemberBenefitResponse): BenefitForm => ({ revision: value.revision, title: value.title, description: value.description, videoUrl: value.videoUrl });
 
 async function api<T>(path: string, method = 'GET', body?: unknown, idempotent = false): Promise<T> {
   const response = await fetch(`/api/v1/${path}`, { method, cache: 'no-store', headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(idempotent ? { 'Idempotency-Key': crypto.randomUUID() } : {}) }, body: body ? JSON.stringify(body) : undefined });
@@ -51,17 +52,17 @@ function AudioInput({ value, onChange, disabled }: { value: string; onChange: (v
 export function FreeReportManager({ canTest = false }: { canTest?: boolean }) {
   const [date, setDate] = useState(jstDate()); const [races, setRaces] = useState<AdminFreeReportRaceListResponse['items']>([]); const [detail, setDetail] = useState<AdminFreeReportRaceDetailResponse | null>(null);
   const [draft, setDraft] = useState<Draft>({ revision: 0, upEntryId: '', upReason: '', downEntryId: '', downReason: '', audioUrl: '', reviewText: '' });
-  const [benefit, setBenefit] = useState<Benefit>({ revision: 0, title: '', description: '', videoUrl: '' });
+  const [benefit, setBenefit] = useState<BenefitForm>({ revision: 0, title: '', description: '', videoUrl: '' });
   const [reason, setReason] = useState(''); const [benefitReason, setBenefitReason] = useState(''); const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false); const [testBusy, setTestBusy] = useState<'LINE' | 'EMAIL' | null>(null); const [preview, setPreview] = useState<FreeReportNotificationPreviewResponse | null>(null);
   async function loadRaces(value = date) { try { setRaces((await api<AdminFreeReportRaceListResponse>(`admin/free-reports/races?date=${value}`)).items); } catch (e) { setError((e as Error).message); } }
   async function open(id: string) { setError(''); setPreview(null); try { const value = await api<AdminFreeReportRaceDetailResponse>(`admin/free-reports/races/${id}`); setDetail(value); setDraft(value.freeReportDraft ?? { revision: 0, upEntryId: value.entries[0]?.id ?? '', upReason: '', downEntryId: value.entries[1]?.id ?? '', downReason: '', audioUrl: '', reviewText: '' }); } catch (e) { setError((e as Error).message); } }
-  useEffect(() => { void loadRaces(); api<Benefit>('admin/free-reports/benefit').then(setBenefit).catch(e => setError(e.message)); }, []);
+  useEffect(() => { void loadRaces(); api<AdminFreeMemberBenefitResponse>('admin/free-reports/benefit').then(value => setBenefit(benefitForm(value))).catch(e => setError(e.message)); }, []);
   useEffect(() => { void loadRaces(date); setDetail(null); }, [date]);
   async function saveDraft(event: FormEvent) { event.preventDefault(); if (!detail) return; setBusy(true); setError(''); setMessage(''); try { const value = await api<Draft>(`admin/free-reports/races/${detail.id}/draft`, 'PATCH', { ...draft, reason }); setDraft(value); setReason(''); setMessage('無料速報の下書きを保存しました。'); await open(detail.id); await loadRaces(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
   async function publish(kind: 'PRE_RACE' | 'POST_RACE_REVIEW') { if (!detail) return; setBusy(true); setError(''); setMessage(''); try { await api(`admin/free-reports/races/${detail.id}/publish`, 'POST', { revision: draft.revision, kind, reason }, true); setMessage(kind === 'PRE_RACE' ? '無料パドック速報を公開しました。' : 'レース後検証を公開しました。'); setReason(''); await open(detail.id); await loadRaces(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
   async function loadPreview(kind: 'PRE_RACE' | 'POST_RACE_REVIEW') { if (!detail) return; setBusy(true); setError(''); setMessage(''); try { setPreview(await api<FreeReportNotificationPreviewResponse>(`admin/notifications/previews/free-report?raceId=${detail.id}&kind=${kind}&revision=${draft.revision}`)); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
   async function testSend(channel: 'LINE' | 'EMAIL') { if (!detail || !preview?.kind) return; setTestBusy(channel); setError(''); setMessage(''); try { const result = await api<NotificationTestSendResponse>('admin/notifications/test-send', 'POST', { raceId: detail.id, contentType: preview.kind === 'PRE_RACE' ? 'FREE_REPORT_PRE_RACE' : 'FREE_REPORT_POST_RACE_REVIEW', draftRevision: draft.revision, channel, reason }, true); setMessage(`${channel === 'EMAIL' ? 'メール' : 'LINE'}の${result.status === 'SIMULATED' ? '模擬テスト送信' : 'テスト送信'}を完了しました。`); } catch (e) { setError((e as Error).message); } finally { setTestBusy(null); } }
-  async function saveBenefit(event: FormEvent) { event.preventDefault(); setBusy(true); setError(''); setMessage(''); try { const value = await api<Benefit>('admin/free-reports/benefit', 'PATCH', { ...benefit, reason: benefitReason }); setBenefit(value); setBenefitReason(''); setMessage('登録特典を保存しました。'); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
+  async function saveBenefit(event: FormEvent) { event.preventDefault(); setBusy(true); setError(''); setMessage(''); try { const value = await api<AdminFreeMemberBenefitResponse>('admin/free-reports/benefit', 'PATCH', { ...benefit, reason: benefitReason }); setBenefit(benefitForm(value)); setBenefitReason(''); setMessage('登録特典を保存しました。'); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
   const active = detail?.entries.filter(entry => entry.status === 'ACTIVE') ?? [];
   const storedDraft = detail?.freeReportDraft;
   const draftChanged = !!detail && (!storedDraft || storedDraft.upEntryId !== draft.upEntryId || storedDraft.upReason !== draft.upReason || storedDraft.downEntryId !== draft.downEntryId || storedDraft.downReason !== draft.downReason || storedDraft.audioUrl !== draft.audioUrl || storedDraft.reviewText !== draft.reviewText);
