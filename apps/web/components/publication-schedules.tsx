@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, Eye, Globe2, Mail, MessageCircle, RefreshCw, X } from 'lucide-react';
 import type { NotificationTestSendResponse, PublicationScheduleListResponse } from '@keiba/domain';
@@ -38,7 +38,25 @@ function ScheduleForm({ race, reload, canTest }: { race: Race; reload: () => Pro
 
 export function PublicationSchedules({ canTest = false }: { canTest?: boolean }) {
   const [date, setDate] = useState(today()); const [data, setData] = useState<PublicationScheduleListResponse | null>(null); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
-  const load = useCallback(async () => { setLoading(true); try { setData(await api<PublicationScheduleListResponse>(`admin/publication-schedules?date=${date}`)); setError(''); } catch (e) { setError((e as Error).message); } finally { setLoading(false); } }, [date]);
-  useEffect(() => { void load(); const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void load(); }, 30000); return () => window.clearInterval(timer); }, [load]);
+  const requestSequence = useRef(0);
+  const load = useCallback(async () => {
+    const requestId = ++requestSequence.current;
+    setLoading(true);
+    try {
+      const next = await api<PublicationScheduleListResponse>(`admin/publication-schedules?date=${date}`);
+      if (requestId !== requestSequence.current) return;
+      setData(next);
+      setError('');
+    } catch (e) {
+      if (requestId === requestSequence.current) setError((e as Error).message);
+    } finally {
+      if (requestId === requestSequence.current) setLoading(false);
+    }
+  }, [date]);
+  useEffect(() => {
+    void load();
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void load(); }, 30000);
+    return () => { window.clearInterval(timer); requestSequence.current += 1; };
+  }, [load]);
   return <><div className="page-heading"><span className="eyebrow">SCHEDULED DELIVERY</span><h1>配信予約・アラート</h1><p>対象レース告知と無料速報を予約し、公開版ごとの配信結果と異常を確認します。</p></div>{error && <div className="notice error" role="alert">{error}</div>}{data && <section className={`schedule-alert-summary ${data.alerts ? 'has-alerts' : ''}`}><AlertTriangle size={22} /><div><strong>{data.alerts ? `${data.alerts}件の確認事項があります` : '配信上の確認事項はありません'}</strong><small>通知失敗 {data.failedDeliveries}件 · 30秒ごとに自動更新</small></div><button className="button secondary small" disabled={loading} onClick={() => void load()}><RefreshCw size={15} className={loading ? 'spin' : ''} />更新</button></section>}<section className="panel"><div className="panel-heading"><h2>開催日別の配信予定</h2><label className="date-filter">開催日<input type="date" value={date} onChange={e => setDate(e.target.value)} /></label></div>{loading && !data ? <div className="panel-body" role="status">配信予定を読み込み中…</div> : data?.items.length ? <div className="schedule-races">{data.items.map(race => <ScheduleForm key={race.id} race={race} reload={load} canTest={canTest} />)}</div> : <div className="empty"><h3>この日のレースはありません</h3><p>レース管理で開催データを登録してください。</p></div>}</section></>;
 }
