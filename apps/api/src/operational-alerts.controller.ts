@@ -1,5 +1,5 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, Param, Patch, Post, Query, Req } from '@nestjs/common';
-import { adminOperationalAlertListResponseSchema, canManage, operationalAlertActionSchema, operationalAlertListSchema, operationalAlertSettingsSchema, requiresMfa } from '@keiba/domain';
+import { adminOperationalAlertListResponseSchema, adminOperationalAlertSettingsResponseSchema, canManage, operationalAlertActionSchema, operationalAlertListSchema, operationalAlertSettingsSchema, requiresMfa } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -33,7 +33,7 @@ export class OperationalAlertsController {
   async settings(@Req() req: AppRequest) {
     await this.staff(req, ['ADMIN', 'OPERATOR']);
     const value = await this.auth.db.operationalAlertSetting.findUniqueOrThrow({ where: { id: 'global' } });
-    return { revision: value.revision, enabled: value.enabled, minimumSeverity: value.minimumSeverity, destinationEmails: value.destinationEmails, updatedAt: value.updatedAt };
+    return adminOperationalAlertSettingsResponseSchema.parse({ revision: value.revision, enabled: value.enabled, minimumSeverity: value.minimumSeverity, destinationEmails: value.destinationEmails, updatedAt: value.updatedAt });
   }
 
   @Patch('settings')
@@ -45,7 +45,7 @@ export class OperationalAlertsController {
       if (before.revision !== input.revision) throw new ConflictException({ code: 'STALE_REVISION', message: '別の管理者がアラート設定を変更しました。再読み込みしてください。' });
       const after = await tx.operationalAlertSetting.update({ where: { id: 'global' }, data: { enabled: input.enabled, minimumSeverity: input.minimumSeverity, destinationEmails: input.destinationEmails, updatedBy: actor.id, updatedAt: new Date(), revision: { increment: 1 } } });
       await this.auth.audit(tx, req, 'OPERATIONAL_ALERT_SETTINGS_UPDATE', 'global', input.reason, { before: { enabled: before.enabled, minimumSeverity: before.minimumSeverity, destinationEmails: before.destinationEmails }, after: { enabled: after.enabled, minimumSeverity: after.minimumSeverity, destinationEmails: after.destinationEmails } });
-      return { revision: after.revision, enabled: after.enabled, minimumSeverity: after.minimumSeverity, destinationEmails: after.destinationEmails, updatedAt: after.updatedAt };
+      return adminOperationalAlertSettingsResponseSchema.parse({ revision: after.revision, enabled: after.enabled, minimumSeverity: after.minimumSeverity, destinationEmails: after.destinationEmails, updatedAt: after.updatedAt });
     });
   }
 
