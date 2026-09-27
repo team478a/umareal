@@ -2,11 +2,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, BellRing, Check, ClipboardCopy, Mail, RefreshCw, ShieldAlert } from 'lucide-react';
-import type { AdminIncidentResponse } from '@keiba/domain';
+import type { AdminIncidentResponse, AdminOperationalAlert, AdminOperationalAlertDelivery, AdminOperationalAlertListResponse } from '@keiba/domain';
 
-type Delivery = { id: string; recipient: string; status: string; attemptCount: number; lastErrorCode: string | null };
-type Alert = { id: string; code: string; severity: 'CRITICAL' | 'WARNING'; sourceType: string; sourceId: string; title: string; summary: string; status: 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED'; detectedAt: string; acknowledgeReason: string | null; resolutionReason: string | null; deliveries: Delivery[] };
-type AlertResponse = { items: Alert[]; counts: { open: number; acknowledged: number; resolved: number } };
 type AlertSettings = { revision: number; enabled: boolean; minimumSeverity: 'CRITICAL' | 'WARNING'; destinationEmails: string[]; updatedAt: string };
 const stateLabel = { NORMAL: '正常', DEGRADED: '要確認', INCIDENT: '障害対応中' } as const;
 const severityLabel = { CRITICAL: '重大', WARNING: '警告', INFO: '案内中' } as const;
@@ -15,13 +12,13 @@ const formatDate = (value: string) => new Intl.DateTimeFormat('ja-JP', { timeZon
 async function api<T>(url: string, init?: RequestInit) { const response = await fetch(url, { cache: 'no-store', headers: { 'Content-Type': 'application/json' }, ...init }); const body = await response.json(); if (!response.ok) throw new Error(body.message ?? '処理を完了できませんでした。'); return body as T; }
 
 export function AdminIncidents({ role }: { role: string }) {
-  const [data, setData] = useState<AdminIncidentResponse | null>(null); const [alerts, setAlerts] = useState<AlertResponse | null>(null); const [settings, setSettings] = useState<AlertSettings | null>(null);
+  const [data, setData] = useState<AdminIncidentResponse | null>(null); const [alerts, setAlerts] = useState<AdminOperationalAlertListResponse | null>(null); const [settings, setSettings] = useState<AlertSettings | null>(null);
   const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [copied, setCopied] = useState(false); const [busy, setBusy] = useState('');
   const [filter, setFilter] = useState<'ALL' | 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED'>('ALL'); const [emails, setEmails] = useState(''); const [settingReason, setSettingReason] = useState(''); const [reasons, setReasons] = useState<Record<string, string>>({});
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [incident, alertList, alertSettings] = await Promise.all([api<AdminIncidentResponse>('/api/v1/admin/incidents'), api<AlertResponse>(`/api/v1/admin/operational-alerts?status=${filter}`), api<AlertSettings>('/api/v1/admin/operational-alerts/settings')]);
+      const [incident, alertList, alertSettings] = await Promise.all([api<AdminIncidentResponse>('/api/v1/admin/incidents'), api<AdminOperationalAlertListResponse>(`/api/v1/admin/operational-alerts?status=${filter}`), api<AlertSettings>('/api/v1/admin/operational-alerts/settings')]);
       setData(incident); setAlerts(alertList); setSettings(alertSettings); setEmails(alertSettings.destinationEmails.join('\n')); setError('');
     } catch (e) { setError((e as Error).message); } finally { setLoading(false); }
   }, [filter]);
@@ -32,12 +29,12 @@ export function AdminIncidents({ role }: { role: string }) {
     try { const destinationEmails = emails.split(/[\n,]/).map(value => value.trim()).filter(Boolean); const next = await api<AlertSettings>('/api/v1/admin/operational-alerts/settings', { method: 'PATCH', body: JSON.stringify({ revision: settings.revision, enabled: settings.enabled, minimumSeverity: settings.minimumSeverity, destinationEmails, reason: settingReason }) }); setSettings(next); setEmails(next.destinationEmails.join('\n')); setSettingReason(''); setMessage('外部アラート設定を保存しました。'); }
     catch (e) { setError((e as Error).message); } finally { setBusy(''); }
   }
-  async function act(alert: Alert, action: 'acknowledge' | 'resolve') {
+  async function act(alert: AdminOperationalAlert, action: 'acknowledge' | 'resolve') {
     const reason = reasons[alert.id]?.trim(); if (!reason) return; setBusy(`${action}-${alert.id}`); setError('');
     try { await api(`/api/v1/admin/operational-alerts/${alert.id}/${action}`, { method: 'POST', body: JSON.stringify({ reason }) }); setReasons({ ...reasons, [alert.id]: '' }); setMessage(action === 'acknowledge' ? 'アラートを確認済みにしました。' : 'アラートを解決済みにしました。'); await load(); }
     catch (e) { setError((e as Error).message); } finally { setBusy(''); }
   }
-  async function retry(delivery: Delivery, alertId: string) { const reason = reasons[alertId]?.trim(); if (!reason) return; setBusy(`retry-${delivery.id}`); try { await api(`/api/v1/admin/operational-alerts/deliveries/${delivery.id}/retry`, { method: 'POST', body: JSON.stringify({ reason }) }); setMessage('外部通知を再送待ちに戻しました。'); await load(); } catch (e) { setError((e as Error).message); } finally { setBusy(''); } }
+  async function retry(delivery: AdminOperationalAlertDelivery, alertId: string) { const reason = reasons[alertId]?.trim(); if (!reason) return; setBusy(`retry-${delivery.id}`); try { await api(`/api/v1/admin/operational-alerts/deliveries/${delivery.id}/retry`, { method: 'POST', body: JSON.stringify({ reason }) }); setMessage('外部通知を再送待ちに戻しました。'); await load(); } catch (e) { setError((e as Error).message); } finally { setBusy(''); } }
   const runbook = [['1', '検知内容を確認', '件数、発生範囲、直近の設定変更を確認します。'], ['2', '会員向けWeb公開を確認', '通知障害中もWeb上の公開情報を維持します。'], ['3', '影響を抑える', '必要な機能だけを理由付きで停止します。'], ['4', '原因を解消して復旧', '失敗理由を確認し、復旧後に再送します。'], ['5', '復旧を記録', '確認済み・解決済みと対応理由を残します。']];
   return <><div className="page-heading"><span className="eyebrow">INCIDENT RESPONSE</span><h1>障害対応チェック</h1><p>現在の停止・遅延を検知し、外部通知から復旧記録までを管理します。</p></div>
     {error && <div className="notice error" role="alert">{error}</div>}{message && <div className="notice" role="status">{message}</div>}
