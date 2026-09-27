@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adminOperationalAlertListResponseSchema, adminOperationalAlertSettingsResponseSchema } from './operational-alert';
+import { adminOperationalAlertActionResponseSchema, adminOperationalAlertDeliveryRetryResponseSchema, adminOperationalAlertListResponseSchema, adminOperationalAlertSettingsResponseSchema } from './operational-alert';
 
 const id = '11111111-1111-4111-8111-111111111111';
 const staffId = '22222222-2222-4222-8222-222222222222';
@@ -58,5 +58,23 @@ describe('admin operational alert settings response contract', () => {
     expect(adminOperationalAlertSettingsResponseSchema.safeParse({ ...value, updatedBy: staffId }).success).toBe(false);
     expect(adminOperationalAlertSettingsResponseSchema.safeParse({ ...value, mailApiKey: 'secret' }).success).toBe(false);
     expect(adminOperationalAlertSettingsResponseSchema.safeParse({ ...value, reason: '内部変更理由' }).success).toBe(false);
+  });
+});
+
+describe('admin operational alert action response contracts', () => {
+  it('normalizes acknowledgement and resolution timestamps without list-only deliveries', () => {
+    const parsedList = adminOperationalAlertListResponseSchema.parse(response());
+    const { deliveries, ...actionResponse } = parsedList.items[0]!;
+    expect(deliveries).toHaveLength(1);
+    expect(adminOperationalAlertActionResponseSchema.parse(actionResponse).acknowledgedAt).toBe(now.toISOString());
+    expect(adminOperationalAlertActionResponseSchema.safeParse(parsedList.items[0]).success).toBe(false);
+  });
+
+  it('requires retry responses to release the lease and remain queued', () => {
+    const value = { id, alertId: id, recipient: 'ops@example.test', status: 'QUEUED', attemptCount: 3, nextAttemptAt: now, lockedAt: null, leaseToken: null, lastErrorCode: 'TEST_FAILURE', providerMessageId: null, sentAt: null, createdAt: now, updatedAt: now } as const;
+    const parsed = adminOperationalAlertDeliveryRetryResponseSchema.parse(value);
+    expect(parsed).toMatchObject({ status: 'QUEUED', lockedAt: null, leaseToken: null });
+    expect(adminOperationalAlertDeliveryRetryResponseSchema.safeParse({ ...value, status: 'SENDING', leaseToken: id }).success).toBe(false);
+    expect(adminOperationalAlertDeliveryRetryResponseSchema.safeParse({ ...value, password: 'secret' }).success).toBe(false);
   });
 });

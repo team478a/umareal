@@ -38,7 +38,7 @@ export const adminOperationalAlertDeliverySchema = z.object({
   createdAt: operationalAlertDateTimeSchema
 }).strict();
 
-export const adminOperationalAlertSchema = z.object({
+const adminOperationalAlertShape = {
   id: z.string().uuid(),
   dedupeKey: z.string().min(1),
   code: z.string().min(1),
@@ -55,8 +55,30 @@ export const adminOperationalAlertSchema = z.object({
   acknowledgeReason: z.string().nullable(),
   resolvedAt: operationalAlertDateTimeSchema.nullable(),
   resolvedBy: z.string().uuid().nullable(),
-  resolutionReason: z.string().nullable(),
+  resolutionReason: z.string().nullable()
+} as const;
+
+export const adminOperationalAlertActionResponseSchema = z.object(adminOperationalAlertShape).strict();
+
+export const adminOperationalAlertSchema = z.object({
+  ...adminOperationalAlertShape,
   deliveries: z.array(adminOperationalAlertDeliverySchema)
+}).strict();
+
+export const adminOperationalAlertDeliveryRetryResponseSchema = z.object({
+  id: z.string().uuid(),
+  alertId: z.string().uuid(),
+  recipient: z.string().min(1),
+  status: z.literal('QUEUED'),
+  attemptCount: z.number().int().nonnegative(),
+  nextAttemptAt: operationalAlertDateTimeSchema,
+  lockedAt: z.null(),
+  leaseToken: z.null(),
+  lastErrorCode: z.string().nullable(),
+  providerMessageId: z.string().nullable(),
+  sentAt: operationalAlertDateTimeSchema.nullable(),
+  createdAt: operationalAlertDateTimeSchema,
+  updatedAt: operationalAlertDateTimeSchema
 }).strict();
 
 export const adminOperationalAlertListResponseSchema = z.object({
@@ -70,5 +92,7 @@ export const adminOperationalAlertListResponseSchema = z.object({
 
 export type AdminOperationalAlert = z.infer<typeof adminOperationalAlertSchema>;
 export type AdminOperationalAlertDelivery = z.infer<typeof adminOperationalAlertDeliverySchema>;
+export type AdminOperationalAlertActionResponse = z.infer<typeof adminOperationalAlertActionResponseSchema>;
+export type AdminOperationalAlertDeliveryRetryResponse = z.infer<typeof adminOperationalAlertDeliveryRetryResponseSchema>;
 export type AdminOperationalAlertListResponse = z.infer<typeof adminOperationalAlertListResponseSchema>;
 export type AdminOperationalAlertSettingsResponse = z.infer<typeof adminOperationalAlertSettingsResponseSchema>;
