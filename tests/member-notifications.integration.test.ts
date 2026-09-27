@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { memberNotificationListResponseSchema } from '../packages/domain/src';
 import { account, Client, db } from './helpers';
 
 beforeAll(() => {
@@ -40,12 +41,13 @@ describe('member notification history', () => {
     expect((await new Client().call('me/notifications')).status).toBe(401);
     const initial = await client.call('me/notifications?limit=50');
     expect(initial.status).toBe(200);
-    const ids = initial.body.items.map((item: { id: string }) => item.id);
+    const initialBody = memberNotificationListResponseSchema.parse(initial.body);
+    const ids = initialBody.items.map(item => item.id);
     expect(ids).toContain(target.announcementEvent.id); expect(ids).toContain(target.freeEvent.id); expect(ids).toContain(target.win5Event.id); expect(ids).not.toContain(target.paidEvent.id);
-    const win5Item = initial.body.items.find((item: { id: string }) => item.id === target.win5Event.id);
+    const win5Item = initialBody.items.find(item => item.id === target.win5Event.id);
     expect(win5Item).toMatchObject({ title: 'WIN5紙面予想を公開しました', race: null, href: `/win5/${target.win5.id}`, win5: { id: target.win5.id, title: target.win5.title } });
-    expect(initial.body.items.find((item: { id: string }) => item.id === billingNotification.id)).toMatchObject({ title: 'お支払いを確認しました', race: null, href: '/account', billing: { planCode: 'DAY_PASS', raceDate: '2097-04-06' } });
-    expect(JSON.stringify(initial.body)).not.toMatch(/APIへ出さない本文|APIへ出さないWIN5選択馬/);
+    expect(initialBody.items.find(item => item.id === billingNotification.id)).toMatchObject({ title: 'お支払いを確認しました', race: null, href: '/account', billing: { planCode: 'DAY_PASS', raceDate: '2097-04-06' } });
+    expect(JSON.stringify(initialBody)).not.toMatch(/APIへ出さない本文|APIへ出さないWIN5選択馬|password|authSubject|lineSubject|payload|contentSnapshot/i);
     expect((await client.call(`me/notifications/${target.paidEvent.id}/read`, 'POST')).status).toBe(404);
     const laterFixture = await account(); const laterClient = new Client(); await laterClient.login(laterFixture);
     expect((await laterClient.call('me/notifications?limit=50')).body.items.map((item: { id: string }) => item.id)).not.toContain(target.freeEvent.id);
@@ -53,14 +55,16 @@ describe('member notification history', () => {
     const now = new Date();
     await db.entitlement.create({ data: { userId: fixture.user.id, planCode: 'TEST', startsAt: new Date(now.getTime() - 1000), endsAt: new Date(now.getTime() + 3600000), raceDate: target.race.raceDate, reason: '会員履歴の閲覧試験', grantedBy: fixture.user.id } });
     const entitled = await client.call('me/notifications?limit=50');
-    expect(entitled.body.items.map((item: { id: string }) => item.id)).toContain(target.paidEvent.id);
+    const entitledBody = memberNotificationListResponseSchema.parse(entitled.body);
+    expect(entitledBody.items.map(item => item.id)).toContain(target.paidEvent.id);
 
-    const before = entitled.body.unreadCount;
+    const before = entitledBody.unreadCount;
     const firstRead = await client.call(`me/notifications/${target.freeEvent.id}/read`, 'POST');
     const secondRead = await client.call(`me/notifications/${target.freeEvent.id}/read`, 'POST');
     expect(firstRead.status).toBe(201); expect(secondRead.body.readAt).toBe(firstRead.body.readAt);
     const unread = await client.call('me/notifications?unread=true&limit=50');
-    expect(unread.body.unreadCount).toBe(before - 1);
-    expect(unread.body.items.map((item: { id: string }) => item.id)).not.toContain(target.freeEvent.id);
+    const unreadBody = memberNotificationListResponseSchema.parse(unread.body);
+    expect(unreadBody.unreadCount).toBe(before - 1);
+    expect(unreadBody.items.map(item => item.id)).not.toContain(target.freeEvent.id);
   });
 });

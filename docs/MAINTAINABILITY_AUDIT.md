@@ -113,6 +113,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 無料登録ファネルpilot: `GET /admin/onboarding-funnel`の期間・流入元、登録からLINE受信準備までの5段階、有料化参考値、計測開始時刻の既存応答を共有Contractへ接続し、無料登録状況画面の手書き応答型を置き換える。集計条件、行動記録、ADMIN+AAL2認可、画面表示は変更しない。
 - 本人確認フォローpilot: `GET /admin/registration-followups`の確認待ち会員、送信履歴、再送可否、状態別件数の既存応答を共有Contractへ接続し、本人確認フォロー画面の手書き応答型を置き換える。抽出条件、ADMIN+AAL2認可、再送処理、画面表示、DB schemaは変更しない。
 - バックアップ検証状態pilot: `GET /admin/backups/status`の復元検証済み・失敗・未実施・不正ファイルの既存4応答を共有Contractへ接続し、バックアップ管理画面の手書き応答型を置き換える。ローカル状態ファイルの解釈、ADMIN+AAL2認可、復元検証処理、画面表示、DB schemaは変更しない。
+- 会員向けお知らせ履歴pilot: `GET /me/notifications`のレース、WIN5、問い合わせ回答、課金通知とページ情報の既存応答を共有Contractへ接続し、会員向け配信履歴画面の手書き応答型を置き換える。本人認証、有料履歴の閲覧判定、既読処理、画面表示、DB schemaは変更しない。
 
 ### MA-007 CIジョブ構成
 

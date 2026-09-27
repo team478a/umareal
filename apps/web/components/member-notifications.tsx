@@ -2,9 +2,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { BellRing, Check, ChevronLeft, ChevronRight } from 'lucide-react';
+import type { MemberNotificationItem, MemberNotificationListResponse } from '@keiba/domain';
 
-type Item = { id: string; eventType: string; title: string; createdAt: string; publishedAt: string; version: number; visibility: string; readAt: string | null; href: string; race: { id: string; raceDate: string; venue: string; number: number; name: string; startsAt: string } | null; win5: { id: string; targetDate: string; title: string } | null; support?: { requestId: string; subject: string } | null; billing?: { planCode: string; raceDate: string | null } | null };
-type Data = { items: Item[]; total: number; unreadCount: number; page: number; limit: number };
 const formatDate = (value: string) => new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
 async function api<T>(path: string, method = 'GET'): Promise<T> {
   const response = await fetch(`/api/v1/${path}`, { method, cache: 'no-store' });
@@ -14,11 +13,11 @@ async function api<T>(path: string, method = 'GET'): Promise<T> {
 }
 
 export function MemberNotifications() {
-  const router = useRouter(); const [data, setData] = useState<Data | null>(null); const [page, setPage] = useState(1); const [unread, setUnread] = useState(false);
+  const router = useRouter(); const [data, setData] = useState<MemberNotificationListResponse | null>(null); const [page, setPage] = useState(1); const [unread, setUnread] = useState(false);
   const [busy, setBusy] = useState(''); const [error, setError] = useState('');
-  const load = useCallback(async () => { setError(''); try { setData(await api<Data>(`me/notifications?page=${page}&unread=${unread}`)); } catch (e) { setError((e as Error).message); } }, [page, unread]);
+  const load = useCallback(async () => { setError(''); try { setData(await api<MemberNotificationListResponse>(`me/notifications?page=${page}&unread=${unread}`)); } catch (e) { setError((e as Error).message); } }, [page, unread]);
   useEffect(() => { void load(); }, [load]);
-  async function open(item: Item) { setBusy(item.id); setError(''); try { if (!item.readAt) await api(`me/notifications/${item.id}/read`, 'POST'); router.push(item.href); } catch (e) { setError((e as Error).message); setBusy(''); } }
+  async function open(item: MemberNotificationItem) { setBusy(item.id); setError(''); try { if (!item.readAt) await api(`me/notifications/${item.id}/read`, 'POST'); router.push(item.href); } catch (e) { setError((e as Error).message); setBusy(''); } }
   return <><div className="page-heading"><span className="eyebrow">NOTIFICATIONS</span><h1>お知らせ</h1><p>対象レース、予想、評価結果、お支払い、お問い合わせ回答の履歴を確認できます。</p></div>
     {error && <div className="notice error" role="alert">{error}</div>}
     <section className="panel member-notifications"><div className="panel-heading notification-heading"><div><h2>配信履歴</h2><small>{data?.unreadCount ?? 0}件の未読</small></div><div className="notification-tabs" role="group" aria-label="お知らせの表示"><button className={!unread ? 'selected' : ''} aria-pressed={!unread} onClick={() => { setUnread(false); setPage(1); }}>すべて</button><button className={unread ? 'selected' : ''} aria-pressed={unread} onClick={() => { setUnread(true); setPage(1); }}>未読</button></div></div>

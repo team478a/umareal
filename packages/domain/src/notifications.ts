@@ -27,6 +27,46 @@ const adminNotificationProductSchema = z.object({
   targetDate: notificationOperationalDateSchema,
   title: z.string()
 }).strict();
+
+export const memberNotificationItemSchema = z.object({
+  id: z.string().uuid(),
+  eventType: z.string().min(1),
+  title: z.string().min(1),
+  createdAt: notificationDateTimeSchema,
+  publishedAt: notificationDateTimeSchema,
+  version: z.number().int().positive(),
+  visibility: z.enum(['FREE', 'PAID']),
+  readAt: notificationDateTimeSchema.nullable(),
+  href: z.string().startsWith('/'),
+  race: adminNotificationRaceSchema.nullable(),
+  win5: adminNotificationProductSchema.nullable(),
+  support: z.object({
+    requestId: z.string().uuid(),
+    subject: z.string()
+  }).strict().optional(),
+  billing: z.object({
+    planCode: z.string().min(1),
+    raceDate: notificationOperationalDateSchema.nullable()
+  }).strict().optional()
+}).strict().superRefine((value, context) => {
+  const targetCount = Number(value.race !== null) + Number(value.win5 !== null) + Number(value.support !== undefined) + Number(value.billing !== undefined);
+  if (targetCount !== 1) context.addIssue({ code: z.ZodIssueCode.custom, message: 'A member notification must have exactly one public target.' });
+  if (value.race && value.href !== `/races/${value.race.id}`) context.addIssue({ code: z.ZodIssueCode.custom, path: ['href'], message: 'Race notification href does not match its public target.' });
+  if (value.win5 && value.href !== `/win5/${value.win5.id}`) context.addIssue({ code: z.ZodIssueCode.custom, path: ['href'], message: 'WIN5 notification href does not match its public target.' });
+  if (value.support && (value.href !== '/support' || value.visibility !== 'FREE' || value.version !== 1)) context.addIssue({ code: z.ZodIssueCode.custom, message: 'Support notification metadata is invalid.' });
+  if (value.billing && (value.href !== '/account' || value.visibility !== 'FREE' || value.version !== 1)) context.addIssue({ code: z.ZodIssueCode.custom, message: 'Billing notification metadata is invalid.' });
+});
+
+export const memberNotificationListResponseSchema = z.object({
+  items: z.array(memberNotificationItemSchema),
+  total: z.number().int().nonnegative(),
+  unreadCount: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  limit: z.number().int().min(1).max(50)
+}).strict();
+
+export type MemberNotificationItem = z.infer<typeof memberNotificationItemSchema>;
+export type MemberNotificationListResponse = z.infer<typeof memberNotificationListResponseSchema>;
 const adminNotificationAttemptSchema = z.object({
   id: z.string().uuid(),
   attemptNumber: z.number().int().positive(),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adminNotificationListResponseSchema, adminNotificationTestOptionsResponseSchema, freeReportNotificationPreviewResponseSchema, notificationIdempotencyKey, notificationListQuerySchema, notificationRetrySchema, notificationTestSendResponseSchema, notificationTestSendSchema, raceAnnouncementNotificationPreviewResponseSchema, retryDelayMs } from './notifications';
+import { adminNotificationListResponseSchema, adminNotificationTestOptionsResponseSchema, freeReportNotificationPreviewResponseSchema, memberNotificationListResponseSchema, notificationIdempotencyKey, notificationListQuerySchema, notificationRetrySchema, notificationTestSendResponseSchema, notificationTestSendSchema, raceAnnouncementNotificationPreviewResponseSchema, retryDelayMs } from './notifications';
 
 describe('notification operations rules', () => {
   it('builds a recipient and version scoped idempotency key', () => {
@@ -113,5 +113,35 @@ describe('notification operations rules', () => {
     expect(review.kind).toBe('POST_RACE_REVIEW');
     expect(freeReportNotificationPreviewResponseSchema.safeParse({ ...common, eventType: 'FREE_REPORT_REVIEW_PUBLISHED', contentLabel: 'レース後検証', kind: 'PRE_RACE' }).success).toBe(false);
     expect(freeReportNotificationPreviewResponseSchema.safeParse({ ...common, eventType: 'FREE_REPORT_PUBLISHED', contentLabel: '無料パドック速報', kind: 'PRE_RACE', upReason: '内部下書き' }).success).toBe(false);
+  });
+  it('normalizes each member notification target without exposing internal event data', () => {
+    const raceId = '11111111-1111-4111-8111-111111111111';
+    const productId = '22222222-2222-4222-8222-222222222222';
+    const requestId = '33333333-3333-4333-8333-333333333333';
+    const common = {
+      id: '44444444-4444-4444-8444-444444444444', eventType: 'PREDICTION_PUBLISHED', title: '公開しました',
+      createdAt: new Date('2026-09-27T00:00:00.000Z'), publishedAt: new Date('2026-09-27T01:00:00.000Z'),
+      version: 1, visibility: 'FREE' as const, readAt: null
+    };
+    const race = { id: raceId, raceDate: '2026-09-27', venue: '中山', number: 11, name: 'テスト競走', startsAt: new Date('2026-09-27T02:00:00.000Z') };
+    const raceItem = { ...common, href: `/races/${raceId}`, race, win5: null };
+    const win5Item = { ...common, href: `/win5/${productId}`, race: null, win5: { id: productId, targetDate: '2026-09-27', title: 'WIN5紙面' } };
+    const supportItem = { ...common, href: '/support', race: null, win5: null, support: { requestId, subject: '通知について' } };
+    const billingItem = { ...common, href: '/account', race: null, win5: null, billing: { planCode: 'DAY_PASS', raceDate: '2026-09-27' } };
+    const parsed = memberNotificationListResponseSchema.parse({ items: [raceItem, win5Item, supportItem, billingItem], total: 4, unreadCount: 4, page: 1, limit: 20 });
+    expect(parsed.items[0]?.createdAt).toBe('2026-09-27T00:00:00.000Z');
+    expect(parsed.items[0]?.race?.startsAt).toBe('2026-09-27T02:00:00.000Z');
+    expect(memberNotificationListResponseSchema.safeParse({ items: [{ ...raceItem, payload: { secret: true } }], total: 1, unreadCount: 1, page: 1, limit: 20 }).success).toBe(false);
+    expect(memberNotificationListResponseSchema.safeParse({ items: [{ ...raceItem, contentSnapshot: { horse: '非公開' } }], total: 1, unreadCount: 1, page: 1, limit: 20 }).success).toBe(false);
+  });
+  it('rejects a mismatched or ambiguous member notification destination', () => {
+    const raceId = '11111111-1111-4111-8111-111111111111';
+    const base = {
+      id: '44444444-4444-4444-8444-444444444444', eventType: 'PREDICTION_PUBLISHED', title: '公開しました',
+      createdAt: '2026-09-27T00:00:00.000Z', publishedAt: '2026-09-27T01:00:00.000Z', version: 1, visibility: 'FREE' as const,
+      readAt: null, race: { id: raceId, raceDate: '2026-09-27', venue: '中山', number: 11, name: 'テスト競走', startsAt: '2026-09-27T02:00:00.000Z' }, win5: null
+    };
+    expect(memberNotificationListResponseSchema.safeParse({ items: [{ ...base, href: '/account' }], total: 1, unreadCount: 1, page: 1, limit: 20 }).success).toBe(false);
+    expect(memberNotificationListResponseSchema.safeParse({ items: [{ ...base, href: `/races/${raceId}`, billing: { planCode: 'DAY_PASS', raceDate: null } }], total: 1, unreadCount: 1, page: 1, limit: 20 }).success).toBe(false);
   });
 });
