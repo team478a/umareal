@@ -2,29 +2,19 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowRight, Clock3, Copy, MailCheck, RefreshCw, UserRoundCheck } from 'lucide-react';
-
-type FollowupItem = {
-  id: string; displayName: string; email: string; createdAt: string; status: 'RECENT' | 'OVERDUE';
-  lastVerification: { createdAt: string; expiresAt: string; usedAt: string | null } | null;
-  canResend: boolean; resendAvailableAt: string | null;
-};
-type FollowupResponse = {
-  items: FollowupItem[]; total: number; page: number; limit: number;
-  counts: { pending: number; recent: number; overdue: number };
-  resendMode: 'ADMIN_DIRECT' | 'MEMBER_SELF_SERVICE'; selfServicePath: string;
-};
+import type { AdminRegistrationFollowupItem, AdminRegistrationFollowupsResponse } from '@keiba/domain';
 
 const formatDate = (value: string) => new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 const elapsed = (value: string, now: number) => { const minutes = Math.max(0, Math.floor((now - new Date(value).getTime()) / 60000)); return minutes < 60 ? `${minutes}分` : minutes < 1440 ? `${Math.floor(minutes / 60)}時間` : `${Math.floor(minutes / 1440)}日`; };
 async function request<T>(path: string, init?: RequestInit) { const response = await fetch(`/api/v1/${path}`, { cache: 'no-store', ...init }); const body = await response.json(); if (!response.ok) throw new Error(body.message ?? '処理に失敗しました。'); return body as T; }
 
 export function RegistrationFollowups() {
-  const [data, setData] = useState<FollowupResponse | null>(null); const [status, setStatus] = useState<'ALL' | 'RECENT' | 'OVERDUE'>('ALL'); const [page, setPage] = useState(1);
+  const [data, setData] = useState<AdminRegistrationFollowupsResponse | null>(null); const [status, setStatus] = useState<'ALL' | 'RECENT' | 'OVERDUE'>('ALL'); const [page, setPage] = useState(1);
   const [reasons, setReasons] = useState<Record<string, string>>({}); const [busy, setBusy] = useState(''); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [now, setNow] = useState(Date.now());
-  const load = useCallback(async () => { setLoading(true); setError(''); try { setData(await request<FollowupResponse>(`admin/registration-followups?status=${status}&page=${page}`)); } catch (cause) { setError((cause as Error).message); } finally { setLoading(false); } }, [status, page]);
+  const load = useCallback(async () => { setLoading(true); setError(''); try { setData(await request<AdminRegistrationFollowupsResponse>(`admin/registration-followups?status=${status}&page=${page}`)); } catch (cause) { setError((cause as Error).message); } finally { setLoading(false); } }, [status, page]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 30000); return () => window.clearInterval(timer); }, []);
-  async function resend(item: FollowupItem) { const reason = reasons[item.id]?.trim(); if (!reason) { setError('再送理由を入力してください。'); return; } setBusy(item.id); setError(''); setMessage(''); try { const result = await request<{ message: string }>(`admin/registration-followups/${item.id}/resend`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) }); setMessage(`${item.displayName}さんへ${result.message}`); setReasons(value => ({ ...value, [item.id]: '' })); await load(); } catch (cause) { setError((cause as Error).message); } finally { setBusy(''); } }
+  async function resend(item: AdminRegistrationFollowupItem) { const reason = reasons[item.id]?.trim(); if (!reason) { setError('再送理由を入力してください。'); return; } setBusy(item.id); setError(''); setMessage(''); try { const result = await request<{ message: string }>(`admin/registration-followups/${item.id}/resend`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) }); setMessage(`${item.displayName}さんへ${result.message}`); setReasons(value => ({ ...value, [item.id]: '' })); await load(); } catch (cause) { setError((cause as Error).message); } finally { setBusy(''); } }
   async function copyLink() { const url = `${window.location.origin}${data?.selfServicePath ?? '/verify-email'}`; try { await navigator.clipboard.writeText(url); setMessage('本人確認メールの再送ページURLをコピーしました。'); } catch { setError('URLをコピーできませんでした。'); } }
   const direct = data?.resendMode === 'ADMIN_DIRECT';
   return <>

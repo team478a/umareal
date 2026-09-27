@@ -1,5 +1,5 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, Param, Post, Query, Req } from '@nestjs/common';
-import { canManage, requiresMfa } from '@keiba/domain';
+import { adminRegistrationFollowupsResponseSchema, canManage, requiresMfa } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
@@ -31,7 +31,7 @@ export class RegistrationFollowupsController {
       this.auth.db.user.count({ where: { ...base, createdAt: { lte: overdueBefore } } })
     ]);
     const direct = process.env.AUTH_PROVIDER === 'local';
-    return {
+    return adminRegistrationFollowupsResponseSchema.parse({
       items: users.map(user => {
         const verification = user.emailVerifications[0] ?? null;
         const availableAt = verification ? new Date(verification.createdAt.getTime() + RESEND_COOLDOWN_MS) : now;
@@ -40,7 +40,7 @@ export class RegistrationFollowupsController {
       total, page: input.page, limit: input.limit, status: input.status,
       counts: { pending, recent: pending - overdue, overdue },
       resendMode: direct ? 'ADMIN_DIRECT' : 'MEMBER_SELF_SERVICE', selfServicePath: '/verify-email', generatedAt: now
-    };
+    });
   }
 
   @Post(':userId/resend') async resend(@Param('userId') userId: string, @Body() body: unknown, @Req() req: AppRequest) {
