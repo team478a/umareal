@@ -1,5 +1,5 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, Param, Patch, Post, Query, Req } from '@nestjs/common';
-import { canManage, operationalAlertActionSchema, operationalAlertListSchema, operationalAlertSettingsSchema, requiresMfa } from '@keiba/domain';
+import { adminOperationalAlertListResponseSchema, canManage, operationalAlertActionSchema, operationalAlertListSchema, operationalAlertSettingsSchema, requiresMfa } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -26,7 +26,7 @@ export class OperationalAlertsController {
       this.auth.db.operationalAlert.count({ where: { status: 'ACKNOWLEDGED' } }),
       this.auth.db.operationalAlert.count({ where: { status: 'RESOLVED' } })
     ]);
-    return { items, counts: { open, acknowledged, resolved } };
+    return adminOperationalAlertListResponseSchema.parse({ items, counts: { open, acknowledged, resolved } });
   }
 
   @Get('settings')

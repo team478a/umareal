@@ -1,5 +1,10 @@
 import { z } from 'zod';
 
+const operationalAlertDateTimeSchema = z.preprocess(
+  value => value instanceof Date ? value.toISOString() : value,
+  z.string().datetime({ offset: true })
+);
+
 const destinationEmail = z.string().trim().email().max(254).transform(value => value.toLowerCase());
 export const operationalAlertSettingsSchema = z.object({
   revision: z.number().int().positive(),
@@ -14,3 +19,47 @@ export const operationalAlertSettingsSchema = z.object({
 
 export const operationalAlertActionSchema = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 export const operationalAlertListSchema = z.object({ status: z.enum(['ALL', 'OPEN', 'ACKNOWLEDGED', 'RESOLVED']).default('ALL') }).strict();
+
+export const adminOperationalAlertDeliverySchema = z.object({
+  id: z.string().uuid(),
+  recipient: z.string().min(1),
+  status: z.enum(['QUEUED', 'SENDING', 'SENT', 'FAILED']),
+  attemptCount: z.number().int().nonnegative(),
+  lastErrorCode: z.string().nullable(),
+  sentAt: operationalAlertDateTimeSchema.nullable(),
+  createdAt: operationalAlertDateTimeSchema
+}).strict();
+
+export const adminOperationalAlertSchema = z.object({
+  id: z.string().uuid(),
+  dedupeKey: z.string().min(1),
+  code: z.string().min(1),
+  severity: z.enum(['CRITICAL', 'WARNING']),
+  sourceType: z.string().min(1),
+  sourceId: z.string().uuid(),
+  title: z.string(),
+  summary: z.string(),
+  status: z.enum(['OPEN', 'ACKNOWLEDGED', 'RESOLVED']),
+  detectedAt: operationalAlertDateTimeSchema,
+  lastObservedAt: operationalAlertDateTimeSchema,
+  acknowledgedAt: operationalAlertDateTimeSchema.nullable(),
+  acknowledgedBy: z.string().uuid().nullable(),
+  acknowledgeReason: z.string().nullable(),
+  resolvedAt: operationalAlertDateTimeSchema.nullable(),
+  resolvedBy: z.string().uuid().nullable(),
+  resolutionReason: z.string().nullable(),
+  deliveries: z.array(adminOperationalAlertDeliverySchema)
+}).strict();
+
+export const adminOperationalAlertListResponseSchema = z.object({
+  items: z.array(adminOperationalAlertSchema),
+  counts: z.object({
+    open: z.number().int().nonnegative(),
+    acknowledged: z.number().int().nonnegative(),
+    resolved: z.number().int().nonnegative()
+  }).strict()
+}).strict();
+
+export type AdminOperationalAlert = z.infer<typeof adminOperationalAlertSchema>;
+export type AdminOperationalAlertDelivery = z.infer<typeof adminOperationalAlertDeliverySchema>;
+export type AdminOperationalAlertListResponse = z.infer<typeof adminOperationalAlertListResponseSchema>;

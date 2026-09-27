@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { runOperationalAlerts, type OperationalAlertTransport } from '../apps/worker/src/operational-alert-runner';
+import { adminOperationalAlertListResponseSchema } from '../packages/domain/src';
 import { account, Client, db } from './helpers';
 
 afterAll(() => db.$disconnect());
@@ -59,7 +60,11 @@ describe('external operational alerts', () => {
       expect(messages.length).toBeGreaterThan(0); expect(messages.join('\n')).not.toContain(recipient.user.email!); expect(messages.join('\n')).not.toContain('外部へ送らない予想本文');
 
       const admin = new Client(); await admin.login(adminFixture); await admin.mfa();
-      const listed = await admin.call('admin/operational-alerts?status=OPEN'); expect(listed.status).toBe(200); expect(JSON.stringify(listed.body)).not.toContain('外部へ送らない予想本文');
+      const listed = await admin.call('admin/operational-alerts?status=OPEN'); expect(listed.status).toBe(200);
+      const list = adminOperationalAlertListResponseSchema.parse(listed.body);
+      expect(list.items.length).toBeGreaterThan(0);
+      expect(list.items.every(item => item.status === 'OPEN')).toBe(true);
+      expect(JSON.stringify(listed.body)).not.toMatch(/外部へ送らない予想本文|leaseToken|providerMessageId|lineSubject|password|databaseUrl/i);
       expect((await admin.call(`admin/operational-alerts/${alert.id}/acknowledge`, 'POST', { reason: '担当者が原因調査を開始' })).status).toBe(201);
       expect((await admin.call(`admin/operational-alerts/${alert.id}/resolve`, 'POST', { reason: 'メール配送経路の復旧を確認' })).status).toBe(201);
       expect(await db.auditLog.count({ where: { targetId: alert.id, action: { in: ['OPERATIONAL_ALERT_ACKNOWLEDGED', 'OPERATIONAL_ALERT_RESOLVED'] } } })).toBe(2);
