@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
-import { emptyPredictionDraft, publicRaceResultResponseSchema } from '../packages/domain/src';
+import { emptyPredictionDraft, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema } from '../packages/domain/src';
 import { assessmentFixture } from './assessment-fixtures';
 import { account, Client, db } from './helpers';
 
@@ -72,7 +72,10 @@ describe('immutable results and horse-evaluation performance', () => {
     const memberNotices = await member.call('me/notifications');
     expect(memberNotices.body.items.some((item: { eventType: string; href: string }) => item.eventType === 'RACE_EVALUATION_CONFIRMED' && item.href === `/races/${fixture.race.id}`)).toBe(true);
     const stats = await new Client().call('results/stats');
-    expect(stats.status).toBe(200); expect(stats.body.ruleVersion).toBe('HORSE_EVALUATION_V1'); expect(stats.body.overall.primaryWins).toBeGreaterThanOrEqual(1); expect(stats.body.overall).toMatchObject({ primaryWinRatePercent: 100, primaryTop2RatePercent: 100, primaryTop3RatePercent: 100 });
+    expect(stats.status).toBe(200);
+    const statsValue = publicPredictionStatsResponseSchema.parse(stats.body);
+    expect(statsValue.ruleVersion).toBe('HORSE_EVALUATION_V1'); expect(statsValue.overall.primaryWins).toBeGreaterThanOrEqual(1); expect(statsValue.overall).toMatchObject({ primaryWinRatePercent: 100, primaryTop2RatePercent: 100, primaryTop3RatePercent: 100 });
+    expect(JSON.stringify(stats.body)).not.toMatch(/userId|email|confirmedBy|predictionVersionId|payout|stakeYen|returnYen|recovery/i);
     expect(await db.auditLog.count({ where: { targetId: fixture.race.id, action: 'RACE_RESULT_CONFIRM' } })).toBe(2);
   });
 

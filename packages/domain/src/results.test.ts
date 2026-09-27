@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { aggregatePerformances, getResultDataProvider, legacyRaceResultInputSchema, parseBatchResultCsv, parseResultCsv, publicRaceResultResponseSchema, resultDataProviderCatalog, settlePrediction, verifyJraVanResultBundle } from './results';
+import { aggregatePerformances, getResultDataProvider, legacyRaceResultInputSchema, parseBatchResultCsv, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, resultDataProviderCatalog, settlePrediction, verifyJraVanResultBundle } from './results';
 
 const entry = (entryId: string, finishPosition: number) => ({ entryId, status: 'FINISHED' as const, finishPosition, popularity: finishPosition, finalOdds: '2.5' });
 
@@ -29,6 +29,32 @@ describe('public race result contract', () => {
     expect(() => publicRaceResultResponseSchema.parse({ ...value, confirmedBy: crypto.randomUUID() })).toThrow();
     expect(() => publicRaceResultResponseSchema.parse({ ...value, payoutsSnapshot: [] })).toThrow();
     expect(() => publicRaceResultResponseSchema.parse({ ...value, evaluations: [{ ...value.evaluations[0], calculationRuleVersion: 'HORSE_EVALUATION_V1' }] })).toThrow();
+  });
+});
+
+describe('public prediction statistics contract', () => {
+  const metric = {
+    publishedRaces: 4, primaryWins: 2, primaryWinRatePercent: 50, primaryTop2RatePercent: 75, primaryTop3RatePercent: 75,
+    upHorseSuccessRatePercent: null, downHorseFailureRatePercent: null, riskHorseFailureRatePercent: null, skipped: 1, skipRatePercent: 25
+  };
+  const response = {
+    ruleVersion: 'HORSE_EVALUATION_V1' as const,
+    scope: '公開版別の馬評価集計' as const,
+    overall: metric,
+    byConfidence: [{ value: 'A', ...metric }],
+    byVenue: [{ value: '東京', ...metric }],
+    bySurface: [{ value: 'TURF', ...metric }],
+    byMonth: [{ value: '2026-09', ...metric }]
+  };
+
+  it('accepts the existing public aggregation shape', () => {
+    expect(publicPredictionStatsResponseSchema.parse(response)).toEqual(response);
+  });
+
+  it('rejects betting, identity and internal result-version fields', () => {
+    expect(() => publicPredictionStatsResponseSchema.parse({ ...response, returnRate: 120 })).toThrow();
+    expect(() => publicPredictionStatsResponseSchema.parse({ ...response, userId: crypto.randomUUID() })).toThrow();
+    expect(() => publicPredictionStatsResponseSchema.parse({ ...response, overall: { ...metric, confirmedBy: crypto.randomUUID() } })).toThrow();
   });
 });
 
