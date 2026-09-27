@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { ArrowRight, Eye, Mic, PlayCircle, Square, Upload } from 'lucide-react';
-import type { FreeReportNotificationPreviewResponse, NotificationTestSendResponse } from '@keiba/domain';
+import type { FreeReportNotificationPreviewResponse, NotificationTestSendResponse, PublicFreeMemberBenefitResponse } from '@keiba/domain';
 import { NotificationPreview } from './notification-preview';
 
 type Entry = { id: string; number: number; horseName: string; status: string };
@@ -77,8 +77,8 @@ export function FreeReportManager({ canTest = false }: { canTest?: boolean }) {
 }
 
 export function RegistrationBenefit() {
-  const [value, setValue] = useState<{ configured: boolean; title?: string; description?: string; videoUrl?: string } | null>(null);
-  useEffect(() => { api<{ configured: boolean; title?: string; description?: string; videoUrl?: string }>('me/free-benefit').then(setValue).catch(() => setValue({ configured: false })); }, []);
+  const [value, setValue] = useState<PublicFreeMemberBenefitResponse | null>(null);
+  useEffect(() => { api<PublicFreeMemberBenefitResponse>('me/free-benefit').then(setValue).catch(() => setValue({ configured: false })); }, []);
   if (!value?.configured) return null;
   return <section className="panel registration-benefit"><div className="panel-heading"><div><span className="eyebrow">REGISTRATION BONUS</span><h2>{value.title}</h2></div><PlayCircle size={24} /></div><div className="panel-body"><p>{value.description}</p><a className="button" href={value.videoUrl} target="_blank" rel="noreferrer">実例解説を見る <ArrowRight size={17} /></a></div></section>;
 }

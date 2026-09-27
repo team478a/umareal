@@ -3,6 +3,22 @@ import { z } from 'zod';
 const httpsUrl = z.string().trim().url().max(1000).refine(value => new URL(value).protocol === 'https:', 'HTTPSのURLを指定してください。');
 const audioSource = z.string().trim().max(1000).refine(value => /^\/api\/v1\/free-report-audio\/[0-9a-f-]{36}$/.test(value) || (() => { try { return new URL(value).protocol === 'https:'; } catch { return false; } })(), '録音済み音声またはHTTPSのURLを指定してください。');
 
+const publicFreeMemberBenefitDateTimeSchema = z.preprocess(
+  value => value instanceof Date ? value.toISOString() : value,
+  z.string().datetime({ offset: true })
+);
+export const publicFreeMemberBenefitResponseSchema = z.discriminatedUnion('configured', [
+  z.object({ configured: z.literal(false) }).strict(),
+  z.object({
+    configured: z.literal(true),
+    title: z.string().min(1).max(120),
+    description: z.string().min(1).max(1000),
+    videoUrl: httpsUrl,
+    updatedAt: publicFreeMemberBenefitDateTimeSchema
+  }).strict()
+]);
+export type PublicFreeMemberBenefitResponse = z.infer<typeof publicFreeMemberBenefitResponseSchema>;
+
 export const freeReportDraftSchema = z.object({
   revision: z.number().int().min(0),
   upEntryId: z.string().uuid(),

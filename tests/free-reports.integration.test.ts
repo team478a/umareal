@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { freeReportNotificationPreviewResponseSchema } from '../packages/domain/src';
+import { freeReportNotificationPreviewResponseSchema, publicFreeMemberBenefitResponseSchema } from '../packages/domain/src';
 import { runNotificationBatch } from '../apps/worker/src/notification-runner';
 import type { NotificationTransport } from '../apps/worker/src/notification-runner';
 import { account, base, Client, db, origin } from './helpers';
@@ -92,7 +92,9 @@ describe('LP free member offer', () => {
     const saved = await target.adminClient.call('admin/free-reports/benefit', 'PATCH', { revision: before.body.revision, title: 'パドックで評価を変えた実例', description: '事前評価から結果検証までを解説します。', videoUrl: 'https://video.example.test/bonus', reason: 'LP登録特典の設定' });
     expect(saved.status).toBe(200); expect(saved.body.revision).toBe(before.body.revision + 1);
     expect((await new Client().call('me/free-benefit')).status).toBe(401);
-    expect((await target.memberClient.call('me/free-benefit')).body).toMatchObject({ configured: true, title: 'パドックで評価を変えた実例', videoUrl: 'https://video.example.test/bonus' });
+    const memberBenefit = publicFreeMemberBenefitResponseSchema.parse((await target.memberClient.call('me/free-benefit')).body);
+    expect(memberBenefit).toMatchObject({ configured: true, title: 'パドックで評価を変えた実例', videoUrl: 'https://video.example.test/bonus' });
+    expect(JSON.stringify(memberBenefit)).not.toMatch(/revision|updatedBy|userId|email|password|token/i);
   });
 
   it('publishes the post-race review only after a confirmed result', async () => {
