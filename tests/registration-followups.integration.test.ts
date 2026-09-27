@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { adminRegistrationFollowupsResponseSchema } from '../packages/domain/src';
 import { account, base, Client, db } from './helpers';
 
 beforeAll(() => {
@@ -20,9 +21,10 @@ describe('registration verification follow-up', () => {
     await client.mfa();
     const list = await client.call('admin/registration-followups?status=OVERDUE');
     expect(list.status).toBe(200);
-    expect(list.body).toMatchObject({ resendMode: 'ADMIN_DIRECT', selfServicePath: '/verify-email' });
-    expect(list.body.items).toContainEqual(expect.objectContaining({ id: pending.user.id, email: pending.user.email, status: 'OVERDUE', canResend: true }));
-    expect(JSON.stringify(list.body)).not.toMatch(/tokenHash|passwordHash/);
+    const parsed = adminRegistrationFollowupsResponseSchema.parse(list.body);
+    expect(parsed).toMatchObject({ status: 'OVERDUE', resendMode: 'ADMIN_DIRECT', selfServicePath: '/verify-email' });
+    expect(parsed.items).toContainEqual(expect.objectContaining({ id: pending.user.id, email: pending.user.email, status: 'OVERDUE', canResend: true }));
+    expect(JSON.stringify(parsed)).not.toMatch(/tokenHash|passwordHash|authSubject|mfaSecret/);
 
     expect((await client.call(`admin/registration-followups/${pending.user.id}/resend`, 'POST', {})).status).toBe(400);
     const sent = await client.call(`admin/registration-followups/${pending.user.id}/resend`, 'POST', { reason: '会員から確認メール未着の連絡' });
