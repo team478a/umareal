@@ -6,12 +6,11 @@ import { AuthService } from './auth.service';
 import { LineLoginService } from './line-login.service';
 import { decrypt, encrypt, hashToken, newToken } from './security';
 import { ReferralsService } from './referrals.service';
-
-function sessionCookie(res: Response, token: string) { res.cookie('keiba_session', token, { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/', maxAge: 8 * 3600000 }); }
+import { AuthSessionService } from './auth-session.service';
 
 @Controller('auth/line')
 export class LineLoginController {
-  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(LineLoginService) private readonly line: LineLoginService, @Inject(ReferralsService) private readonly referrals: ReferralsService) {}
+  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(LineLoginService) private readonly line: LineLoginService, @Inject(ReferralsService) private readonly referrals: ReferralsService, @Inject(AuthSessionService) private readonly sessions: AuthSessionService) {}
 
   private enabled() {
     if (!launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).lineLogin) throw new ServiceUnavailableException({ code: 'LINE_LOGIN_NOT_IN_LAUNCH', message: 'LINEログインは現在の公開範囲では利用できません。' });
@@ -39,7 +38,7 @@ export class LineLoginController {
       if (account && !account.unlinkedAt && !account.user.disabledAt) {
         req.auth = { id: account.user.id, role: account.user.role, aal: 1, user: account.user };
         const session = await this.auth.db.$transaction(async tx => { await this.auth.audit(tx, req, 'LINE_LOGIN', account.user.id, '登録済みLINEアカウントでログイン', { subjectHash }); return this.auth.session(tx, account.user.id); });
-        sessionCookie(res, session); return res.redirect(303, `${process.env.APP_BASE_URL}/account?line=login`);
+        this.sessions.setLocalSession(res, session); return res.redirect(303, `${process.env.APP_BASE_URL}/account?line=login`);
       }
       if (account) throw new ConflictException({ code: 'LINE_ACCOUNT_UNAVAILABLE', message: 'このLINEアカウントは再登録できません。' });
       await this.auth.requireNewRegistration();
@@ -66,7 +65,7 @@ export class LineLoginController {
       await this.auth.audit(tx, req, 'LINE_LOGIN', account.user.id, 'LINEログイン', { subjectHash });
       return this.auth.session(tx, account.user.id, 1);
     });
-    sessionCookie(res, token);
+    this.sessions.setLocalSession(res, token);
     return res.redirect(303, `${process.env.APP_BASE_URL}/account?line=login`);
   }
 
@@ -96,7 +95,7 @@ export class LineLoginController {
       await this.auth.journey(tx, user.id, 'LINE_GUIDANCE_VIEWED');
       return { user, session: await this.auth.session(tx, user.id) };
     });
-    sessionCookie(res, result.session); return { user: { id: result.user.id, displayName: result.user.displayName, role: result.user.role } };
+    this.sessions.setLocalSession(res, result.session); return { user: { id: result.user.id, displayName: result.user.displayName, role: result.user.role } };
   }
 
   @Post('unlink')
