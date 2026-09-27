@@ -1,25 +1,20 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import { CheckCircle2, DatabaseBackup, RefreshCw, ShieldAlert } from 'lucide-react';
+import type { AdminBackupStatusResponse } from '@keiba/domain';
 
-type Counts = { users: number; races: number; predictionVersions: number; auditLogs: number; notificationEvents: number };
-type BackupStatus =
-  | { status: 'VERIFIED'; verifiedAt: string; backupId: string; format: string; postgresMajor: number; encrypted: false; sha256: string; sizeBytes: number; fileCount: number; migrations: number; requiredTriggers: number; restoredDatabaseRemoved: true; counts: Counts }
-  | { status: 'FAILED'; attemptedAt: string; errorCode: string; backupId: string | null; restoredDatabaseRemoved: boolean }
-  | { status: 'NOT_RUN' | 'INVALID'; localOnly: true };
-
-async function loadStatus(): Promise<BackupStatus> {
+async function loadStatus(): Promise<AdminBackupStatusResponse> {
   const response = await fetch('/api/v1/admin/backups/status', { cache: 'no-store' });
   const result = await response.json();
   if (!response.ok) throw new Error(result.message ?? '確認結果を取得できませんでした。');
-  return result as BackupStatus;
+  return result as AdminBackupStatusResponse;
 }
 
 const formatDate = (value: string) => new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(value));
 const formatBytes = (value: number) => value >= 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(value / 1024)} KB`;
 
 export function AdminBackups() {
-  const [status, setStatus] = useState<BackupStatus | null>(null);
+  const [status, setStatus] = useState<AdminBackupStatusResponse | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const refresh = useCallback(async () => {
