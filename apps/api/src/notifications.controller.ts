@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req, ServiceUnavailableException } from '@nestjs/common';
-import { adminNotificationListResponseSchema, adminNotificationTestOptionsResponseSchema, buildBillingLineMessage, buildPredictionLineMessage, buildWin5LineMessage, canManage, notificationListQuerySchema, notificationRetrySchema, notificationTestSendSchema, publishablePredictionSchema, raceAnnouncementNotificationPreviewResponseSchema, requiresMfa } from '@keiba/domain';
+import { adminNotificationListResponseSchema, adminNotificationTestOptionsResponseSchema, buildBillingLineMessage, buildPredictionLineMessage, buildWin5LineMessage, canManage, freeReportNotificationPreviewResponseSchema, notificationListQuerySchema, notificationRetrySchema, notificationTestSendSchema, publishablePredictionSchema, raceAnnouncementNotificationPreviewResponseSchema, requiresMfa } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { decryptSecret, loadMailConfig, notificationRecipientWhere, Prisma } from '@keiba/db';
@@ -208,7 +208,7 @@ export class NotificationsController {
     const eventType = input.kind === 'PRE_RACE' ? 'FREE_REPORT_PUBLISHED' : 'FREE_REPORT_REVIEW_PUBLISHED';
     const version = (race.freeReportVersions[0]?.version ?? 0) + 1;
     const message = buildPredictionLineMessage({ eventType, raceId: race.id, raceDate: race.raceDate, venue: race.venue, raceNumber: race.number, raceName: race.name, version, visibility: 'FREE', appBaseUrl: process.env.APP_BASE_URL ?? 'http://127.0.0.1:3000' });
-    return {
+    return freeReportNotificationPreviewResponseSchema.parse({
       eventType,
       contentLabel: input.kind === 'PRE_RACE' ? '無料パドック速報' : 'レース後検証',
       kind: input.kind,
@@ -220,7 +220,7 @@ export class NotificationsController {
       race: { id: race.id, raceDate: race.raceDate, venue: race.venue, number: race.number, name: race.name, startsAt: race.startsAt },
       audience: await this.audience(eventType, race.raceDate, generatedAt),
       message
-    };
+    });
   }
 
   @Post('test-send')

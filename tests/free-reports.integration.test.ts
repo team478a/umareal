@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { freeReportNotificationPreviewResponseSchema } from '../packages/domain/src';
 import { runNotificationBatch } from '../apps/worker/src/notification-runner';
 import type { NotificationTransport } from '../apps/worker/src/notification-runner';
 import { account, base, Client, db, origin } from './helpers';
@@ -51,10 +52,12 @@ describe('LP free member offer', () => {
     const beforePreview = await Promise.all([db.freeReportVersion.count({ where: { raceId: target.race.id } }), db.notificationEvent.count({ where: { freeReportVersion: { raceId: target.race.id } } })]);
     const preview = await target.adminClient.call(`admin/notifications/previews/free-report?raceId=${target.race.id}&kind=PRE_RACE&revision=1&scheduledAt=${encodeURIComponent('2098-09-13T14:30:00+09:00')}`);
     expect(preview.status).toBe(200);
-    expect(preview.body).toMatchObject({ eventType: 'FREE_REPORT_PUBLISHED', contentLabel: '無料パドック速報', kind: 'PRE_RACE', draftRevision: 1, timing: 'SCHEDULED', version: 1 });
-    expect(preview.body.audience.line.scheduledDeliveries).toBeGreaterThanOrEqual(1);
-    expect(preview.body.message.text).toContain('無料パドック速報を公開しました');
-    expect(preview.body.message.text).not.toContain(target.up.horseName);
+    const parsedPreview = freeReportNotificationPreviewResponseSchema.parse(preview.body);
+    expect(parsedPreview).toMatchObject({ eventType: 'FREE_REPORT_PUBLISHED', contentLabel: '無料パドック速報', kind: 'PRE_RACE', draftRevision: 1, timing: 'SCHEDULED', version: 1 });
+    expect(parsedPreview.audience.line.scheduledDeliveries).toBeGreaterThanOrEqual(1);
+    expect(parsedPreview.message.text).toContain('無料パドック速報を公開しました');
+    expect(parsedPreview.message.text).not.toContain(target.up.horseName);
+    expect(JSON.stringify(parsedPreview)).not.toMatch(/upReason|downReason|audioUrl|reviewText|subject|password|token/i);
     expect(await Promise.all([db.freeReportVersion.count({ where: { raceId: target.race.id } }), db.notificationEvent.count({ where: { freeReportVersion: { raceId: target.race.id } } })])).toEqual(beforePreview);
     const stalePreview = await target.adminClient.call(`admin/notifications/previews/free-report?raceId=${target.race.id}&kind=PRE_RACE&revision=2`);
     expect(stalePreview.status).toBe(409); expect(stalePreview.body.code).toBe('FREE_REPORT_DRAFT_CONFLICT');
@@ -105,8 +108,8 @@ describe('LP free member offer', () => {
     expect(saved.body.revision).toBe(2);
     const beforePreview = await Promise.all([db.freeReportVersion.count({ where: { raceId: target.race.id } }), db.notificationEvent.count({ where: { freeReportVersion: { raceId: target.race.id } } })]);
     const preview = await target.adminClient.call(`admin/notifications/previews/free-report?raceId=${target.race.id}&kind=POST_RACE_REVIEW&revision=2`);
-    expect(preview.status).toBe(200); expect(preview.body).toMatchObject({ eventType: 'FREE_REPORT_REVIEW_PUBLISHED', contentLabel: 'レース後検証', kind: 'POST_RACE_REVIEW', timing: 'IMMEDIATE', version: 2 });
-    expect(preview.body.message.text).toContain('無料速報のレース後検証を公開しました');
+    expect(preview.status).toBe(200); const parsedPreview = freeReportNotificationPreviewResponseSchema.parse(preview.body); expect(parsedPreview).toMatchObject({ eventType: 'FREE_REPORT_REVIEW_PUBLISHED', contentLabel: 'レース後検証', kind: 'POST_RACE_REVIEW', timing: 'IMMEDIATE', version: 2 });
+    expect(parsedPreview.message.text).toContain('無料速報のレース後検証を公開しました');
     expect(await Promise.all([db.freeReportVersion.count({ where: { raceId: target.race.id } }), db.notificationEvent.count({ where: { freeReportVersion: { raceId: target.race.id } } })])).toEqual(beforePreview);
     const published = await target.adminClient.call(`admin/free-reports/races/${target.race.id}/publish`, 'POST', { revision: 2, kind: 'POST_RACE_REVIEW', reason: '結果確認後に公開' }, undefined, { 'Idempotency-Key': randomUUID() });
     expect(published.status).toBe(201); expect(published.body.kind).toBe('POST_RACE_REVIEW');

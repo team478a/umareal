@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adminNotificationListResponseSchema, adminNotificationTestOptionsResponseSchema, notificationIdempotencyKey, notificationListQuerySchema, notificationRetrySchema, notificationTestSendSchema, raceAnnouncementNotificationPreviewResponseSchema, retryDelayMs } from './notifications';
+import { adminNotificationListResponseSchema, adminNotificationTestOptionsResponseSchema, freeReportNotificationPreviewResponseSchema, notificationIdempotencyKey, notificationListQuerySchema, notificationRetrySchema, notificationTestSendSchema, raceAnnouncementNotificationPreviewResponseSchema, retryDelayMs } from './notifications';
 
 describe('notification operations rules', () => {
   it('builds a recipient and version scoped idempotency key', () => {
@@ -89,5 +89,20 @@ describe('notification operations rules', () => {
     expect(parsed.race.startsAt).toBe('2026-09-27T02:00:00.000Z');
     expect(raceAnnouncementNotificationPreviewResponseSchema.safeParse({ ...response, recipientEmail: 'admin@example.test' }).success).toBe(false);
     expect(raceAnnouncementNotificationPreviewResponseSchema.safeParse({ ...response, audience: { ...response.audience, line: { ...response.audience.line, subject: 'provider-subject' } } }).success).toBe(false);
+  });
+  it('keeps both free-report preview variants exact and free of draft details', () => {
+    const id = '11111111-1111-4111-8111-111111111111';
+    const common = {
+      draftRevision: 2, generatedAt: new Date('2026-09-27T00:00:00.000Z'), plannedAt: new Date('2026-09-27T01:00:00.000Z'), timing: 'IMMEDIATE', version: 2,
+      race: { id, raceDate: '2026-09-27', venue: '中山', number: 11, name: 'テスト競走', startsAt: new Date('2026-09-27T02:00:00.000Z') },
+      audience: { uniqueMembers: 1, totalDeliveries: 1, duplicateChannelMembers: 0, line: { enabled: true, eligibleRecipients: 1, scheduledDeliveries: 1 }, email: { enabled: false, eligibleRecipients: 0, scheduledDeliveries: 0 } },
+      message: { type: 'text', text: '無料速報のお知らせ' }
+    } as const;
+    const preRace = freeReportNotificationPreviewResponseSchema.parse({ ...common, eventType: 'FREE_REPORT_PUBLISHED', contentLabel: '無料パドック速報', kind: 'PRE_RACE' });
+    const review = freeReportNotificationPreviewResponseSchema.parse({ ...common, eventType: 'FREE_REPORT_REVIEW_PUBLISHED', contentLabel: 'レース後検証', kind: 'POST_RACE_REVIEW' });
+    expect(preRace.kind).toBe('PRE_RACE');
+    expect(review.kind).toBe('POST_RACE_REVIEW');
+    expect(freeReportNotificationPreviewResponseSchema.safeParse({ ...common, eventType: 'FREE_REPORT_REVIEW_PUBLISHED', contentLabel: 'レース後検証', kind: 'PRE_RACE' }).success).toBe(false);
+    expect(freeReportNotificationPreviewResponseSchema.safeParse({ ...common, eventType: 'FREE_REPORT_PUBLISHED', contentLabel: '無料パドック速報', kind: 'PRE_RACE', upReason: '内部下書き' }).success).toBe(false);
   });
 });

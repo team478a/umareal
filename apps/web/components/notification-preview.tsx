@@ -1,26 +1,9 @@
 'use client';
 import { CheckCircle2, Clock3, Mail, MessageCircle, Send, Users } from 'lucide-react';
 import { useEffect, useRef } from 'react';
+import type { FreeReportNotificationPreviewResponse, RaceAnnouncementNotificationPreviewResponse } from '@keiba/domain';
 
-export type NotificationPreviewData = {
-  eventType: 'RACE_ANNOUNCED' | 'FREE_REPORT_PUBLISHED' | 'FREE_REPORT_REVIEW_PUBLISHED';
-  contentLabel: string;
-  kind?: 'PRE_RACE' | 'POST_RACE_REVIEW';
-  draftRevision?: number;
-  generatedAt: string;
-  plannedAt: string;
-  timing: 'IMMEDIATE' | 'SCHEDULED';
-  version: number;
-  race: { id: string; raceDate: string; venue: string; number: number; name: string; startsAt: string };
-  audience: {
-    uniqueMembers: number;
-    totalDeliveries: number;
-    duplicateChannelMembers: number;
-    line: { enabled: boolean; eligibleRecipients: number; scheduledDeliveries: number };
-    email: { enabled: boolean; eligibleRecipients: number; scheduledDeliveries: number };
-  };
-  message: { type: 'text'; text: string };
-};
+export type NotificationPreviewData = RaceAnnouncementNotificationPreviewResponse | FreeReportNotificationPreviewResponse;
 
 const format = (value: string) => new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
 
