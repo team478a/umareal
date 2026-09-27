@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req, ServiceUnavailableException } from '@nestjs/common';
-import { adminNotificationListResponseSchema, adminNotificationTestOptionsResponseSchema, buildBillingLineMessage, buildPredictionLineMessage, buildWin5LineMessage, canManage, freeReportNotificationPreviewResponseSchema, notificationListQuerySchema, notificationRetrySchema, notificationTestSendSchema, publishablePredictionSchema, raceAnnouncementNotificationPreviewResponseSchema, requiresMfa } from '@keiba/domain';
+import { adminNotificationListResponseSchema, adminNotificationTestOptionsResponseSchema, buildBillingLineMessage, buildPredictionLineMessage, buildWin5LineMessage, canManage, freeReportNotificationPreviewResponseSchema, notificationListQuerySchema, notificationRetrySchema, notificationTestSendResponseSchema, notificationTestSendSchema, publishablePredictionSchema, raceAnnouncementNotificationPreviewResponseSchema, requiresMfa } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { decryptSecret, loadMailConfig, notificationRecipientWhere, Prisma } from '@keiba/db';
@@ -233,7 +233,7 @@ export class NotificationsController {
     const previous = await this.auth.db.idempotencyKey.findUnique({ where: { key: idempotencyKey } });
     if (previous) {
       if (previous.requestHash !== requestHash) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: '同じテスト送信キーが異なる内容で使われています。' });
-      return previous.response;
+      return notificationTestSendResponseSchema.parse(previous.response);
     }
     const preview = await this.resolveTestPreview(req, input);
     const [settings, user] = await this.auth.db.$transaction([
@@ -260,13 +260,13 @@ export class NotificationsController {
       await this.auth.db.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: 'NOTIFICATION_TEST_SEND_FAILED', targetType: preview.targetType, targetId: preview.targetId, reason: input.reason, details: { channel: input.channel, contentType: input.contentType, eventType: preview.eventType, errorCode }, requestId: req.requestId } });
       throw error;
     }
-    const response = { status: transport === 'TEST_ONLY' ? 'SIMULATED' : 'SENT', channel: input.channel, transport, contentLabel: preview.contentLabel, version: preview.version, sentAt: new Date() };
+    const response = notificationTestSendResponseSchema.parse({ status: transport === 'TEST_ONLY' ? 'SIMULATED' : 'SENT', channel: input.channel, transport, contentLabel: preview.contentLabel, version: preview.version, sentAt: new Date() });
     return this.auth.db.$transaction(async tx => {
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${idempotencyKey}))::text`;
       const stored = await tx.idempotencyKey.findUnique({ where: { key: idempotencyKey } });
       if (stored) {
         if (stored.requestHash !== requestHash) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: '同じテスト送信キーが異なる内容で使われています。' });
-        return stored.response;
+        return notificationTestSendResponseSchema.parse(stored.response);
       }
       await tx.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: 'NOTIFICATION_TEST_SENT', targetType: preview.targetType, targetId: preview.targetId, reason: input.reason, details: { channel: input.channel, contentType: input.contentType, eventType: preview.eventType, transport, status: response.status, version: preview.version }, requestId: req.requestId } });
       await tx.idempotencyKey.create({ data: { key: idempotencyKey, requestHash, response } });

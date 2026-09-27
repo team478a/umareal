@@ -261,6 +261,17 @@ export const notificationTestSendSchema = z.discriminatedUnion('contentType', [
     .map(contentType => z.object({ ...notificationTestBase, contentType: z.literal(contentType), subscriptionId: z.string().uuid() }).strict())
 ]);
 
+export const notificationTestSendResponseSchema = z.object({
+  status: z.enum(['SIMULATED', 'SENT']),
+  channel: z.enum(['LINE', 'EMAIL']),
+  transport: z.enum(['TEST_ONLY', 'LINE', 'RESEND']),
+  contentLabel: z.string().min(1),
+  version: z.number().int().positive(),
+  sentAt: notificationDateTimeSchema
+}).strict();
+
+export type NotificationTestSendResponse = z.infer<typeof notificationTestSendResponseSchema>;
+
 export function retryDelayMs(baseDelaySeconds: number, completedAttempts: number) {
   return Math.min(baseDelaySeconds * 2 ** Math.max(0, completedAttempts - 1), 86_400) * 1000;
 }

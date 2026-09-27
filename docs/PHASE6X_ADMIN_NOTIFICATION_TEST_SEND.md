@@ -26,6 +26,7 @@
   - 配信前確認APIと同じ検証・共通通知文面を使用する。
   - LINEは管理者本人の有効なLINE連携、メールは本人の確認済みメールだけを使用する。
   - test transportでは`SIMULATED`、有効な外部transportではProvider受理後に`SENT`を返す。
+  - 初回成功と冪等再送はAPIとWebで同じ厳格な成功応答Contractを参照し、宛先やProviderの要求識別子を返さない。
 - `/admin/publication-schedules`と`/admin/free-reports`
   - 配信前確認内にLINE・メールのテスト送信ボタンを表示する。
   - 全体停止中のチャネルはボタンを無効にし、完了状態を公開・予約操作と分けて表示する。

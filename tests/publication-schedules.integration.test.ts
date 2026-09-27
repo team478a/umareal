@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { runPublicationSchedules } from '../apps/worker/src/publication-scheduler';
+import { notificationTestSendResponseSchema } from '../packages/domain/src';
 import { account, Client, db } from './helpers';
 
 beforeAll(() => { const url = new URL(process.env.DATABASE_URL ?? ''); if (!['localhost', '127.0.0.1'].includes(url.hostname) || process.env.AUTH_PROVIDER !== 'local') throw new Error('Integration suite is limited to a local development database'); });
@@ -41,8 +42,8 @@ describe('scheduled publication and alerts', () => {
     expect((await target.memberClient.call('admin/notifications/test-send', 'POST', testBody, undefined, { 'Idempotency-Key': randomUUID() })).status).toBe(403);
     expect((await target.operatorClient.call('admin/notifications/test-send', 'POST', testBody, undefined, { 'Idempotency-Key': randomUUID() })).status).toBe(403);
     const testSent = await target.adminClient.call('admin/notifications/test-send', 'POST', testBody, undefined, { 'Idempotency-Key': testKey });
-    expect(testSent.status).toBe(201); expect(testSent.body).toMatchObject({ status: 'SIMULATED', channel: 'EMAIL', transport: 'TEST_ONLY', contentLabel: '対象レース告知', version: 2 });
-    const testReplay = await target.adminClient.call('admin/notifications/test-send', 'POST', testBody, undefined, { 'Idempotency-Key': testKey }); expect(testReplay.body).toEqual(testSent.body);
+    expect(testSent.status).toBe(201); expect(notificationTestSendResponseSchema.parse(testSent.body)).toMatchObject({ status: 'SIMULATED', channel: 'EMAIL', transport: 'TEST_ONLY', contentLabel: '対象レース告知', version: 2 });
+    const testReplay = await target.adminClient.call('admin/notifications/test-send', 'POST', testBody, undefined, { 'Idempotency-Key': testKey }); expect(notificationTestSendResponseSchema.parse(testReplay.body)).toEqual(notificationTestSendResponseSchema.parse(testSent.body));
     expect((await target.adminClient.call('admin/notifications/test-send', 'POST', { ...testBody, reason: '異なる理由' }, undefined, { 'Idempotency-Key': testKey })).status).toBe(409);
     const stoppedLine = await target.adminClient.call('admin/notifications/test-send', 'POST', { ...testBody, channel: 'LINE' }, undefined, { 'Idempotency-Key': randomUUID() });
     expect(stoppedLine.status).toBe(503); expect(stoppedLine.body).toMatchObject({ code: 'LINE_NOTIFICATIONS_STOPPED' });

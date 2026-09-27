@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { adminNotificationTestOptionsResponseSchema } from '../packages/domain/src';
+import { adminNotificationTestOptionsResponseSchema, notificationTestSendResponseSchema } from '../packages/domain/src';
 import { account, Client, db } from './helpers';
 
 beforeAll(() => { const url = new URL(process.env.DATABASE_URL ?? ''); if (!['localhost', '127.0.0.1'].includes(url.hostname) || process.env.AUTH_PROVIDER !== 'local') throw new Error('Integration suite is limited to a local development database'); });
@@ -53,7 +53,9 @@ describe('extended administrator notification tests', () => {
     ];
     for (const item of cases) {
       const response = await client.call('admin/notifications/test-send', 'POST', { ...item, label: undefined, channel: 'EMAIL', reason: '管理者本人で通知文面を確認' }, undefined, { 'Idempotency-Key': randomUUID() });
-      expect(response.status).toBe(201); expect(response.body).toMatchObject({ status: 'SIMULATED', contentLabel: item.label, channel: 'EMAIL', transport: 'TEST_ONLY' });
+      expect(response.status).toBe(201);
+      expect(notificationTestSendResponseSchema.parse(response.body)).toMatchObject({ status: 'SIMULATED', contentLabel: item.label, channel: 'EMAIL', transport: 'TEST_ONLY' });
+      expect(JSON.stringify(response.body)).not.toMatch(/recipient|providerRequestId|authSubject|token|secret|password/i);
     }
     expect(await db.notificationEvent.count()).toBe(beforeEvents);
     expect(await db.notificationDelivery.count({ where: { userId: member.user.id } })).toBe(0);

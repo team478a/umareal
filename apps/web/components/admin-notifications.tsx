@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { RefreshCw, RotateCcw } from 'lucide-react';
-import type { AdminNotificationListResponse, AdminNotificationTestOptionsResponse } from '@keiba/domain';
+import type { AdminNotificationListResponse, AdminNotificationTestOptionsResponse, NotificationTestSendResponse } from '@keiba/domain';
 
 type TestContentType = 'RACE_PREDICTION' | 'WIN5_PREDICTION' | 'BILLING_PAYMENT_SUCCEEDED' | 'BILLING_PAYMENT_FAILED' | 'BILLING_PAYMENT_RECOVERED' | 'BILLING_CANCELLATION_SCHEDULED' | 'BILLING_SUBSCRIPTION_ENDED';
 const labels: Record<string, string> = { QUEUED: '送信待ち', SENDING: '送信中', SENT: '送信済み', FAILED: '失敗', SKIPPED: '対象外', TRANSIENT_FAILURE: '一時失敗', PERMANENT_FAILURE: '恒久失敗' };
@@ -28,7 +28,7 @@ export function AdminNotifications({ canTest }: { canTest: boolean }) {
       if (!testTarget) throw new Error('テスト対象を選択してください。');
       if (!testReason.trim()) throw new Error('テスト理由を入力してください。');
       const target = testType === 'RACE_PREDICTION' ? { raceId: testTarget } : testType === 'WIN5_PREDICTION' ? { productId: testTarget } : { subscriptionId: testTarget };
-      const result = await api<{ status: 'SIMULATED' | 'SENT'; contentLabel: string }>('admin/notifications/test-send', 'POST', { contentType: testType, ...target, channel, reason: testReason }, true);
+      const result = await api<NotificationTestSendResponse>('admin/notifications/test-send', 'POST', { contentType: testType, ...target, channel, reason: testReason }, true);
       setMessage(`${result.contentLabel}の${channel === 'EMAIL' ? 'メール' : 'LINE'}${result.status === 'SIMULATED' ? '模擬' : ''}テスト送信が完了しました。`);
     } catch (e) { setError((e as Error).message); } finally { setBusy(''); }
   }
