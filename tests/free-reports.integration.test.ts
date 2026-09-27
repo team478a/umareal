@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { adminFreeReportRaceDetailResponseSchema, adminFreeReportRaceListResponseSchema, freeReportNotificationPreviewResponseSchema, publicFreeMemberBenefitResponseSchema, publicFreeReportMetadataResponseSchema } from '../packages/domain/src';
+import { adminFreeMemberBenefitResponseSchema, adminFreeReportRaceDetailResponseSchema, adminFreeReportRaceListResponseSchema, freeReportNotificationPreviewResponseSchema, publicFreeMemberBenefitResponseSchema, publicFreeReportMetadataResponseSchema } from '../packages/domain/src';
 import { runNotificationBatch } from '../apps/worker/src/notification-runner';
 import type { NotificationTransport } from '../apps/worker/src/notification-runner';
 import { account, base, Client, db, origin } from './helpers';
@@ -104,9 +104,15 @@ describe('LP free member offer', () => {
 
   it('shows a configured registration benefit only to authenticated members', async () => {
     const target = await fixture();
-    const before = await target.adminClient.call('admin/free-reports/benefit');
-    const saved = await target.adminClient.call('admin/free-reports/benefit', 'PATCH', { revision: before.body.revision, title: 'パドックで評価を変えた実例', description: '事前評価から結果検証までを解説します。', videoUrl: 'https://video.example.test/bonus', reason: 'LP登録特典の設定' });
-    expect(saved.status).toBe(200); expect(saved.body.revision).toBe(before.body.revision + 1);
+    expect((await new Client().call('admin/free-reports/benefit')).status).toBe(401);
+    expect((await target.memberClient.call('admin/free-reports/benefit')).status).toBe(403);
+    expect((await target.memberClient.call('admin/free-reports/benefit', 'PATCH', { revision: 0, title: '拒否', description: '拒否', videoUrl: 'https://video.example.test/rejected', reason: '拒否確認' })).status).toBe(403);
+    const before = adminFreeMemberBenefitResponseSchema.parse((await target.adminClient.call('admin/free-reports/benefit')).body);
+    const savedResponse = await target.adminClient.call('admin/free-reports/benefit', 'PATCH', { revision: before.revision, title: 'パドックで評価を変えた実例', description: '事前評価から結果検証までを解説します。', videoUrl: 'https://video.example.test/bonus', reason: 'LP登録特典の設定' });
+    expect(savedResponse.status).toBe(200);
+    const saved = adminFreeMemberBenefitResponseSchema.parse(savedResponse.body);
+    expect(saved).toMatchObject({ revision: before.revision + 1, updatedBy: target.admin.user.id, updatedAt: expect.any(String) });
+    expect(JSON.stringify(saved)).not.toMatch(/email|password|token|authSubject|lineSubject/i);
     expect((await new Client().call('me/free-benefit')).status).toBe(401);
     const memberBenefit = publicFreeMemberBenefitResponseSchema.parse((await target.memberClient.call('me/free-benefit')).body);
     expect(memberBenefit).toMatchObject({ configured: true, title: 'パドックで評価を変えた実例', videoUrl: 'https://video.example.test/bonus' });

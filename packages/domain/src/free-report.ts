@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { dateSchema, entryStatuses, raceStatuses } from './races';
 
-const httpsUrl = z.string().trim().url().max(1000).refine(value => new URL(value).protocol === 'https:', 'HTTPSのURLを指定してください。');
+const httpsUrl = z.string().trim().url().max(1000).refine(value => { try { return new URL(value).protocol === 'https:'; } catch { return false; } }, 'HTTPSのURLを指定してください。');
 const audioSource = z.string().trim().max(1000).refine(value => /^\/api\/v1\/free-report-audio\/[0-9a-f-]{36}$/.test(value) || (() => { try { return new URL(value).protocol === 'https:'; } catch { return false; } })(), '録音済み音声またはHTTPSのURLを指定してください。');
 
 const publicFreeReportDateTimeSchema = z.preprocess(
@@ -108,6 +108,27 @@ export const adminFreeReportRaceDetailResponseSchema = z.object({
   }).strict()).max(1)
 }).strict();
 export type AdminFreeReportRaceDetailResponse = z.infer<typeof adminFreeReportRaceDetailResponseSchema>;
+
+export const adminFreeMemberBenefitResponseSchema = z.union([
+  z.object({
+    id: z.literal('global'),
+    title: z.literal(''),
+    description: z.literal(''),
+    videoUrl: z.literal(''),
+    revision: z.literal(0),
+    updatedAt: z.null()
+  }).strict(),
+  z.object({
+    id: z.literal('global'),
+    title: z.string().min(1).max(120),
+    description: z.string().min(1).max(1000),
+    videoUrl: httpsUrl,
+    revision: z.number().int().positive(),
+    updatedBy: z.string().uuid().nullable(),
+    updatedAt: publicFreeReportDateTimeSchema
+  }).strict()
+]);
+export type AdminFreeMemberBenefitResponse = z.infer<typeof adminFreeMemberBenefitResponseSchema>;
 
 export const freeReportDraftSchema = z.object({
   revision: z.number().int().min(0),
