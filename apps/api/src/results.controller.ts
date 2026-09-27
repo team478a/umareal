@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Req } from '@nestjs/common';
-import { aggregatePredictionEvaluations, canManage, dateSchema, evaluatePrediction, getResultDataProvider, parseResultCsv, publicRaceResultResponseSchema, raceResultInputSchema, requiresMfa, resultDataProviderCatalog, resultDataProviderIdSchema, resultEntrySchema, verifyJraVanResultBundle } from '@keiba/domain';
+import { aggregatePredictionEvaluations, canManage, dateSchema, evaluatePrediction, getResultDataProvider, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, raceResultInputSchema, requiresMfa, resultDataProviderCatalog, resultDataProviderIdSchema, resultEntrySchema, verifyJraVanResultBundle } from '@keiba/domain';
 import type { BatchResultCsvRow, RaceResultInput, ResultEntry, Role } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -478,6 +478,6 @@ export class ResultsController {
       for (const item of items) { const value = item[key] ?? '未設定'; grouped.set(value, [...(grouped.get(value) ?? []), item]); }
       return [...grouped].map(([value, rows]) => ({ value, ...aggregatePredictionEvaluations(rows) }));
     };
-    return { ruleVersion: evaluationRuleVersion, scope: '公開版別の馬評価集計', overall: aggregatePredictionEvaluations(items), byConfidence: groups('confidence'), byVenue: groups('venue'), bySurface: groups('surface'), byMonth: groups('month') };
+    return publicPredictionStatsResponseSchema.parse({ ruleVersion: evaluationRuleVersion, scope: '公開版別の馬評価集計', overall: aggregatePredictionEvaluations(items), byConfidence: groups('confidence'), byVenue: groups('venue'), bySurface: groups('surface'), byMonth: groups('month') });
   }
 }

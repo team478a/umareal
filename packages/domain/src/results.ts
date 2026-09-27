@@ -41,6 +41,33 @@ export const publicRaceResultResponseSchema = z.discriminatedUnion('confirmed', 
   }).strict()
 ]);
 export type PublicRaceResultResponse = z.infer<typeof publicRaceResultResponseSchema>;
+
+const publicPredictionPercentageSchema = z.number().min(0).max(100).nullable();
+export const publicPredictionStatsMetricSchema = z.object({
+  publishedRaces: z.number().int().nonnegative(),
+  primaryWins: z.number().int().nonnegative(),
+  primaryWinRatePercent: publicPredictionPercentageSchema,
+  primaryTop2RatePercent: publicPredictionPercentageSchema,
+  primaryTop3RatePercent: publicPredictionPercentageSchema,
+  upHorseSuccessRatePercent: publicPredictionPercentageSchema,
+  downHorseFailureRatePercent: publicPredictionPercentageSchema,
+  riskHorseFailureRatePercent: publicPredictionPercentageSchema,
+  skipped: z.number().int().nonnegative(),
+  skipRatePercent: publicPredictionPercentageSchema
+}).strict();
+const publicPredictionStatsGroupSchema = publicPredictionStatsMetricSchema.extend({
+  value: z.string().min(1)
+}).strict();
+export const publicPredictionStatsResponseSchema = z.object({
+  ruleVersion: z.literal('HORSE_EVALUATION_V1'),
+  scope: z.literal('公開版別の馬評価集計'),
+  overall: publicPredictionStatsMetricSchema,
+  byConfidence: z.array(publicPredictionStatsGroupSchema),
+  byVenue: z.array(publicPredictionStatsGroupSchema),
+  bySurface: z.array(publicPredictionStatsGroupSchema),
+  byMonth: z.array(publicPredictionStatsGroupSchema)
+}).strict();
+export type PublicPredictionStatsResponse = z.infer<typeof publicPredictionStatsResponseSchema>;
 export const resultCsvHeaders = ['number', 'status', 'finishPosition', 'popularity', 'finalOdds'] as const;
 export const resultCsvRowSchema = z.object({
   number: z.number().int().min(1).max(18), status: z.enum(runnerResultStatuses), finishPosition: z.number().int().min(1).max(18).nullable(),
