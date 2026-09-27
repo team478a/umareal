@@ -79,6 +79,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 実施状況: PR #7で最初のpilotをmainへ統合した。本番準備チェックのADMIN+AAL2認可はControllerへ残し、認可後の限定select、集計、判定、ローカル復元状態の読み取りだけを`ReadinessService`へ移した。既存15項目の順序と秘密情報非露出をintegration testで固定している。
 - 認証セッション境界pilot: ローカル認証とSupabase認証のCookie属性、PKCE生成・flow Cookie、外部token取得を`AuthSessionService`へ集約し、メール認証、LINE Login、MFA、logout、退会が同じセッション境界を使用する。登録条件、Provider呼び出し、監査、API URL・応答、Cookie名・属性・有効時間は変更しない。これはController分離の最初の小規模phaseであり、登録・MFA・請求orchestration全体の分離完了を意味しない。
 - 登録・メール確認orchestration pilot: メール会員登録、確認メール再送、ローカル確認トークン消費を`AuthRegistrationService`へ分離し、会員作成・同意・流入記録・紹介関係・監査のトランザクション境界をController外で検証できるようにする。Controllerは入力検証とCookie反映を担当し、API URL・応答、Supabase PKCE、登録条件、紹介成立条件、メール確認期限は変更しない。予備メール追加、ログイン、MFAの分離は後続候補のままとする。
+- 認証資格情報orchestration pilot: LINE会員の予備メール設定、ローカルのパスワード再設定token発行・消費・全セッション失効、SupabaseのPKCE回復開始・パスワード更新を`AuthCredentialService`へ分離する。Controllerは入力検証、本人認証、Cookieからの外部token取得とPKCE Cookie反映を担当し、API URL・同一応答による会員有無の秘匿、15分期限、監査、セッション失効範囲は変更しない。ログインとMFAの分離は後続候補のままとする。
 
 ### MA-005 DBアクセス境界（後続PR候補）
 
