@@ -1,5 +1,5 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, Param, Patch, Post, Query, Req } from '@nestjs/common';
-import { adminOperationalAlertListResponseSchema, adminOperationalAlertSettingsResponseSchema, canManage, operationalAlertActionSchema, operationalAlertListSchema, operationalAlertSettingsSchema, requiresMfa } from '@keiba/domain';
+import { adminOperationalAlertActionResponseSchema, adminOperationalAlertDeliveryRetryResponseSchema, adminOperationalAlertListResponseSchema, adminOperationalAlertSettingsResponseSchema, canManage, operationalAlertActionSchema, operationalAlertListSchema, operationalAlertSettingsSchema, requiresMfa } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -56,9 +56,9 @@ export class OperationalAlertsController {
       await tx.$queryRaw(Prisma.sql`SELECT id FROM operational_alerts WHERE id = ${alertId}::uuid FOR UPDATE`);
       const alert = await tx.operationalAlert.findUniqueOrThrow({ where: { id: alertId } });
       if (alert.status === 'RESOLVED') throw new ConflictException({ code: 'ALERT_ALREADY_RESOLVED', message: 'このアラートは解決済みです。' });
-      if (alert.status === 'ACKNOWLEDGED') return alert;
+      if (alert.status === 'ACKNOWLEDGED') return adminOperationalAlertActionResponseSchema.parse(alert);
       const now = new Date(); const updated = await tx.operationalAlert.update({ where: { id: alertId }, data: { status: 'ACKNOWLEDGED', acknowledgedAt: now, acknowledgedBy: actor.id, acknowledgeReason: input.reason } });
-      await this.auth.audit(tx, req, 'OPERATIONAL_ALERT_ACKNOWLEDGED', alertId, input.reason, { code: alert.code, sourceType: alert.sourceType, sourceId: alert.sourceId }); return updated;
+      await this.auth.audit(tx, req, 'OPERATIONAL_ALERT_ACKNOWLEDGED', alertId, input.reason, { code: alert.code, sourceType: alert.sourceType, sourceId: alert.sourceId }); return adminOperationalAlertActionResponseSchema.parse(updated);
     });
   }
 
@@ -68,9 +68,9 @@ export class OperationalAlertsController {
     return this.auth.db.$transaction(async tx => {
       await tx.$queryRaw(Prisma.sql`SELECT id FROM operational_alerts WHERE id = ${alertId}::uuid FOR UPDATE`);
       const alert = await tx.operationalAlert.findUniqueOrThrow({ where: { id: alertId } });
-      if (alert.status === 'RESOLVED') return alert;
+      if (alert.status === 'RESOLVED') return adminOperationalAlertActionResponseSchema.parse(alert);
       const now = new Date(); const updated = await tx.operationalAlert.update({ where: { id: alertId }, data: { status: 'RESOLVED', acknowledgedAt: alert.acknowledgedAt ?? now, acknowledgedBy: alert.acknowledgedBy ?? actor.id, acknowledgeReason: alert.acknowledgeReason ?? input.reason, resolvedAt: now, resolvedBy: actor.id, resolutionReason: input.reason } });
-      await this.auth.audit(tx, req, 'OPERATIONAL_ALERT_RESOLVED', alertId, input.reason, { code: alert.code, sourceType: alert.sourceType, sourceId: alert.sourceId }); return updated;
+      await this.auth.audit(tx, req, 'OPERATIONAL_ALERT_RESOLVED', alertId, input.reason, { code: alert.code, sourceType: alert.sourceType, sourceId: alert.sourceId }); return adminOperationalAlertActionResponseSchema.parse(updated);
     });
   }
 
@@ -82,7 +82,7 @@ export class OperationalAlertsController {
       const delivery = await tx.operationalAlertDelivery.findUniqueOrThrow({ where: { id: deliveryId }, include: { alert: true } });
       if (delivery.status !== 'FAILED' || delivery.alert.status === 'RESOLVED') throw new ConflictException({ code: 'ALERT_DELIVERY_NOT_RETRYABLE', message: '失敗中の未解決アラートだけ再送できます。' });
       const updated = await tx.operationalAlertDelivery.update({ where: { id: deliveryId }, data: { status: 'QUEUED', nextAttemptAt: new Date(), lockedAt: null, leaseToken: null, updatedAt: new Date() } });
-      await this.auth.audit(tx, req, 'OPERATIONAL_ALERT_DELIVERY_RETRY', deliveryId, input.reason, { alertId: delivery.alertId, attemptCount: delivery.attemptCount }); return updated;
+      await this.auth.audit(tx, req, 'OPERATIONAL_ALERT_DELIVERY_RETRY', deliveryId, input.reason, { alertId: delivery.alertId, attemptCount: delivery.attemptCount }); return adminOperationalAlertDeliveryRetryResponseSchema.parse(updated);
     });
   }
 }

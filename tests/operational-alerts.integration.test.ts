@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { runOperationalAlerts, type OperationalAlertTransport } from '../apps/worker/src/operational-alert-runner';
-import { adminOperationalAlertListResponseSchema, adminOperationalAlertSettingsResponseSchema } from '../packages/domain/src';
+import { adminOperationalAlertActionResponseSchema, adminOperationalAlertDeliveryRetryResponseSchema, adminOperationalAlertListResponseSchema, adminOperationalAlertSettingsResponseSchema } from '../packages/domain/src';
 import { account, Client, db } from './helpers';
 
 afterAll(() => db.$disconnect());
@@ -65,9 +65,16 @@ describe('external operational alerts', () => {
       expect(list.items.length).toBeGreaterThan(0);
       expect(list.items.every(item => item.status === 'OPEN')).toBe(true);
       expect(JSON.stringify(listed.body)).not.toMatch(/外部へ送らない予想本文|leaseToken|providerMessageId|lineSubject|password|databaseUrl/i);
-      expect((await admin.call(`admin/operational-alerts/${alert.id}/acknowledge`, 'POST', { reason: '担当者が原因調査を開始' })).status).toBe(201);
-      expect((await admin.call(`admin/operational-alerts/${alert.id}/resolve`, 'POST', { reason: 'メール配送経路の復旧を確認' })).status).toBe(201);
+      const externalDelivery = alert.deliveries[0]; if (!externalDelivery) throw new Error('運用アラートの外部配送がありません。');
+      await db.operationalAlertDelivery.update({ where: { id: externalDelivery.id }, data: { status: 'FAILED', lastErrorCode: 'TEST_ALERT_FAILURE' } });
+      const retriedResponse = await admin.call(`admin/operational-alerts/deliveries/${externalDelivery.id}/retry`, 'POST', { reason: '外部メール経路を復旧' }); expect(retriedResponse.status).toBe(201);
+      const retried = adminOperationalAlertDeliveryRetryResponseSchema.parse(retriedResponse.body); expect(retried).toMatchObject({ id: externalDelivery.id, status: 'QUEUED', leaseToken: null, lockedAt: null });
+      const acknowledgedResponse = await admin.call(`admin/operational-alerts/${alert.id}/acknowledge`, 'POST', { reason: '担当者が原因調査を開始' }); expect(acknowledgedResponse.status).toBe(201);
+      const acknowledged = adminOperationalAlertActionResponseSchema.parse(acknowledgedResponse.body); expect(acknowledged.status).toBe('ACKNOWLEDGED');
+      const resolvedResponse = await admin.call(`admin/operational-alerts/${alert.id}/resolve`, 'POST', { reason: 'メール配送経路の復旧を確認' }); expect(resolvedResponse.status).toBe(201);
+      const resolved = adminOperationalAlertActionResponseSchema.parse(resolvedResponse.body); expect(resolved.status).toBe('RESOLVED');
       expect(await db.auditLog.count({ where: { targetId: alert.id, action: { in: ['OPERATIONAL_ALERT_ACKNOWLEDGED', 'OPERATIONAL_ALERT_RESOLVED'] } } })).toBe(2);
+      expect(await db.auditLog.count({ where: { targetId: externalDelivery.id, action: 'OPERATIONAL_ALERT_DELIVERY_RETRY' } })).toBe(1);
       const member = new Client(); await member.login(recipient); expect((await member.call('admin/operational-alerts')).status).toBe(403);
     } finally {
       await db.operationalAlertSetting.update({ where: { id: 'global' }, data: { enabled: original.enabled, minimumSeverity: original.minimumSeverity, destinationEmails: original.destinationEmails, revision: original.revision, updatedBy: original.updatedBy, updatedAt: original.updatedAt } });

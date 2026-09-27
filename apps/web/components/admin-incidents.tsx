@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, BellRing, Check, ClipboardCopy, Mail, RefreshCw, ShieldAlert } from 'lucide-react';
-import type { AdminIncidentResponse, AdminOperationalAlert, AdminOperationalAlertDelivery, AdminOperationalAlertListResponse, AdminOperationalAlertSettingsResponse } from '@keiba/domain';
+import type { AdminIncidentResponse, AdminOperationalAlert, AdminOperationalAlertActionResponse, AdminOperationalAlertDelivery, AdminOperationalAlertDeliveryRetryResponse, AdminOperationalAlertListResponse, AdminOperationalAlertSettingsResponse } from '@keiba/domain';
 
 const stateLabel = { NORMAL: '正常', DEGRADED: '要確認', INCIDENT: '障害対応中' } as const;
 const severityLabel = { CRITICAL: '重大', WARNING: '警告', INFO: '案内中' } as const;
@@ -30,10 +30,10 @@ export function AdminIncidents({ role }: { role: string }) {
   }
   async function act(alert: AdminOperationalAlert, action: 'acknowledge' | 'resolve') {
     const reason = reasons[alert.id]?.trim(); if (!reason) return; setBusy(`${action}-${alert.id}`); setError('');
-    try { await api(`/api/v1/admin/operational-alerts/${alert.id}/${action}`, { method: 'POST', body: JSON.stringify({ reason }) }); setReasons({ ...reasons, [alert.id]: '' }); setMessage(action === 'acknowledge' ? 'アラートを確認済みにしました。' : 'アラートを解決済みにしました。'); await load(); }
+    try { await api<AdminOperationalAlertActionResponse>(`/api/v1/admin/operational-alerts/${alert.id}/${action}`, { method: 'POST', body: JSON.stringify({ reason }) }); setReasons({ ...reasons, [alert.id]: '' }); setMessage(action === 'acknowledge' ? 'アラートを確認済みにしました。' : 'アラートを解決済みにしました。'); await load(); }
     catch (e) { setError((e as Error).message); } finally { setBusy(''); }
   }
-  async function retry(delivery: AdminOperationalAlertDelivery, alertId: string) { const reason = reasons[alertId]?.trim(); if (!reason) return; setBusy(`retry-${delivery.id}`); try { await api(`/api/v1/admin/operational-alerts/deliveries/${delivery.id}/retry`, { method: 'POST', body: JSON.stringify({ reason }) }); setMessage('外部通知を再送待ちに戻しました。'); await load(); } catch (e) { setError((e as Error).message); } finally { setBusy(''); } }
+  async function retry(delivery: AdminOperationalAlertDelivery, alertId: string) { const reason = reasons[alertId]?.trim(); if (!reason) return; setBusy(`retry-${delivery.id}`); try { await api<AdminOperationalAlertDeliveryRetryResponse>(`/api/v1/admin/operational-alerts/deliveries/${delivery.id}/retry`, { method: 'POST', body: JSON.stringify({ reason }) }); setMessage('外部通知を再送待ちに戻しました。'); await load(); } catch (e) { setError((e as Error).message); } finally { setBusy(''); } }
   const runbook = [['1', '検知内容を確認', '件数、発生範囲、直近の設定変更を確認します。'], ['2', '会員向けWeb公開を確認', '通知障害中もWeb上の公開情報を維持します。'], ['3', '影響を抑える', '必要な機能だけを理由付きで停止します。'], ['4', '原因を解消して復旧', '失敗理由を確認し、復旧後に再送します。'], ['5', '復旧を記録', '確認済み・解決済みと対応理由を残します。']];
   return <><div className="page-heading"><span className="eyebrow">INCIDENT RESPONSE</span><h1>障害対応チェック</h1><p>現在の停止・遅延を検知し、外部通知から復旧記録までを管理します。</p></div>
     {error && <div className="notice error" role="alert">{error}</div>}{message && <div className="notice" role="status">{message}</div>}
