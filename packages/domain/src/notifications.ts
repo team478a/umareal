@@ -208,6 +208,43 @@ export const raceAnnouncementNotificationPreviewResponseSchema = z.object({
 }).strict();
 
 export type RaceAnnouncementNotificationPreviewResponse = z.infer<typeof raceAnnouncementNotificationPreviewResponseSchema>;
+
+const freeReportNotificationPreviewBase = {
+  draftRevision: z.number().int().positive(),
+  generatedAt: notificationDateTimeSchema,
+  plannedAt: notificationDateTimeSchema,
+  timing: z.enum(['IMMEDIATE', 'SCHEDULED']),
+  version: z.number().int().positive(),
+  race: adminNotificationRaceSchema,
+  audience: z.object({
+    uniqueMembers: z.number().int().nonnegative(),
+    totalDeliveries: z.number().int().nonnegative(),
+    duplicateChannelMembers: z.number().int().nonnegative(),
+    line: notificationPreviewChannelSchema,
+    email: notificationPreviewChannelSchema
+  }).strict(),
+  message: z.object({
+    type: z.literal('text'),
+    text: z.string()
+  }).strict()
+} as const;
+
+export const freeReportNotificationPreviewResponseSchema = z.discriminatedUnion('kind', [
+  z.object({
+    ...freeReportNotificationPreviewBase,
+    eventType: z.literal('FREE_REPORT_PUBLISHED'),
+    contentLabel: z.literal('無料パドック速報'),
+    kind: z.literal('PRE_RACE')
+  }).strict(),
+  z.object({
+    ...freeReportNotificationPreviewBase,
+    eventType: z.literal('FREE_REPORT_REVIEW_PUBLISHED'),
+    contentLabel: z.literal('レース後検証'),
+    kind: z.literal('POST_RACE_REVIEW')
+  }).strict()
+]);
+
+export type FreeReportNotificationPreviewResponse = z.infer<typeof freeReportNotificationPreviewResponseSchema>;
 export const notificationRetrySchema = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 const notificationTestBase = {
   channel: z.enum(['LINE', 'EMAIL']),
