@@ -65,3 +65,27 @@ export const adminAcquisitionReportResponseSchema = z.object({
 export type AdminAcquisitionCampaign = z.infer<typeof adminAcquisitionCampaignSchema>;
 export type AdminAcquisitionBreakdown = z.infer<typeof adminAcquisitionBreakdownSchema>;
 export type AdminAcquisitionReportResponse = z.infer<typeof adminAcquisitionReportResponseSchema>;
+
+export const onboardingFunnelStageSchema = z.object({
+  key: z.enum(['REGISTERED', 'IDENTITY_READY', 'FIRST_LOGIN', 'LINE_GUIDANCE_VIEWED', 'LINE_READY']),
+  label: z.string(),
+  value: z.number().int().nonnegative(),
+  rateFromRegistered: z.number().nonnegative(),
+  dropOffFromPrevious: z.number().int().nonnegative(),
+  rateFromPrevious: z.number().nonnegative()
+}).strict();
+
+export const onboardingFunnelResponseSchema = z.object({
+  days: z.number().int().min(1).max(365),
+  since: acquisitionResponseDateTimeSchema,
+  source: z.string().nullable(),
+  sources: z.array(z.string()),
+  stages: z.array(onboardingFunnelStageSchema).length(5),
+  paid: z.number().int().nonnegative(),
+  lineAvailable: z.boolean(),
+  trackingStartsAt: acquisitionResponseDateTimeSchema.nullable(),
+  generatedAt: acquisitionResponseDateTimeSchema
+}).strict();
+
+export type OnboardingFunnelStage = z.infer<typeof onboardingFunnelStageSchema>;
+export type OnboardingFunnelResponse = z.infer<typeof onboardingFunnelResponseSchema>;
