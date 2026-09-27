@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adminFreeReportRaceListResponseSchema, publicFreeMemberBenefitResponseSchema, publicFreeReportMetadataResponseSchema } from './free-report';
+import { adminFreeReportRaceDetailResponseSchema, adminFreeReportRaceListResponseSchema, publicFreeMemberBenefitResponseSchema, publicFreeReportMetadataResponseSchema } from './free-report';
 
 describe('public free-member benefit contract', () => {
   it('keeps configured and unconfigured responses explicit', () => {
@@ -102,5 +102,73 @@ describe('admin free-report race list contract', () => {
     expect(adminFreeReportRaceListResponseSchema.safeParse({ items: [{ ...response.items[0], freeReportDraft: { revision: 2, upReason: '内部の評価理由' } }] }).success).toBe(false);
     expect(adminFreeReportRaceListResponseSchema.safeParse({ items: [{ ...response.items[0], entries: [{ horseName: '非公開馬' }] }] }).success).toBe(false);
     expect(adminFreeReportRaceListResponseSchema.safeParse({ items: [{ ...response.items[0], updatedBy: '22222222-2222-4222-8222-222222222222' }] }).success).toBe(false);
+  });
+});
+
+describe('admin free-report race detail contract', () => {
+  const upEntryId = '22222222-2222-4222-8222-222222222222';
+  const downEntryId = '33333333-3333-4333-8333-333333333333';
+  const response = {
+    id: '11111111-1111-4111-8111-111111111111',
+    raceDate: '2026-09-28',
+    venue: '中山',
+    number: 11,
+    name: 'スプリンターズステークス',
+    startsAt: new Date('2026-09-28T06:40:00.000Z'),
+    status: 'FINISHED' as const,
+    entries: [
+      { id: upEntryId, number: 1, horseName: '上昇馬', status: 'ACTIVE' as const },
+      { id: downEntryId, number: 2, horseName: '下降馬', status: 'ACTIVE' as const }
+    ],
+    freeReportDraft: {
+      id: '44444444-4444-4444-8444-444444444444',
+      raceId: '11111111-1111-4111-8111-111111111111',
+      upEntryId,
+      upReason: '踏み込みが力強い。',
+      downEntryId,
+      downReason: '落ち着きを欠く。',
+      audioUrl: '/api/v1/free-report-audio/55555555-5555-4555-8555-555555555555',
+      reviewText: '評価どおりの走りでした。',
+      revision: 2,
+      updatedBy: '66666666-6666-4666-8666-666666666666',
+      updatedAt: new Date('2026-09-28T06:25:00.000Z')
+    },
+    freeReportVersions: [{
+      id: '77777777-7777-4777-8777-777777777777',
+      version: 1,
+      kind: 'PRE_RACE' as const,
+      upHorseNumber: 1,
+      upHorseName: '上昇馬',
+      upReason: '踏み込みが力強い。',
+      downHorseNumber: 2,
+      downHorseName: '下降馬',
+      downReason: '落ち着きを欠く。',
+      audioUrl: '/api/v1/free-report-audio/55555555-5555-4555-8555-555555555555',
+      reviewText: null,
+      publishReason: '発走前の会員公開',
+      publishedAt: new Date('2026-09-28T06:30:00.000Z')
+    }],
+    resultVersions: [{
+      id: '88888888-8888-4888-8888-888888888888',
+      version: 1,
+      confirmedAt: new Date('2026-09-28T07:00:00.000Z')
+    }]
+  };
+
+  it('keeps editable detail and publication history while normalizing dates', () => {
+    expect(adminFreeReportRaceDetailResponseSchema.parse(response)).toMatchObject({
+      startsAt: '2026-09-28T06:40:00.000Z',
+      freeReportDraft: { updatedAt: '2026-09-28T06:25:00.000Z' },
+      freeReportVersions: [{ publishedAt: '2026-09-28T06:30:00.000Z' }],
+      resultVersions: [{ confirmedAt: '2026-09-28T07:00:00.000Z' }]
+    });
+    expect(adminFreeReportRaceDetailResponseSchema.parse({ ...response, freeReportDraft: null, freeReportVersions: [], resultVersions: [] })).toMatchObject({ freeReportDraft: null, freeReportVersions: [], resultVersions: [] });
+  });
+
+  it('rejects database relations, credentials and unselected publication fields', () => {
+    expect(adminFreeReportRaceDetailResponseSchema.safeParse({ ...response, email: 'admin@example.test' }).success).toBe(false);
+    expect(adminFreeReportRaceDetailResponseSchema.safeParse({ ...response, freeReportDraft: { ...response.freeReportDraft, passwordHash: 'secret' } }).success).toBe(false);
+    expect(adminFreeReportRaceDetailResponseSchema.safeParse({ ...response, freeReportVersions: [{ ...response.freeReportVersions[0], publishedBy: '66666666-6666-4666-8666-666666666666' }] }).success).toBe(false);
+    expect(adminFreeReportRaceDetailResponseSchema.safeParse({ ...response, freeReportVersions: [{ ...response.freeReportVersions[0], notificationEvent: { id: '99999999-9999-4999-8999-999999999999' } }] }).success).toBe(false);
   });
 });

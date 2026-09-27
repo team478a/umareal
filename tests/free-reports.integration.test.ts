@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { adminFreeReportRaceListResponseSchema, freeReportNotificationPreviewResponseSchema, publicFreeMemberBenefitResponseSchema, publicFreeReportMetadataResponseSchema } from '../packages/domain/src';
+import { adminFreeReportRaceDetailResponseSchema, adminFreeReportRaceListResponseSchema, freeReportNotificationPreviewResponseSchema, publicFreeMemberBenefitResponseSchema, publicFreeReportMetadataResponseSchema } from '../packages/domain/src';
 import { runNotificationBatch } from '../apps/worker/src/notification-runner';
 import type { NotificationTransport } from '../apps/worker/src/notification-runner';
 import { account, base, Client, db, origin } from './helpers';
@@ -42,9 +42,14 @@ describe('LP free member offer', () => {
     expect((await new Client().call(`races/${target.race.id}/free-report`)).status).toBe(401);
     expect((await new Client().call(`admin/free-reports/races?date=${target.race.raceDate}`)).status).toBe(401);
     expect((await target.memberClient.call(`admin/free-reports/races?date=${target.race.raceDate}`)).status).toBe(403);
+    expect((await new Client().call(`admin/free-reports/races/${target.race.id}`)).status).toBe(401);
+    expect((await target.memberClient.call(`admin/free-reports/races/${target.race.id}`)).status).toBe(403);
     const adminRaceList = adminFreeReportRaceListResponseSchema.parse((await target.adminClient.call(`admin/free-reports/races?date=${target.race.raceDate}`)).body);
     expect(adminRaceList.items.find(item => item.id === target.race.id)).toMatchObject({ raceDate: target.race.raceDate, freeReportDraft: null, freeReportVersions: [] });
     expect(JSON.stringify(adminRaceList)).not.toMatch(/horseName|upReason|downReason|audioUrl|reviewText|updatedBy|password|token/i);
+    const emptyAdminDetail = adminFreeReportRaceDetailResponseSchema.parse((await target.adminClient.call(`admin/free-reports/races/${target.race.id}`)).body);
+    expect(emptyAdminDetail).toMatchObject({ id: target.race.id, freeReportDraft: null, freeReportVersions: [], resultVersions: [] });
+    expect(emptyAdminDetail.entries).toHaveLength(2);
     const emptyMemberView = publicFreeReportMetadataResponseSchema.parse((await target.memberClient.call(`races/${target.race.id}/free-report`)).body);
     expect(emptyMemberView).toMatchObject({ race: { id: target.race.id, raceDate: target.race.raceDate }, versions: [] });
     const audioBytes = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x42, 0x86, 0x81, 0x01]);
@@ -56,6 +61,8 @@ describe('LP free member offer', () => {
     expect(beforePublish.status).toBe(404);
     const saved = await target.adminClient.call(`admin/free-reports/races/${target.race.id}/draft`, 'PATCH', { revision: 0, upEntryId: target.up.id, upReason: '踏み込みが力強くなりました。', downEntryId: target.down.id, downReason: '発汗が目立ちます。', audioUrl: upload.url, reviewText: '', reason: '無料速報の結合試験' });
     expect(saved.status).toBe(200); expect(saved.body.revision).toBe(1);
+    const savedAdminDetail = adminFreeReportRaceDetailResponseSchema.parse((await target.adminClient.call(`admin/free-reports/races/${target.race.id}`)).body);
+    expect(savedAdminDetail.freeReportDraft).toMatchObject({ revision: 1, upEntryId: target.up.id, downEntryId: target.down.id, updatedBy: target.admin.user.id });
     const beforePreview = await Promise.all([db.freeReportVersion.count({ where: { raceId: target.race.id } }), db.notificationEvent.count({ where: { freeReportVersion: { raceId: target.race.id } } })]);
     const preview = await target.adminClient.call(`admin/notifications/previews/free-report?raceId=${target.race.id}&kind=PRE_RACE&revision=1&scheduledAt=${encodeURIComponent('2098-09-13T14:30:00+09:00')}`);
     expect(preview.status).toBe(200);
@@ -70,6 +77,8 @@ describe('LP free member offer', () => {
     expect(stalePreview.status).toBe(409); expect(stalePreview.body.code).toBe('FREE_REPORT_DRAFT_CONFLICT');
     const published = await target.adminClient.call(`admin/free-reports/races/${target.race.id}/publish`, 'POST', { revision: 1, kind: 'PRE_RACE', reason: '会員へ公開' }, undefined, { 'Idempotency-Key': randomUUID() });
     expect(published.status).toBe(201); expect(published.body.kind).toBe('PRE_RACE');
+    const publishedAdminDetail = adminFreeReportRaceDetailResponseSchema.parse((await target.adminClient.call(`admin/free-reports/races/${target.race.id}`)).body);
+    expect(publishedAdminDetail.freeReportVersions[0]).toMatchObject({ id: published.body.id, version: 1, kind: 'PRE_RACE', publishReason: '会員へ公開' });
     const memberView = await target.memberClient.call(`races/${target.race.id}/free-report`);
     expect(memberView.status).toBe(200); const memberViewBody = publicFreeReportMetadataResponseSchema.parse(memberView.body); expect(memberViewBody.versions[0]).toMatchObject({ kind: 'PRE_RACE', version: 1 });
     expect(JSON.stringify(memberViewBody)).not.toMatch(/upHorse|downHorse|Reason|audioUrl|reviewText|買い目|estimatedTotalYen|HONMEI/);
