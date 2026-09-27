@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAcquisitionReportResponseSchema, adminIncidentResponseSchema, adminReadinessResponseSchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, paddockComplete, preferencesSchema, publicDeploymentRelease, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
+import { acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAcquisitionReportResponseSchema, adminIncidentResponseSchema, adminReadinessResponseSchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -287,12 +287,12 @@ export class AppController {
       dropOffFromPrevious: index === 0 ? 0 : Math.max(0, values[index - 1] - value),
       rateFromPrevious: index === 0 ? 100 : values[index - 1] ? Math.round(value / values[index - 1] * 1000) / 10 : 0
     }));
-    return {
+    return onboardingFunnelResponseSchema.parse({
       days, since, source: source ?? null, sources: sources.map(item => item.source), stages, paid,
       lineAvailable: launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).lineNotifications,
       trackingStartsAt: tracking?.occurredAt ?? null,
       generatedAt: new Date()
-    };
+    });
   }
   @Post('admin/acquisition/campaigns') async createAcquisitionCampaign(@Req() req: AppRequest, @Body() body: unknown) {
     const actor = await this.staff(req, ['ADMIN']); const input = acquisitionCampaignCreateSchema.parse(body);

@@ -2,27 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowRight, RefreshCw, Users } from 'lucide-react';
-
-type FunnelStage = {
-  key: string;
-  label: string;
-  value: number;
-  rateFromRegistered: number;
-  dropOffFromPrevious: number;
-  rateFromPrevious: number;
-};
-
-type FunnelResponse = {
-  days: number;
-  since: string;
-  source: string | null;
-  sources: string[];
-  stages: FunnelStage[];
-  paid: number;
-  lineAvailable: boolean;
-  trackingStartsAt: string | null;
-  generatedAt: string;
-};
+import type { OnboardingFunnelResponse } from '@keiba/domain';
 
 async function request(days: number, source: string) {
   const query = new URLSearchParams({ days: String(days) });
@@ -30,7 +10,7 @@ async function request(days: number, source: string) {
   const response = await fetch(`/api/v1/admin/onboarding-funnel?${query}`, { cache: 'no-store' });
   const body = await response.json();
   if (!response.ok) throw new Error(body.message ?? '登録ファネルを取得できませんでした。');
-  return body as FunnelResponse;
+  return body as OnboardingFunnelResponse;
 }
 
 const formatDate = (value: string) => new Intl.DateTimeFormat('ja-JP', {
@@ -40,7 +20,7 @@ const formatDate = (value: string) => new Intl.DateTimeFormat('ja-JP', {
 export function OnboardingFunnel() {
   const [days, setDays] = useState(30);
   const [source, setSource] = useState('');
-  const [data, setData] = useState<FunnelResponse | null>(null);
+  const [data, setData] = useState<OnboardingFunnelResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const load = useCallback(async () => {
