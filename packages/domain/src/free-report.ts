@@ -3,6 +3,7 @@ import { dateSchema, entryStatuses, raceStatuses } from './races';
 
 const httpsUrl = z.string().trim().url().max(1000).refine(value => { try { return new URL(value).protocol === 'https:'; } catch { return false; } }, 'HTTPSのURLを指定してください。');
 const audioSource = z.string().trim().max(1000).refine(value => /^\/api\/v1\/free-report-audio\/[0-9a-f-]{36}$/.test(value) || (() => { try { return new URL(value).protocol === 'https:'; } catch { return false; } })(), '録音済み音声またはHTTPSのURLを指定してください。');
+export const freeReportAudioContentTypes = ['audio/webm', 'audio/mp4', 'audio/m4a', 'audio/x-m4a', 'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/x-wav', 'audio/aac'] as const;
 
 const publicFreeReportDateTimeSchema = z.preprocess(
   value => value instanceof Date ? value.toISOString() : value,
@@ -129,6 +130,37 @@ export const adminFreeMemberBenefitResponseSchema = z.union([
   }).strict()
 ]);
 export type AdminFreeMemberBenefitResponse = z.infer<typeof adminFreeMemberBenefitResponseSchema>;
+
+export const adminFreeReportAudioUploadResponseSchema = z.object({
+  id: z.string().uuid(),
+  url: z.string(),
+  contentType: z.enum(freeReportAudioContentTypes),
+  sizeBytes: z.number().int().positive().max(8 * 1024 * 1024)
+}).strict().refine(value => value.url === `/api/v1/free-report-audio/${value.id}`, { path: ['url'], message: '音声URLとIDが一致しません。' });
+export type AdminFreeReportAudioUploadResponse = z.infer<typeof adminFreeReportAudioUploadResponseSchema>;
+
+export const adminFreeReportDraftResponseSchema = z.object({
+  id: z.string().uuid(),
+  raceId: z.string().uuid(),
+  upEntryId: z.string().uuid(),
+  upReason: z.string(),
+  downEntryId: z.string().uuid(),
+  downReason: z.string(),
+  audioUrl: z.string(),
+  reviewText: z.string(),
+  revision: z.number().int().positive(),
+  updatedBy: z.string().uuid(),
+  updatedAt: publicFreeReportDateTimeSchema
+}).strict();
+export type AdminFreeReportDraftResponse = z.infer<typeof adminFreeReportDraftResponseSchema>;
+
+export const adminFreeReportPublishResponseSchema = z.object({
+  id: z.string().uuid(),
+  version: z.number().int().positive(),
+  kind: z.enum(['PRE_RACE', 'POST_RACE_REVIEW']),
+  publishedAt: publicFreeReportDateTimeSchema
+}).strict();
+export type AdminFreeReportPublishResponse = z.infer<typeof adminFreeReportPublishResponseSchema>;
 
 export const freeReportDraftSchema = z.object({
   revision: z.number().int().min(0),

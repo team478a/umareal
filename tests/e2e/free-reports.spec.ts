@@ -23,6 +23,9 @@ test('staff publishes the legacy free report and a member receives metadata only
   await page.locator('input[type="file"][accept="audio/*"]').setInputFiles({ name: 'paddock.webm', mimeType: 'audio/webm', buffer: Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x42, 0x86, 0x81, 0x01]) });
   await expect(page.locator('.audio-input audio')).toBeVisible(); await page.getByLabel('保存・公開理由').fill('LP無料速報の画面確認');
   await page.getByRole('button', { name: '下書きを保存' }).click(); await expect(page.getByRole('status')).toContainText('下書きを保存しました');
+  await expect(page.getByText('下書き v1')).toBeVisible();
+  await page.getByLabel('評価を上げた理由').fill('再確認しても踏み込みが力強く、前走以上です。'); await page.getByLabel('保存・公開理由').fill('保存済み下書きを再確認');
+  await page.getByRole('button', { name: '下書きを保存' }).click(); await expect(page.getByText('下書き v2')).toBeVisible();
   await page.getByLabel('保存・公開理由').fill('発走前の会員公開'); await page.getByRole('button', { name: '発走前速報の配信内容を確認' }).click();
   await expect(page.getByRole('heading', { name: '配信前確認' })).toBeVisible(); await expect(page.locator('.delivery-preview')).toContainText('無料パドック速報 第1版'); await expect(page.locator('.delivery-message')).toContainText('無料パドック速報を公開しました');
   await page.getByRole('button', { name: 'この内容で発走前速報を公開' }).click(); await expect(page.getByRole('status')).toContainText('公開しました');

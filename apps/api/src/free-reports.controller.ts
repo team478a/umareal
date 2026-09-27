@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
-import { adminFreeMemberBenefitResponseSchema, adminFreeReportRaceDetailResponseSchema, adminFreeReportRaceListResponseSchema, canManage, dateSchema, freeMemberBenefitSchema, freeReportDraftSchema, freeReportPublishSchema, jstDate, publicFreeMemberBenefitResponseSchema, publicFreeReportMetadataResponseSchema, requiresMfa } from '@keiba/domain';
+import { adminFreeMemberBenefitResponseSchema, adminFreeReportAudioUploadResponseSchema, adminFreeReportDraftResponseSchema, adminFreeReportPublishResponseSchema, adminFreeReportRaceDetailResponseSchema, adminFreeReportRaceListResponseSchema, canManage, dateSchema, freeMemberBenefitSchema, freeReportAudioContentTypes, freeReportDraftSchema, freeReportPublishSchema, jstDate, publicFreeMemberBenefitResponseSchema, publicFreeReportMetadataResponseSchema, requiresMfa } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import type { Response } from 'express';
 import { z } from 'zod';
@@ -9,8 +9,9 @@ import { hashToken } from './security';
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const freeMemberBenefitSelect = { id: true, title: true, description: true, videoUrl: true, revision: true, updatedBy: true, updatedAt: true } satisfies Prisma.FreeMemberBenefitSelect;
+const freeReportDraftSelect = { id: true, raceId: true, upEntryId: true, upReason: true, downEntryId: true, downReason: true, audioUrl: true, reviewText: true, revision: true, updatedBy: true, updatedAt: true } satisfies Prisma.FreeReportDraftSelect;
 const maxAudioBytes = 8 * 1024 * 1024;
-const audioTypes = new Set(['audio/webm', 'audio/mp4', 'audio/m4a', 'audio/x-m4a', 'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/x-wav', 'audio/aac']);
+const audioTypes = new Set<string>(freeReportAudioContentTypes);
 function hasAudioSignature(contentType: string, data: Buffer) {
   if (contentType === 'audio/webm') return data.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
   if (['audio/mp4', 'audio/m4a', 'audio/x-m4a'].includes(contentType)) return data.subarray(4, 8).toString('ascii') === 'ftyp';
@@ -59,9 +60,9 @@ export class AdminFreeReportsController {
     const data = Buffer.concat(chunks);
     if (!hasAudioSignature(contentType, data)) throw new BadRequestException({ code: 'AUDIO_CONTENT_INVALID', message: '音声ファイルの内容を確認してください。' });
     return this.auth.db.$transaction(async tx => {
-      const asset = await tx.audioAsset.create({ data: { contentType, data, sizeBytes: size, createdBy: actor.id } });
+      const asset = await tx.audioAsset.create({ data: { contentType, data, sizeBytes: size, createdBy: actor.id }, select: { id: true, contentType: true, sizeBytes: true } });
       await this.auth.audit(tx, req, 'FREE_REPORT_AUDIO_UPLOAD', asset.id, '無料速報の音声入力', { sizeBytes: size, contentType });
-      return { id: asset.id, url: `/api/v1/free-report-audio/${asset.id}`, contentType: asset.contentType, sizeBytes: asset.sizeBytes };
+      return adminFreeReportAudioUploadResponseSchema.parse({ id: asset.id, url: `/api/v1/free-report-audio/${asset.id}`, contentType: asset.contentType, sizeBytes: asset.sizeBytes });
     });
   }
 
@@ -92,10 +93,10 @@ export class AdminFreeReportsController {
       if ((race.freeReportDraft?.revision ?? 0) !== input.revision) throw new ConflictException({ code: 'FREE_REPORT_DRAFT_CONFLICT', message: '別の担当者が無料速報を変更しました。再読み込みしてください。' });
       const data = { upEntryId: input.upEntryId, upReason: input.upReason, downEntryId: input.downEntryId, downReason: input.downReason, audioUrl: input.audioUrl, reviewText: input.reviewText, updatedBy: actor.id, updatedAt: new Date() };
       const draft = race.freeReportDraft
-        ? await tx.freeReportDraft.update({ where: { raceId }, data: { ...data, revision: { increment: 1 } } })
-        : await tx.freeReportDraft.create({ data: { raceId, ...data } });
+        ? await tx.freeReportDraft.update({ where: { raceId }, data: { ...data, revision: { increment: 1 } }, select: freeReportDraftSelect })
+        : await tx.freeReportDraft.create({ data: { raceId, ...data }, select: freeReportDraftSelect });
       await this.auth.audit(tx, req, 'FREE_REPORT_DRAFT_SAVE', draft.id, input.reason, { raceId, revision: draft.revision, hasAudio: true, hasReview: !!draft.reviewText });
-      return draft;
+      return adminFreeReportDraftResponseSchema.parse(draft);
     }, { timeout: 20000, maxWait: 10000 });
   }
 
@@ -109,7 +110,7 @@ export class AdminFreeReportsController {
       const previous = await tx.idempotencyKey.findUnique({ where: { key } });
       if (previous) {
         if (previous.requestHash !== requestHash) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: '同じリクエストキーの内容が変わっています。' });
-        return previous.response;
+        return adminFreeReportPublishResponseSchema.parse(previous.response);
       }
       const race = await tx.race.findUnique({ where: { id: raceId }, include: { entries: true, freeReportDraft: true, freeReportVersions: { orderBy: { version: 'desc' } }, resultVersions: { take: 1 } } });
       if (!race || !race.freeReportDraft) throw new NotFoundException({ code: 'FREE_REPORT_DRAFT_NOT_FOUND', message: '無料速報の下書きを保存してください。' });
@@ -133,8 +134,8 @@ export class AdminFreeReportsController {
       } });
       await tx.notificationEvent.create({ data: { freeReportVersionId: version.id, eventType: input.kind === 'PRE_RACE' ? 'FREE_REPORT_PUBLISHED' : 'FREE_REPORT_REVIEW_PUBLISHED', status: 'QUEUED', payload: json({ freeReportVersionId: version.id, raceId }) } });
       await this.auth.audit(tx, req, input.kind === 'PRE_RACE' ? 'FREE_REPORT_PUBLISH' : 'FREE_REPORT_REVIEW_PUBLISH', version.id, input.reason, { raceId, version: version.version, kind: version.kind });
-      const response = json({ id: version.id, version: version.version, kind: version.kind, publishedAt: version.publishedAt });
-      await tx.idempotencyKey.create({ data: { key, requestHash, response } });
+      const response = adminFreeReportPublishResponseSchema.parse({ id: version.id, version: version.version, kind: version.kind, publishedAt: version.publishedAt });
+      await tx.idempotencyKey.create({ data: { key, requestHash, response: json(response) } });
       return response;
     }, { timeout: 20000, maxWait: 10000 });
   }

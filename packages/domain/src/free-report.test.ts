@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adminFreeMemberBenefitResponseSchema, adminFreeReportRaceDetailResponseSchema, adminFreeReportRaceListResponseSchema, publicFreeMemberBenefitResponseSchema, publicFreeReportMetadataResponseSchema } from './free-report';
+import { adminFreeMemberBenefitResponseSchema, adminFreeReportAudioUploadResponseSchema, adminFreeReportDraftResponseSchema, adminFreeReportPublishResponseSchema, adminFreeReportRaceDetailResponseSchema, adminFreeReportRaceListResponseSchema, publicFreeMemberBenefitResponseSchema, publicFreeReportMetadataResponseSchema } from './free-report';
 
 describe('public free-member benefit contract', () => {
   it('keeps configured and unconfigured responses explicit', () => {
@@ -63,6 +63,26 @@ describe('admin free-member benefit contract', () => {
     expect(adminFreeMemberBenefitResponseSchema.safeParse({ ...configured, passwordHash: 'secret' }).success).toBe(false);
     expect(adminFreeMemberBenefitResponseSchema.safeParse({ ...configured, user: { email: 'admin@example.test' } }).success).toBe(false);
     expect(adminFreeMemberBenefitResponseSchema.safeParse({ id: 'global', title: '', description: '', videoUrl: '', revision: 0, updatedAt: null, updatedBy: null }).success).toBe(false);
+  });
+});
+
+describe('admin free-report write contracts', () => {
+  const id = '11111111-1111-4111-8111-111111111111';
+  const raceId = '22222222-2222-4222-8222-222222222222';
+  const upEntryId = '33333333-3333-4333-8333-333333333333';
+  const downEntryId = '44444444-4444-4444-8444-444444444444';
+  const actorId = '55555555-5555-4555-8555-555555555555';
+
+  it('keeps audio, draft and publication success responses explicit', () => {
+    expect(adminFreeReportAudioUploadResponseSchema.parse({ id, url: `/api/v1/free-report-audio/${id}`, contentType: 'audio/webm', sizeBytes: 8 })).toMatchObject({ id, sizeBytes: 8 });
+    expect(adminFreeReportDraftResponseSchema.parse({ id, raceId, upEntryId, upReason: '良化', downEntryId, downReason: '気配平凡', audioUrl: `/api/v1/free-report-audio/${id}`, reviewText: '', revision: 1, updatedBy: actorId, updatedAt: new Date('2026-09-28T00:00:00.000Z') })).toMatchObject({ revision: 1, updatedAt: '2026-09-28T00:00:00.000Z' });
+    expect(adminFreeReportPublishResponseSchema.parse({ id, version: 1, kind: 'PRE_RACE', publishedAt: new Date('2026-09-28T00:05:00.000Z') })).toMatchObject({ version: 1, publishedAt: '2026-09-28T00:05:00.000Z' });
+  });
+
+  it('rejects mismatched audio paths, database relations and credentials', () => {
+    expect(adminFreeReportAudioUploadResponseSchema.safeParse({ id, url: `/api/v1/free-report-audio/${raceId}`, contentType: 'audio/webm', sizeBytes: 8 }).success).toBe(false);
+    expect(adminFreeReportDraftResponseSchema.safeParse({ id, raceId, upEntryId, upReason: '良化', downEntryId, downReason: '気配平凡', audioUrl: 'https://media.example.test/audio.mp3', reviewText: '', revision: 1, updatedBy: actorId, updatedAt: '2026-09-28T00:00:00.000Z', race: { id: raceId } }).success).toBe(false);
+    expect(adminFreeReportPublishResponseSchema.safeParse({ id, version: 1, kind: 'PRE_RACE', publishedAt: '2026-09-28T00:05:00.000Z', token: 'secret' }).success).toBe(false);
   });
 });
 
