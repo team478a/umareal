@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
+import { adminIncidentResponseSchema } from '../packages/domain/src';
 import { account, Client, db } from './helpers';
 
 afterAll(() => db.$disconnect());
@@ -14,11 +15,12 @@ describe('incident response dashboard', () => {
 
     const operator = new Client(); await operator.login(await account('OPERATOR')); await operator.mfa();
     const response = await operator.call('admin/incidents'); expect(response.status).toBe(200);
-    expect(response.body.generatedAt).toBeTruthy();
-    expect(response.body.monitoring.stuckDeliveries).toBeGreaterThanOrEqual(1);
-    expect(response.body.issues).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'DELIVERY_STUCK', severity: 'CRITICAL', href: '/admin/notifications' })]));
-    expect(response.body.publicMessage).toContain('Web会員ページ');
-    expect(JSON.stringify(response.body)).not.toMatch(/lineAccessToken|lineChannelSecretEncrypted|leaseToken/);
+    const incident = adminIncidentResponseSchema.parse(response.body);
+    expect(incident.generatedAt).toBeTruthy();
+    expect(incident.monitoring.stuckDeliveries).toBeGreaterThanOrEqual(1);
+    expect(incident.issues).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'DELIVERY_STUCK', severity: 'CRITICAL', href: '/admin/notifications' })]));
+    expect(incident.publicMessage).toContain('Web会員ページ');
+    expect(JSON.stringify(response.body)).not.toMatch(/lineAccessToken|lineChannelSecretEncrypted|leaseToken|databaseUrl|password|authSubject/i);
 
     const member = new Client(); await member.login(recipient);
     expect((await member.call('admin/incidents')).status).toBe(403);

@@ -16,6 +16,7 @@ export * from './billing-support';
 export * from './support';
 export * from './free-report';
 export * from './publication-schedule';
+export * from './incidents';
 export * from './legal';
 export * from './launch';
 export * from './operational-alert';

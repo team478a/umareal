@@ -2,9 +2,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, BellRing, Check, ClipboardCopy, Mail, RefreshCw, ShieldAlert } from 'lucide-react';
+import type { AdminIncidentResponse } from '@keiba/domain';
 
-type Issue = { code: string; severity: 'CRITICAL' | 'WARNING' | 'INFO'; title: string; detail: string; action: string; href: string };
-type IncidentResponse = { generatedAt: string; status: 'NORMAL' | 'DEGRADED' | 'INCIDENT'; counts: { critical: number; warning: number; total: number }; issues: Issue[]; publicMessage: string; monitoring: { failedDeliveries: number; delayedDeliveries: number; stuckDeliveries: number; unmatchedWebhooks24h: number } };
 type Delivery = { id: string; recipient: string; status: string; attemptCount: number; lastErrorCode: string | null };
 type Alert = { id: string; code: string; severity: 'CRITICAL' | 'WARNING'; sourceType: string; sourceId: string; title: string; summary: string; status: 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED'; detectedAt: string; acknowledgeReason: string | null; resolutionReason: string | null; deliveries: Delivery[] };
 type AlertResponse = { items: Alert[]; counts: { open: number; acknowledged: number; resolved: number } };
@@ -16,13 +15,13 @@ const formatDate = (value: string) => new Intl.DateTimeFormat('ja-JP', { timeZon
 async function api<T>(url: string, init?: RequestInit) { const response = await fetch(url, { cache: 'no-store', headers: { 'Content-Type': 'application/json' }, ...init }); const body = await response.json(); if (!response.ok) throw new Error(body.message ?? '処理を完了できませんでした。'); return body as T; }
 
 export function AdminIncidents({ role }: { role: string }) {
-  const [data, setData] = useState<IncidentResponse | null>(null); const [alerts, setAlerts] = useState<AlertResponse | null>(null); const [settings, setSettings] = useState<AlertSettings | null>(null);
+  const [data, setData] = useState<AdminIncidentResponse | null>(null); const [alerts, setAlerts] = useState<AlertResponse | null>(null); const [settings, setSettings] = useState<AlertSettings | null>(null);
   const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [copied, setCopied] = useState(false); const [busy, setBusy] = useState('');
   const [filter, setFilter] = useState<'ALL' | 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED'>('ALL'); const [emails, setEmails] = useState(''); const [settingReason, setSettingReason] = useState(''); const [reasons, setReasons] = useState<Record<string, string>>({});
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [incident, alertList, alertSettings] = await Promise.all([api<IncidentResponse>('/api/v1/admin/incidents'), api<AlertResponse>(`/api/v1/admin/operational-alerts?status=${filter}`), api<AlertSettings>('/api/v1/admin/operational-alerts/settings')]);
+      const [incident, alertList, alertSettings] = await Promise.all([api<AdminIncidentResponse>('/api/v1/admin/incidents'), api<AlertResponse>(`/api/v1/admin/operational-alerts?status=${filter}`), api<AlertSettings>('/api/v1/admin/operational-alerts/settings')]);
       setData(incident); setAlerts(alertList); setSettings(alertSettings); setEmails(alertSettings.destinationEmails.join('\n')); setError('');
     } catch (e) { setError((e as Error).message); } finally { setLoading(false); }
   }, [filter]);
