@@ -2,14 +2,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, Eye, Globe2, Mail, MessageCircle, RefreshCw, X } from 'lucide-react';
-import type { NotificationTestSendResponse } from '@keiba/domain';
+import type { NotificationTestSendResponse, PublicationScheduleListResponse } from '@keiba/domain';
 import { NotificationPreview, type NotificationPreviewData } from './notification-preview';
 
-type Schedule = { id: string; kind: 'RACE_ANNOUNCEMENT' | 'FREE_REPORT_PRE_RACE'; draftRevision: number | null; scheduledAt: string; status: string; reason: string; errorCode: string | null; processedAt: string | null };
-type ChannelResult = { expandedAt: string | null; total: number; queued: number; sending: number; sent: number; failed: number; skipped: number };
-type DeliveryResult = { eventId: string; contentType: 'RACE_ANNOUNCEMENT' | 'FREE_REPORT_PRE_RACE' | 'FREE_REPORT_POST_RACE_REVIEW'; label: string; version: number; publishedAt: string; eventStatus: string; line: ChannelResult; email: ChannelResult };
-type Race = { id: string; venue: string; number: number; name: string; startsAt: string; status: string; announcements: { version: number }[]; freeReportDraft: { revision: number } | null; freeReportVersions: { version: number }[]; publicationSchedules: Schedule[]; deliveryResults: DeliveryResult[]; warnings: string[] };
-type Response = { generatedAt: string; items: Race[]; alerts: number; failedDeliveries: number };
+type Race = PublicationScheduleListResponse['items'][number];
+type Schedule = Race['publicationSchedules'][number];
+type ChannelResult = Race['deliveryResults'][number]['line'];
 const kindLabels = { RACE_ANNOUNCEMENT: '対象レース告知', FREE_REPORT_PRE_RACE: '無料パドック速報' } as const;
 const statusLabels: Record<string, string> = { PENDING: '予約中', PROCESSING: '実行中', PUBLISHED: '公開済み', FAILED: '失敗', CANCELLED: '取消済み' };
 const errorLabels: Record<string, string> = { SCHEDULE_CREATOR_INVALID: '予約者の権限が無効です', SCHEDULE_DEADLINE_PASSED: '発走時刻を過ぎました', SCHEDULE_DRAFT_CHANGED: '予約後に下書きが変更されました', SCHEDULE_ENTRIES_INVALID: '選択馬の状態が変更されました', SCHEDULE_EXECUTION_FAILED: '実行時にエラーが発生しました' };
@@ -39,8 +37,8 @@ function ScheduleForm({ race, reload, canTest }: { race: Race; reload: () => Pro
 }
 
 export function PublicationSchedules({ canTest = false }: { canTest?: boolean }) {
-  const [date, setDate] = useState(today()); const [data, setData] = useState<Response | null>(null); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
-  const load = useCallback(async () => { setLoading(true); try { setData(await api<Response>(`admin/publication-schedules?date=${date}`)); setError(''); } catch (e) { setError((e as Error).message); } finally { setLoading(false); } }, [date]);
+  const [date, setDate] = useState(today()); const [data, setData] = useState<PublicationScheduleListResponse | null>(null); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
+  const load = useCallback(async () => { setLoading(true); try { setData(await api<PublicationScheduleListResponse>(`admin/publication-schedules?date=${date}`)); setError(''); } catch (e) { setError((e as Error).message); } finally { setLoading(false); } }, [date]);
   useEffect(() => { void load(); const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void load(); }, 30000); return () => window.clearInterval(timer); }, [load]);
   return <><div className="page-heading"><span className="eyebrow">SCHEDULED DELIVERY</span><h1>配信予約・アラート</h1><p>対象レース告知と無料速報を予約し、公開版ごとの配信結果と異常を確認します。</p></div>{error && <div className="notice error" role="alert">{error}</div>}{data && <section className={`schedule-alert-summary ${data.alerts ? 'has-alerts' : ''}`}><AlertTriangle size={22} /><div><strong>{data.alerts ? `${data.alerts}件の確認事項があります` : '配信上の確認事項はありません'}</strong><small>通知失敗 {data.failedDeliveries}件 · 30秒ごとに自動更新</small></div><button className="button secondary small" disabled={loading} onClick={() => void load()}><RefreshCw size={15} className={loading ? 'spin' : ''} />更新</button></section>}<section className="panel"><div className="panel-heading"><h2>開催日別の配信予定</h2><label className="date-filter">開催日<input type="date" value={date} onChange={e => setDate(e.target.value)} /></label></div>{loading && !data ? <div className="panel-body" role="status">配信予定を読み込み中…</div> : data?.items.length ? <div className="schedule-races">{data.items.map(race => <ScheduleForm key={race.id} race={race} reload={load} canTest={canTest} />)}</div> : <div className="empty"><h3>この日のレースはありません</h3><p>レース管理で開催データを登録してください。</p></div>}</section></>;
 }
