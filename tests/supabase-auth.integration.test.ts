@@ -11,6 +11,8 @@ let apiProcess: ChildProcess;
 let apiBase = '';
 let authBase = '';
 const receivedSignups: Array<{ url: string; body: Record<string, unknown> }> = [];
+const receivedRecoveries: Array<{ url: string; body: Record<string, unknown> }> = [];
+const receivedPasswordUpdates: Array<Record<string, unknown>> = [];
 const providerUsers = new Map<string, { id: string; email: string; identities: unknown[] }>();
 let activeProviderUser: { id: string; email: string; identities: unknown[] } | undefined;
 let factorEnrollmentCount = 0;
@@ -84,6 +86,12 @@ beforeAll(async () => {
         response.end(JSON.stringify(user));
         return;
       }
+      if (request.url.startsWith('/auth/v1/recover?')) {
+        receivedRecoveries.push({ url: request.url, body });
+        activeProviderUser = typeof body.email === 'string' ? providerUsers.get(body.email) : undefined;
+        response.writeHead(200, { 'content-type': 'application/json' }).end('{}');
+        return;
+      }
       if (request.url.startsWith('/auth/v1/token?')) {
         const user = typeof body.email === 'string' ? providerUsers.get(body.email) : activeProviderUser;
         if (!user) { response.writeHead(400, { 'content-type': 'application/json' }).end('{}'); return; }
@@ -110,6 +118,11 @@ beforeAll(async () => {
       }
       if (request.method === 'DELETE' && request.url === `/auth/v1/factors/${backupFactorId}`) {
         response.writeHead(200, { 'content-type': 'application/json' }); response.end('{}'); return;
+      }
+      if (request.url === '/auth/v1/user') {
+        receivedPasswordUpdates.push(body);
+        response.writeHead(200, { 'content-type': 'application/json' }).end('{}');
+        return;
       }
       response.writeHead(200, { 'content-type': 'application/json' });
       response.end('{}');
@@ -201,6 +214,30 @@ describe('Supabase free-member registration boundary', () => {
     const loginCookies = login.headers.getSetCookie().map(value => value.split(';', 1)[0]).join('; ');
     const aal1 = await fetch(`${apiBase}/api/v1/me`, { headers: { Cookie: loginCookies } });
     expect(await aal1.json()).toMatchObject({ aal: 1, mfaEnabled: false, hasPassword: true });
+
+    const recovery = await fetch(`${apiBase}/api/v1/auth/password/request`, {
+      method: 'POST', headers: { Origin: 'http://localhost:3000', 'Content-Type': 'application/json' }, body: JSON.stringify({ email })
+    });
+    expect(recovery.status).toBe(201);
+    expect(recovery.headers.get('set-cookie')).toContain('keiba_auth_flow=recovery');
+    const recoveryRequest = receivedRecoveries.at(-1);
+    expect(recoveryRequest?.url).toContain('redirect_to=http%3A%2F%2Flocalhost%3A3000%2Fapi%2Fv1%2Fauth%2Fcallback');
+    expect(recoveryRequest?.body).toMatchObject({ email, code_challenge_method: 's256' });
+    expect(String(recoveryRequest?.body.code_challenge)).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    const recoveryFlowCookies = recovery.headers.getSetCookie().map(value => value.split(';', 1)[0]).join('; ');
+    const recoveryCallback = await fetch(`${apiBase}/api/v1/auth/callback?code=${randomUUID()}`, { headers: { Cookie: recoveryFlowCookies }, redirect: 'manual' });
+    expect(recoveryCallback.status).toBe(303);
+    expect(recoveryCallback.headers.get('location')).toBe('http://localhost:3000/reset-password?ready=1');
+    const recoverySessionCookies = recoveryCallback.headers.getSetCookie().map(value => value.split(';', 1)[0]).join('; ');
+    const reset = await fetch(`${apiBase}/api/v1/auth/password/reset`, {
+      method: 'POST',
+      headers: { Origin: 'http://localhost:3000', Cookie: recoverySessionCookies, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: 'new-supabase-password-123' })
+    });
+    expect(reset.status).toBe(201);
+    expect(receivedPasswordUpdates.at(-1)).toEqual({ password: 'new-supabase-password-123' });
+    expect(await db.auditLog.count({ where: { targetId: user.id, action: 'PASSWORD_RECOVERY_VERIFIED' } })).toBe(1);
+    expect(await db.auditLog.count({ where: { targetId: user.id, action: 'PASSWORD_RESET' } })).toBe(1);
 
     const settings = await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { newPurchasesEnabled: true } });
     await db.systemSetting.update({ where: { id: 'global' }, data: { newPurchasesEnabled: true } });

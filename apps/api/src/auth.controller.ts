@@ -5,13 +5,13 @@ import { TOTP, Secret } from 'otpauth';
 import { fallbackEmailSchema, launchCapabilities, loginSchema, mfaCodeSchema, registrationSchema, resolveLaunchMode } from '@keiba/domain';
 import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
-import { decrypt, encrypt, hashPassword, hashToken, newToken, verifyPassword } from './security';
-import { MailService } from './mail.service';
+import { decrypt, encrypt, hashToken, verifyPassword } from './security';
 import { SupabaseAuthService } from './supabase-auth.service';
 import { RegistrationCaptchaService } from './registration-captcha.service';
 import { ReferralsService } from './referrals.service';
 import { AuthSessionService } from './auth-session.service';
 import { AuthRegistrationService } from './auth-registration.service';
+import { AuthCredentialService } from './auth-credential.service';
 
 const publicUser = (user: { id: string; displayName: string; role: string }) => ({ id: user.id, displayName: user.displayName, role: user.role });
 const otp = (secret: string, email: string) => new TOTP({ issuer: '競馬会員メディア 開発用', label: email, algorithm: 'SHA1', digits: 6, period: 30, secret: Secret.fromBase32(secret) });
@@ -19,7 +19,7 @@ const externalMfaEnrollSchema = z.object({ kind: z.enum(['PRIMARY', 'BACKUP']).d
 const externalMfaVerifySchema = z.object({ code: z.string().regex(/^\d{6}$/), factor: z.enum(['PRIMARY', 'BACKUP']).default('PRIMARY'), factorId: z.string().uuid().optional() }).strict();
 @Controller('auth')
 export class AuthController {
-  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(SupabaseAuthService) private readonly supabase: SupabaseAuthService, @Inject(MailService) private readonly mail: MailService, @Inject(RegistrationCaptchaService) private readonly captcha: RegistrationCaptchaService, @Inject(ReferralsService) private readonly referrals: ReferralsService, @Inject(AuthSessionService) private readonly sessions: AuthSessionService, @Inject(AuthRegistrationService) private readonly registration: AuthRegistrationService) {}
+  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(SupabaseAuthService) private readonly supabase: SupabaseAuthService, @Inject(RegistrationCaptchaService) private readonly captcha: RegistrationCaptchaService, @Inject(ReferralsService) private readonly referrals: ReferralsService, @Inject(AuthSessionService) private readonly sessions: AuthSessionService, @Inject(AuthRegistrationService) private readonly registration: AuthRegistrationService, @Inject(AuthCredentialService) private readonly credentials: AuthCredentialService) {}
   @Get('config') async config() {
     const mode = resolveLaunchMode(process.env.LAUNCH_MODE);
     const capabilities = launchCapabilities(mode);
@@ -69,10 +69,7 @@ export class AuthController {
   }
   @Post('email/fallback') async addFallback(@Body() body: unknown, @Req() req: AppRequest) {
     this.auth.ensureLocal(); const actor = await this.auth.authenticate(req); const input = fallbackEmailSchema.parse(body);
-    if (actor.user.emailVerifiedAt && actor.user.passwordHash) throw new ConflictException({ code: 'FALLBACK_ALREADY_CONFIGURED', message: '確認済みメールアドレスは設定済みです。' });
-    if (await this.auth.db.user.findFirst({ where: { email: input.email, id: { not: actor.id } } })) throw new ConflictException({ code: 'EMAIL_ALREADY_USED', message: 'このメールアドレスは使用できません。' });
-    const passwordHash = await hashPassword(input.password); await this.mail.sendVerification({ userId: actor.id, email: input.email, purpose: 'ADD_FALLBACK', passwordHash });
-    await this.auth.db.$transaction(async tx => this.auth.audit(tx, req, 'FALLBACK_EMAIL_REQUEST', actor.id, '予備メールアドレス確認を開始'));
+    await this.credentials.addFallback(actor, input, req);
     return { message: '確認メールを送信しました。' };
   }
   @Post('email/verify') async verifyEmail(@Body() body: unknown, @Req() req: AppRequest, @Res({ passthrough: true }) res: Response) {
@@ -171,19 +168,10 @@ export class AuthController {
     const { email } = z.object({ email: z.string().email().transform(s => s.toLowerCase()) }).strict().parse(body);
     if (process.env.AUTH_PROVIDER === 'supabase') {
       const flow = this.sessions.createPkce(); this.sessions.setExternalFlow(res, flow.verifier, 'recovery');
-      await this.supabase.recover(email, flow.challenge, `${process.env.APP_BASE_URL}/api/v1/auth/callback`);
+      await this.credentials.requestPasswordReset(email, req, flow.challenge);
       return { message: '登録されたメールアドレスの場合、再設定の案内を送信しました。' };
     }
-    this.auth.ensureLocal();
-    const user = await this.auth.db.user.findUnique({ where: { email } });
-    if (user && user.emailVerifiedAt && user.passwordHash && !user.disabledAt) {
-      const token = newToken();
-      await this.auth.db.$transaction(async tx => {
-        await tx.passwordReset.create({ data: { userId: user.id, tokenHash: hashToken(token), expiresAt: new Date(Date.now() + 15 * 60000) } });
-        await this.auth.audit(tx, req, 'PASSWORD_RESET_REQUEST', user.id, '再設定リンク発行');
-      });
-      await this.mail.send({ userId: user.id, to: email, kind: 'PASSWORD_RESET', url: `${process.env.APP_BASE_URL}/reset-password?token=${token}`, expiresInMinutes: 15, idempotencyKey: `reset-${hashToken(token)}` });
-    }
+    await this.credentials.requestPasswordReset(email, req);
     return { message: '登録されたメールアドレスの場合、再設定の案内を送信しました。' };
   }
   @Post('password/reset') async resetPassword(@Body() body: unknown, @Req() req: AppRequest) {
@@ -191,23 +179,12 @@ export class AuthController {
       const { password } = z.object({ token: z.unknown().optional(), password: z.string().min(12).max(128) }).strict().parse(body);
       const identity = await this.auth.authenticate(req);
       const accessToken = this.sessions.requireExternalAccessToken(req);
-      await this.supabase.updatePassword(accessToken, password);
-      await this.auth.db.$transaction(async tx => this.auth.audit(tx, req, 'PASSWORD_RESET', identity.id, 'Supabaseパスワード再設定'));
+      await this.credentials.resetExternalPassword(identity.id, password, accessToken, req);
       return { ok: true };
     }
     this.auth.ensureLocal();
     const { token, password } = z.object({ token: z.string().min(32).max(128), password: z.string().min(12).max(128) }).strict().parse(body);
-    const passwordHash = await hashPassword(password);
-    await this.auth.db.$transaction(async tx => {
-      const reset = await tx.passwordReset.findUnique({ where: { tokenHash: hashToken(token) } });
-      if (!reset || reset.usedAt || reset.expiresAt <= new Date()) throw new BadRequestException({ code: 'RESET_INVALID', message: '再設定リンクが無効、または期限切れです。' });
-      const consumed = await tx.passwordReset.updateMany({ where: { id: reset.id, usedAt: null, expiresAt: { gt: new Date() } }, data: { usedAt: new Date() } });
-      if (consumed.count !== 1) throw new BadRequestException('RESET_INVALID');
-      await tx.user.update({ where: { id: reset.userId }, data: { passwordHash } });
-      await tx.session.deleteMany({ where: { userId: reset.userId } });
-      await tx.passwordReset.updateMany({ where: { userId: reset.userId, usedAt: null }, data: { usedAt: new Date() } });
-      await this.auth.audit(tx, req, 'PASSWORD_RESET', reset.userId, 'パスワード再設定・全セッション失効');
-    });
+    await this.credentials.resetLocalPassword(token, password, req);
     return { ok: true };
   }
   @Post('mfa/enroll') async enroll(@Body() body: unknown, @Req() req: AppRequest) {
