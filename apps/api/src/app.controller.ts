@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAcquisitionReportResponseSchema, adminIncidentResponseSchema, adminReadinessResponseSchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
+import { acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminReadinessResponseSchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -350,7 +350,7 @@ export class AppController {
   }
   @Get('admin/backups/status') async backupStatus(@Req() req: AppRequest) {
     await this.staff(req, ['ADMIN']);
-    return this.readinessQuery.localBackupStatus();
+    return adminBackupStatusResponseSchema.parse(await this.readinessQuery.localBackupStatus());
   }
   @Get('admin/readiness') async readiness(@Req() req: AppRequest) {
     await this.staff(req, ['ADMIN']);

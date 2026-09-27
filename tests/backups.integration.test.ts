@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, it } from 'vitest';
+import { adminBackupStatusResponseSchema } from '../packages/domain/src';
 import { account, Client, db } from './helpers';
 
 afterAll(() => db.$disconnect());
@@ -10,13 +11,16 @@ describe('backup verification status', () => {
     await admin.mfa();
     const response = await admin.call('admin/backups/status');
     expect(response.status).toBe(200);
-    expect(['VERIFIED', 'FAILED', 'NOT_RUN', 'INVALID']).toContain(response.body.status);
-    if (response.body.status === 'VERIFIED') {
-      expect(response.body).toEqual(expect.objectContaining({ encrypted: false, restoredDatabaseRemoved: true }));
-      expect(response.body.sha256).toMatch(/^[a-f0-9]{64}$/);
-      expect(response.body.counts.users).toBeGreaterThanOrEqual(0);
+    const parsed = adminBackupStatusResponseSchema.parse(response.body);
+    expect(['VERIFIED', 'FAILED', 'NOT_RUN', 'INVALID']).toContain(parsed.status);
+    if (parsed.status === 'VERIFIED') {
+      expect(parsed).toEqual(expect.objectContaining({ encrypted: false, restoredDatabaseRemoved: true }));
+      expect(parsed.sha256).toMatch(/^[a-f0-9]{64}$/);
+      expect(parsed.counts.users).toBeGreaterThanOrEqual(0);
     }
-    expect(JSON.stringify(response.body)).not.toMatch(/DATABASE_URL|password|55432|keiba@/i);
+    expect(JSON.stringify(parsed)).not.toMatch(/DATABASE_URL|password|55432|keiba@/i);
+    expect(parsed).not.toHaveProperty('absolutePath');
+    expect(parsed).not.toHaveProperty('log');
 
     const operator = new Client(); await operator.login(await account('OPERATOR')); await operator.mfa();
     expect((await operator.call('admin/backups/status')).status).toBe(403);

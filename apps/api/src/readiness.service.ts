@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { databaseRuntimeAccessRestricted, loadMailConfig } from '@keiba/db';
-import { consentVersions, launchCapabilities, legalDocumentReleaseErrors, resolveLaunchMode } from '@keiba/domain';
+import { adminBackupFailedStatusSchema, adminBackupVerifiedStatusSchema, consentVersions, launchCapabilities, legalDocumentReleaseErrors, resolveLaunchMode } from '@keiba/domain';
 import type { AdminReadinessCheck } from '@keiba/domain';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -8,9 +8,6 @@ import { z } from 'zod';
 import { DbService } from './db.service';
 import { decrypt } from './security';
 import { loadStripeConfig } from './stripe-config';
-
-const verifiedBackupSchema = z.object({ status: z.literal('VERIFIED'), verifiedAt: z.string().datetime(), backupId: z.string().regex(/^keiba-physical-\d{14}$/), format: z.literal('postgresql-physical-directory'), postgresMajor: z.literal(16), encrypted: z.literal(false), sha256: z.string().regex(/^[a-f0-9]{64}$/), sizeBytes: z.number().int().positive(), fileCount: z.number().int().positive(), migrations: z.number().int().nonnegative(), requiredTriggers: z.number().int().nonnegative(), restoredDatabaseRemoved: z.literal(true), counts: z.object({ users: z.number().int().nonnegative(), races: z.number().int().nonnegative(), predictionVersions: z.number().int().nonnegative(), freeReportVersions: z.number().int().nonnegative(), audioAssets: z.number().int().nonnegative(), publicationSchedules: z.number().int().nonnegative(), memberAcquisitions: z.number().int().nonnegative(), acquisitionCampaigns: z.number().int().nonnegative(), auditLogs: z.number().int().nonnegative(), notificationEvents: z.number().int().nonnegative(), operationalAlerts: z.number().int().nonnegative(), operationalAlertDeliveries: z.number().int().nonnegative(), billingSupportRequests: z.number().int().nonnegative(), billingSupportEvents: z.number().int().nonnegative() }).strict() }).strict();
-const failedBackupSchema = z.object({ status: z.literal('FAILED'), attemptedAt: z.string().datetime(), errorCode: z.literal('BACKUP_VERIFY_FAILED'), backupId: z.string().regex(/^keiba-physical-\d{14}$/).nullable(), restoredDatabaseRemoved: z.boolean() }).strict();
 
 @Injectable()
 export class ReadinessService {
@@ -20,7 +17,7 @@ export class ReadinessService {
     const statusPath = resolve(__dirname, '../../../.local/backups/status.json');
     try {
       const value: unknown = JSON.parse(await readFile(statusPath, 'utf8'));
-      return z.union([verifiedBackupSchema, failedBackupSchema]).parse(value);
+      return z.union([adminBackupVerifiedStatusSchema, adminBackupFailedStatusSchema]).parse(value);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { status: 'NOT_RUN' as const, localOnly: true };
       if (error instanceof SyntaxError || error instanceof z.ZodError) return { status: 'INVALID' as const, localOnly: true };
