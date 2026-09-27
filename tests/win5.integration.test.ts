@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { publicWin5ListResponseSchema } from '../packages/domain/src';
 import { assessmentFixture } from './assessment-fixtures';
 import { account, Client, db } from './helpers';
 import type { NotificationTransport } from '../apps/worker/src/notification-runner';
@@ -101,7 +102,11 @@ describe('WIN5 product drafting and publication', () => {
     await db.entitlement.create({ data: { userId: monthlyMember.user.id, planCode: 'STANDARD', startsAt: new Date(Date.now() - 1000), endsAt: new Date(Date.now() + 3600000), reason: 'WIN5_MONTHLY_ACCESS_TEST', grantedBy: monthlyMember.user.id } });
     expect((await monthlyClient.call(`win5/${created.body.id}`)).body.access).toBe('FULL');
     const anonymousList = await new Client().call(`win5?targetDate=${targetDate}`);
-    expect(anonymousList.status).toBe(200); expect(JSON.stringify(anonymousList.body)).not.toContain('contentSnapshot');
+    expect(anonymousList.status).toBe(200);
+    const parsedAnonymousList = publicWin5ListResponseSchema.parse(anonymousList.body);
+    expect(parsedAnonymousList).toMatchObject({ total: 1, page: 1, limit: 20, items: [{ id: created.body.id, confidence: 'A' }] });
+    expect(parsedAnonymousList.items[0]?.races).toHaveLength(5);
+    expect(JSON.stringify(anonymousList.body)).not.toMatch(/contentSnapshot|evaluations|horseName|expertId|summary|reason/);
     expect((await aal1.client.call(`admin/win5/${created.body.id}/result`)).body.code).toBe('MFA_REQUIRED');
 
     const first = await db.predictionProductVersion.findUniqueOrThrow({ where: { id: published.body.versionId } });

@@ -1,9 +1,52 @@
 import { z } from 'zod';
 import { confidences, publicationVisibilities } from './predictions';
 import { evaluatedHorsesSchema } from './evaluations';
+import { dateSchema, raceStatuses } from './races';
 
 export const win5ProductTypes = ['WIN5_PREVIEW'] as const;
 export const win5StrategyTypes = ['NARROW', 'NORMAL', 'SPREAD'] as const;
+
+const win5DateTimeSchema = z.preprocess(
+  value => value instanceof Date ? value.toISOString() : value,
+  z.string().datetime({ offset: true })
+);
+
+const publicWin5ListVersionSchema = z.object({
+  id: z.string().uuid(),
+  version: z.number().int().positive(),
+  status: z.enum(['PUBLISHED', 'CORRECTED']),
+  publishedAt: win5DateTimeSchema,
+  previousVersionId: z.string().uuid().nullable()
+}).strict();
+
+export const publicWin5ListResponseSchema = z.object({
+  items: z.array(z.object({
+    id: z.string().uuid(),
+    type: z.enum(win5ProductTypes),
+    targetDate: dateSchema,
+    title: z.string(),
+    status: z.enum(['SCHEDULED', 'PUBLISHED', 'CORRECTED']),
+    scheduledPublishAt: win5DateTimeSchema,
+    publishedAt: win5DateTimeSchema.nullable(),
+    confidence: z.enum(confidences).nullable(),
+    races: z.array(z.object({
+      legNumber: z.number().int().min(1).max(5),
+      race: z.object({
+        id: z.string().uuid(),
+        venue: z.string(),
+        number: z.number().int().min(1).max(12),
+        startsAt: win5DateTimeSchema,
+        status: z.enum(raceStatuses)
+      }).strict()
+    }).strict()).max(5),
+    latestVersion: publicWin5ListVersionSchema.nullable()
+  }).strict()),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().min(1).max(10000),
+  limit: z.literal(20)
+}).strict();
+
+export type PublicWin5ListResponse = z.infer<typeof publicWin5ListResponseSchema>;
 
 const jstDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
   const parsed = new Date(`${value}T00:00:00+09:00`);

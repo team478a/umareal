@@ -3,10 +3,11 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ArrowRight, CalendarDays, Clock3, Crown, LockKeyhole } from 'lucide-react';
+import type { PublicWin5ListResponse } from '@keiba/domain';
 
-type RaceMeta = { id: string; venue: string; number: number; startsAt: string; status: string };
-type Product = { id: string; type: string; targetDate: string; title: string; status: string; scheduledPublishAt: string; publishedAt: string | null; confidence: string | null; races: { legNumber: number; race: RaceMeta }[]; latestVersion: VersionMeta | null };
-type VersionMeta = { id: string; version: number; status: string; publishedAt: string; previousVersionId: string | null; correctionReason?: string | null };
+type Product = PublicWin5ListResponse['items'][number];
+type RaceMeta = Product['races'][number]['race'];
+type VersionMeta = NonNullable<Product['latestVersion']> & { correctionReason?: string | null };
 type Evaluation = { entryId: string; horseId: string; number: number; horseName: string; status: string; evaluationType: 'PRIMARY' | 'SECONDARY' | 'WATCH' | 'RISK'; reason: string; displayOrder: number };
 type Paper = { product: { expertName: string; confidence: string; summary: string }; races: { legNumber: number; confidence: string; paceView: string; shortComment: string; race: RaceMeta & { raceDate: string; name: string }; evaluations: Evaluation[] }[] };
 type Detail = { access: 'FULL' | 'METADATA'; product: Product; version: (VersionMeta & { confidence: string; formatVersion: string; contentSnapshot: Paper; deadlineAt: string; correctionReason: string | null }) | null; versions: VersionMeta[]; locked: boolean };
@@ -36,7 +37,7 @@ export function Win5HomePanel() {
   const [items, setItems] = useState<Product[]>([]); const [error, setError] = useState('');
   useEffect(() => {
     const today = jstDate(); const tomorrow = jstDate(new Date(Date.now() + 86400000));
-    Promise.all([request<{ items: Product[] }>(`win5?targetDate=${today}`), request<{ items: Product[] }>(`win5?targetDate=${tomorrow}`)])
+    Promise.all([request<PublicWin5ListResponse>(`win5?targetDate=${today}`), request<PublicWin5ListResponse>(`win5?targetDate=${tomorrow}`)])
       .then(([todayData, tomorrowData]) => setItems([...todayData.items, ...tomorrowData.items])).catch(e => setError((e as Error).message));
   }, []);
   if (error) return <div className="notice error" role="alert">{error}</div>;
@@ -47,7 +48,7 @@ export function Win5HomePanel() {
 
 export function Win5Archive() {
   const [items, setItems] = useState<Product[]>([]); const [error, setError] = useState(''); const [loading, setLoading] = useState(true);
-  useEffect(() => { request<{ items: Product[] }>('win5').then(value => setItems(value.items)).catch(e => setError((e as Error).message)).finally(() => setLoading(false)); }, []);
+  useEffect(() => { request<PublicWin5ListResponse>('win5').then(value => setItems(value.items)).catch(e => setError((e as Error).message)).finally(() => setLoading(false)); }, []);
   return <><div className="page-heading"><span className="eyebrow">WIN5 PAPER</span><h1>WIN5紙面予想</h1><p>前日に公開する5レースの紙面予想と、公開版の履歴を確認できます。</p></div>{error && <div className="notice error">{error}</div>}{loading ? <div className="loading" role="status">WIN5情報を読み込み中…</div> : items.length ? <div className="win5-product-grid archive">{items.map(product => <ProductCard key={product.id} product={product} />)}</div> : <div className="empty"><CalendarDays size={32} /><h3>WIN5紙面はまだありません</h3><p>公開予定が決まると、こちらに表示されます。</p></div>}</>;
 }
 
