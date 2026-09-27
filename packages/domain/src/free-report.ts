@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { dateSchema, raceStatuses } from './races';
 
 const httpsUrl = z.string().trim().url().max(1000).refine(value => new URL(value).protocol === 'https:', 'HTTPSのURLを指定してください。');
 const audioSource = z.string().trim().max(1000).refine(value => /^\/api\/v1\/free-report-audio\/[0-9a-f-]{36}$/.test(value) || (() => { try { return new URL(value).protocol === 'https:'; } catch { return false; } })(), '録音済み音声またはHTTPSのURLを指定してください。');
@@ -37,6 +38,26 @@ export const publicFreeReportMetadataResponseSchema = z.object({
   versions: z.array(publicFreeReportVersionMetadataSchema)
 }).strict();
 export type PublicFreeReportMetadataResponse = z.infer<typeof publicFreeReportMetadataResponseSchema>;
+
+export const adminFreeReportRaceListResponseSchema = z.object({
+  items: z.array(z.object({
+    id: z.string().uuid(),
+    raceDate: dateSchema,
+    venue: z.string().min(1),
+    number: z.number().int().min(1).max(12),
+    name: z.string().min(1),
+    startsAt: publicFreeReportDateTimeSchema,
+    status: z.enum(raceStatuses),
+    _count: z.object({ entries: z.number().int().nonnegative() }).strict(),
+    freeReportDraft: z.object({ revision: z.number().int().positive() }).strict().nullable(),
+    freeReportVersions: z.array(z.object({
+      version: z.number().int().positive(),
+      kind: z.enum(['PRE_RACE', 'POST_RACE_REVIEW']),
+      publishedAt: publicFreeReportDateTimeSchema
+    }).strict()).max(1)
+  }).strict())
+}).strict();
+export type AdminFreeReportRaceListResponse = z.infer<typeof adminFreeReportRaceListResponseSchema>;
 
 export const freeReportDraftSchema = z.object({
   revision: z.number().int().min(0),

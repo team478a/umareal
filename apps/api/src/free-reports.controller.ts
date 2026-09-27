@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
-import { canManage, dateSchema, freeMemberBenefitSchema, freeReportDraftSchema, freeReportPublishSchema, jstDate, publicFreeMemberBenefitResponseSchema, publicFreeReportMetadataResponseSchema, requiresMfa } from '@keiba/domain';
+import { adminFreeReportRaceListResponseSchema, canManage, dateSchema, freeMemberBenefitSchema, freeReportDraftSchema, freeReportPublishSchema, jstDate, publicFreeMemberBenefitResponseSchema, publicFreeReportMetadataResponseSchema, requiresMfa } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import type { Response } from 'express';
 import { z } from 'zod';
@@ -37,7 +37,7 @@ export class AdminFreeReportsController {
       where: { raceDate: date }, orderBy: [{ venue: 'asc' }, { number: 'asc' }],
       select: { id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true, status: true, _count: { select: { entries: true } }, freeReportDraft: { select: { revision: true } }, freeReportVersions: { orderBy: { version: 'desc' }, take: 1, select: { version: true, kind: true, publishedAt: true } } }
     });
-    return { items };
+    return adminFreeReportRaceListResponseSchema.parse({ items });
   }
 
   @Post('audio')

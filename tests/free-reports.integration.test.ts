@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { freeReportNotificationPreviewResponseSchema, publicFreeMemberBenefitResponseSchema, publicFreeReportMetadataResponseSchema } from '../packages/domain/src';
+import { adminFreeReportRaceListResponseSchema, freeReportNotificationPreviewResponseSchema, publicFreeMemberBenefitResponseSchema, publicFreeReportMetadataResponseSchema } from '../packages/domain/src';
 import { runNotificationBatch } from '../apps/worker/src/notification-runner';
 import type { NotificationTransport } from '../apps/worker/src/notification-runner';
 import { account, base, Client, db, origin } from './helpers';
@@ -40,6 +40,11 @@ describe('LP free member offer', () => {
   it('publishes a safe append-only free report and sends its notification', async () => {
     const target = await fixture();
     expect((await new Client().call(`races/${target.race.id}/free-report`)).status).toBe(401);
+    expect((await new Client().call(`admin/free-reports/races?date=${target.race.raceDate}`)).status).toBe(401);
+    expect((await target.memberClient.call(`admin/free-reports/races?date=${target.race.raceDate}`)).status).toBe(403);
+    const adminRaceList = adminFreeReportRaceListResponseSchema.parse((await target.adminClient.call(`admin/free-reports/races?date=${target.race.raceDate}`)).body);
+    expect(adminRaceList.items.find(item => item.id === target.race.id)).toMatchObject({ raceDate: target.race.raceDate, freeReportDraft: null, freeReportVersions: [] });
+    expect(JSON.stringify(adminRaceList)).not.toMatch(/horseName|upReason|downReason|audioUrl|reviewText|updatedBy|password|token/i);
     const emptyMemberView = publicFreeReportMetadataResponseSchema.parse((await target.memberClient.call(`races/${target.race.id}/free-report`)).body);
     expect(emptyMemberView).toMatchObject({ race: { id: target.race.id, raceDate: target.race.raceDate }, versions: [] });
     const audioBytes = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x42, 0x86, 0x81, 0x01]);

@@ -1,14 +1,13 @@
 'use client';
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { ArrowRight, Eye, Mic, PlayCircle, Square, Upload } from 'lucide-react';
-import type { FreeReportNotificationPreviewResponse, NotificationTestSendResponse, PublicFreeMemberBenefitResponse } from '@keiba/domain';
+import type { AdminFreeReportRaceListResponse, FreeReportNotificationPreviewResponse, NotificationTestSendResponse, PublicFreeMemberBenefitResponse } from '@keiba/domain';
 import { NotificationPreview } from './notification-preview';
 
 type Entry = { id: string; number: number; horseName: string; status: string };
 type Version = { id: string; version: number; kind: 'PRE_RACE' | 'POST_RACE_REVIEW'; upHorseNumber: number; upHorseName: string; upReason: string; downHorseNumber: number; downHorseName: string; downReason: string; audioUrl: string; reviewText: string | null; publishedAt: string };
 type Draft = { revision: number; upEntryId: string; upReason: string; downEntryId: string; downReason: string; audioUrl: string; reviewText: string };
 type RaceDetail = { id: string; raceDate: string; venue: string; number: number; name: string; startsAt: string; status: string; entries: Entry[]; freeReportDraft: Draft | null; freeReportVersions: Version[]; resultVersions: { id: string; version: number; confirmedAt: string }[] };
-type RaceList = { items: { id: string; venue: string; number: number; name: string; _count: { entries: number }; freeReportDraft: { revision: number } | null; freeReportVersions: { version: number; kind: string; publishedAt: string }[] }[] };
 type Benefit = { revision: number; title: string; description: string; videoUrl: string };
 
 async function api<T>(path: string, method = 'GET', body?: unknown, idempotent = false): Promise<T> {
@@ -53,11 +52,11 @@ function AudioInput({ value, onChange, disabled }: { value: string; onChange: (v
 }
 
 export function FreeReportManager({ canTest = false }: { canTest?: boolean }) {
-  const [date, setDate] = useState(jstDate()); const [races, setRaces] = useState<RaceList['items']>([]); const [detail, setDetail] = useState<RaceDetail | null>(null);
+  const [date, setDate] = useState(jstDate()); const [races, setRaces] = useState<AdminFreeReportRaceListResponse['items']>([]); const [detail, setDetail] = useState<RaceDetail | null>(null);
   const [draft, setDraft] = useState<Draft>({ revision: 0, upEntryId: '', upReason: '', downEntryId: '', downReason: '', audioUrl: '', reviewText: '' });
   const [benefit, setBenefit] = useState<Benefit>({ revision: 0, title: '', description: '', videoUrl: '' });
   const [reason, setReason] = useState(''); const [benefitReason, setBenefitReason] = useState(''); const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false); const [testBusy, setTestBusy] = useState<'LINE' | 'EMAIL' | null>(null); const [preview, setPreview] = useState<FreeReportNotificationPreviewResponse | null>(null);
-  async function loadRaces(value = date) { try { setRaces((await api<RaceList>(`admin/free-reports/races?date=${value}`)).items); } catch (e) { setError((e as Error).message); } }
+  async function loadRaces(value = date) { try { setRaces((await api<AdminFreeReportRaceListResponse>(`admin/free-reports/races?date=${value}`)).items); } catch (e) { setError((e as Error).message); } }
   async function open(id: string) { setError(''); setPreview(null); try { const value = await api<RaceDetail>(`admin/free-reports/races/${id}`); setDetail(value); setDraft(value.freeReportDraft ?? { revision: 0, upEntryId: value.entries[0]?.id ?? '', upReason: '', downEntryId: value.entries[1]?.id ?? '', downReason: '', audioUrl: '', reviewText: '' }); } catch (e) { setError((e as Error).message); } }
   useEffect(() => { void loadRaces(); api<Benefit>('admin/free-reports/benefit').then(setBenefit).catch(e => setError(e.message)); }, []);
   useEffect(() => { void loadRaces(date); setDetail(null); }, [date]);
