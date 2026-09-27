@@ -11,6 +11,7 @@ import { SupabaseAuthService } from './supabase-auth.service';
 import { RegistrationCaptchaService } from './registration-captcha.service';
 import { ReferralsService } from './referrals.service';
 import { AuthSessionService } from './auth-session.service';
+import { AuthRegistrationService } from './auth-registration.service';
 
 const publicUser = (user: { id: string; displayName: string; role: string }) => ({ id: user.id, displayName: user.displayName, role: user.role });
 const otp = (secret: string, email: string) => new TOTP({ issuer: '競馬会員メディア 開発用', label: email, algorithm: 'SHA1', digits: 6, period: 30, secret: Secret.fromBase32(secret) });
@@ -18,7 +19,7 @@ const externalMfaEnrollSchema = z.object({ kind: z.enum(['PRIMARY', 'BACKUP']).d
 const externalMfaVerifySchema = z.object({ code: z.string().regex(/^\d{6}$/), factor: z.enum(['PRIMARY', 'BACKUP']).default('PRIMARY'), factorId: z.string().uuid().optional() }).strict();
 @Controller('auth')
 export class AuthController {
-  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(SupabaseAuthService) private readonly supabase: SupabaseAuthService, @Inject(MailService) private readonly mail: MailService, @Inject(RegistrationCaptchaService) private readonly captcha: RegistrationCaptchaService, @Inject(ReferralsService) private readonly referrals: ReferralsService, @Inject(AuthSessionService) private readonly sessions: AuthSessionService) {}
+  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(SupabaseAuthService) private readonly supabase: SupabaseAuthService, @Inject(MailService) private readonly mail: MailService, @Inject(RegistrationCaptchaService) private readonly captcha: RegistrationCaptchaService, @Inject(ReferralsService) private readonly referrals: ReferralsService, @Inject(AuthSessionService) private readonly sessions: AuthSessionService, @Inject(AuthRegistrationService) private readonly registration: AuthRegistrationService) {}
   @Get('config') async config() {
     const mode = resolveLaunchMode(process.env.LAUNCH_MODE);
     const capabilities = launchCapabilities(mode);
@@ -41,73 +42,29 @@ export class AuthController {
   }
   @Post('register') async register(@Body() body: unknown, @Req() req: AppRequest, @Res({ passthrough: true }) res: Response) {
     const input = registrationSchema.parse(body);
-    await this.auth.requireNewRegistration();
-    await this.captcha.verify(input.captchaToken, req.requestId);
     if (process.env.AUTH_PROVIDER === 'supabase') {
       const flow = this.sessions.createPkce();
-      const callbackUrl = `${process.env.APP_BASE_URL}/api/v1/auth/callback`;
-      const result = await this.supabase.signUp({ email: input.email, password: input.password }, flow.challenge, callbackUrl);
-      this.sessions.setExternalFlow(res, flow.verifier, 'signup');
-      // Supabase deliberately returns an identity-less user for an existing email.
-      // Do not create a second local membership from that enumeration-safe response.
-      if (Array.isArray(result.user.identities) && result.user.identities.length === 0) return { user: null, requiresEmailVerification: true };
-      const existing = await this.auth.db.user.findFirst({ where: { OR: [{ authSubject: result.user.id }, { email: input.email }] } });
-      if (existing && existing.authSubject !== result.user.id) throw new ConflictException({ code: 'ACCOUNT_LINK_REQUIRED', message: 'このメールアドレスは既存アカウントの確認が必要です。' });
-      const user = existing ?? await this.auth.db.$transaction(async tx => {
-        await this.auth.requireNewRegistration(tx);
-        const created = await tx.user.create({ data: { authSubject: result.user.id, email: input.email, emailVerifiedAt: result.user.email_confirmed_at || result.user.confirmed_at ? new Date(result.user.email_confirmed_at ?? result.user.confirmed_at!) : null, displayName: input.displayName, registrationMethod: 'EMAIL',
-          preferences: { create: {} }, acquisition: { create: { source: input.acquisition?.source ?? 'direct', medium: input.acquisition?.medium, campaign: input.acquisition?.campaign, content: input.acquisition?.content, term: input.acquisition?.term, landingPath: input.acquisition?.landingPath ?? '/register', referralCode: input.acquisition?.referralCode } }, consents: { create: [
-            { documentType: 'AGE_20', version: '1', source: 'web-registration' },
-            { documentType: 'TERMS', version: input.termsVersion, source: 'web-registration' },
-            { documentType: 'PRIVACY', version: input.privacyVersion, source: 'web-registration' }
-          ] } } });
-        req.auth = { id: created.id, role: created.role, aal: 1, user: created };
-        await this.auth.audit(tx, req, 'REGISTER', created.id, 'Supabase会員登録と同意記録');
-        await this.referrals.createPending(tx, created.id, input.memberReferralCode);
-        if (created.emailVerifiedAt) await this.referrals.qualify(tx, created.id, req);
-        return created;
+      const result = await this.registration.register(input, req, {
+        externalChallenge: flow.challenge,
+        onExternalSignUp: () => this.sessions.setExternalFlow(res, flow.verifier, 'signup'),
+        onExternalSession: session => { this.sessions.setExternalSession(res, session); this.sessions.clearExternalFlow(res); }
       });
-      if (result.session) {
-        this.sessions.setExternalSession(res, result.session);
-        this.sessions.clearExternalFlow(res);
-        await this.auth.db.$transaction(async tx => {
-          await tx.user.updateMany({ where: { id: user.id, emailVerifiedAt: null }, data: { emailVerifiedAt: new Date() } });
-          await this.auth.journey(tx, user.id, 'FIRST_LOGIN');
-          await this.referrals.qualify(tx, user.id, req);
-        });
-      }
+      if (!result.user) return { user: null, requiresEmailVerification: true };
       this.sessions.clearLocalSession(res);
-      return { user: publicUser(user), requiresEmailVerification: !result.session };
+      return { user: publicUser(result.user), requiresEmailVerification: !result.session };
     }
-    this.auth.ensureLocal();
-    const passwordHash = await hashPassword(input.password);
-    const user = await this.auth.db.$transaction(async tx => {
-      await this.auth.requireNewRegistration(tx);
-      const user = await tx.user.create({ data: { email: input.email, displayName: input.displayName, passwordHash, registrationMethod: 'EMAIL',
-        preferences: { create: {} }, acquisition: { create: { source: input.acquisition?.source ?? 'direct', medium: input.acquisition?.medium, campaign: input.acquisition?.campaign, content: input.acquisition?.content, term: input.acquisition?.term, landingPath: input.acquisition?.landingPath ?? '/register', referralCode: input.acquisition?.referralCode } }, consents: { create: [
-          { documentType: 'AGE_20', version: '1', source: 'web-registration' },
-          { documentType: 'TERMS', version: input.termsVersion, source: 'web-registration' },
-          { documentType: 'PRIVACY', version: input.privacyVersion, source: 'web-registration' }
-        ] } } });
-      req.auth = { id: user.id, role: user.role, aal: 1, user };
-      await this.auth.audit(tx, req, 'REGISTER', user.id, '会員登録と同意記録');
-      await this.referrals.createPending(tx, user.id, input.memberReferralCode);
-      return user;
-    });
-    this.sessions.clearLocalSession(res);
-    await this.mail.sendVerification({ userId: user.id, email: input.email, purpose: 'REGISTRATION' });
-    return { user: publicUser(user), requiresEmailVerification: true };
+    const result = await this.registration.register(input, req, { onLocalMembershipCreated: () => this.sessions.clearLocalSession(res) });
+    if (!result.user) throw new Error('Local registration did not create a user');
+    return { user: publicUser(result.user), requiresEmailVerification: true };
   }
   @Post('email/resend') async resendVerification(@Body() body: unknown, @Res({ passthrough: true }) res: Response) {
     const { email } = z.object({ email: z.string().trim().email().max(254).transform(v => v.toLowerCase()) }).strict().parse(body);
     if (process.env.AUTH_PROVIDER === 'supabase') {
       const flow = this.sessions.createPkce(); this.sessions.setExternalFlow(res, flow.verifier, 'signup');
-      await this.supabase.resend(email, flow.challenge);
+      await this.registration.resendVerification(email, flow.challenge);
       return { message: '確認が必要なメールアドレスの場合、案内を送信しました。' };
     }
-    this.auth.ensureLocal();
-    const user = await this.auth.db.user.findUnique({ where: { email } });
-    if (user && !user.emailVerifiedAt && !user.disabledAt) await this.mail.sendVerification({ userId: user.id, email, purpose: 'REGISTRATION' });
+    await this.registration.resendVerification(email);
     return { message: '確認が必要なメールアドレスの場合、案内を送信しました。' };
   }
   @Post('email/fallback') async addFallback(@Body() body: unknown, @Req() req: AppRequest) {
@@ -119,19 +76,8 @@ export class AuthController {
     return { message: '確認メールを送信しました。' };
   }
   @Post('email/verify') async verifyEmail(@Body() body: unknown, @Req() req: AppRequest, @Res({ passthrough: true }) res: Response) {
-    const { token } = z.object({ token: z.string().min(32).max(128) }).strict().parse(body); const now = new Date();
-    const result = await this.auth.db.$transaction(async tx => {
-      const verification = await tx.emailVerification.findUnique({ where: { tokenHash: hashToken(token) }, include: { user: true } });
-      if (!verification || verification.usedAt || verification.expiresAt <= now || verification.user.disabledAt) throw new BadRequestException({ code: 'EMAIL_VERIFICATION_INVALID', message: '確認リンクが無効、または期限切れです。' });
-      const consumed = await tx.emailVerification.updateMany({ where: { id: verification.id, usedAt: null, expiresAt: { gt: now } }, data: { usedAt: now } });
-      if (consumed.count !== 1) throw new BadRequestException({ code: 'EMAIL_VERIFICATION_INVALID', message: '確認リンクはすでに使用されています。' });
-      const data = verification.purpose === 'ADD_FALLBACK' ? { email: verification.email, emailVerifiedAt: now, passwordHash: verification.passwordHash!, emailDeliveryDisabledAt: null, emailDeliveryDisabledReason: null } : { emailVerifiedAt: now };
-      const user = await tx.user.update({ where: { id: verification.userId }, data }); req.auth = { id: user.id, role: user.role, aal: 1, user };
-      await tx.emailVerification.updateMany({ where: { userId: user.id, usedAt: null }, data: { usedAt: now } });
-      await this.auth.audit(tx, req, verification.purpose === 'ADD_FALLBACK' ? 'FALLBACK_EMAIL_VERIFIED' : 'EMAIL_VERIFIED', user.id, 'メールアドレス確認完了');
-      await this.referrals.qualify(tx, user.id, req);
-      return { user, sessionToken: await this.auth.session(tx, user.id) };
-    });
+    const { token } = z.object({ token: z.string().min(32).max(128) }).strict().parse(body);
+    const result = await this.registration.verifyEmail(token, req);
     this.sessions.setLocalSession(res, result.sessionToken); return { user: publicUser(result.user), verified: true };
   }
   @Post('login') async login(@Body() body: unknown, @Req() req: AppRequest, @Res({ passthrough: true }) res: Response) {

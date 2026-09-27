@@ -45,6 +45,7 @@ import { ReferralsController } from './referrals.controller';
 import { ReferralsService } from './referrals.service';
 import { ReadinessService } from './readiness.service';
 import { AuthSessionService } from './auth-session.service';
+import { AuthRegistrationService } from './auth-registration.service';
 config({ path: resolve(process.cwd(), '../../.env'), quiet: true });
 
 @Catch()
@@ -67,7 +68,7 @@ class ErrorFilter implements ExceptionFilter {
     res.status(status).json({ code, message, requestId: req.requestId, details });
   }
 }
-@Module({ controllers: [AuthController, AppController, RacesController, AssessmentsController, PredictionsController, Win5Controller, Win5ResultsController, SocialSharesController, AdminSettingsController, AdminContinuityController, StaffController, SupportController, OperationalAlertsController, NotificationsController, MemberNotificationsController, AdminFreeReportsController, MemberFreeReportsController, PublicationSchedulesController, LineWebhookController, ResendWebhookController, RegistrationFollowupsController, LineLoginController, ResultsController, BillingController, ReferralsController], providers: [DbService, AuthService, AuthSessionService, SupabaseAuthService, LineLoginService, MailService, RegistrationCaptchaService, ReferralsService, ReadinessService] })
+@Module({ controllers: [AuthController, AppController, RacesController, AssessmentsController, PredictionsController, Win5Controller, Win5ResultsController, SocialSharesController, AdminSettingsController, AdminContinuityController, StaffController, SupportController, OperationalAlertsController, NotificationsController, MemberNotificationsController, AdminFreeReportsController, MemberFreeReportsController, PublicationSchedulesController, LineWebhookController, ResendWebhookController, RegistrationFollowupsController, LineLoginController, ResultsController, BillingController, ReferralsController], providers: [DbService, AuthService, AuthSessionService, AuthRegistrationService, SupabaseAuthService, LineLoginService, MailService, RegistrationCaptchaService, ReferralsService, ReadinessService] })
 class AppModule {}
 
 async function main() {
