@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Put, Query, Req, UnauthorizedException } from '@nestjs/common';
-import { aggregateWin5Evaluations, win5LegUpdateSchema, win5PreviewSchema, win5ProductCreateSchema, win5ProductUpdateSchema } from '@keiba/domain';
+import { aggregateWin5Evaluations, publicWin5ListResponseSchema, win5LegUpdateSchema, win5PreviewSchema, win5ProductCreateSchema, win5ProductUpdateSchema } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -146,7 +146,7 @@ export class Win5Controller {
       this.auth.db.predictionProduct.findMany({ where, orderBy: [{ targetDate: 'desc' }, { createdAt: 'desc' }], take: limit, skip: (input.page - 1) * limit, select: this.freeSelect(now) }),
       this.auth.db.predictionProduct.count({ where })
     ]);
-    return { items: products.map(product => this.freeProduct(product)), total, page: input.page, limit };
+    return publicWin5ListResponseSchema.parse({ items: products.map(product => this.freeProduct(product)), total, page: input.page, limit });
   }
 
   @Get('win5/performance')
