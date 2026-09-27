@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { confidences, publicationVisibilities } from './predictions';
-import { evaluatedHorsesSchema } from './evaluations';
-import { dateSchema, raceStatuses } from './races';
+import { evaluatedHorsesSchema, evaluationTypes } from './evaluations';
+import { dateSchema, entryStatuses, raceStatuses } from './races';
 
 export const win5ProductTypes = ['WIN5_PREVIEW'] as const;
 export const win5StrategyTypes = ['NARROW', 'NORMAL', 'SPREAD'] as const;
@@ -11,7 +11,7 @@ const win5DateTimeSchema = z.preprocess(
   z.string().datetime({ offset: true })
 );
 
-const publicWin5ListVersionSchema = z.object({
+export const publicWin5VersionMetadataSchema = z.object({
   id: z.string().uuid(),
   version: z.number().int().positive(),
   status: z.enum(['PUBLISHED', 'CORRECTED']),
@@ -19,34 +19,104 @@ const publicWin5ListVersionSchema = z.object({
   previousVersionId: z.string().uuid().nullable()
 }).strict();
 
+export const publicWin5ProductSchema = z.object({
+  id: z.string().uuid(),
+  type: z.enum(win5ProductTypes),
+  targetDate: dateSchema,
+  title: z.string(),
+  status: z.enum(['SCHEDULED', 'PUBLISHED', 'CORRECTED']),
+  scheduledPublishAt: win5DateTimeSchema,
+  publishedAt: win5DateTimeSchema.nullable(),
+  confidence: z.enum(confidences).nullable(),
+  races: z.array(z.object({
+    legNumber: z.number().int().min(1).max(5),
+    race: z.object({
+      id: z.string().uuid(),
+      venue: z.string(),
+      number: z.number().int().min(1).max(12),
+      startsAt: win5DateTimeSchema,
+      status: z.enum(raceStatuses)
+    }).strict()
+  }).strict()).max(5),
+  latestVersion: publicWin5VersionMetadataSchema.nullable()
+}).strict();
+
 export const publicWin5ListResponseSchema = z.object({
-  items: z.array(z.object({
-    id: z.string().uuid(),
-    type: z.enum(win5ProductTypes),
-    targetDate: dateSchema,
-    title: z.string(),
-    status: z.enum(['SCHEDULED', 'PUBLISHED', 'CORRECTED']),
-    scheduledPublishAt: win5DateTimeSchema,
-    publishedAt: win5DateTimeSchema.nullable(),
-    confidence: z.enum(confidences).nullable(),
-    races: z.array(z.object({
-      legNumber: z.number().int().min(1).max(5),
-      race: z.object({
-        id: z.string().uuid(),
-        venue: z.string(),
-        number: z.number().int().min(1).max(12),
-        startsAt: win5DateTimeSchema,
-        status: z.enum(raceStatuses)
-      }).strict()
-    }).strict()).max(5),
-    latestVersion: publicWin5ListVersionSchema.nullable()
-  }).strict()),
+  items: z.array(publicWin5ProductSchema),
   total: z.number().int().nonnegative(),
   page: z.number().int().min(1).max(10000),
   limit: z.literal(20)
 }).strict();
 
+const publicWin5HistoryVersionSchema = publicWin5VersionMetadataSchema.extend({
+  correctionReason: z.string().nullable()
+}).strict();
+
+const publicWin5ContentSnapshotSchema = z.object({
+  product: z.object({
+    type: z.enum(win5ProductTypes).optional(),
+    targetDate: dateSchema.optional(),
+    title: z.string().optional(),
+    expertId: z.string().uuid().optional(),
+    expertName: z.string(),
+    accessScope: z.enum(publicationVisibilities).optional(),
+    scheduledPublishAt: win5DateTimeSchema.optional(),
+    confidence: z.enum(confidences),
+    summary: z.string()
+  }).strict(),
+  races: z.array(z.object({
+    legNumber: z.number().int().min(1).max(5),
+    confidence: z.enum(confidences),
+    paceView: z.string(),
+    shortComment: z.string(),
+    race: z.object({
+      id: z.string().uuid(),
+      raceDate: dateSchema,
+      venue: z.string(),
+      number: z.number().int().min(1).max(12),
+      name: z.string(),
+      startsAt: win5DateTimeSchema,
+      status: z.enum(raceStatuses)
+    }).strict(),
+    evaluations: z.array(z.object({
+      entryId: z.string().uuid(),
+      horseId: z.string().uuid(),
+      number: z.number().int().min(1).max(18),
+      horseName: z.string(),
+      status: z.enum(entryStatuses),
+      evaluationType: z.enum(evaluationTypes),
+      reason: z.string(),
+      displayOrder: z.number().int().min(1).max(18)
+    }).strict()).max(18)
+  }).strict()).max(5)
+}).strict();
+
+const publicWin5FullVersionSchema = publicWin5HistoryVersionSchema.extend({
+  confidence: z.enum(confidences),
+  formatVersion: z.enum(['LEGACY_BETTING_V1', 'HORSE_EVALUATION_V1']),
+  contentSnapshot: publicWin5ContentSnapshotSchema,
+  deadlineAt: win5DateTimeSchema
+}).strict();
+
+export const publicWin5DetailResponseSchema = z.discriminatedUnion('access', [
+  z.object({
+    access: z.literal('METADATA'),
+    product: publicWin5ProductSchema,
+    version: z.null(),
+    versions: z.array(publicWin5VersionMetadataSchema),
+    locked: z.boolean()
+  }).strict(),
+  z.object({
+    access: z.literal('FULL'),
+    product: publicWin5ProductSchema,
+    version: publicWin5FullVersionSchema,
+    versions: z.array(publicWin5HistoryVersionSchema),
+    locked: z.literal(false)
+  }).strict()
+]);
+
 export type PublicWin5ListResponse = z.infer<typeof publicWin5ListResponseSchema>;
+export type PublicWin5DetailResponse = z.infer<typeof publicWin5DetailResponseSchema>;
 
 const jstDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
   const parsed = new Date(`${value}T00:00:00+09:00`);

@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Put, Query, Req, UnauthorizedException } from '@nestjs/common';
-import { aggregateWin5Evaluations, publicWin5ListResponseSchema, win5LegUpdateSchema, win5PreviewSchema, win5ProductCreateSchema, win5ProductUpdateSchema } from '@keiba/domain';
+import { aggregateWin5Evaluations, publicWin5DetailResponseSchema, publicWin5ListResponseSchema, win5LegUpdateSchema, win5PreviewSchema, win5ProductCreateSchema, win5ProductUpdateSchema } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -180,14 +180,14 @@ export class Win5Controller {
     const fullAccess = staffAccess || !!entitlement;
     const selectedNumber = input.version ?? versions[0]?.version;
     if (input.version && !versions.some(version => version.version === input.version)) throw new NotFoundException();
-    if (!fullAccess || !selectedNumber) return { access: 'METADATA', product: safeProduct, version: null, versions, locked: !!versions.length };
+    if (!fullAccess || !selectedNumber) return publicWin5DetailResponseSchema.parse({ access: 'METADATA', product: safeProduct, version: null, versions, locked: !!versions.length });
     const selected = await this.auth.db.predictionProductVersion.findFirst({
       where: { productId, version: selectedNumber, publishedAt: { lte: now } },
       select: { id: true, version: true, status: true, confidence: true, formatVersion: true, contentSnapshot: true, publishedAt: true, deadlineAt: true, correctionReason: true, previousVersionId: true }
     });
     if (!selected) throw new NotFoundException();
     const fullHistory = await this.auth.db.predictionProductVersion.findMany({ where: { productId, publishedAt: { lte: now } }, orderBy: { version: 'desc' }, select: { id: true, version: true, status: true, publishedAt: true, previousVersionId: true, correctionReason: true } });
-    return { access: 'FULL', product: safeProduct, version: { ...selected, contentSnapshot: this.safeSnapshot(selected.contentSnapshot) }, versions: fullHistory, locked: false };
+    return publicWin5DetailResponseSchema.parse({ access: 'FULL', product: safeProduct, version: { ...selected, contentSnapshot: this.safeSnapshot(selected.contentSnapshot) }, versions: fullHistory, locked: false });
   }
 
   @Get('admin/win5')

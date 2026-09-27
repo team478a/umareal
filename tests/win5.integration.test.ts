@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { publicWin5ListResponseSchema } from '../packages/domain/src';
+import { publicWin5DetailResponseSchema, publicWin5ListResponseSchema } from '../packages/domain/src';
 import { assessmentFixture } from './assessment-fixtures';
 import { account, Client, db } from './helpers';
 import type { NotificationTransport } from '../apps/worker/src/notification-runner';
@@ -85,15 +85,15 @@ describe('WIN5 product drafting and publication', () => {
     expect(activeReferralPass).toMatchObject({ status: 'ACTIVE', source: 'REFERRAL_REWARD', referralReward: { id: referralReward.id, status: 'REDEEMED' } });
     expect(activeReferralPass.entitlement).toMatchObject({ planCode: 'DAY_PASS', raceDate: targetDate, startsAt: new Date(published.body.publishedAt) });
     const paidPaper = await dayClient.call(`win5/${created.body.id}`);
-    expect(paidPaper.status).toBe(200); expect(paidPaper.body.access).toBe('FULL'); expect(paidPaper.body.version.contentSnapshot.races).toHaveLength(5);
+    expect(paidPaper.status).toBe(200); expect(publicWin5DetailResponseSchema.parse(paidPaper.body).access).toBe('FULL'); expect(paidPaper.body.version.contentSnapshot.races).toHaveLength(5);
     const referralPaper = await referralClient.call(`win5/${created.body.id}`);
-    expect(referralPaper.status).toBe(200); expect(referralPaper.body.access).toBe('FULL'); expect(referralPaper.body.version.contentSnapshot.races).toHaveLength(5);
+    expect(referralPaper.status).toBe(200); expect(publicWin5DetailResponseSchema.parse(referralPaper.body).access).toBe('FULL'); expect(referralPaper.body.version.contentSnapshot.races).toHaveLength(5);
 
     const freeMember = await account(); const freeClient = new Client(); await freeClient.login(freeMember);
     const freeLineSubject = `test:win5-result:${randomUUID()}`;
     await db.lineAccount.create({ data: { userId: freeMember.user.id, subject: freeLineSubject } });
     const freePaper = await freeClient.call(`win5/${created.body.id}`);
-    expect(freePaper.status).toBe(200); expect(freePaper.body.access).toBe('METADATA'); expect(freePaper.body.locked).toBe(true); expect(freePaper.body.product.confidence).toBe('A');
+    expect(freePaper.status).toBe(200); expect(publicWin5DetailResponseSchema.parse(freePaper.body).access).toBe('METADATA'); expect(freePaper.body.locked).toBe(true); expect(freePaper.body.product.confidence).toBe('A');
     const freeJson = JSON.stringify(freePaper.body);
     for (const forbidden of ['contentSnapshot', 'evaluations', 'evaluationType', 'horseName', 'summary', 'amountPerPointYen', 'assumedPurchaseAmountYen', 'correctionReason']) expect(freeJson).not.toContain(forbidden);
     expect(freePaper.body.product.races).toHaveLength(5);
@@ -127,8 +127,8 @@ describe('WIN5 product drafting and publication', () => {
     expect(correctionEvent).toMatchObject({ eventType: 'WIN5_PREVIEW_CORRECTED', status: 'QUEUED' });
     const versions = await db.predictionProductVersion.findMany({ where: { productId: created.body.id }, orderBy: { version: 'asc' } });
     expect(versions).toHaveLength(2); expect(versions[1].previousVersionId).toBe(versions[0].id); expect(versions[1].correctionReason).toBe('全体信頼度と総評を訂正');
-    const correctedPaper = await dayClient.call(`win5/${created.body.id}`); expect(correctedPaper.body.version.version).toBe(2);
-    const oldPaper = await dayClient.call(`win5/${created.body.id}?version=1`); expect(oldPaper.body.version.version).toBe(1); expect(oldPaper.body.versions).toHaveLength(2);
+    const correctedPaper = await dayClient.call(`win5/${created.body.id}`); expect(publicWin5DetailResponseSchema.parse(correctedPaper.body).access).toBe('FULL'); expect(correctedPaper.body.version.version).toBe(2);
+    const oldPaper = await dayClient.call(`win5/${created.body.id}?version=1`); expect(publicWin5DetailResponseSchema.parse(oldPaper.body).access).toBe('FULL'); expect(oldPaper.body.version.version).toBe(1); expect(oldPaper.body.versions).toHaveLength(2);
 
     await db.race.update({ where: { id: races[0].race.id }, data: { startsAt: new Date(Date.now() - 1000) } });
     await expect(db.predictionProductVersion.create({ data: { productId: created.body.id, version: 3, status: 'CORRECTED', accessScope: 'PAID', confidence: 'B', combinationCount: null, amountPerPointYen: null, assumedPurchaseAmountYen: null, formatVersion: 'HORSE_EVALUATION_V1', contentSnapshot: {}, publisherId: admin.owner.user.id, deadlineAt: new Date(Date.now() + 3600000), correctionReason: 'DB締切保護試験', previousVersionId: versions[1].id } })).rejects.toThrow();
