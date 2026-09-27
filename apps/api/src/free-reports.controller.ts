@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
-import { canManage, dateSchema, freeMemberBenefitSchema, freeReportDraftSchema, freeReportPublishSchema, jstDate, publicFreeMemberBenefitResponseSchema, requiresMfa } from '@keiba/domain';
+import { canManage, dateSchema, freeMemberBenefitSchema, freeReportDraftSchema, freeReportPublishSchema, jstDate, publicFreeMemberBenefitResponseSchema, publicFreeReportMetadataResponseSchema, requiresMfa } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import type { Response } from 'express';
 import { z } from 'zod';
@@ -176,7 +176,7 @@ export class MemberFreeReportsController {
     await this.auth.authenticate(req); z.string().uuid().parse(raceId);
     const race = await this.auth.db.race.findUnique({ where: { id: raceId }, select: { id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true, freeReportVersions: { orderBy: { version: 'desc' }, select: { id: true, version: true, kind: true, publishedAt: true } } } });
     if (!race) throw new NotFoundException({ code: 'RACE_NOT_FOUND', message: 'レースが見つかりません。' });
-    return { race: { id: race.id, raceDate: race.raceDate, venue: race.venue, number: race.number, name: race.name, startsAt: race.startsAt }, versions: race.freeReportVersions };
+    return publicFreeReportMetadataResponseSchema.parse({ race: { id: race.id, raceDate: race.raceDate, venue: race.venue, number: race.number, name: race.name, startsAt: race.startsAt }, versions: race.freeReportVersions });
   }
 
   @Get('free-report-audio/:audioId')
