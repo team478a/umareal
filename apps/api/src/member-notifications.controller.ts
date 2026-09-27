@@ -1,5 +1,6 @@
 import { Controller, Get, Inject, NotFoundException, Param, Post, Query, Req } from '@nestjs/common';
 import { Prisma } from '@keiba/db';
+import { memberNotificationListResponseSchema } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
@@ -82,7 +83,7 @@ export class MemberNotificationsController {
       return { id: event.id, eventType: event.eventType, createdAt: event.createdAt, publishedAt: target.publishedAt, version: target.version, visibility: event.version?.visibility ?? 'FREE', readAt: event.memberReads[0]?.readAt ?? null, race, win5: null, href: `/races/${race.id}`,
         title: event.eventType === 'RACE_ANNOUNCED' ? '予想対象レースが決まりました' : event.eventType === 'FREE_REPORT_PUBLISHED' ? '無料パドック速報を公開しました' : event.eventType === 'FREE_REPORT_REVIEW_PUBLISHED' ? '無料速報のレース後検証を公開しました' : corrected ? '最終予想の訂正版を公開しました' : '最終予想を公開しました' };
     });
-    return { items, total, unreadCount, page, limit };
+    return memberNotificationListResponseSchema.parse({ items, total, unreadCount, page, limit });
   }
 
   @Post(':eventId/read')
