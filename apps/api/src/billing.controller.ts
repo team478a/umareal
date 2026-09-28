@@ -15,6 +15,7 @@ import { StripeCheckoutService } from './stripe-checkout.service';
 import { BillingSubscriptionLifecycleService } from './billing-subscription-lifecycle.service';
 import { BillingAdminResolutionService } from './billing-admin-resolution.service';
 import { BillingSupportService } from './billing-support.service';
+import { BillingLocalSimulationService } from './billing-local-simulation.service';
 import { recordBillingEvent } from './billing-events';
 
 const reasonSchema = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
@@ -28,7 +29,8 @@ export class BillingController {
     @Inject(StripeCheckoutService) private readonly stripeCheckout: StripeCheckoutService,
     @Inject(BillingSubscriptionLifecycleService) private readonly subscriptionLifecycle: BillingSubscriptionLifecycleService,
     @Inject(BillingAdminResolutionService) private readonly adminResolution: BillingAdminResolutionService,
-    @Inject(BillingSupportService) private readonly billingSupport: BillingSupportService
+    @Inject(BillingSupportService) private readonly billingSupport: BillingSupportService,
+    @Inject(BillingLocalSimulationService) private readonly localSimulation: BillingLocalSimulationService
   ) {}
 
   private transport() {
@@ -243,16 +245,7 @@ export class BillingController {
     const transport = this.transport(); const actor = await this.staff(req, ['ADMIN']);
     if (transport !== 'test') throw new ConflictException({ code: 'LOCAL_BILLING_SIMULATION_DISABLED', message: '外部決済契約はWebhookから同期してください。' });
     const { reason } = reasonSchema.parse(body); z.string().uuid().parse(id);
-    return this.auth.db.$transaction(async tx => {
-      const current = await tx.subscription.findUniqueOrThrow({ where: { id } }); const settings = await tx.systemSetting.findUniqueOrThrow({ where: { id: 'global' } });
-      if (!['ACTIVE', 'PAST_DUE'].includes(current.status)) throw new ConflictException({ code: 'SUBSCRIPTION_NOT_OPEN', message: '有効な契約だけを試験できます。' });
-      const now = new Date(); const graceEndsAt = new Date(now.getTime() + settings.billingGraceDays * 86400000);
-      await tx.subscription.update({ where: { id }, data: { status: 'PAST_DUE', graceEndsAt } });
-      await tx.entitlement.update({ where: { id: current.entitlementId }, data: { endsAt: graceEndsAt > now ? graceEndsAt : new Date(now.getTime() + 1), revokedAt: settings.billingGraceDays ? null : now } });
-      await tx.paymentTransaction.create({ data: { userId: current.userId, provider: 'LOCAL_TEST', providerPaymentId: `local-failed-${randomUUID()}`, kind: 'SUBSCRIPTION', status: 'FAILED', amountYen: current.priceYen, subscriptionId: id } });
-      await recordBillingEvent(tx, { userId: current.userId, eventType: 'PAYMENT_FAILED', subscriptionId: id, actorId: actor.id, details: { reason, graceEndsAt: graceEndsAt.toISOString() } }, 'BILLING_PAYMENT_FAILED');
-      await this.auth.audit(tx, req, 'BILLING_SIMULATE_FAILURE', id, reason, { graceEndsAt }); return { id, status: 'PAST_DUE', graceEndsAt };
-    });
+    return this.localSimulation.simulateFailure(req, actor.id, id, reason);
   }
 
   @Post('admin/billing/subscriptions/:id/recover')
@@ -260,15 +253,6 @@ export class BillingController {
     const transport = this.transport(); const actor = await this.staff(req, ['ADMIN']);
     if (transport !== 'test') throw new ConflictException({ code: 'LOCAL_BILLING_SIMULATION_DISABLED', message: '外部決済契約はWebhookから同期してください。' });
     const { reason } = reasonSchema.parse(body); z.string().uuid().parse(id);
-    return this.auth.db.$transaction(async tx => {
-      const current = await tx.subscription.findUniqueOrThrow({ where: { id } });
-      if (current.status !== 'PAST_DUE') throw new ConflictException({ code: 'SUBSCRIPTION_NOT_PAST_DUE', message: '支払待ちの契約ではありません。' });
-      const now = new Date(); const endsAt = addCalendarMonthUtc(now);
-      await tx.subscription.update({ where: { id }, data: { status: 'ACTIVE', currentPeriodStartsAt: now, currentPeriodEndsAt: endsAt, graceEndsAt: null } });
-      await tx.entitlement.update({ where: { id: current.entitlementId }, data: { startsAt: now, endsAt, revokedAt: null } });
-      await tx.paymentTransaction.create({ data: { userId: current.userId, provider: 'LOCAL_TEST', providerPaymentId: `local-recovery-${randomUUID()}`, kind: 'SUBSCRIPTION', status: 'SUCCEEDED', amountYen: current.priceYen, subscriptionId: id } });
-      await recordBillingEvent(tx, { userId: current.userId, eventType: 'PAYMENT_RECOVERED', subscriptionId: id, actorId: actor.id, details: { reason, currentPeriodEndsAt: endsAt.toISOString() } }, 'BILLING_PAYMENT_RECOVERED');
-      await this.auth.audit(tx, req, 'BILLING_RECOVER', id, reason, { currentPeriodEndsAt: endsAt }); return { id, status: 'ACTIVE', currentPeriodEndsAt: endsAt };
-    });
+    return this.localSimulation.simulateRecovery(req, actor.id, id, reason);
   }
 }
