@@ -150,6 +150,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 契約・請求管理一覧pilot: `GET /admin/billing`の契約、一日券、支払、Stripe申込・Webhook、請求問い合わせ、返金・決済要確認一覧を共有Contractへ接続し、管理画面の手書き応答型を置き換える。DB取得列を管理画面で必要な運用項目へ限定し、会員ID、決済事業者側の支払・契約ID、権利ID、支払と契約の内部紐付けIDを応答に含めない。ADMIN+AAL2認可、管理操作、内部対応理由の表示、請求処理、DB schemaは変更しない。
 - 会員向け請求セルフサービス応答pilot: 月額申込、1日利用申込、Stripe領収書、Stripe Customer Portal開始の既存成功応答を共有Contractへ接続し、料金・アカウント画面の手書き応答型を置き換える。ローカル試験とStripeの応答差はunionで維持し、API URL、申込・クーポン・権限・冪等性、Stripe通信、画面表示、DB schemaは変更しない。厳格なContractにより、会員ID、決済事業者側ID、Entitlement IDなど既存応答にない内部項目の追加をCIで拒否する。
 - 会員向け請求操作応答pilot: 月額契約の解約予約・継続再開と請求問い合わせ受付の既存成功応答を共有Contractへ接続し、アカウント画面も同じ型を参照する。冪等再送を含む応答項目、契約状態遷移、支払済み期間、問い合わせ内容・権限・監査、API URL、画面表示、DB schemaは変更しない。会員IDと決済事業者側IDなど既存応答にない内部項目の追加を厳格なContractとcharacterization testで拒否する。
+- 管理者向け請求操作応答pilot: 要確認Checkoutの解決、期限切れ公開待ち一日券の返金、請求問い合わせ状態更新、ローカル試験の支払失敗・回復の既存成功応答を共有Contractへ接続し、管理画面も同じ型を参照する。ADMIN+AAL2認可、状態遷移、返金・Stripe処理、監査、API URL、画面表示、DB schemaは変更しない。会員ID、決済事業者側ID、操作担当者IDなど既存応答にない内部項目の追加を厳格なContractとcharacterization testで拒否する。
 
 ### MA-007 CIジョブ構成
 

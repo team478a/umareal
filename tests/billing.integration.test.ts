@@ -86,7 +86,9 @@ describe('local billing lifecycle', () => {
     expect(JSON.stringify(dashboard.body)).not.toContain('entitlementId');
     expect(JSON.stringify(dashboard.body)).not.toContain('userId');
     const failed = await admin.call(`admin/billing/subscriptions/${subscriptionId}/simulate-failure`, 'POST', { reason: '支払失敗の結合試験' }); expect(failed.body.status).toBe('PAST_DUE');
+    expect(Object.keys(failed.body).sort()).toEqual(['graceEndsAt', 'id', 'status']);
     const recovered = await admin.call(`admin/billing/subscriptions/${subscriptionId}/recover`, 'POST', { reason: '支払回復の結合試験' }); expect(recovered.body.status).toBe('ACTIVE');
+    expect(Object.keys(recovered.body).sort()).toEqual(['currentPeriodEndsAt', 'id', 'status']);
     const attempts = await db.paymentTransaction.findMany({ where: { subscriptionId } }); expect(attempts.map(v => v.status)).toEqual(expect.arrayContaining(['SUCCEEDED', 'FAILED']));
     await expect(db.paymentTransaction.update({ where: { id: paymentId }, data: { amountYen: 1 } })).rejects.toThrow();
     const event = await db.billingEvent.findFirstOrThrow({ where: { subscriptionId } }); await expect(db.billingEvent.delete({ where: { id: event.id } })).rejects.toThrow();
@@ -101,6 +103,7 @@ describe('local billing lifecycle', () => {
     expect(review.body.pendingDayPassReviews).toEqual(expect.arrayContaining([expect.objectContaining({ id: pass.id, raceDate: '2026-01-03' })]));
     const first = await admin.call(`admin/billing/day-passes/${pass.id}/refund`, 'POST', { reason: 'WIN5紙面が公開されず利用開始できなかったため' });
     expect(first.status).toBe(201); expect(first.body.status).toBe('REFUNDED');
+    expect(Object.keys(first.body).sort()).toEqual(['dayPassId', 'refundPaymentId', 'status']);
     const replay = await admin.call(`admin/billing/day-passes/${pass.id}/refund`, 'POST', { reason: '状態再確認' });
     expect(replay.status).toBe(201); expect(replay.body.refundPaymentId).toBe(first.body.refundPaymentId);
     expect(await db.paymentTransaction.count({ where: { dayPassId: pass.id, status: 'REFUNDED' } })).toBe(1);

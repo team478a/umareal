@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Req, ServiceUnavailableException } from '@nestjs/common';
-import { adminBillingCouponsResponseSchema, adminBillingResponseSchema, billingCouponCreateSchema, billingCouponDeactivateSchema, billingCouponPreviewResponseSchema, billingCouponPreviewSchema, billingDayPassCheckoutResponseSchema, billingPlansResponseSchema, billingPortalResponseSchema, billingReceiptResponseSchema, billingReviewResolutionSchema, billingSubscriptionCheckoutResponseSchema, billingSubscriptionLifecycleResponseSchema, billingSupportRequestCreatedResponseSchema, billingSupportRequestSchema, billingSupportStatusSchema, canManage, dayPassCheckoutWithCouponSchema, jstDate, launchCapabilities, memberBillingResponseSchema, requiresMfa, resolveLaunchMode, subscriptionCheckoutSchema } from '@keiba/domain';
+import { adminBillingCheckoutResolutionResponseSchema, adminBillingCouponsResponseSchema, adminBillingDayPassRefundResponseSchema, adminBillingFailureSimulationResponseSchema, adminBillingRecoverySimulationResponseSchema, adminBillingResponseSchema, adminBillingSupportStatusResponseSchema, billingCouponCreateSchema, billingCouponDeactivateSchema, billingCouponPreviewResponseSchema, billingCouponPreviewSchema, billingDayPassCheckoutResponseSchema, billingPlansResponseSchema, billingPortalResponseSchema, billingReceiptResponseSchema, billingReviewResolutionSchema, billingSubscriptionCheckoutResponseSchema, billingSubscriptionLifecycleResponseSchema, billingSupportRequestCreatedResponseSchema, billingSupportRequestSchema, billingSupportStatusSchema, canManage, dayPassCheckoutWithCouponSchema, jstDate, launchCapabilities, memberBillingResponseSchema, requiresMfa, resolveLaunchMode, subscriptionCheckoutSchema } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -184,7 +184,7 @@ export class BillingController {
     if (this.transport() !== 'stripe') throw new ConflictException({ code: 'STRIPE_REVIEW_RESOLUTION_DISABLED', message: '要確認決済の解決はStripe接続環境で行ってください。' });
     z.string().uuid().parse(id);
     const input = billingReviewResolutionSchema.parse(body);
-    return this.adminResolution.resolveCheckoutReview(req, actor.id, id, input);
+    return adminBillingCheckoutResolutionResponseSchema.parse(await this.adminResolution.resolveCheckoutReview(req, actor.id, id, input));
   }
 
   @Post('admin/billing/day-passes/:id/refund')
@@ -192,7 +192,7 @@ export class BillingController {
     const actor = await this.staff(req, ['ADMIN']);
     const { reason } = reasonSchema.parse(body);
     z.string().uuid().parse(id);
-    return this.adminResolution.refundExpiredPendingDayPass(req, actor.id, id, reason);
+    return adminBillingDayPassRefundResponseSchema.parse(await this.adminResolution.refundExpiredPendingDayPass(req, actor.id, id, reason));
   }
 
   @Post('admin/billing/support-requests/:id/status')
@@ -200,7 +200,7 @@ export class BillingController {
     const actor = await this.staff(req, ['ADMIN']);
     z.string().uuid().parse(id);
     const input = billingSupportStatusSchema.parse(body);
-    return this.billingSupport.updateStatus(req, actor.id, id, input);
+    return adminBillingSupportStatusResponseSchema.parse(await this.billingSupport.updateStatus(req, actor.id, id, input));
   }
 
   @Post('admin/billing/subscriptions/:id/simulate-failure')
@@ -208,7 +208,7 @@ export class BillingController {
     const transport = this.transport(); const actor = await this.staff(req, ['ADMIN']);
     if (transport !== 'test') throw new ConflictException({ code: 'LOCAL_BILLING_SIMULATION_DISABLED', message: '外部決済契約はWebhookから同期してください。' });
     const { reason } = reasonSchema.parse(body); z.string().uuid().parse(id);
-    return this.localSimulation.simulateFailure(req, actor.id, id, reason);
+    return adminBillingFailureSimulationResponseSchema.parse(await this.localSimulation.simulateFailure(req, actor.id, id, reason));
   }
 
   @Post('admin/billing/subscriptions/:id/recover')
@@ -216,6 +216,6 @@ export class BillingController {
     const transport = this.transport(); const actor = await this.staff(req, ['ADMIN']);
     if (transport !== 'test') throw new ConflictException({ code: 'LOCAL_BILLING_SIMULATION_DISABLED', message: '外部決済契約はWebhookから同期してください。' });
     const { reason } = reasonSchema.parse(body); z.string().uuid().parse(id);
-    return this.localSimulation.simulateRecovery(req, actor.id, id, reason);
+    return adminBillingRecoverySimulationResponseSchema.parse(await this.localSimulation.simulateRecovery(req, actor.id, id, reason));
   }
 }

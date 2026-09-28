@@ -77,6 +77,7 @@ describe('billing support requests', () => {
     const started = await admin.call(`admin/billing/support-requests/${requestId}/status`, 'POST', { status: 'IN_PROGRESS', reason: '内容と対象決済を確認します。' });
     expect(started.status).toBe(201);
     expect(started.body.status).toBe('IN_PROGRESS');
+    expect(Object.keys(started.body).sort()).toEqual(['id', 'status', 'updatedAt']);
     const invalid = await admin.call(`admin/billing/support-requests/${requestId}/status`, 'POST', { status: 'OPEN', reason: '受付へ戻す試験' });
     expect(invalid.status).toBe(409);
     expect(invalid.body.code).toBe('BILLING_SUPPORT_TRANSITION_INVALID');
