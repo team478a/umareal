@@ -11,6 +11,7 @@ import { createDayPassAccess } from './day-pass-access';
 import Stripe from 'stripe';
 import { loadStripeConfig, type StripeRuntimeConfig } from './stripe-config';
 import { stripePriceMatchesCheckout } from './stripe-price';
+import { StripeCustomerGatewayService } from './stripe-customer-gateway.service';
 
 const reasonSchema = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 type BillingNotificationType = 'BILLING_PAYMENT_SUCCEEDED' | 'BILLING_PAYMENT_FAILED' | 'BILLING_PAYMENT_RECOVERED' | 'BILLING_CANCELLATION_SCHEDULED' | 'BILLING_CANCELLATION_REVERSED' | 'BILLING_SUBSCRIPTION_ENDED' | 'BILLING_REFUND_COMPLETED';
@@ -18,7 +19,10 @@ type StripeRefundContext = { checkoutId?: string; dayPassId?: string; subscripti
 
 @Controller()
 export class BillingController {
-  constructor(@Inject(AuthService) private readonly auth: AuthService) {}
+  constructor(
+    @Inject(AuthService) private readonly auth: AuthService,
+    @Inject(StripeCustomerGatewayService) private readonly stripeCustomer: StripeCustomerGatewayService
+  ) {}
 
   private transport() {
     if (!launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).billing) throw new ServiceUnavailableException({ code: 'BILLING_NOT_IN_LAUNCH', message: '有料プランは現在準備中です。' });
@@ -84,25 +88,8 @@ export class BillingController {
     const payment = await this.auth.db.paymentTransaction.findUnique({ where: { id } });
     if (!payment || payment.userId !== actor.id) throw new NotFoundException({ code: 'PAYMENT_NOT_FOUND', message: '対象の支払いを確認できません。' });
     if (payment.provider !== 'STRIPE' || payment.status !== 'SUCCEEDED') throw new ConflictException({ code: 'RECEIPT_NOT_AVAILABLE', message: 'この支払いには外部決済の領収書がありません。' });
-    const stripeConfig = await this.stripeConfig();
-    const client = this.stripeClient(stripeConfig);
-    let receiptUrl: string | null = null;
-    if (payment.providerPaymentId.startsWith('checkout:') || payment.providerPaymentId.startsWith('review-grant:')) {
-      const sessionId = payment.providerPaymentId.startsWith('review-grant:') ? payment.providerPaymentId.slice('review-grant:'.length) : payment.providerPaymentId.slice('checkout:'.length);
-      const session = await client.checkout.sessions.retrieve(sessionId, { expand: ['payment_intent.latest_charge', 'invoice'] });
-      const invoice = session.invoice && typeof session.invoice === 'object' ? session.invoice : null;
-      const intent = session.payment_intent && typeof session.payment_intent === 'object' ? session.payment_intent : null;
-      const charge = intent?.latest_charge && typeof intent.latest_charge === 'object' ? intent.latest_charge : null;
-      receiptUrl = charge?.receipt_url ?? invoice?.hosted_invoice_url ?? null;
-    } else if (payment.providerPaymentId.startsWith('invoice:')) {
-      const invoiceId = payment.providerPaymentId.slice('invoice:'.length).replace(/:paid$/, '');
-      const invoice = await client.invoices.retrieve(invoiceId);
-      receiptUrl = invoice.hosted_invoice_url ?? null;
-    }
-    if (!receiptUrl) throw new ConflictException({ code: 'RECEIPT_NOT_READY', message: '領収書はまだ発行されていません。時間をおいて再度お試しください。' });
-    const parsed = new URL(receiptUrl);
-    if (parsed.protocol !== 'https:' || !(parsed.hostname === 'stripe.com' || parsed.hostname.endsWith('.stripe.com'))) throw new ServiceUnavailableException({ code: 'RECEIPT_URL_INVALID', message: '領収書リンクを安全に確認できません。' });
-    return { paymentId: payment.id, receiptUrl: parsed.toString() };
+    const receiptUrl = await this.stripeCustomer.receiptUrl(payment.providerPaymentId);
+    return { paymentId: payment.id, receiptUrl };
   }
 
   @Post('billing/support-requests')
@@ -637,18 +624,9 @@ export class BillingController {
     if (actor.role !== 'MEMBER') throw new ForbiddenException({ code: 'MEMBER_REQUIRED', message: '会員本人としてログインしてください。' });
     const subscription = await this.auth.db.subscription.findFirst({ where: { userId: actor.id, provider: 'STRIPE', status: { in: ['TRIALING', 'ACTIVE', 'PAST_DUE'] } }, orderBy: { createdAt: 'desc' } });
     if (!subscription) throw new NotFoundException({ code: 'STRIPE_SUBSCRIPTION_NOT_FOUND', message: '管理できる月額契約がありません。' });
-    const stripeConfig = await this.stripeConfig();
-    const client = this.stripeClient(stripeConfig);
-    const external = await client.subscriptions.retrieve(subscription.providerSubscriptionId);
-    const customerId = this.providerId(external.customer);
-    if (!customerId) throw new ConflictException({ code: 'STRIPE_CUSTOMER_MISSING', message: 'Stripeの会員情報を確認できません。運営へお問い合わせください。' });
-    let session;
-    try { session = await client.billingPortal.sessions.create({ customer: customerId, return_url: `${process.env.APP_BASE_URL!}/account` }); }
-    catch { throw new ServiceUnavailableException({ code: 'STRIPE_PORTAL_UNAVAILABLE', message: '支払い方法の変更画面を開始できませんでした。時間をおいて再度お試しください。' }); }
-    const url = new URL(session.url);
-    if (url.protocol !== 'https:' || !(url.hostname === 'billing.stripe.com' || url.hostname.endsWith('.billing.stripe.com'))) throw new ServiceUnavailableException({ code: 'STRIPE_PORTAL_URL_INVALID', message: '支払い方法の変更画面を安全に確認できません。' });
+    const portalUrl = await this.stripeCustomer.customerPortalUrl(subscription.providerSubscriptionId, `${process.env.APP_BASE_URL!}/account`);
     await this.auth.audit(this.auth.db, req, 'STRIPE_CUSTOMER_PORTAL_OPENED', subscription.id, '会員本人による支払い管理画面の開始', {}, 'Subscription');
-    return { portalUrl: url.toString() };
+    return { portalUrl };
   }
 
   @Get('admin/billing')
