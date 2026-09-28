@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminReadinessResponseSchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
+import { acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminReadinessResponseSchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -57,7 +57,7 @@ export class AppController {
   @Patch('me/preferences') async preferences(@Body() body: unknown, @Req() req: AppRequest) {
     const identity = await this.auth.authenticate(req);
     const input = preferencesSchema.parse(body);
-    return this.auth.db.$transaction(async tx => {
+    const result = await this.auth.db.$transaction(async tx => {
       const user = await tx.user.findUniqueOrThrow({ where: { id: identity.id }, select: { emailDeliveryDisabledAt: true } });
       if (input.emailEnabled && user.emailDeliveryDisabledAt) throw new ConflictException({ code: 'EMAIL_DELIVERY_BLOCKED', message: '配信先で受信拒否が確認されたため、メール通知を再開できません。メールアドレスを変更してください。' });
       const before = await tx.notificationPreference.findUnique({ where: { userId: identity.id } });
@@ -65,6 +65,7 @@ export class AppController {
       await this.auth.audit(tx, req, 'PREFERENCES_UPDATE', identity.id, '通知設定の変更', { before, after: input });
       return { emailEnabled: next.emailEnabled, predictions: next.predictions, changes: next.changes, articles: next.articles, billing: next.billing };
     });
+    return notificationPreferencesResponseSchema.parse(result);
   }
   @Get('me/closure') async closureEligibility(@Req() req: AppRequest) {
     const identity = await this.auth.authenticate(req);

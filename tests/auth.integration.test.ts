@@ -47,7 +47,13 @@ describe('registration, account and session lifecycle', () => {
     expect(JSON.stringify(me.body)).not.toMatch(/passwordHash|mfaSecret|authSubject|externalMfaFactorId|externalBackupMfaFactorId|tokenHash|referralCode/);
     expect((await client.call('admin/users')).status).toBe(403);
     const preferences = { predictions: false, changes: true, articles: true, billing: false };
-    expect((await client.call('me/preferences', 'PATCH', preferences)).status).toBe(200);
+    const preferencesResponse = await client.call('me/preferences', 'PATCH', preferences);
+    expect(preferencesResponse.status).toBe(200);
+    expect(Object.keys(preferencesResponse.body).sort()).toEqual(['articles', 'billing', 'changes', 'emailEnabled', 'predictions'].sort());
+    expect(preferencesResponse.body).toEqual({ emailEnabled: true, ...preferences });
+    for (const privateKey of ['userId', 'emailDeliveryDisabledAt', 'passwordHash', 'token', 'secret']) {
+      expect(preferencesResponse.body).not.toHaveProperty(privateKey);
+    }
     const updatedMe = (await client.call('me')).body;
     expect(updatedMe.preferences).toMatchObject(preferences);
     expect(updatedMe.lineNotificationState).toBe('NOT_LINKED');
