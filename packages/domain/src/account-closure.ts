@@ -20,4 +20,11 @@ export const accountClosureEligibilityResponseSchema = z.object({
   retained: z.array(z.string().min(1))
 }).strict();
 
+export const accountClosureCompletionResponseSchema = z.object({
+  closedAt: accountClosureDateTimeSchema,
+  alreadyClosed: z.boolean(),
+  retainedHistory: z.literal(true)
+}).strict();
+
 export type AccountClosureEligibilityResponse = z.infer<typeof accountClosureEligibilityResponseSchema>;
+export type AccountClosureCompletionResponse = z.infer<typeof accountClosureCompletionResponseSchema>;

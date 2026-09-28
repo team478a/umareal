@@ -20,6 +20,9 @@ describe('account closure and retained history', () => {
     expect((await first.call('me/close', 'POST', { reasonCode: 'OTHER', confirmation: '退会する', currentPassword: 'wrong-password' })).status).toBe(401);
     const closed = await first.call('me/close', 'POST', { reasonCode: 'SERVICE_NO_LONGER_NEEDED', confirmation: '退会する', currentPassword: fixture.password });
     expect(closed.status).toBe(201); expect(closed.body).toMatchObject({ alreadyClosed: false, retainedHistory: true });
+    expect(Object.keys(closed.body).sort()).toEqual(['alreadyClosed', 'closedAt', 'retainedHistory'].sort());
+    expect(closed.body.closedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    expect(JSON.stringify(closed.body)).not.toMatch(/closureId|userId|auditLogId|reasonCode|retentionPolicyVersion/);
     expect(closed.headers.get('set-cookie')).toContain('keiba_session=;');
     expect((await first.call('me')).status).toBe(401); expect((await second.call('me')).status).toBe(401);
     expect((await new Client().call('auth/login', 'POST', { email: fixture.user.email, password: fixture.password })).status).toBe(401);
