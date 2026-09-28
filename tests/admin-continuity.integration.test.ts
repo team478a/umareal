@@ -34,7 +34,7 @@ describe('administrator continuity', () => {
     expect((await member.call('admin/continuity')).status).toBe(403);
 
     const payingMember = await account('MEMBER');
-    await db.billingCheckout.create({ data: { userId: payingMember.user.id, kind: 'SUBSCRIPTION', planCode: 'STANDARD', amountYen: 2980, status: 'OPEN', idempotencyKey: `admin-open-checkout:${payingMember.user.id}:${randomUUID()}`, requestHash: 'admin-open-checkout', providerSessionId: `cs_test_${randomUUID()}`, providerCheckoutUrl: 'https://checkout.stripe.test/session', expiresAt: new Date(Date.now() + 30 * 60000) } });
+    await db.billingCheckout.create({ data: { userId: payingMember.user.id, kind: 'SUBSCRIPTION', planCode: 'STANDARD', baseAmountYen: 2980, recurringAmountYen: 2980, amountYen: 2980, status: 'OPEN', idempotencyKey: `admin-open-checkout:${payingMember.user.id}:${randomUUID()}`, requestHash: 'admin-open-checkout', providerSessionId: `cs_test_${randomUUID()}`, providerCheckoutUrl: 'https://checkout.stripe.test/session', expiresAt: new Date(Date.now() + 30 * 60000) } });
     const blockedPromotion = await actor.call(`admin/continuity/administrators/${payingMember.user.id}/promote`, 'POST', { confirmationEmail: payingMember.user.email, reason: '決済中の昇格を拒否' });
     expect(blockedPromotion).toMatchObject({ status: 409, body: { code: 'ADMIN_ACTIVE_MEMBER_ACCESS' } });
   });

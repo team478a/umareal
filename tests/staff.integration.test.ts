@@ -35,7 +35,7 @@ describe('staff role management', () => {
     expect(administratorChange).toMatchObject({ status: 409, body: { code: 'STAFF_ADMIN_MANAGED_SEPARATELY' } });
 
     const payingMember = await account('MEMBER');
-    await db.billingCheckout.create({ data: { userId: payingMember.user.id, kind: 'SUBSCRIPTION', planCode: 'STANDARD', amountYen: 2980, status: 'OPEN', idempotencyKey: `staff-open-checkout:${payingMember.user.id}:${randomUUID()}`, requestHash: 'staff-open-checkout', providerSessionId: `cs_test_${randomUUID()}`, providerCheckoutUrl: 'https://checkout.stripe.test/session', expiresAt: new Date(Date.now() + 30 * 60000) } });
+    await db.billingCheckout.create({ data: { userId: payingMember.user.id, kind: 'SUBSCRIPTION', planCode: 'STANDARD', baseAmountYen: 2980, recurringAmountYen: 2980, amountYen: 2980, status: 'OPEN', idempotencyKey: `staff-open-checkout:${payingMember.user.id}:${randomUUID()}`, requestHash: 'staff-open-checkout', providerSessionId: `cs_test_${randomUUID()}`, providerCheckoutUrl: 'https://checkout.stripe.test/session', expiresAt: new Date(Date.now() + 30 * 60000) } });
     const payingMemberChange = await actor.call(`admin/staff/${payingMember.user.id}/role`, 'PATCH', { expectedRole: 'MEMBER', nextRole: 'EDITOR', confirmationEmail: payingMember.user.email, reason: '決済中の権限変更を拒否' });
     expect(payingMemberChange).toMatchObject({ status: 409, body: { code: 'STAFF_ACTIVE_MEMBER_ACCESS' } });
     expect((await db.user.findUniqueOrThrow({ where: { id: payingMember.user.id } })).role).toBe('MEMBER');

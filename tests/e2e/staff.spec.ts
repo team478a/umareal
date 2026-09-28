@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { account, db, totp } from '../helpers';
 test.afterAll(async () => {
   await db.systemSetting.update({ where: { id: 'global' }, data: { stripeSecretKeyEncrypted: null, stripeWebhookSecretEncrypted: null, stripeLiveMode: false, stripePriceFounder: null, stripePriceStandard: null, stripePriceDayPass: null } });
@@ -161,6 +161,14 @@ test('administrator must complete MFA before viewing member management', async (
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.goto('/admin/billing');
   await expect(page.getByRole('heading', { name: '契約・請求管理', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'クーポン発行・利用状況', exact: true })).toBeVisible();
+  const couponCode = `ADMIN_${randomBytes(5).toString('hex').toUpperCase()}`;
+  await page.getByLabel('クーポンコード').fill(couponCode);
+  await page.getByLabel('管理用名称').fill('管理画面E2E割引');
+  await page.getByLabel('発行・停止理由').fill('管理画面の発行操作確認');
+  await page.getByRole('button', { name: 'クーポンを発行', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('クーポンを発行しました');
+  await expect(page.getByRole('cell', { name: new RegExp(couponCode) })).toBeVisible();
   await expect(page.getByRole('heading', { name: '公開待ち期限切れの一日券', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '請求問い合わせ', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '支払試行履歴', exact: true })).toBeVisible();

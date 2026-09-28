@@ -97,11 +97,15 @@
 | GET | /billing/payments/:id/receipt | 本人所有の成功済みStripe支払。Stripe発行済みのHTTPS領収書・請求書URLだけを返す |
 | POST | /billing/checkout | 本人。確認済みメールと有効なログインID必須。FOUNDER/STANDARDの申込。Stripe時はHosted Checkout URLを返す。Idempotency-Key必須 |
 | POST | /billing/day-pass | 本人。確認済みメールと有効なログインID必須。JST開催日単位の申込。Stripe時はHosted Checkout URLを返す。Idempotency-Key必須 |
+| POST | /billing/coupons/preview | 本人。対象プランとコードを検証し、通常金額、割引額、今回支払額、月額割引期間を返す。予約・使用数には加算しない |
 | POST | /webhooks/stripe | Stripe署名必須。Checkout完了、月額更新、支払失敗・回復、解約予約・終了、`refund.created` / `refund.updated`を冪等反映 |
 | POST | /billing/subscriptions/:id/cancel | 本人。次回更新を停止し、支払済み期間の権限を維持 |
 | POST | /billing/subscriptions/:id/resume | 本人。解約予約を取り消して月額更新を継続 |
 | POST | /billing/portal | 本人。有効なStripe月額契約のCustomer Portal URLを返す。返却先はStripeのHTTPSホストだけを許可 |
 | GET | /admin/billing | ADMIN+AAL2。全会員の契約・1日利用・支払試行履歴と、支払済みだが権限未付与のCheckout |
+| GET | /admin/billing/coupons | ADMIN+AAL2。発行済みクーポン、対象、期間、上限、決済中件数、利用済み件数を取得 |
+| POST | /admin/billing/coupons | ADMIN+AAL2・理由必須。定率/定額、初回/継続、対象プラン、期間、任意の利用上限を固定して発行 |
+| POST | /admin/billing/coupons/:id/deactivate | ADMIN+AAL2・理由必須。新規利用を停止し、既存利用履歴と開始済みCheckoutを保持 |
 | POST | /admin/billing/checkouts/:id/resolve | ADMIN+AAL2・理由必須。要確認CheckoutをStripeで再検証して既存契約・一日利用へ接続するか、冪等に全額返金 |
 | POST | /admin/billing/day-passes/:id/refund | ADMIN+AAL2・理由必須。WIN5未公開のまま期限切れとなった未開始の購入一日券だけを全額返金。返金開始をDBで予約し、Stripe操作は固定キーで冪等化。中断時は同じ操作で再開 |
 | POST | /admin/billing/subscriptions/:id/simulate-failure | ADMIN+AAL2。理由必須のローカル支払失敗試験 |
@@ -182,6 +186,8 @@ WIN5初版・訂正版の公開時は商品公開版と通知eventを同じDBト
 ## 料金・契約
 
 `BILLING_TRANSPORT=test` はローカルと`CLOUD_STAGING`の請求なし検証専用で、外部通信、カード入力、実請求を行わない。`stripe` はHosted Checkoutと署名付きWebhookを使用する。`STRIPE_SANDBOX`では`stripe`とテストモード、`FREE_REGISTRATION`では`disabled`、`FULL`本番では`stripe`とライブモードだけを許可する。`GET /billing/plans`はStripe接続時に`stripeMode=TEST|LIVE`を返し、テスト画面が実請求と誤認されないようにする。新規購入停止は月額と1日利用の両方へ適用する。
+
+管理設定は全体停止に加え、創設会員、通常月額、1日利用の新規販売を個別に停止できる。クーポン付き申込ではサーバーが管理価格から割引を再計算し、`billing_checkouts`へ通常金額、割引額、今回支払額、月額継続金額を固定する。Stripe Priceは通常金額と照合し、割引はCheckout専用のStripe Couponを固定冪等キーで作成して適用する。コードのプレビューは利用枠を予約せず、実際のCheckout開始時に上限を直列化して予約する。
 
 `GET /api/v1/auth/config` は新規登録の受付状態と、停止中だけ会員向け案内を返す。`POST /api/v1/auth/register`、LINEの新規登録開始・確定は、管理設定で停止中の場合 `REGISTRATION_PAUSED`（503）を返す。ログイン、メール確認、パスワード再設定は停止対象に含めない。切替は `PATCH /api/v1/admin/settings` でADMIN+AAL2、現在のrevision、変更理由、停止時の会員向け案内を必須とする。
 

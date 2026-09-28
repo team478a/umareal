@@ -17,7 +17,7 @@ type Settings = {
     launchMode: string; authProvider: 'SUPABASE' | 'LOCAL_DEVELOPMENT'; applicationUrl: string | null; adminUrlConfigured: boolean; supabaseConfigured: boolean; sentryConfigured: boolean;
     transports: { captcha: string; mail: string; lineNotifications: string; lineLogin: string; billing: string };
   };
-  billing: { founderSalesEnabled: boolean; founderPriceYen: number; standardPriceYen: number; dayPassPriceYen: number; founderSalesLimit: number; billingGraceDays: number };
+  billing: { founderSalesEnabled: boolean; standardSalesEnabled: boolean; dayPassSalesEnabled: boolean; founderPriceYen: number; standardPriceYen: number; dayPassPriceYen: number; founderSalesLimit: number; billingGraceDays: number };
   stripe: {
     source: 'ADMIN' | 'ENVIRONMENT'; liveMode: boolean; secretKeyConfigured: boolean; webhookSecretConfigured: boolean;
     priceFounder: string | null; priceStandard: string | null; priceDayPass: string | null;
@@ -120,7 +120,7 @@ export function AdminSettings() {
       </div></section>
       <section className="panel"><div className="panel-heading"><div><span className="eyebrow">BILLING</span><h2>料金・契約設定</h2></div><span className="status-tag warning">開発初期値</span></div><div className="panel-body">
         <div className="notice">正式な販売条件ではありません。価格、創設会員枠、支払猶予は本番開始前に確定してください。</div>
-        <label className="setting-row"><span><strong>創設会員プランを販売</strong><small>全体の新規購入が有効で、販売枠に空きがある場合だけ申込できます。</small></span><input aria-label="創設会員プランを販売" type="checkbox" checked={settings.billing.founderSalesEnabled} onChange={event => setSettings({ ...settings, billing: { ...settings.billing, founderSalesEnabled: event.target.checked } })} /></label>
+        {([['founderSalesEnabled', '創設会員プランを販売', '全体の新規購入が有効で、販売枠に空きがある場合だけ申込できます。'], ['standardSalesEnabled', '通常月額プランを販売', '停止中も既存契約の更新・解約は継続し、新規申込だけを止めます。'], ['dayPassSalesEnabled', '1日利用を販売', '停止中は新しい1日利用の申込だけを止めます。']] as const).map(([key, label, description]) => <label className="setting-row" key={key}><span><strong>{label}</strong><small>{description}</small></span><input aria-label={label} type="checkbox" checked={settings.billing[key]} onChange={event => setSettings({ ...settings, billing: { ...settings.billing, [key]: event.target.checked } })} /></label>)}
         <div className="race-form-grid">{([
           ['founderPriceYen', '創設会員 月額（税込）', 0, 1000000], ['standardPriceYen', '通常会員 月額（税込）', 0, 1000000], ['dayPassPriceYen', '1日利用（税込）', 0, 1000000], ['founderSalesLimit', '創設会員の販売上限', 1, 100000], ['billingGraceDays', '支払失敗後の猶予日数', 0, 30]
         ] as const).map(([key, label, min, max]) => <label className="field" key={key}>{label}<input aria-label={label} type="number" min={min} max={max} value={settings.billing[key]} onChange={event => setSettings({ ...settings, billing: { ...settings.billing, [key]: Number(event.target.value) } })} /></label>)}</div>

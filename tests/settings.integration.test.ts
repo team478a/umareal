@@ -30,7 +30,7 @@ describe('audited administration settings', () => {
       captcha: { enabled: true, siteKey: '0x4AAAA-test-site-key', secret: turnstileSecret, clearSecret: false },
       maintenanceMessage: '結合試験中', notificationPolicy: { maxAttempts: 4, baseDelaySeconds: 45 },
       publicationPolicy: { correction: 'EXPERT_OR_ADMIN', delayedRace: 'LATEST_STARTS_AT' },
-      billing: { founderSalesEnabled: false, founderPriceYen: 1980, standardPriceYen: 2980, dayPassPriceYen: 980, founderSalesLimit: 100, billingGraceDays: 0 },
+      billing: { founderSalesEnabled: false, standardSalesEnabled: true, dayPassSalesEnabled: true, founderPriceYen: 1980, standardPriceYen: 2980, dayPassPriceYen: 980, founderSalesLimit: 100, billingGraceDays: 0 },
       stripe: { liveMode: false, secretKey: stripeSecretKey, webhookSecret: stripeWebhookSecret, clearSecretKey: false, clearWebhookSecret: false, priceFounder: 'price_Founder123', priceStandard: 'price_Standard123', priceDayPass: 'price_DayPass123' },
       mail: { apiKey: mailApiKey, webhookSecret: mailWebhookSecret, from: '競馬会員メディア <notice@example.test>', clearApiKey: false, clearWebhookSecret: false },
       line: { channelId: '1234567890', channelSecret, channelAccessToken, clearChannelSecret: false, clearChannelAccessToken: false, loginChannelId: '9876543210', loginChannelSecret, loginCallbackUrl: 'https://example.test/api/v1/auth/line/callback', clearLoginChannelSecret: false }

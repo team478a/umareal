@@ -80,7 +80,7 @@ export class AdminSettingsController {
         }
       },
       billing: {
-        founderSalesEnabled: value.founderSalesEnabled, founderPriceYen: value.founderPriceYen,
+        founderSalesEnabled: value.founderSalesEnabled, standardSalesEnabled: value.standardSalesEnabled, dayPassSalesEnabled: value.dayPassSalesEnabled, founderPriceYen: value.founderPriceYen,
         standardPriceYen: value.standardPriceYen, dayPassPriceYen: value.dayPassPriceYen,
         founderSalesLimit: value.founderSalesLimit, billingGraceDays: value.billingGraceDays
       },

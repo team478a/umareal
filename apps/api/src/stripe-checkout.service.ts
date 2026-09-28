@@ -4,10 +4,11 @@ import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
 import { loadStripeConfig } from './stripe-config';
 import { stripePriceMatchesCheckout } from './stripe-price';
+import { BillingCouponService } from './billing-coupon.service';
 
 @Injectable()
 export class StripeCheckoutService {
-  constructor(@Inject(AuthService) private readonly auth: AuthService) {}
+  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(BillingCouponService) private readonly coupons: BillingCouponService) {}
 
   protected async configuredClient() {
     const config = await loadStripeConfig(this.auth.db);
@@ -15,7 +16,7 @@ export class StripeCheckoutService {
     return { config, client: new Stripe(config.secretKey!) };
   }
 
-  async create(req: AppRequest, userId: string, email: string | null, kind: 'SUBSCRIPTION' | 'DAY_PASS', planCode: 'FOUNDER' | 'STANDARD' | 'DAY_PASS', raceDate: string | null, idempotencyKey: string, requestHash: string) {
+  async create(req: AppRequest, userId: string, email: string | null, kind: 'SUBSCRIPTION' | 'DAY_PASS', planCode: 'FOUNDER' | 'STANDARD' | 'DAY_PASS', raceDate: string | null, couponCode: string | undefined, idempotencyKey: string, requestHash: string) {
     if (!email) throw new ForbiddenException({ code: 'VERIFIED_EMAIL_REQUIRED', message: '確認済みメールアドレスが必要です。' });
     const { config: stripeConfig, client } = await this.configuredClient();
     const reservation = await this.auth.db.$transaction(async tx => {
@@ -45,12 +46,19 @@ export class StripeCheckoutService {
         ]);
         if (sold + pending >= settings.founderSalesLimit) throw new ConflictException({ code: 'FOUNDER_LIMIT_REACHED', message: '創設会員プランは販売上限に達しました。' });
       }
+      if (planCode === 'STANDARD' && !settings.standardSalesEnabled) throw new ConflictException({ code: 'STANDARD_SALES_CLOSED', message: '通常月額プランは現在販売していません。' });
+      if (planCode === 'DAY_PASS' && !settings.dayPassSalesEnabled) throw new ConflictException({ code: 'DAY_PASS_SALES_CLOSED', message: '1日利用は現在販売していません。' });
       if (kind === 'DAY_PASS' && await tx.dayPass.count({ where: { userId, raceDate: raceDate! } })) throw new ConflictException({ code: 'DAY_PASS_EXISTS', message: 'この開催日の1日利用は登録済みです。' });
-      const amountYen = existing?.amountYen ?? (planCode === 'FOUNDER' ? settings.founderPriceYen : planCode === 'STANDARD' ? settings.standardPriceYen : settings.dayPassPriceYen);
+      const baseAmountYen = existing?.baseAmountYen ?? (planCode === 'FOUNDER' ? settings.founderPriceYen : planCode === 'STANDARD' ? settings.standardPriceYen : settings.dayPassPriceYen);
+      const coupon = couponCode ? await this.coupons.quoteForPurchase(tx, { userId, planCode, baseAmountYen, code: couponCode }) : null;
+      const discountAmountYen = coupon?.discountAmountYen ?? 0;
+      const amountYen = coupon?.amountYen ?? baseAmountYen;
+      const recurringAmountYen = kind === 'SUBSCRIPTION' ? coupon?.coupon.duration === 'FOREVER' ? amountYen : baseAmountYen : null;
       const expiresAt = new Date(now.getTime() + 30 * 60000);
       const checkout = existing
-        ? await tx.billingCheckout.update({ where: { id: existing.id }, data: { status: 'INITIATED', expiresAt } })
-        : await tx.billingCheckout.create({ data: { userId, kind, planCode, raceDate, amountYen, idempotencyKey, requestHash, expiresAt } });
+        ? await tx.billingCheckout.update({ where: { id: existing.id }, data: { status: 'INITIATED', baseAmountYen, discountAmountYen, amountYen, recurringAmountYen, couponId: coupon?.coupon.id ?? null, expiresAt } })
+        : await tx.billingCheckout.create({ data: { userId, kind, planCode, raceDate, baseAmountYen, discountAmountYen, amountYen, recurringAmountYen, couponId: coupon?.coupon.id ?? null, idempotencyKey, requestHash, expiresAt } });
+      if (coupon) await this.coupons.reserveQuoted(tx, { userId, couponId: coupon.coupon.id, checkoutId: checkout.id, reservedUntil: expiresAt });
       return { response: null, checkout };
     }, { timeout: 20000, maxWait: 10000 });
     if (reservation.response) return reservation.response;
@@ -63,24 +71,41 @@ export class StripeCheckoutService {
     try { stripePrice = await client.prices.retrieve(price!); }
     catch {
       await this.auth.db.billingCheckout.updateMany({ where: { id: checkout.id, status: 'INITIATED' }, data: { status: 'FAILED' } });
+      await this.coupons.releaseCheckout(checkout.id);
       throw new ServiceUnavailableException({ code: 'STRIPE_PRICE_UNAVAILABLE', message: '料金設定を確認できません。時間をおいて再度お試しください。' });
     }
-    if (!stripePriceMatchesCheckout(stripePrice, amountYen, kind)) {
+    if (!stripePriceMatchesCheckout(stripePrice, checkout.baseAmountYen, kind)) {
       await this.auth.db.billingCheckout.updateMany({ where: { id: checkout.id, status: 'INITIATED' }, data: { status: 'FAILED' } });
+      await this.coupons.releaseCheckout(checkout.id);
       throw new ServiceUnavailableException({ code: 'STRIPE_PRICE_MISMATCH', message: '料金設定が申込内容と一致しません。運営へお問い合わせください。' });
     }
     let session;
-    try { session = await client.checkout.sessions.create({ mode: kind === 'SUBSCRIPTION' ? 'subscription' : 'payment', payment_method_types: ['card'], client_reference_id: checkout.id, customer_email: email, line_items: [{ price: price!, quantity: 1 }], metadata, ...(kind === 'SUBSCRIPTION' ? { subscription_data: { metadata } } : { payment_intent_data: { metadata } }), success_url: `${baseUrl}/account?checkout=success`, cancel_url: `${baseUrl}/plans?checkout=canceled`, expires_at: Math.floor(checkout.expiresAt.getTime() / 1000) }, { idempotencyKey }); }
+    try {
+      let discounts: Stripe.Checkout.SessionCreateParams.Discount[] | undefined;
+      if (checkout.couponId) {
+        const coupon = await this.auth.db.billingCoupon.findUniqueOrThrow({ where: { id: checkout.couponId } });
+        const stripeCoupon = await client.coupons.create({
+          duration: coupon.duration === 'FOREVER' ? 'forever' : 'once',
+          name: coupon.name,
+          amount_off: checkout.discountAmountYen,
+          currency: 'jpy'
+        }, { idempotencyKey: `billing-coupon:${checkout.id}` });
+        discounts = [{ coupon: stripeCoupon.id }];
+      }
+      session = await client.checkout.sessions.create({ mode: kind === 'SUBSCRIPTION' ? 'subscription' : 'payment', payment_method_types: ['card'], client_reference_id: checkout.id, customer_email: email, line_items: [{ price: price!, quantity: 1 }], ...(discounts ? { discounts } : {}), metadata, ...(kind === 'SUBSCRIPTION' ? { subscription_data: { metadata } } : { payment_intent_data: { metadata } }), success_url: `${baseUrl}/account?checkout=success`, cancel_url: `${baseUrl}/plans?checkout=canceled`, expires_at: Math.floor(checkout.expiresAt.getTime() / 1000) }, { idempotencyKey });
+    }
     catch {
       await this.auth.db.billingCheckout.updateMany({ where: { id: checkout.id, status: 'INITIATED' }, data: { status: 'FAILED' } });
+      await this.coupons.releaseCheckout(checkout.id);
       throw new ServiceUnavailableException({ code: 'STRIPE_CHECKOUT_UNAVAILABLE', message: '決済画面を開始できませんでした。時間をおいて再度お試しください。' });
     }
     if (!session.url) {
       await this.auth.db.billingCheckout.updateMany({ where: { id: checkout.id, status: 'INITIATED' }, data: { status: 'FAILED' } });
+      await this.coupons.releaseCheckout(checkout.id);
       throw new ServiceUnavailableException({ code: 'STRIPE_CHECKOUT_URL_MISSING', message: '決済画面を開始できませんでした。' });
     }
     await this.auth.db.billingCheckout.update({ where: { id: checkout.id }, data: { status: 'OPEN', providerSessionId: session.id, providerCheckoutUrl: session.url, expiresAt: new Date(session.expires_at * 1000) } });
-    await this.auth.audit(this.auth.db, req, 'STRIPE_CHECKOUT_CREATED', checkout.id, '会員本人による外部決済開始', { kind, planCode, amountYen, raceDate }, 'BillingCheckout');
+    await this.auth.audit(this.auth.db, req, 'STRIPE_CHECKOUT_CREATED', checkout.id, '会員本人による外部決済開始', { kind, planCode, baseAmountYen: checkout.baseAmountYen, discountAmountYen: checkout.discountAmountYen, amountYen, couponId: checkout.couponId, raceDate }, 'BillingCheckout');
     return { checkoutId: checkout.id, checkoutUrl: session.url, status: 'OPEN' };
   }
 }

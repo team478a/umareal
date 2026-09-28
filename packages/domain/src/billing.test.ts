@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addCalendarMonthUtc, adminBillingResponseSchema, billingPlansResponseSchema, billingReviewResolutionSchema, dayPassCheckoutSchema, dayPassWindow, memberBillingResponseSchema } from './index';
+import { addCalendarMonthUtc, adminBillingResponseSchema, billingCouponCreateSchema, billingPlansResponseSchema, billingReviewResolutionSchema, dayPassCheckoutSchema, dayPassCheckoutWithCouponSchema, dayPassWindow, memberBillingResponseSchema } from './index';
 
 describe('billing periods', () => {
   it('uses an exclusive JST day-pass boundary', () => {
@@ -7,6 +7,14 @@ describe('billing periods', () => {
     expect(window.startsAt.toISOString()).toBe('2027-01-01T15:00:00.000Z');
     expect(window.endsAt.toISOString()).toBe('2027-01-02T15:00:00.000Z');
     expect(dayPassCheckoutSchema.safeParse({ raceDate: '2027-02-30' }).success).toBe(false);
+    expect(dayPassCheckoutWithCouponSchema.parse({ raceDate: '2027-02-07', couponCode: 'save_10' })).toEqual({ raceDate: '2027-02-07', couponCode: 'SAVE_10' });
+    expect(dayPassCheckoutWithCouponSchema.safeParse({ raceDate: '2027-02-30', couponCode: 'SAVE_10' }).success).toBe(false);
+  });
+  it('validates coupon definitions without exposing arbitrary plan codes', () => {
+    const input = { code: 'WELCOME10', name: '初回割引', discountType: 'PERCENT' as const, discountValue: 10, duration: 'ONCE' as const, applicablePlanCodes: ['STANDARD' as const, 'STANDARD' as const], startsAt: '2027-01-01T00:00:00.000Z', endsAt: '2027-02-01T00:00:00.000Z', maxRedemptions: 100, reason: '初回登録キャンペーン' };
+    expect(billingCouponCreateSchema.parse(input).applicablePlanCodes).toEqual(['STANDARD']);
+    expect(billingCouponCreateSchema.safeParse({ ...input, discountValue: 101 }).success).toBe(false);
+    expect(billingCouponCreateSchema.safeParse({ ...input, applicablePlanCodes: ['INTERNAL'] }).success).toBe(false);
   });
   it('clamps the local simulation calendar month', () => {
     expect(addCalendarMonthUtc(new Date('2027-01-31T05:00:00Z')).toISOString()).toBe('2027-02-28T05:00:00.000Z');

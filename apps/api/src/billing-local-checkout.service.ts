@@ -5,12 +5,13 @@ import { randomUUID } from 'node:crypto';
 import { AuthService } from './auth.service';
 import { recordBillingEvent } from './billing-events';
 import { createDayPassAccess } from './day-pass-access';
+import { BillingCouponService } from './billing-coupon.service';
 
 @Injectable()
 export class BillingLocalCheckoutService {
-  constructor(@Inject(AuthService) private readonly auth: AuthService) {}
+  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(BillingCouponService) private readonly coupons: BillingCouponService) {}
 
-  async subscription(userId: string, planCode: 'FOUNDER' | 'STANDARD', key: string, requestHash: string) {
+  async subscription(userId: string, planCode: 'FOUNDER' | 'STANDARD', couponCode: string | undefined, key: string, requestHash: string) {
     try {
       return await this.auth.db.$transaction(async tx => {
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`billing:${userId}`}))::text`;
@@ -27,13 +28,18 @@ export class BillingLocalCheckoutService {
           const sold = await tx.subscription.count({ where: { planCode: 'FOUNDER' } });
           if (sold >= settings.founderSalesLimit) throw new ConflictException({ code: 'FOUNDER_LIMIT_REACHED', message: '創設会員プランは販売上限に達しました。' });
         }
+        if (planCode === 'STANDARD' && !settings.standardSalesEnabled) throw new ConflictException({ code: 'STANDARD_SALES_CLOSED', message: '通常月額プランは現在販売していません。' });
         const now = new Date();
         const endsAt = addCalendarMonthUtc(now);
-        const priceYen = planCode === 'FOUNDER' ? settings.founderPriceYen : settings.standardPriceYen;
+        const basePriceYen = planCode === 'FOUNDER' ? settings.founderPriceYen : settings.standardPriceYen;
+        const coupon = couponCode ? await this.coupons.quoteForPurchase(tx, { userId, planCode, baseAmountYen: basePriceYen, code: couponCode }) : null;
+        const paymentAmountYen = coupon?.amountYen ?? basePriceYen;
+        const priceYen = coupon?.coupon.duration === 'FOREVER' ? paymentAmountYen : basePriceYen;
         const entitlement = await tx.entitlement.create({ data: { userId, planCode, startsAt: now, endsAt, reason: 'LOCAL_TEST_SUBSCRIPTION', grantedBy: userId } });
         const subscription = await tx.subscription.create({ data: { userId, planCode, status: 'ACTIVE', priceYen, currentPeriodStartsAt: now, currentPeriodEndsAt: endsAt, provider: 'LOCAL_TEST', providerSubscriptionId: `local-sub-${randomUUID()}`, entitlementId: entitlement.id } });
-        const payment = await tx.paymentTransaction.create({ data: { userId, provider: 'LOCAL_TEST', providerPaymentId: `local-pay-${randomUUID()}`, kind: 'SUBSCRIPTION', status: 'SUCCEEDED', amountYen: priceYen, subscriptionId: subscription.id } });
-        await recordBillingEvent(tx, { userId, eventType: 'SUBSCRIPTION_STARTED', subscriptionId: subscription.id, actorId: userId, details: { planCode, priceYen, developmentSimulation: true } }, 'BILLING_PAYMENT_SUCCEEDED');
+        const payment = await tx.paymentTransaction.create({ data: { userId, provider: 'LOCAL_TEST', providerPaymentId: `local-pay-${randomUUID()}`, kind: 'SUBSCRIPTION', status: 'SUCCEEDED', amountYen: paymentAmountYen, subscriptionId: subscription.id } });
+        if (coupon) await this.coupons.recordLocalRedemption(tx, { userId, couponId: coupon.coupon.id, paymentTransactionId: payment.id });
+        await recordBillingEvent(tx, { userId, eventType: 'SUBSCRIPTION_STARTED', subscriptionId: subscription.id, actorId: userId, details: { planCode, priceYen, chargedAmountYen: paymentAmountYen, discountAmountYen: coupon?.discountAmountYen ?? 0, couponId: coupon?.coupon.id ?? null, developmentSimulation: true } }, 'BILLING_PAYMENT_SUCCEEDED');
         const response = { subscriptionId: subscription.id, paymentId: payment.id, status: subscription.status, currentPeriodEndsAt: endsAt };
         await tx.idempotencyKey.create({ data: { key, requestHash, response } });
         return response;
@@ -46,7 +52,7 @@ export class BillingLocalCheckoutService {
     }
   }
 
-  async dayPass(userId: string, raceDate: string, key: string, requestHash: string) {
+  async dayPass(userId: string, raceDate: string, couponCode: string | undefined, key: string, requestHash: string) {
     try {
       return await this.auth.db.$transaction(async tx => {
         const previous = await tx.idempotencyKey.findUnique({ where: { key } });
@@ -56,9 +62,13 @@ export class BillingLocalCheckoutService {
         }
         const settings = await tx.systemSetting.findUniqueOrThrow({ where: { id: 'global' } });
         if (!settings.newPurchasesEnabled) throw new ServiceUnavailableException({ code: 'PURCHASES_STOPPED', message: '現在、新規購入を停止しています。' });
-        const access = await createDayPassAccess(tx, { userId, raceDate, priceYen: settings.dayPassPriceYen, provider: 'LOCAL_TEST', providerPassId: `local-pass-${randomUUID()}`, reason: 'LOCAL_TEST_DAY_PASS', actorId: userId, source: 'LOCAL_TEST' });
+        if (!settings.dayPassSalesEnabled) throw new ConflictException({ code: 'DAY_PASS_SALES_CLOSED', message: '1日利用は現在販売していません。' });
+        const coupon = couponCode ? await this.coupons.quoteForPurchase(tx, { userId, planCode: 'DAY_PASS', baseAmountYen: settings.dayPassPriceYen, code: couponCode }) : null;
+        const paymentAmountYen = coupon?.amountYen ?? settings.dayPassPriceYen;
+        const access = await createDayPassAccess(tx, { userId, raceDate, priceYen: paymentAmountYen, provider: 'LOCAL_TEST', providerPassId: `local-pass-${randomUUID()}`, reason: 'LOCAL_TEST_DAY_PASS', actorId: userId, source: 'LOCAL_TEST' });
         const pass = access.pass;
-        const payment = await tx.paymentTransaction.create({ data: { userId, provider: 'LOCAL_TEST', providerPaymentId: `local-pay-${randomUUID()}`, kind: 'DAY_PASS', status: 'SUCCEEDED', amountYen: settings.dayPassPriceYen, dayPassId: pass.id } });
+        const payment = await tx.paymentTransaction.create({ data: { userId, provider: 'LOCAL_TEST', providerPaymentId: `local-pay-${randomUUID()}`, kind: 'DAY_PASS', status: 'SUCCEEDED', amountYen: paymentAmountYen, dayPassId: pass.id } });
+        if (coupon) await this.coupons.recordLocalRedemption(tx, { userId, couponId: coupon.coupon.id, paymentTransactionId: payment.id });
         await tx.notificationEvent.create({ data: { billingEventId: access.billingEvent.id, eventType: 'BILLING_PAYMENT_SUCCEEDED', status: 'QUEUED', payload: { billingEventId: access.billingEvent.id } } });
         const response = { dayPassId: pass.id, paymentId: payment.id, status: pass.status, startsAt: access.startsAt, endsAt: access.endsAt, waitingForPublication: access.waitingForPublication };
         await tx.idempotencyKey.create({ data: { key, requestHash, response } });

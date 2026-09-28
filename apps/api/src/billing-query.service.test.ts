@@ -17,7 +17,7 @@ describe('BillingQueryService', () => {
     const subscriptionCount = vi.fn().mockResolvedValue(2);
     const checkoutCount = vi.fn().mockResolvedValue(1);
     const db = {
-      systemSetting: { findUniqueOrThrow: vi.fn().mockResolvedValue({ newPurchasesEnabled: true, founderSalesEnabled: true, founderPriceYen: 1980, standardPriceYen: 2980, dayPassPriceYen: 980, founderSalesLimit: 5 }) },
+      systemSetting: { findUniqueOrThrow: vi.fn().mockResolvedValue({ newPurchasesEnabled: true, founderSalesEnabled: true, standardSalesEnabled: true, dayPassSalesEnabled: true, founderPriceYen: 1980, standardPriceYen: 2980, dayPassPriceYen: 980, founderSalesLimit: 5 }) },
       subscription: { count: subscriptionCount },
       billingCheckout: { count: checkoutCount },
     };
