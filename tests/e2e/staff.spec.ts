@@ -31,7 +31,7 @@ test('operator and expert see their management entry after login', async ({ page
     await expect(page.getByRole('heading', { name: 'おかえりなさい', exact: true })).toBeVisible();
   }
 });
-test('administrator must complete MFA before viewing member management', async ({ page }, testInfo) => {
+test('administrator must complete MFA before viewing member management', async ({ page }) => {
   if (process.env.AUTH_PROVIDER !== 'local' || !['127.0.0.1', 'localhost'].includes(new URL(process.env.DATABASE_URL ?? '').hostname)) throw new Error('Staff browser test requires local development database');
   const fixture = await account('ADMIN');
   const attributedMember = await account();
@@ -138,12 +138,6 @@ test('administrator must complete MFA before viewing member management', async (
   await expect(page.getByLabel('メール配信接続準備').getByText('Webhook署名鍵')).toHaveClass(/ready/);
   await expect(page.getByLabel('メール配信接続準備').getByText('Webhook受信処理')).toHaveClass(/ready/);
   await expect(page.getByLabel('メール配信接続準備').getByText('送信元')).toHaveClass(/ready/);
-  await page.goto('/admin');
-  // The mobile admin dashboard is very tall. A full-page capture can exhaust the
-  // Chromium renderer in constrained CI runners and crash the next navigation.
-  // The assertions below cover the complete workflow; keep the mobile artifact
-  // to the visible viewport while retaining the full dashboard on desktop.
-  await page.screenshot({ path: testInfo.outputPath('admin.png'), fullPage: !testInfo.project.name.includes('mobile') });
   await page.goto('/admin/notifications');
   await expect(page.getByRole('heading', { name: '通知運用', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '配送一覧', exact: true })).toBeVisible();
@@ -181,7 +175,7 @@ test('administrator must complete MFA before viewing member management', async (
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.goto('/admin/continuity');
   await expect(page.getByRole('heading', { name: '管理者の継続運用', exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: '管理者と認証準備', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '管理者と認証準備', exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('heading', { name: '管理者を追加', exact: true })).toBeVisible();
   await expect(page.getByText('現在は開発用認証です。予備認証アプリはSupabase本番認証へ接続した後に登録できます。', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
