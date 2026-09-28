@@ -32,13 +32,19 @@ describe('registration, account and session lifecycle', () => {
     expect(verified.headers.get('set-cookie')).toContain('HttpOnly');
     expect((await client.call('auth/email/verify', 'POST', { token })).status).toBe(400);
     const me = await client.call('me');
+    expect(Object.keys(me.body).sort()).toEqual([
+      'aal', 'consents', 'displayName', 'email', 'emailDeliveryDisabledAt', 'emailDeliveryDisabledReason',
+      'emailNotificationReady', 'emailNotificationState', 'emailVerified', 'entitlements', 'hasPassword', 'id',
+      'lineLinked', 'lineNotificationReady', 'lineNotificationState', 'mfaBackupEnabled', 'mfaBackupSupported',
+      'mfaEnabled', 'mfaRequired', 'preferences', 'registrationMethod', 'role'
+    ].sort());
     expect(me.body.role).toBe('MEMBER');
     expect(me.body.emailVerified).toBe(true);
     expect(me.body.registrationMethod).toBe('EMAIL');
     expect(me.body).toMatchObject({ lineLinked: false, lineNotificationReady: false, lineNotificationState: 'NOT_LINKED' });
     expect(me.body.consents).toHaveLength(3);
     expect(me.body.preferences).toEqual({ emailEnabled: true, predictions: true, changes: true, articles: false, billing: true });
-    expect(JSON.stringify(me.body)).not.toMatch(/passwordHash|mfaSecret|tokenHash/);
+    expect(JSON.stringify(me.body)).not.toMatch(/passwordHash|mfaSecret|authSubject|externalMfaFactorId|externalBackupMfaFactorId|tokenHash|referralCode/);
     expect((await client.call('admin/users')).status).toBe(403);
     const preferences = { predictions: false, changes: true, articles: true, billing: false };
     expect((await client.call('me/preferences', 'PATCH', preferences)).status).toBe(200);
