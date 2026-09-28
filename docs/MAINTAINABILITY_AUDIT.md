@@ -94,6 +94,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 管理者請求読み取りpilot: 契約、一日利用、支払、Stripe申込・Webhook、請求問い合わせ、期限切れ公開待ち一日券、要確認Checkoutの限定問合せを`BillingQueryService`へ分離する。ControllerにはADMIN+AAL2認可と共有Contract検証を残し、抽出条件、最大件数、並び順、API URL・応答項目・DB schema、管理操作は変更しない。
 - ローカル申込pilot: 請求なしtest transportの月額・一日利用申込について、冪等性、創設会員枠、価格、契約・支払・閲覧権限、課金event・通知eventの同一トランザクション処理を`BillingLocalCheckoutService`へ分離する。Controllerにはtransport分岐、MEMBER本人認証、確認済みログイン、入力・日付・Idempotency-Key検証を残し、API URL・応答・エラーコード・期間・価格・DB schemaは変更しない。Stripe申込は既存`StripeCheckoutService`を維持する。
 - 会員アカウント読み取りpilot: `GET /me`の本人情報、通知状態、有効な閲覧権限、同意履歴の限定取得と既存共有Contractへの整形を`MemberAccountQueryService`へ分離する。Controllerには本人認証を残し、通知状態・MFA・パスワード準備判定、API URL・応答項目・DB schemaは変更しない。DB取得列は応答判定に必要な項目だけへ限定し、認証subject、password hash、MFA secretは公開Contractから引き続き除外する。
+- 会員退会orchestration pilot: `GET /me/closure`の月額・一日利用・進行中Checkoutの阻害確認と、`POST /me/close`のadvisory lock、再検査、退会記録・監査の追記、通知・LINE・閲覧権限・未使用認証フロー・全セッションの一括停止を`AccountClosureService`へ分離する。Controllerには本人認証、MEMBER限定、確認文言・理由・現在パスワード検証、成功後のCookie削除を残し、保持方針、API URL・応答、エラーコード、DB schemaは変更しない。
 
 ### MA-005 DBアクセス境界（後続PR候補）
 
