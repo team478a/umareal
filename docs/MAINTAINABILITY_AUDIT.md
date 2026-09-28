@@ -84,9 +84,10 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - ログインorchestration pilot: ローカル認証の同一コスト照合・確認済みメール判定・旧セッション破棄・新規セッション発行と、Supabase認証の会員照合・メール確認同期・初回ログイン記録・紹介成立・監査を`AuthLoginService`へ分離する。Controllerは入力検証、認証方式の分岐、Cookie反映を担当し、API URL・応答、エラーコード、AAL1開始、セッション期限、紹介成立条件は変更しない。callback・refresh・logoutの分離は後続候補のままとする。
 - 認証セッションライフサイクルpilot: SupabaseのPKCE callback完了・会員照合・確認済みメール同期・signup時だけの紹介成立・refresh時の有効会員再確認・Provider logout監査と、ローカルlogoutの現セッション失効・監査を`AuthSessionLifecycleService`へ分離する。Controllerはcodeとflow Cookieの検証、成功・失敗リダイレクト、session Cookieの設定・削除を担当し、API URL・応答・リダイレクト先・監査・紹介成立条件・Cookie属性は変更しない。
 - Stripe会員セルフサービスgateway pilot: 外部決済済み領収書URLの解決とStripe Customer Portal Session作成を`StripeCustomerGatewayService`へ分離する。Controllerは本人認証、支払い・契約の所有権確認、監査を担当し、Stripe Checkout、Webhook、返金、契約状態、API URL・応答・エラーコード、許可するStripe HTTPSドメインは変更しない。
-- Stripe Webhook適用処理pilot: 署名・動作モード検証、イベント冪等性、Checkout完了、請求成功・失敗、契約更新・終了、返金同期を`StripeWebhookService`へ分離する。HTTP endpointはControllerに残し、課金イベントと通知eventのappend処理は共通関数を利用する。トランザクション、advisory lock、AuditLog、DayPass・Entitlement、API URL・応答・エラーコードは変更しない。管理者返金操作の分離は後続候補のままとする。
-- Stripe Checkout作成pilot: 月額契約と一日利用の申込予約、重複・創設会員上限確認、Stripe Price照合、Checkout Session作成、監査を`StripeCheckoutService`へ分離する。Controllerは本人認証、確認済みメール判定、入力検証、idempotency key生成を担当し、API URL・応答・エラーコード・価格・有効期限・DB schemaは変更しない。管理者返金操作の分離は後続候補のままとする。
-- 月額契約ライフサイクルpilot: 会員本人による解約予約・解約予約取消、Stripe契約同期、課金イベント、通知event、監査を`BillingSubscriptionLifecycleService`へ分離する。Controllerは起動モード・transport確認、本人認証、UUID検証を担当し、API URL・応答・エラーコード・支払済み期間の閲覧権限・DB schemaは変更しない。管理者返金操作の分離は後続候補のままとする。
+- Stripe Webhook適用処理pilot: 署名・動作モード検証、イベント冪等性、Checkout完了、請求成功・失敗、契約更新・終了、返金同期を`StripeWebhookService`へ分離する。HTTP endpointはControllerに残し、課金イベントと通知eventのappend処理は共通関数を利用する。トランザクション、advisory lock、AuditLog、DayPass・Entitlement、API URL・応答・エラーコードは変更しない。管理者課金例外操作はこのpilotでは変更しない。
+- Stripe Checkout作成pilot: 月額契約と一日利用の申込予約、重複・創設会員上限確認、Stripe Price照合、Checkout Session作成、監査を`StripeCheckoutService`へ分離する。Controllerは本人認証、確認済みメール判定、入力検証、idempotency key生成を担当し、API URL・応答・エラーコード・価格・有効期限・DB schemaは変更しない。管理者課金例外操作はこのpilotでは変更しない。
+- 月額契約ライフサイクルpilot: 会員本人による解約予約・解約予約取消、Stripe契約同期、課金イベント、通知event、監査を`BillingSubscriptionLifecycleService`へ分離する。Controllerは起動モード・transport確認、本人認証、UUID検証を担当し、API URL・応答・エラーコード・支払済み期間の閲覧権限・DB schemaは変更しない。管理者課金例外操作はこのpilotでは変更しない。
+- 管理者課金例外解決pilot: 要確認Checkoutの返金・閲覧権限付与と、公開待ちのまま期限を過ぎた購入一日券の返金を`BillingAdminResolutionService`へ分離する。ControllerはADMIN+AAL2、Stripe transport、UUIDと理由・解決方法の入力検証を担当する。既存のadvisory lock、Stripe冪等キー、支払履歴・課金event・通知event・AuditLogの追記、返金対象条件、API URL・応答・エラーコード・DB schemaは変更しない。外部Stripe APIを使うsandbox/live返金疎通は引き続き本番外の手動確認対象とする。
 
 ### MA-005 DBアクセス境界（後続PR候補）
 
