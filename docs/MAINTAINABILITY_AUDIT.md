@@ -153,6 +153,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 会員向け請求操作応答pilot: 月額契約の解約予約・継続再開と請求問い合わせ受付の既存成功応答を共有Contractへ接続し、アカウント画面も同じ型を参照する。冪等再送を含む応答項目、契約状態遷移、支払済み期間、問い合わせ内容・権限・監査、API URL、画面表示、DB schemaは変更しない。会員IDと決済事業者側IDなど既存応答にない内部項目の追加を厳格なContractとcharacterization testで拒否する。
 - 管理者向け請求操作応答pilot: 要確認Checkoutの解決、期限切れ公開待ち一日券の返金、請求問い合わせ状態更新、ローカル試験の支払失敗・回復の既存成功応答を共有Contractへ接続し、管理画面も同じ型を参照する。ADMIN+AAL2認可、状態遷移、返金・Stripe処理、監査、API URL、画面表示、DB schemaは変更しない。会員ID、決済事業者側ID、操作担当者IDなど既存応答にない内部項目の追加を厳格なContractとcharacterization testで拒否する。
 - 会員行動記録pilot: `POST /me/journey`の料金プラン閲覧、申込確認、LINE案内閲覧の入力と既存成功応答を共有Contractへ接続し、利用する3画面も同じ型を参照する。初回ログイン記録、重複防止、ファネル集計、MEMBER認可、API URL、画面表示、DB schemaは変更しない。会員IDなど既存応答にない情報の追加を厳格なContractとcharacterization testで拒否する。
+- 退会条件確認pilot: `GET /me/closure`の退会可否、本人確認要否、契約・一日券・決済中の停止理由、保持方針の既存応答を共有Contractへ接続し、退会画面の手書き型を置き換える。MEMBER認可、退会条件、停止処理、保持対象、画面表示、DB schemaは変更しない。会員IDや請求内部IDなど既存応答にない情報の追加を厳格なContractとcharacterization testで拒否する。
 
 ### MA-007 CIジョブ構成
 
