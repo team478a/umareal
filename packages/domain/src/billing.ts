@@ -6,6 +6,15 @@ export const subscriptionPlans = ['FOUNDER', 'STANDARD'] as const;
 export const billingPlanCodes = ['FOUNDER', 'STANDARD', 'DAY_PASS'] as const;
 export const billingCouponCodeSchema = z.string().trim().toUpperCase().regex(/^[A-Z0-9][A-Z0-9_-]{3,31}$/);
 export const subscriptionCheckoutSchema = z.object({ planCode: z.enum(subscriptionPlans), couponCode: billingCouponCodeSchema.optional() }).strict();
+const httpsUrlSchema = z.string().url().refine(value => new URL(value).protocol === 'https:', 'HTTPS URLを指定してください。');
+const stripeReceiptUrlSchema = httpsUrlSchema.refine(value => {
+  const hostname = new URL(value).hostname;
+  return hostname === 'stripe.com' || hostname.endsWith('.stripe.com');
+}, 'Stripeの領収書URLを指定してください。');
+const stripePortalUrlSchema = httpsUrlSchema.refine(value => {
+  const hostname = new URL(value).hostname;
+  return hostname === 'billing.stripe.com' || hostname.endsWith('.billing.stripe.com');
+}, 'Stripeの請求管理URLを指定してください。');
 const founderBillingPlanSchema = z.object({
   code: z.literal('FOUNDER'),
   name: z.literal('創設会員'),
@@ -42,6 +51,33 @@ const billingDateTimeSchema = z.preprocess(
   value => value instanceof Date ? value.toISOString() : value,
   z.string().datetime({ offset: true })
 );
+const stripeCheckoutResponseSchema = z.object({
+  checkoutId: z.string().uuid(),
+  checkoutUrl: httpsUrlSchema,
+  status: z.string().min(1)
+}).strict();
+const localSubscriptionCheckoutResponseSchema = z.object({
+  subscriptionId: z.string().uuid(),
+  paymentId: z.string().uuid(),
+  status: z.string().min(1),
+  currentPeriodEndsAt: billingDateTimeSchema
+}).strict();
+const localDayPassCheckoutResponseSchema = z.object({
+  dayPassId: z.string().uuid(),
+  paymentId: z.string().uuid(),
+  status: z.string().min(1),
+  startsAt: billingDateTimeSchema.nullable(),
+  endsAt: billingDateTimeSchema,
+  waitingForPublication: z.boolean()
+}).strict();
+export const billingSubscriptionCheckoutResponseSchema = z.union([stripeCheckoutResponseSchema, localSubscriptionCheckoutResponseSchema]);
+export const billingDayPassCheckoutResponseSchema = z.union([stripeCheckoutResponseSchema, localDayPassCheckoutResponseSchema]);
+export const billingReceiptResponseSchema = z.object({ paymentId: z.string().uuid(), receiptUrl: stripeReceiptUrlSchema }).strict();
+export const billingPortalResponseSchema = z.object({ portalUrl: stripePortalUrlSchema }).strict();
+export type BillingSubscriptionCheckoutResponse = z.infer<typeof billingSubscriptionCheckoutResponseSchema>;
+export type BillingDayPassCheckoutResponse = z.infer<typeof billingDayPassCheckoutResponseSchema>;
+export type BillingReceiptResponse = z.infer<typeof billingReceiptResponseSchema>;
+export type BillingPortalResponse = z.infer<typeof billingPortalResponseSchema>;
 const memberSubscriptionSchema = z.object({
   id: z.string().uuid(),
   planCode: z.string(),

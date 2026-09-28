@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addCalendarMonthUtc, adminBillingResponseSchema, billingCouponCreateSchema, billingPlansResponseSchema, billingReviewResolutionSchema, dayPassCheckoutSchema, dayPassCheckoutWithCouponSchema, dayPassWindow, memberBillingResponseSchema } from './index';
+import { addCalendarMonthUtc, adminBillingResponseSchema, billingCouponCreateSchema, billingDayPassCheckoutResponseSchema, billingPlansResponseSchema, billingPortalResponseSchema, billingReceiptResponseSchema, billingReviewResolutionSchema, billingSubscriptionCheckoutResponseSchema, dayPassCheckoutSchema, dayPassCheckoutWithCouponSchema, dayPassWindow, memberBillingResponseSchema } from './index';
 
 describe('billing periods', () => {
   it('uses an exclusive JST day-pass boundary', () => {
@@ -40,6 +40,33 @@ describe('billing periods', () => {
     };
     expect(billingPlansResponseSchema.parse(response)).toEqual(response);
     expect(() => billingPlansResponseSchema.parse({ ...response, stripeSecretKey: 'secret' })).toThrow();
+  });
+  it('shares the existing checkout and Stripe self-service response contracts', () => {
+    const subscription = {
+      subscriptionId: '30000000-0000-4000-8000-000000000001',
+      paymentId: '30000000-0000-4000-8000-000000000002',
+      status: 'ACTIVE',
+      currentPeriodEndsAt: new Date('2027-02-01T00:00:00Z')
+    };
+    expect(billingSubscriptionCheckoutResponseSchema.parse(subscription)).toEqual({ ...subscription, currentPeriodEndsAt: '2027-02-01T00:00:00.000Z' });
+    expect(() => billingSubscriptionCheckoutResponseSchema.parse({ ...subscription, providerSubscriptionId: 'sub_secret' })).toThrow();
+
+    const dayPass = {
+      dayPassId: '30000000-0000-4000-8000-000000000003',
+      paymentId: '30000000-0000-4000-8000-000000000004',
+      status: 'PENDING',
+      startsAt: null,
+      endsAt: new Date('2027-02-07T15:00:00Z'),
+      waitingForPublication: true
+    };
+    expect(billingDayPassCheckoutResponseSchema.parse(dayPass)).toEqual({ ...dayPass, endsAt: '2027-02-07T15:00:00.000Z' });
+    expect(billingSubscriptionCheckoutResponseSchema.parse({ checkoutId: '30000000-0000-4000-8000-000000000005', checkoutUrl: 'https://checkout.stripe.com/c/pay/test', status: 'OPEN' })).toMatchObject({ status: 'OPEN' });
+
+    const receipt = { paymentId: '30000000-0000-4000-8000-000000000004', receiptUrl: 'https://pay.stripe.com/receipts/test' };
+    expect(billingReceiptResponseSchema.parse(receipt)).toEqual(receipt);
+    expect(billingReceiptResponseSchema.safeParse({ ...receipt, receiptUrl: 'https://stripe.com.example.test/receipt' }).success).toBe(false);
+    expect(billingPortalResponseSchema.parse({ portalUrl: 'https://billing.stripe.com/p/session/test' })).toEqual({ portalUrl: 'https://billing.stripe.com/p/session/test' });
+    expect(billingPortalResponseSchema.safeParse({ portalUrl: 'http://billing.stripe.com/p/session/test' }).success).toBe(false);
   });
   it('keeps member billing responses public and serializes database timestamps', () => {
     const response = {

@@ -3,8 +3,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ArrowRight, CreditCard, ShieldCheck } from 'lucide-react';
-import type { AdminBillingResponse, BillingPlansResponse, MemberBillingResponse } from '@keiba/domain';
-import type { BillingCouponPreviewResponse } from '@keiba/domain';
+import type { AdminBillingResponse, BillingCouponPreviewResponse, BillingDayPassCheckoutResponse, BillingPlansResponse, BillingPortalResponse, BillingReceiptResponse, BillingSubscriptionCheckoutResponse, MemberBillingResponse } from '@keiba/domain';
 import { AdminBillingCoupons } from './billing-coupons';
 
 type Plan = BillingPlansResponse['plans'][number];
@@ -31,10 +30,10 @@ export function PlansPage({ loggedIn, purchaseReady, refresh }: { loggedIn: bool
   useEffect(() => { if (selected) document.getElementById('plan-review')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, [selected]);
   async function buy(plan: Plan) { setBusy(true); setError(''); setMessage(''); try {
     const couponInput = coupon?.planCode === plan.code ? { couponCode: coupon.code } : {};
-    const result = plan.code === 'DAY_PASS'
-      ? (raceDate ? await request<{ checkoutUrl?: string }>('billing/day-pass', 'POST', { raceDate, ...couponInput }, true) : (() => { throw new Error('利用する開催日を選択してください。'); })())
-      : await request<{ checkoutUrl?: string }>('billing/checkout', 'POST', { planCode: plan.code, ...couponInput }, true);
-    if (result.checkoutUrl) { window.location.assign(result.checkoutUrl); return; }
+    const result: BillingSubscriptionCheckoutResponse | BillingDayPassCheckoutResponse = plan.code === 'DAY_PASS'
+      ? (raceDate ? await request<BillingDayPassCheckoutResponse>('billing/day-pass', 'POST', { raceDate, ...couponInput }, true) : (() => { throw new Error('利用する開催日を選択してください。'); })())
+      : await request<BillingSubscriptionCheckoutResponse>('billing/checkout', 'POST', { planCode: plan.code, ...couponInput }, true);
+    if ('checkoutUrl' in result) { window.location.assign(result.checkoutUrl); return; }
     await refresh(); setSelected(null); setMessage(`${plan.name}のテスト申込を登録しました。実際の請求はありません。`);
   } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
   async function applyCoupon(plan: Plan) { setBusy(true); setError(''); setMessage(''); try {
@@ -60,14 +59,14 @@ export function BillingAccount() {
   useEffect(() => { void load(); }, []);
   async function cancel(id: string) { setError(''); try { await request(`billing/subscriptions/${id}/cancel`, 'POST'); setMessage('次回更新を停止しました。支払済み期間の終了まで閲覧できます。'); await load(); } catch (e) { setError((e as Error).message); } }
   async function resume(id: string) { setError(''); try { await request(`billing/subscriptions/${id}/resume`, 'POST'); setMessage('月額契約の継続を再開しました。'); await load(); } catch (e) { setError((e as Error).message); } }
-  async function openPortal() { setError(''); try { const result = await request<{ portalUrl: string }>('billing/portal', 'POST'); window.location.assign(result.portalUrl); } catch (e) { setError((e as Error).message); } }
+  async function openPortal() { setError(''); try { const result = await request<BillingPortalResponse>('billing/portal', 'POST'); window.location.assign(result.portalUrl); } catch (e) { setError((e as Error).message); } }
   async function createSupportRequest() { setError(''); setMessage(''); setSupportBusy(true); try {
     const needsPayment = supportCategory === 'REFUND' || supportCategory === 'RECEIPT';
     if (needsPayment && !supportPaymentId) throw new Error('対象の支払いを選択してください。');
     await request('billing/support-requests', 'POST', { category: supportCategory, paymentTransactionId: supportPaymentId || null, message: supportMessage }, true);
     setSupportMessage(''); setSupportPaymentId(''); setMessage('請求に関する問い合わせを受け付けました。'); await load();
   } catch (e) { setError((e as Error).message); } finally { setSupportBusy(false); } }
-  async function openReceipt(id: string) { setError(''); try { const result = await request<{ receiptUrl: string }>(`billing/payments/${id}/receipt`); window.location.assign(result.receiptUrl); } catch (e) { setError((e as Error).message); } }
+  async function openReceipt(id: string) { setError(''); try { const result = await request<BillingReceiptResponse>(`billing/payments/${id}/receipt`); window.location.assign(result.receiptUrl); } catch (e) { setError((e as Error).message); } }
   return <section className="panel settings-panel"><div className="panel-heading"><div><span className="eyebrow">BILLING</span><h2>契約・お支払い履歴</h2></div><CreditCard size={20} /></div><div className="panel-body"><Notice value={error} error /><Notice value={message} />{!data ? <p>読み込み中…</p> : <>
     {!data.subscriptions.length && !data.dayPasses.length ? <p className="muted">契約はありません。 <Link className="text-link" href="/plans">料金プランを見る</Link></p> : <div className="billing-contracts">{data.subscriptions.map(s => <div className="billing-contract" key={s.id}><div><strong>{s.planCode} 月額契約</strong><small>{money(s.priceYen)} · {s.status} · 閲覧期限 {date(s.currentPeriodEndsAt)}{s.status === 'PAST_DUE' && s.graceEndsAt ? ` · 支払猶予 ${date(s.graceEndsAt)}まで` : ''}</small></div><div className="review-actions">{!s.cancelAtPeriodEnd && ['ACTIVE','PAST_DUE','TRIALING'].includes(s.status) && <button className="button secondary small" onClick={() => void cancel(s.id)}>次回更新を停止</button>}{s.cancelAtPeriodEnd && <><span className="status-tag warning">解約予約済み</span><button className="button secondary small" onClick={() => void resume(s.id)}>継続する</button></>}</div></div>)}{data.dayPasses.map(p => <div className="billing-contract" key={p.id}><div><strong>{p.raceDate} 1日利用</strong><small>{money(p.priceYen)} · {dayPassStatusLabels[p.status] ?? p.status}</small></div></div>)}</div>}
     {data.customerPortalAvailable && <div className="billing-portal-action"><button className="button secondary" onClick={() => void openPortal()}>支払い方法・請求情報を管理</button><p className="muted">Stripeの安全な画面でカード情報を変更できます。</p></div>}
