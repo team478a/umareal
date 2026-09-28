@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addCalendarMonthUtc, adminBillingResponseSchema, billingCouponCreateSchema, billingDayPassCheckoutResponseSchema, billingPlansResponseSchema, billingPortalResponseSchema, billingReceiptResponseSchema, billingReviewResolutionSchema, billingSubscriptionCheckoutResponseSchema, billingSubscriptionLifecycleResponseSchema, billingSupportRequestCreatedResponseSchema, dayPassCheckoutSchema, dayPassCheckoutWithCouponSchema, dayPassWindow, memberBillingResponseSchema } from './index';
+import { addCalendarMonthUtc, adminBillingCheckoutResolutionResponseSchema, adminBillingDayPassRefundResponseSchema, adminBillingFailureSimulationResponseSchema, adminBillingRecoverySimulationResponseSchema, adminBillingResponseSchema, adminBillingSupportStatusResponseSchema, billingCouponCreateSchema, billingDayPassCheckoutResponseSchema, billingPlansResponseSchema, billingPortalResponseSchema, billingReceiptResponseSchema, billingReviewResolutionSchema, billingSubscriptionCheckoutResponseSchema, billingSubscriptionLifecycleResponseSchema, billingSupportRequestCreatedResponseSchema, dayPassCheckoutSchema, dayPassCheckoutWithCouponSchema, dayPassWindow, memberBillingResponseSchema } from './index';
 
 describe('billing periods', () => {
   it('uses an exclusive JST day-pass boundary', () => {
@@ -87,6 +87,21 @@ describe('billing periods', () => {
     } as const;
     expect(billingSupportRequestCreatedResponseSchema.parse(support)).toEqual({ ...support, createdAt: '2027-03-01T01:00:00.000Z' });
     expect(() => billingSupportRequestCreatedResponseSchema.parse({ ...support, userId: '30000000-0000-4000-8000-000000000009' })).toThrow();
+  });
+  it('shares administrator billing action responses without exposing provider or actor identifiers', () => {
+    const checkoutId = '40000000-0000-4000-8000-000000000001';
+    const paymentId = '40000000-0000-4000-8000-000000000002';
+    const subscriptionId = '40000000-0000-4000-8000-000000000003';
+    const supportId = '40000000-0000-4000-8000-000000000004';
+    expect(adminBillingCheckoutResolutionResponseSchema.parse({ checkoutId, status: 'REVIEW_ACCESS_GRANTED' })).toEqual({ checkoutId, status: 'REVIEW_ACCESS_GRANTED' });
+    expect(() => adminBillingCheckoutResolutionResponseSchema.parse({ checkoutId, status: 'REVIEW_REFUNDED', providerRefundId: 're_internal' })).toThrow();
+    expect(adminBillingDayPassRefundResponseSchema.parse({ dayPassId: checkoutId, status: 'REFUNDED', refundPaymentId: paymentId })).toEqual({ dayPassId: checkoutId, status: 'REFUNDED', refundPaymentId: paymentId });
+    expect(() => adminBillingDayPassRefundResponseSchema.parse({ dayPassId: checkoutId, status: 'REFUNDED', refundPaymentId: paymentId, userId: subscriptionId })).toThrow();
+    expect(adminBillingSupportStatusResponseSchema.parse({ id: supportId, status: 'IN_PROGRESS', updatedAt: new Date('2027-03-02T00:00:00Z') })).toEqual({ id: supportId, status: 'IN_PROGRESS', updatedAt: '2027-03-02T00:00:00.000Z' });
+    expect(() => adminBillingSupportStatusResponseSchema.parse({ id: supportId, status: 'RESOLVED', updatedAt: new Date(), actorId: subscriptionId })).toThrow();
+    expect(adminBillingFailureSimulationResponseSchema.parse({ id: subscriptionId, status: 'PAST_DUE', graceEndsAt: new Date('2027-03-10T00:00:00Z') })).toEqual({ id: subscriptionId, status: 'PAST_DUE', graceEndsAt: '2027-03-10T00:00:00.000Z' });
+    expect(adminBillingRecoverySimulationResponseSchema.parse({ id: subscriptionId, status: 'ACTIVE', currentPeriodEndsAt: new Date('2027-04-01T00:00:00Z') })).toEqual({ id: subscriptionId, status: 'ACTIVE', currentPeriodEndsAt: '2027-04-01T00:00:00.000Z' });
+    expect(() => adminBillingRecoverySimulationResponseSchema.parse({ id: subscriptionId, status: 'ACTIVE', currentPeriodEndsAt: new Date(), providerSubscriptionId: 'sub_internal' })).toThrow();
   });
   it('keeps member billing responses public and serializes database timestamps', () => {
     const response = {

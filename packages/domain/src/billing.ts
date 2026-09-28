@@ -87,12 +87,41 @@ export const billingSupportRequestCreatedResponseSchema = z.object({
   paymentTransactionId: z.string().uuid().nullable(),
   createdAt: billingDateTimeSchema
 }).strict();
+export const adminBillingCheckoutResolutionResponseSchema = z.object({
+  checkoutId: z.string().uuid(),
+  status: z.enum(['REVIEW_ACCESS_GRANTED', 'REVIEW_REFUNDED'])
+}).strict();
+export const adminBillingDayPassRefundResponseSchema = z.object({
+  dayPassId: z.string().uuid(),
+  status: z.literal('REFUNDED'),
+  refundPaymentId: z.string().uuid()
+}).strict();
+export const adminBillingSupportStatusResponseSchema = z.object({
+  id: z.string().uuid(),
+  status: z.enum(billingSupportStatuses),
+  updatedAt: billingDateTimeSchema
+}).strict();
+export const adminBillingFailureSimulationResponseSchema = z.object({
+  id: z.string().uuid(),
+  status: z.literal('PAST_DUE'),
+  graceEndsAt: billingDateTimeSchema
+}).strict();
+export const adminBillingRecoverySimulationResponseSchema = z.object({
+  id: z.string().uuid(),
+  status: z.literal('ACTIVE'),
+  currentPeriodEndsAt: billingDateTimeSchema
+}).strict();
 export type BillingSubscriptionCheckoutResponse = z.infer<typeof billingSubscriptionCheckoutResponseSchema>;
 export type BillingDayPassCheckoutResponse = z.infer<typeof billingDayPassCheckoutResponseSchema>;
 export type BillingReceiptResponse = z.infer<typeof billingReceiptResponseSchema>;
 export type BillingPortalResponse = z.infer<typeof billingPortalResponseSchema>;
 export type BillingSubscriptionLifecycleResponse = z.infer<typeof billingSubscriptionLifecycleResponseSchema>;
 export type BillingSupportRequestCreatedResponse = z.infer<typeof billingSupportRequestCreatedResponseSchema>;
+export type AdminBillingCheckoutResolutionResponse = z.infer<typeof adminBillingCheckoutResolutionResponseSchema>;
+export type AdminBillingDayPassRefundResponse = z.infer<typeof adminBillingDayPassRefundResponseSchema>;
+export type AdminBillingSupportStatusResponse = z.infer<typeof adminBillingSupportStatusResponseSchema>;
+export type AdminBillingFailureSimulationResponse = z.infer<typeof adminBillingFailureSimulationResponseSchema>;
+export type AdminBillingRecoverySimulationResponse = z.infer<typeof adminBillingRecoverySimulationResponseSchema>;
 const memberSubscriptionSchema = z.object({
   id: z.string().uuid(),
   planCode: z.string(),

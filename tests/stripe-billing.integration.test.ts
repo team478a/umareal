@@ -90,6 +90,16 @@ stripe('Stripe checkout webhook', () => {
     expect(aal1.body.code).toBe('MFA_REQUIRED');
   });
 
+  it('returns the existing terminal review resolution through the public contract', async () => {
+    const fixture = await account();
+    const checkout = await db.billingCheckout.create({ data: { userId: fixture.user.id, kind: 'DAY_PASS', planCode: 'DAY_PASS', raceDate: '2027-10-04', baseAmountYen: 980, amountYen: 980, status: 'REVIEW_REFUNDED', idempotencyKey: `review-contract:${fixture.user.id}:${randomUUID()}`, requestHash: 'review-contract', providerSessionId: `cs_test_${randomUUID()}`, providerCheckoutUrl: 'https://checkout.stripe.test/session', expiresAt: new Date(Date.now() + 30 * 60000), completedAt: new Date() } });
+    const admin = new Client(); await admin.login(await account('ADMIN')); await admin.mfa();
+    const response = await admin.call(`admin/billing/checkouts/${checkout.id}/resolve`, 'POST', { action: 'REFUND', reason: '完了済み処理の応答確認' });
+    expect(response.status).toBe(201);
+    expect(response.body).toEqual({ checkoutId: checkout.id, status: 'REVIEW_REFUNDED' });
+    expect(Object.keys(response.body).sort()).toEqual(['checkoutId', 'status']);
+  });
+
   it('synchronizes a successful Stripe refund for a review checkout exactly once', async () => {
     const fixture = await account();
     const checkout = await db.billingCheckout.create({ data: { userId: fixture.user.id, kind: 'DAY_PASS', planCode: 'DAY_PASS', raceDate: '2027-10-03', baseAmountYen: 980, amountYen: 980, status: 'REJECTED_EXISTING_ACCESS', idempotencyKey: `review-refund:${fixture.user.id}:${randomUUID()}`, requestHash: 'review-refund', providerSessionId: `cs_test_${randomUUID()}`, providerCheckoutUrl: 'https://checkout.stripe.test/session', expiresAt: new Date(Date.now() + 30 * 60000), completedAt: new Date() } });
