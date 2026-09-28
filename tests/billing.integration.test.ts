@@ -62,7 +62,17 @@ describe('local billing lifecycle', () => {
   it('restricts administration to AAL2 and records failure/recovery as append-only history', async () => {
     expect((await member.call('admin/billing')).status).toBe(403);
     const admin = new Client(); await admin.login(await account('ADMIN')); expect((await admin.call('admin/billing')).body.code).toBe('MFA_REQUIRED'); await admin.mfa();
-    expect((await admin.call('admin/billing')).status).toBe(200);
+    const dashboard = await admin.call('admin/billing');
+    expect(dashboard.status).toBe(200);
+    expect(Object.keys(dashboard.body).sort()).toEqual(['billingTransport', 'checkouts', 'dayPasses', 'payments', 'pendingDayPassReviews', 'reviewCheckouts', 'stripeWebhooks', 'subscriptions', 'supportRequests']);
+    const dashboardSubscription = dashboard.body.subscriptions.find((item: { id: string }) => item.id === subscriptionId);
+    expect(Object.keys(dashboardSubscription).sort()).toEqual(['cancelAtPeriodEnd', 'currentPeriodEndsAt', 'graceEndsAt', 'id', 'planCode', 'priceYen', 'status', 'user']);
+    const dashboardPayment = dashboard.body.payments.find((item: { id: string }) => item.id === paymentId);
+    expect(Object.keys(dashboardPayment).sort()).toEqual(['amountYen', 'id', 'kind', 'occurredAt', 'provider', 'status', 'user']);
+    expect(JSON.stringify(dashboard.body)).not.toContain('providerPaymentId');
+    expect(JSON.stringify(dashboard.body)).not.toContain('providerSubscriptionId');
+    expect(JSON.stringify(dashboard.body)).not.toContain('entitlementId');
+    expect(JSON.stringify(dashboard.body)).not.toContain('userId');
     const failed = await admin.call(`admin/billing/subscriptions/${subscriptionId}/simulate-failure`, 'POST', { reason: '支払失敗の結合試験' }); expect(failed.body.status).toBe('PAST_DUE');
     const recovered = await admin.call(`admin/billing/subscriptions/${subscriptionId}/recover`, 'POST', { reason: '支払回復の結合試験' }); expect(recovered.body.status).toBe('ACTIVE');
     const attempts = await db.paymentTransaction.findMany({ where: { subscriptionId } }); expect(attempts.map(v => v.status)).toEqual(expect.arrayContaining(['SUCCEEDED', 'FAILED']));
