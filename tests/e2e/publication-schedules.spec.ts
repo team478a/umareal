@@ -12,8 +12,19 @@ test('staff previews scheduled race announcements and free reports on mobile-rea
   const event = await db.notificationEvent.create({ data: { announcementId: announcement.id, eventType: 'RACE_ANNOUNCED', status: 'FAILED', expandedAt: new Date(), emailExpandedAt: new Date(), payload: { raceId: race.id } } });
   await db.notificationDelivery.createMany({ data: [{ eventId: event.id, userId: admin.user.id, channel: 'LINE', status: 'SENT', sentAt: new Date(), idempotencyKey: `e2e-line:${randomUUID()}` }, { eventId: event.id, userId: admin.user.id, channel: 'EMAIL', status: 'FAILED', lastErrorCode: 'TEST_FAILURE', idempotencyKey: `e2e-email:${randomUUID()}` }] });
   const client = new Client(); await client.login(admin); await client.mfa(); await page.context().addCookies([{ name: 'keiba_session', value: client.cookie.split('=')[1], domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
-  await page.goto('/admin/publication-schedules'); await expect(page.getByRole('heading', { name: '配信予約・アラート' })).toBeVisible(); await page.getByLabel('開催日').fill(raceDate);
-  const card = page.locator('.schedule-race').filter({ hasText: race.name }); await expect(card).toBeVisible(); await expect(card.getByRole('heading', { name: '配信結果' })).toBeVisible(); await expect(card.locator('.delivery-result')).toContainText('Web掲載'); await expect(card.locator('.delivery-result-channels')).toContainText('送信1・待ち0・失敗0'); await expect(card.locator('.delivery-result-channels')).toContainText('送信0・待ち0・失敗1'); await expect(card.getByRole('link', { name: '受信者別の詳細' })).toHaveAttribute('href', `/admin/notifications?raceId=${race.id}`);
+  let releaseInitialRequest = () => {};
+  const holdInitialRequest = new Promise<void>(resolve => { releaseInitialRequest = resolve; });
+  let initialRequestUrl = '';
+  await page.route('**/api/v1/admin/publication-schedules?date=*', async route => {
+    const requestUrl = route.request().url();
+    if (!initialRequestUrl && new URL(requestUrl).searchParams.get('date') !== raceDate) {
+      initialRequestUrl = requestUrl;
+      await holdInitialRequest;
+    }
+    await route.continue();
+  });
+  await page.goto('/admin/publication-schedules'); await expect(page.getByRole('heading', { name: '配信予約・アラート' })).toBeVisible(); await expect.poll(() => initialRequestUrl).not.toBe(''); await page.getByLabel('開催日').fill(raceDate);
+  const card = page.locator('.schedule-race').filter({ hasText: race.name }); await expect(card).toBeVisible(); const initialResponse = page.waitForResponse(response => response.url() === initialRequestUrl); releaseInitialRequest(); await initialResponse; await page.waitForTimeout(100); await expect(card).toBeVisible(); await expect(card.getByRole('heading', { name: '配信結果' })).toBeVisible(); await expect(card.locator('.delivery-result')).toContainText('Web掲載'); await expect(card.locator('.delivery-result-channels')).toContainText('送信1・待ち0・失敗0'); await expect(card.locator('.delivery-result-channels')).toContainText('送信0・待ち0・失敗1'); await expect(card.getByRole('link', { name: '受信者別の詳細' })).toHaveAttribute('href', `/admin/notifications?raceId=${race.id}`);
   await card.getByLabel('公開日時（JST）').fill(`${raceDate}T14:30`); await card.getByLabel('予約理由').fill('E2Eで定刻配信を確認'); await card.getByRole('button', { name: '配信内容を確認' }).click();
   await expect(card.getByRole('heading', { name: '配信前確認' })).toBeVisible(); await expect(card.locator('.delivery-preview-summary')).toContainText('配信予定'); await expect(card.getByRole('button', { name: 'LINEへ送信' })).toBeDisabled(); await card.getByRole('button', { name: 'メールへ送信' }).click(); await expect(card.getByText('メールの模擬テスト送信を完了しました。')).toBeVisible(); await card.locator('.delivery-preview').screenshot({ path: testInfo.outputPath('notification-test-send.png') }); await card.getByRole('button', { name: 'この内容で予約する' }).click();
   await expect(card.getByText('予約中')).toBeVisible(); await card.getByLabel('対象レース告知の取消理由').fill('時刻を再調整'); await card.getByRole('button', { name: '取消', exact: true }).click(); await expect(card.getByText('取消済み')).toBeVisible();
