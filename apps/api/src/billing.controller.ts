@@ -8,7 +8,6 @@ import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
 import { hashToken } from './security';
 import { createDayPassAccess } from './day-pass-access';
-import { loadStripeConfig } from './stripe-config';
 import { StripeCustomerGatewayService } from './stripe-customer-gateway.service';
 import { StripeWebhookService } from './stripe-webhook.service';
 import { StripeCheckoutService } from './stripe-checkout.service';
@@ -16,6 +15,7 @@ import { BillingSubscriptionLifecycleService } from './billing-subscription-life
 import { BillingAdminResolutionService } from './billing-admin-resolution.service';
 import { BillingSupportService } from './billing-support.service';
 import { BillingLocalSimulationService } from './billing-local-simulation.service';
+import { BillingQueryService } from './billing-query.service';
 import { recordBillingEvent } from './billing-events';
 
 const reasonSchema = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
@@ -30,7 +30,8 @@ export class BillingController {
     @Inject(BillingSubscriptionLifecycleService) private readonly subscriptionLifecycle: BillingSubscriptionLifecycleService,
     @Inject(BillingAdminResolutionService) private readonly adminResolution: BillingAdminResolutionService,
     @Inject(BillingSupportService) private readonly billingSupport: BillingSupportService,
-    @Inject(BillingLocalSimulationService) private readonly localSimulation: BillingLocalSimulationService
+    @Inject(BillingLocalSimulationService) private readonly localSimulation: BillingLocalSimulationService,
+    @Inject(BillingQueryService) private readonly billingQuery: BillingQueryService
   ) {}
 
   private transport() {
@@ -53,34 +54,13 @@ export class BillingController {
 
   @Get('billing/plans')
   async plans() {
-    const settings = await this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' } });
-    const now = new Date();
-    const [founderSold, founderReserved] = await Promise.all([
-      this.auth.db.subscription.count({ where: { planCode: 'FOUNDER', status: { in: ['TRIALING', 'ACTIVE', 'PAST_DUE', 'CANCELED', 'EXPIRED'] } } }),
-      this.auth.db.billingCheckout.count({ where: { planCode: 'FOUNDER', status: { in: ['INITIATED', 'OPEN'] }, completedAt: null, expiresAt: { gt: now } } })
-    ]);
-    const founderUnavailable = founderSold + founderReserved;
-    const billingEnabled = launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).billing;
-    const stripeConfig = billingEnabled && process.env.BILLING_TRANSPORT === 'stripe' ? await loadStripeConfig(this.auth.db) : null;
-    const transportAvailable = billingEnabled && (process.env.BILLING_TRANSPORT === 'test' || (process.env.BILLING_TRANSPORT === 'stripe' && stripeConfig?.usable));
-    return { newPurchasesEnabled: billingEnabled && settings.newPurchasesEnabled, developmentTerms: true, billingTransport: process.env.BILLING_TRANSPORT, stripeMode: stripeConfig ? stripeConfig.liveMode ? 'LIVE' : 'TEST' : null, currency: 'JPY', taxIncluded: true,
-      plans: [
-        { code: 'FOUNDER', name: '創設会員', priceYen: settings.founderPriceYen, interval: 'MONTH', available: transportAvailable && settings.newPurchasesEnabled && settings.founderSalesEnabled && founderUnavailable < settings.founderSalesLimit, remaining: Math.max(0, settings.founderSalesLimit - founderUnavailable) },
-        { code: 'STANDARD', name: '通常会員', priceYen: settings.standardPriceYen, interval: 'MONTH', available: transportAvailable && settings.newPurchasesEnabled },
-        { code: 'DAY_PASS', name: '1日利用', priceYen: settings.dayPassPriceYen, interval: 'JST_DAY', available: transportAvailable && settings.newPurchasesEnabled }
-      ] };
+    return this.billingQuery.plans();
   }
 
   @Get('billing/me')
   async mine(@Req() req: AppRequest) {
     const actor = await this.auth.authenticate(req);
-    const [subscriptions, dayPasses, payments, supportRequests] = await Promise.all([
-      this.auth.db.subscription.findMany({ where: { userId: actor.id }, orderBy: { createdAt: 'desc' } }),
-      this.auth.db.dayPass.findMany({ where: { userId: actor.id }, orderBy: { createdAt: 'desc' } }),
-      this.auth.db.paymentTransaction.findMany({ where: { userId: actor.id }, select: { id: true, provider: true, providerPaymentId: true, kind: true, status: true, amountYen: true, subscriptionId: true, dayPassId: true, occurredAt: true }, orderBy: { occurredAt: 'desc' } }),
-      this.auth.db.billingSupportRequest.findMany({ where: { userId: actor.id }, select: { id: true, paymentTransactionId: true, category: true, message: true, status: true, createdAt: true, updatedAt: true, events: { select: { eventType: true, occurredAt: true }, orderBy: { occurredAt: 'asc' } } }, orderBy: { createdAt: 'desc' } })
-    ]);
-    return { subscriptions, dayPasses, payments, supportRequests, customerPortalAvailable: process.env.BILLING_TRANSPORT === 'stripe' && subscriptions.some(item => item.provider === 'STRIPE' && ['TRIALING', 'ACTIVE', 'PAST_DUE'].includes(item.status)) };
+    return this.billingQuery.member(actor.id);
   }
 
   @Get('billing/payments/:id/receipt')
