@@ -92,6 +92,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - ローカル課金シミュレーションpilot: `CLOUD_STAGING`等の請求なしtest transportで管理者が実行する月額支払失敗・回復、Entitlement期間更新、支払履歴、課金event、通知event、AuditLogを`BillingLocalSimulationService`へ分離する。Controllerは起動モード・test transport、ADMIN+AAL2、UUIDと理由の入力検証を担当する。猶予日数、状態遷移、API URL・応答・エラーコード・DB schemaは変更せず、Stripe契約は従来どおりWebhook同期だけを使用する。
 - 会員請求読み取りpilot: 公開料金プランと会員本人の契約・一日利用・支払・請求問い合わせ履歴の限定問合せを`BillingQueryService`へ分離する。Controllerには本人認証を残し、創設会員枠、販売可否、Stripe Customer Portal表示条件、API URL・応答項目・DB schemaは変更しない。管理者請求一覧と申込処理はこのpilotに含めない。
 - 管理者請求読み取りpilot: 契約、一日利用、支払、Stripe申込・Webhook、請求問い合わせ、期限切れ公開待ち一日券、要確認Checkoutの限定問合せを`BillingQueryService`へ分離する。ControllerにはADMIN+AAL2認可と共有Contract検証を残し、抽出条件、最大件数、並び順、API URL・応答項目・DB schema、管理操作は変更しない。
+- ローカル申込pilot: 請求なしtest transportの月額・一日利用申込について、冪等性、創設会員枠、価格、契約・支払・閲覧権限、課金event・通知eventの同一トランザクション処理を`BillingLocalCheckoutService`へ分離する。Controllerにはtransport分岐、MEMBER本人認証、確認済みログイン、入力・日付・Idempotency-Key検証を残し、API URL・応答・エラーコード・期間・価格・DB schemaは変更しない。Stripe申込は既存`StripeCheckoutService`を維持する。
 
 ### MA-005 DBアクセス境界（後続PR候補）
 
