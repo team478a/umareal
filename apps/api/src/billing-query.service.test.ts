@@ -69,4 +69,56 @@ describe('BillingQueryService', () => {
     expect(payments).toHaveBeenCalledWith({ where: { userId: 'member-1' }, select: { id: true, provider: true, kind: true, status: true, amountYen: true, occurredAt: true }, orderBy: { occurredAt: 'desc' } });
     expect(supportRequests).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: 'member-1' }, orderBy: { createdAt: 'desc' } }));
   });
+
+  it('loads the existing bounded administration views without exposing full database records', async () => {
+    process.env.BILLING_TRANSPORT = 'stripe';
+    const subscription = { id: 'subscription-1' };
+    const dayPass = { id: 'pass-1' };
+    const payment = { id: 'payment-1' };
+    const checkout = { id: 'checkout-1' };
+    const webhook = { id: 'webhook-1' };
+    const supportRequest = { id: 'support-1' };
+    const pendingReview = { id: 'pending-pass-1' };
+    const reviewCheckout = { id: 'review-checkout-1' };
+    const subscriptionFindMany = vi.fn().mockResolvedValue([subscription]);
+    const dayPassFindMany = vi.fn().mockResolvedValueOnce([dayPass]).mockResolvedValueOnce([pendingReview]);
+    const paymentFindMany = vi.fn().mockResolvedValue([payment]);
+    const checkoutFindMany = vi.fn().mockResolvedValueOnce([checkout]).mockResolvedValueOnce([reviewCheckout]);
+    const webhookFindMany = vi.fn().mockResolvedValue([webhook]);
+    const supportFindMany = vi.fn().mockResolvedValue([supportRequest]);
+    const service = new BillingQueryService({
+      subscription: { findMany: subscriptionFindMany },
+      dayPass: { findMany: dayPassFindMany },
+      paymentTransaction: { findMany: paymentFindMany },
+      billingCheckout: { findMany: checkoutFindMany },
+      stripeWebhookEvent: { findMany: webhookFindMany },
+      billingSupportRequest: { findMany: supportFindMany },
+    } as unknown as DbService);
+
+    const result = await service.admin();
+
+    expect(result).toEqual({
+      billingTransport: 'stripe',
+      subscriptions: [subscription],
+      dayPasses: [dayPass],
+      payments: [payment],
+      checkouts: [checkout],
+      stripeWebhooks: [webhook],
+      supportRequests: [supportRequest],
+      pendingDayPassReviews: [pendingReview],
+      reviewCheckouts: [reviewCheckout],
+    });
+    expect(subscriptionFindMany).toHaveBeenCalledWith(expect.objectContaining({ select: expect.objectContaining({ id: true, user: { select: { email: true, displayName: true } } }), orderBy: { createdAt: 'desc' }, take: 100 }));
+    expect(paymentFindMany).toHaveBeenCalledWith(expect.objectContaining({ select: expect.not.objectContaining({ providerPaymentId: true, userId: true }), take: 100 }));
+    expect(dayPassFindMany).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      where: { source: 'PURCHASE', status: { in: ['PENDING', 'REFUNDING'] }, startsAt: null, entitlementId: null, endsAt: { lte: expect.any(Date) } },
+      orderBy: { endsAt: 'asc' },
+      take: 100,
+    }));
+    expect(checkoutFindMany).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      where: { status: { in: ['REJECTED_ACCOUNT_STATE', 'REJECTED_EXISTING_ACCESS', 'REJECTED_FOUNDER_LIMIT', 'REVIEW_REFUNDING'] } },
+      orderBy: { completedAt: 'asc' },
+      take: 100,
+    }));
+  });
 });
