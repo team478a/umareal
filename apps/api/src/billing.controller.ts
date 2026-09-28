@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Req, ServiceUnavailableException } from '@nestjs/common';
-import { adminBillingCouponsResponseSchema, adminBillingResponseSchema, billingCouponCreateSchema, billingCouponDeactivateSchema, billingCouponPreviewResponseSchema, billingCouponPreviewSchema, billingPlansResponseSchema, billingReviewResolutionSchema, billingSupportRequestSchema, billingSupportStatusSchema, canManage, dayPassCheckoutWithCouponSchema, jstDate, launchCapabilities, memberBillingResponseSchema, requiresMfa, resolveLaunchMode, subscriptionCheckoutSchema } from '@keiba/domain';
+import { adminBillingCouponsResponseSchema, adminBillingResponseSchema, billingCouponCreateSchema, billingCouponDeactivateSchema, billingCouponPreviewResponseSchema, billingCouponPreviewSchema, billingDayPassCheckoutResponseSchema, billingPlansResponseSchema, billingPortalResponseSchema, billingReceiptResponseSchema, billingReviewResolutionSchema, billingSubscriptionCheckoutResponseSchema, billingSupportRequestSchema, billingSupportStatusSchema, canManage, dayPassCheckoutWithCouponSchema, jstDate, launchCapabilities, memberBillingResponseSchema, requiresMfa, resolveLaunchMode, subscriptionCheckoutSchema } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -71,7 +71,7 @@ export class BillingController {
     if (!payment || payment.userId !== actor.id) throw new NotFoundException({ code: 'PAYMENT_NOT_FOUND', message: '対象の支払いを確認できません。' });
     if (payment.provider !== 'STRIPE' || payment.status !== 'SUCCEEDED') throw new ConflictException({ code: 'RECEIPT_NOT_AVAILABLE', message: 'この支払いには外部決済の領収書がありません。' });
     const receiptUrl = await this.stripeCustomer.receiptUrl(payment.providerPaymentId);
-    return { paymentId: payment.id, receiptUrl };
+    return billingReceiptResponseSchema.parse({ paymentId: payment.id, receiptUrl });
   }
 
   @Post('billing/support-requests')
@@ -90,8 +90,10 @@ export class BillingController {
     if (actor.role !== 'MEMBER') throw new ForbiddenException({ code: 'MEMBER_REQUIRED', message: '会員本人としてログインしてください。' });
     if (!this.purchaseIdentityReady(actor.user)) throw new ForbiddenException({ code: 'VERIFIED_LOGIN_REQUIRED', message: '申込前にメールアドレスの確認を完了してください。' });
     const key = this.key(req, 'subscription-checkout', actor.id); const requestHash = hashToken(JSON.stringify(input));
-    if (transport === 'stripe') return this.stripeCheckout.create(req, actor.id, actor.user.email, 'SUBSCRIPTION', input.planCode, null, input.couponCode, key, requestHash);
-    return this.localCheckout.subscription(actor.id, input.planCode, input.couponCode, key, requestHash);
+    const response = transport === 'stripe'
+      ? await this.stripeCheckout.create(req, actor.id, actor.user.email, 'SUBSCRIPTION', input.planCode, null, input.couponCode, key, requestHash)
+      : await this.localCheckout.subscription(actor.id, input.planCode, input.couponCode, key, requestHash);
+    return billingSubscriptionCheckoutResponseSchema.parse(response);
   }
 
   @Post('billing/day-pass')
@@ -101,8 +103,10 @@ export class BillingController {
     if (!this.purchaseIdentityReady(actor.user)) throw new ForbiddenException({ code: 'VERIFIED_LOGIN_REQUIRED', message: '申込前にメールアドレスの確認を完了してください。' });
     if (input.raceDate < jstDate(new Date())) throw new BadRequestException({ code: 'PAST_RACE_DATE', message: '過去の日付は購入できません。' });
     const key = this.key(req, 'day-pass', actor.id); const requestHash = hashToken(JSON.stringify(input));
-    if (transport === 'stripe') return this.stripeCheckout.create(req, actor.id, actor.user.email, 'DAY_PASS', 'DAY_PASS', input.raceDate, input.couponCode, key, requestHash);
-    return this.localCheckout.dayPass(actor.id, input.raceDate, input.couponCode, key, requestHash);
+    const response = transport === 'stripe'
+      ? await this.stripeCheckout.create(req, actor.id, actor.user.email, 'DAY_PASS', 'DAY_PASS', input.raceDate, input.couponCode, key, requestHash)
+      : await this.localCheckout.dayPass(actor.id, input.raceDate, input.couponCode, key, requestHash);
+    return billingDayPassCheckoutResponseSchema.parse(response);
   }
 
   @Post('billing/coupons/preview')
@@ -142,7 +146,7 @@ export class BillingController {
     if (!subscription) throw new NotFoundException({ code: 'STRIPE_SUBSCRIPTION_NOT_FOUND', message: '管理できる月額契約がありません。' });
     const portalUrl = await this.stripeCustomer.customerPortalUrl(subscription.providerSubscriptionId, `${process.env.APP_BASE_URL!}/account`);
     await this.auth.audit(this.auth.db, req, 'STRIPE_CUSTOMER_PORTAL_OPENED', subscription.id, '会員本人による支払い管理画面の開始', {}, 'Subscription');
-    return { portalUrl };
+    return billingPortalResponseSchema.parse({ portalUrl });
   }
 
   @Get('admin/billing')

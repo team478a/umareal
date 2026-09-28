@@ -27,6 +27,10 @@ describe('local billing lifecycle', () => {
   it('creates one subscription, payment, and entitlement idempotently', async () => {
     const key = randomUUID(); const first = await member.call('billing/checkout', 'POST', { planCode: 'STANDARD' }, undefined, { 'Idempotency-Key': key });
     expect(first.status).toBe(201); subscriptionId = first.body.subscriptionId; paymentId = first.body.paymentId;
+    expect(Object.keys(first.body).sort()).toEqual(['currentPeriodEndsAt', 'paymentId', 'status', 'subscriptionId']);
+    expect(JSON.stringify(first.body)).not.toContain('providerSubscriptionId');
+    expect(JSON.stringify(first.body)).not.toContain('providerPaymentId');
+    expect(JSON.stringify(first.body)).not.toContain('userId');
     const replay = await member.call('billing/checkout', 'POST', { planCode: 'STANDARD' }, undefined, { 'Idempotency-Key': key });
     expect(replay.body).toEqual(first.body);
     expect((await member.call('billing/checkout', 'POST', { planCode: 'STANDARD' }, undefined, { 'Idempotency-Key': randomUUID() })).body.code).toBe('ACTIVE_SUBSCRIPTION_EXISTS');
@@ -48,6 +52,10 @@ describe('local billing lifecycle', () => {
     const fixture = await account(); const client = new Client(); await client.login(fixture); const raceDate = '2099-04-03';
     const first = await client.call('billing/day-pass', 'POST', { raceDate }, undefined, { 'Idempotency-Key': randomUUID() });
     expect(first.status).toBe(201); expect(new Date(first.body.startsAt).toISOString()).toBe('2099-04-02T15:00:00.000Z'); expect(new Date(first.body.endsAt).toISOString()).toBe('2099-04-03T15:00:00.000Z');
+    expect(Object.keys(first.body).sort()).toEqual(['dayPassId', 'endsAt', 'paymentId', 'startsAt', 'status', 'waitingForPublication']);
+    expect(JSON.stringify(first.body)).not.toContain('providerPassId');
+    expect(JSON.stringify(first.body)).not.toContain('providerPaymentId');
+    expect(JSON.stringify(first.body)).not.toContain('userId');
     expect((await client.call('billing/day-pass', 'POST', { raceDate }, undefined, { 'Idempotency-Key': randomUUID() })).body.code).toBe('DAY_PASS_EXISTS');
   });
 
