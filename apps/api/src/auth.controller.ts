@@ -4,21 +4,20 @@ import { z } from 'zod';
 import { fallbackEmailSchema, launchCapabilities, loginSchema, mfaCodeSchema, registrationSchema, resolveLaunchMode } from '@keiba/domain';
 import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
-import { SupabaseAuthService } from './supabase-auth.service';
 import { RegistrationCaptchaService } from './registration-captcha.service';
-import { ReferralsService } from './referrals.service';
 import { AuthSessionService } from './auth-session.service';
 import { AuthRegistrationService } from './auth-registration.service';
 import { AuthCredentialService } from './auth-credential.service';
 import { AuthMfaService } from './auth-mfa.service';
 import { AuthLoginService } from './auth-login.service';
+import { AuthSessionLifecycleService } from './auth-session-lifecycle.service';
 
 const publicUser = (user: { id: string; displayName: string; role: string }) => ({ id: user.id, displayName: user.displayName, role: user.role });
 const externalMfaEnrollSchema = z.object({ kind: z.enum(['PRIMARY', 'BACKUP']).default('PRIMARY') }).strict();
 const externalMfaVerifySchema = z.object({ code: z.string().regex(/^\d{6}$/), factor: z.enum(['PRIMARY', 'BACKUP']).default('PRIMARY'), factorId: z.string().uuid().optional() }).strict();
 @Controller('auth')
 export class AuthController {
-  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(SupabaseAuthService) private readonly supabase: SupabaseAuthService, @Inject(RegistrationCaptchaService) private readonly captcha: RegistrationCaptchaService, @Inject(ReferralsService) private readonly referrals: ReferralsService, @Inject(AuthSessionService) private readonly sessions: AuthSessionService, @Inject(AuthRegistrationService) private readonly registration: AuthRegistrationService, @Inject(AuthCredentialService) private readonly credentials: AuthCredentialService, @Inject(AuthMfaService) private readonly mfa: AuthMfaService, @Inject(AuthLoginService) private readonly loginService: AuthLoginService) {}
+  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(RegistrationCaptchaService) private readonly captcha: RegistrationCaptchaService, @Inject(AuthSessionService) private readonly sessions: AuthSessionService, @Inject(AuthRegistrationService) private readonly registration: AuthRegistrationService, @Inject(AuthCredentialService) private readonly credentials: AuthCredentialService, @Inject(AuthMfaService) private readonly mfa: AuthMfaService, @Inject(AuthLoginService) private readonly loginService: AuthLoginService, @Inject(AuthSessionLifecycleService) private readonly sessionLifecycle: AuthSessionLifecycleService) {}
   @Get('config') async config() {
     const mode = resolveLaunchMode(process.env.LAUNCH_MODE);
     const capabilities = launchCapabilities(mode);
@@ -98,16 +97,7 @@ export class AuthController {
     }
     const { verifier, flow } = flowState;
     try {
-      const session = await this.supabase.exchangeCode(parsed.data, verifier);
-      const user = await this.auth.db.user.findUnique({ where: { authSubject: session.user.id } });
-      if (!user || user.disabledAt) { this.sessions.clearExternalSession(res); return res.redirect(303, `${process.env.APP_BASE_URL}/login?auth=invalid`); }
-      req.auth = { id: user.id, role: user.role, aal: 1, user };
-      await this.auth.db.$transaction(async tx => {
-        if (!user.emailVerifiedAt && (session.user.email_confirmed_at || session.user.confirmed_at)) await tx.user.update({ where: { id: user.id }, data: { emailVerifiedAt: new Date(session.user.email_confirmed_at ?? session.user.confirmed_at!) } });
-        await this.auth.journey(tx, user.id, 'FIRST_LOGIN');
-        if (flow === 'signup' && (session.user.email_confirmed_at || session.user.confirmed_at)) await this.referrals.qualify(tx, user.id, req);
-        await this.auth.audit(tx, req, flow === 'recovery' ? 'PASSWORD_RECOVERY_VERIFIED' : 'EMAIL_VERIFIED', user.id, flow === 'recovery' ? 'Supabaseパスワード再設定本人確認' : 'Supabaseメールアドレス確認完了');
-      });
+      const session = await this.sessionLifecycle.completeExternalFlow(parsed.data, verifier, flow, req);
       this.sessions.setExternalSession(res, session);
       this.sessions.clearExternalFlow(res);
       return res.redirect(303, flow === 'recovery' ? `${process.env.APP_BASE_URL}/reset-password?ready=1` : `${process.env.APP_BASE_URL}/account?email=verified`);
@@ -118,28 +108,20 @@ export class AuthController {
     const refreshToken = this.sessions.readExternalRefreshToken(req);
     if (refreshToken === null) { this.sessions.clearExternalSession(res); throw new UnauthorizedException(); }
     try {
-      const session = await this.supabase.refresh(refreshToken);
-      const user = await this.auth.db.user.findUnique({ where: { authSubject: session.user.id } });
-      if (!user || user.disabledAt) throw new UnauthorizedException();
+      const session = await this.sessionLifecycle.refreshExternal(refreshToken);
       this.sessions.setExternalSession(res, session); return { ok: true };
     } catch (error) { this.sessions.clearExternalSession(res); throw error; }
   }
   @Post('logout') async logout(@Req() req: AppRequest, @Res({ passthrough: true }) res: Response) {
     if (process.env.AUTH_PROVIDER === 'supabase') {
       const accessToken = this.sessions.readExternalAccessToken(req);
-      let identity: Awaited<ReturnType<AuthService['authenticate']>> | undefined;
-      try { identity = await this.auth.authenticate(req); } catch { identity = undefined; }
-      if (accessToken !== null) await this.supabase.logout(accessToken);
-      if (identity) await this.auth.db.$transaction(async tx => this.auth.audit(tx, req, 'LOGOUT', identity!.id, 'Supabaseログアウト'));
+      await this.sessionLifecycle.logoutExternal(req, accessToken);
       this.sessions.clearExternalSession(res);
       this.sessions.clearLocalSession(res);
       return { ok: true };
     }
     const identity = await this.auth.authenticate(req);
-    if (identity.sessionId) await this.auth.db.$transaction(async tx => {
-      await tx.session.deleteMany({ where: { id: identity.sessionId } });
-      await this.auth.audit(tx, req, 'LOGOUT', identity.id, 'ログアウト');
-    });
+    await this.sessionLifecycle.logoutLocal(identity, req);
     this.sessions.clearLocalSession(res);
     return { ok: true };
   }
