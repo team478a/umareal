@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminReadinessResponseSchema, assessmentSchema, canEditRace, canManage, currentAccountResponseSchema, deploymentConsistency, jstDate, launchCapabilities, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
+import { acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminReadinessResponseSchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -9,6 +9,7 @@ import { hashToken, verifyPassword } from './security';
 import { Prisma, resolveMailConfig } from '@keiba/db';
 import { ReadinessService } from './readiness.service';
 import { AuthSessionService } from './auth-session.service';
+import { MemberAccountQueryService } from './member-account-query.service';
 
 const pagination = z.object({ page: z.coerce.number().int().min(1).max(10000).default(1), limit: z.coerce.number().int().min(1).max(50).default(20) });
 const journeyEventSchema = z.object({ eventType: z.enum(['LINE_GUIDANCE_VIEWED', 'PLAN_VIEWED', 'CHECKOUT_REVIEWED']) }).strict();
@@ -23,7 +24,8 @@ export class AppController {
   constructor(
     @Inject(AuthService) private readonly auth: AuthService,
     @Inject(ReadinessService) private readonly readinessQuery: ReadinessService,
-    @Inject(AuthSessionService) private readonly sessions: AuthSessionService
+    @Inject(AuthSessionService) private readonly sessions: AuthSessionService,
+    @Inject(MemberAccountQueryService) private readonly memberAccountQuery: MemberAccountQueryService
   ) {}
   @Get('health') async health() {
     const now = new Date();
@@ -49,21 +51,7 @@ export class AppController {
   }
   @Get('me') async me(@Req() req: AppRequest) {
     const identity = await this.auth.authenticate(req);
-    const user = await this.auth.db.user.findUniqueOrThrow({ where: { id: identity.id }, include: { preferences: true, lineAccount: true, entitlements: { where: { revokedAt: null, endsAt: { gt: new Date() } } }, consents: { orderBy: { acceptedAt: 'desc' } } } });
-    const preferences = {
-      emailEnabled: user.preferences?.emailEnabled ?? true,
-      predictions: user.preferences?.predictions ?? true, changes: user.preferences?.changes ?? true,
-      articles: user.preferences?.articles ?? false, billing: user.preferences?.billing ?? true
-    };
-    const lineNotificationState = !user.lineAccount || user.lineAccount.unlinkedAt ? 'NOT_LINKED' : user.lineAccount.notificationDisabledAt ? 'BLOCKED' : !preferences.predictions ? 'DISABLED' : 'READY';
-    const emailNotificationState = user.emailDeliveryDisabledAt ? 'BLOCKED' : !user.emailVerifiedAt ? 'UNVERIFIED' : !preferences.emailEnabled ? 'DISABLED' : 'READY';
-    return currentAccountResponseSchema.parse({ id: user.id, email: user.email, emailVerified: !!user.emailVerifiedAt, hasPassword: !!user.passwordHash || (process.env.AUTH_PROVIDER === 'supabase' && !!user.authSubject), registrationMethod: user.registrationMethod, displayName: user.displayName, role: user.role, aal: identity.aal, mfaEnabled: !!user.mfaSecret || !!user.externalMfaFactorId || identity.aal === 2,
-      mfaBackupEnabled: !!user.externalBackupMfaFactorId, mfaBackupSupported: process.env.AUTH_PROVIDER === 'supabase' && user.role === 'ADMIN',
-      mfaRequired: requiresMfa(user.role), preferences, lineLinked: !!user.lineAccount && !user.lineAccount.unlinkedAt,
-      lineNotificationState, lineNotificationReady: lineNotificationState === 'READY',
-      emailNotificationState, emailNotificationReady: emailNotificationState === 'READY', emailDeliveryDisabledAt: user.emailDeliveryDisabledAt, emailDeliveryDisabledReason: user.emailDeliveryDisabledReason,
-      entitlements: user.entitlements.map(e => ({ planCode: e.planCode, startsAt: e.startsAt, endsAt: e.endsAt, raceDate: e.raceDate })),
-      consents: user.consents.map(c => ({ documentType: c.documentType, version: c.version, acceptedAt: c.acceptedAt })) });
+    return this.memberAccountQuery.current(identity);
   }
   @Patch('me/preferences') async preferences(@Body() body: unknown, @Req() req: AppRequest) {
     const identity = await this.auth.authenticate(req);
