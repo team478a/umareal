@@ -15,8 +15,14 @@ describe('member conversion funnel', () => {
     await db.lineAccount.create({ data: { userId: fixture.user.id, subject: `funnel-${randomUUID()}` } });
     const member = new Client(); await member.login(fixture);
 
-    expect((await member.call('me/journey', 'POST', { eventType: 'PLAN_VIEWED' })).status).toBe(201);
-    expect((await member.call('me/journey', 'POST', { eventType: 'PLAN_VIEWED' })).status).toBe(201);
+    const recorded = await member.call('me/journey', 'POST', { eventType: 'PLAN_VIEWED' });
+    expect(recorded.status).toBe(201);
+    expect(Object.keys(recorded.body).sort()).toEqual(['eventType', 'occurredAt', 'recorded']);
+    expect(recorded.body).toMatchObject({ eventType: 'PLAN_VIEWED', recorded: true });
+    expect(JSON.stringify(recorded.body)).not.toContain(fixture.user.id);
+    const replay = await member.call('me/journey', 'POST', { eventType: 'PLAN_VIEWED' });
+    expect(replay.status).toBe(201);
+    expect(replay.body).toEqual(recorded.body);
     expect(await db.memberJourneyEvent.count({ where: { userId: fixture.user.id, eventType: 'PLAN_VIEWED' } })).toBe(1);
     expect((await member.call('me/journey', 'POST', { eventType: 'CHECKOUT_REVIEWED' })).status).toBe(201);
     expect((await member.call('me/journey', 'POST', { eventType: 'UNKNOWN' })).status).toBe(400);

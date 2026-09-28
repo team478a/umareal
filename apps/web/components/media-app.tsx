@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ArrowRight, BarChart3, BellRing, BookOpenCheck, CalendarDays, Check, ChevronRight, ClipboardCheck, ClipboardList, Clock3, CreditCard, DatabaseBackup, Gift, Home, LayoutDashboard, LogOut, MailCheck, Menu, MessageCircle, RefreshCw, Settings2, Share2, ShieldAlert, ShieldCheck, UserCog, UserRoundX, Users, X } from 'lucide-react';
-import { consentVersions, legalDocuments, type CurrentAccountResponse, type LegalDocument } from '@keiba/domain';
+import { consentVersions, legalDocuments, type CurrentAccountResponse, type LegalDocument, type MemberJourneyResponse } from '@keiba/domain';
 import { RaceManager } from './race-manager';
 import { AssessmentEditor } from './assessment-editor';
 import { PublishedPrediction } from './prediction-editor';
@@ -191,7 +191,7 @@ function EmailVerification({ onSuccess }: { onSuccess: () => Promise<void> }) {
 function Account({ me, refresh, capabilities, emailNotificationsEnabled }: { me: Me; refresh: () => Promise<void>; capabilities: PublicConfig['capabilities']; emailNotificationsEnabled: boolean }) {
   const [preferences, setPreferences] = useState(me.preferences); const [message, setMessage] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
   useEffect(() => { const url = new URL(window.location.href); const line = url.searchParams.get('line'); const email = url.searchParams.get('email'); if (line === 'linked') setMessage('LINEアカウントを連携しました。'); else if (line === 'login') setMessage('LINEでログインしました。'); else if (line === 'registered') setMessage('LINE無料登録が完了しました。'); else if (email === 'verified') setMessage('メールアドレスの確認が完了しました。'); }, []);
-  useEffect(() => { if (me.role === 'MEMBER' && (capabilities.lineLogin || capabilities.lineNotifications)) void api('me/journey', 'POST', { eventType: 'LINE_GUIDANCE_VIEWED' }).catch(() => undefined); }, [me.role, capabilities.lineLogin, capabilities.lineNotifications]);
+  useEffect(() => { if (me.role === 'MEMBER' && (capabilities.lineLogin || capabilities.lineNotifications)) void api<MemberJourneyResponse>('me/journey', 'POST', { eventType: 'LINE_GUIDANCE_VIEWED' }).catch(() => undefined); }, [me.role, capabilities.lineLogin, capabilities.lineNotifications]);
   async function save(event: FormEvent) { event.preventDefault(); setBusy(true); setError(''); setMessage(''); try { await api('me/preferences', 'PATCH', preferences); setMessage('通知設定を保存しました。'); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
   async function enableRaceNotifications() { setBusy(true); setError(''); setMessage(''); const next = { ...preferences, predictions: true }; try { await api('me/preferences', 'PATCH', next); setPreferences(next); await refresh(); setMessage('対象レース告知と最終予想の通知を有効にしました。'); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
   async function linkLine() { setBusy(true); setError(''); try { const value = await api<{ authorizationUrl: string }>('auth/line/start', 'POST', { purpose: 'LINK' }); window.location.assign(value.authorizationUrl); } catch (e) { setError((e as Error).message); setBusy(false); } }

@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminReadinessResponseSchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
+import { acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminReadinessResponseSchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -13,7 +13,6 @@ import { MemberAccountQueryService } from './member-account-query.service';
 import { AccountClosureService } from './account-closure.service';
 
 const pagination = z.object({ page: z.coerce.number().int().min(1).max(10000).default(1), limit: z.coerce.number().int().min(1).max(50).default(20) });
-const journeyEventSchema = z.object({ eventType: z.enum(['LINE_GUIDANCE_VIEWED', 'PLAN_VIEWED', 'CHECKOUT_REVIEWED']) }).strict();
 const onboardingFunnelQuerySchema = z.object({ days: z.coerce.number().int().min(1).max(365).default(30), source: z.string().trim().min(1).max(100).optional() }).strict();
 const closeAccountSchema = z.object({ reasonCode: z.enum(['SERVICE_NO_LONGER_NEEDED', 'PRICE', 'CONTENT', 'OTHER']), confirmation: z.literal('退会する'), currentPassword: z.string().max(128).optional() }).strict();
 function csvCell(value: string | number) {
@@ -84,12 +83,12 @@ export class AppController {
   @Post('me/journey') async journey(@Body() body: unknown, @Req() req: AppRequest) {
     const identity = await this.auth.authenticate(req);
     if (identity.role !== 'MEMBER') throw new ForbiddenException({ code: 'MEMBER_REQUIRED', message: '会員向けの操作です。' });
-    const { eventType } = journeyEventSchema.parse(body);
+    const { eventType } = memberJourneyEventSchema.parse(body);
     const event = await this.auth.db.$transaction(async tx => {
       await this.auth.journey(tx, identity.id, 'FIRST_LOGIN');
       return this.auth.journey(tx, identity.id, eventType);
     });
-    return { ...event, recorded: true };
+    return memberJourneyResponseSchema.parse({ ...event, recorded: true });
   }
   @Get('races') async races(@Query() query: unknown) {
     const { page, limit, date, publication, venue } = pagination.extend({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).default(jstDate(new Date())), publication: z.enum(['ALL', 'ANNOUNCED', 'PUBLISHED', 'UNPUBLISHED']).default('ALL'), venue: z.string().trim().min(1).max(60).optional() }).parse(query);
