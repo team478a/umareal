@@ -1,25 +1,24 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
 import { z } from 'zod';
-import { TOTP, Secret } from 'otpauth';
 import { fallbackEmailSchema, launchCapabilities, loginSchema, mfaCodeSchema, registrationSchema, resolveLaunchMode } from '@keiba/domain';
 import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
-import { decrypt, encrypt, hashToken, verifyPassword } from './security';
+import { hashToken, verifyPassword } from './security';
 import { SupabaseAuthService } from './supabase-auth.service';
 import { RegistrationCaptchaService } from './registration-captcha.service';
 import { ReferralsService } from './referrals.service';
 import { AuthSessionService } from './auth-session.service';
 import { AuthRegistrationService } from './auth-registration.service';
 import { AuthCredentialService } from './auth-credential.service';
+import { AuthMfaService } from './auth-mfa.service';
 
 const publicUser = (user: { id: string; displayName: string; role: string }) => ({ id: user.id, displayName: user.displayName, role: user.role });
-const otp = (secret: string, email: string) => new TOTP({ issuer: '競馬会員メディア 開発用', label: email, algorithm: 'SHA1', digits: 6, period: 30, secret: Secret.fromBase32(secret) });
 const externalMfaEnrollSchema = z.object({ kind: z.enum(['PRIMARY', 'BACKUP']).default('PRIMARY') }).strict();
 const externalMfaVerifySchema = z.object({ code: z.string().regex(/^\d{6}$/), factor: z.enum(['PRIMARY', 'BACKUP']).default('PRIMARY'), factorId: z.string().uuid().optional() }).strict();
 @Controller('auth')
 export class AuthController {
-  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(SupabaseAuthService) private readonly supabase: SupabaseAuthService, @Inject(RegistrationCaptchaService) private readonly captcha: RegistrationCaptchaService, @Inject(ReferralsService) private readonly referrals: ReferralsService, @Inject(AuthSessionService) private readonly sessions: AuthSessionService, @Inject(AuthRegistrationService) private readonly registration: AuthRegistrationService, @Inject(AuthCredentialService) private readonly credentials: AuthCredentialService) {}
+  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(SupabaseAuthService) private readonly supabase: SupabaseAuthService, @Inject(RegistrationCaptchaService) private readonly captcha: RegistrationCaptchaService, @Inject(ReferralsService) private readonly referrals: ReferralsService, @Inject(AuthSessionService) private readonly sessions: AuthSessionService, @Inject(AuthRegistrationService) private readonly registration: AuthRegistrationService, @Inject(AuthCredentialService) private readonly credentials: AuthCredentialService, @Inject(AuthMfaService) private readonly mfa: AuthMfaService) {}
   @Get('config') async config() {
     const mode = resolveLaunchMode(process.env.LAUNCH_MODE);
     const capabilities = launchCapabilities(mode);
@@ -197,69 +196,25 @@ export class AuthController {
         if (!identity.user.externalMfaFactorId) throw new BadRequestException({ code: 'MFA_PRIMARY_REQUIRED', message: '先に主認証アプリを設定してください。' });
         if (identity.user.externalBackupMfaFactorId) throw new ConflictException({ code: 'MFA_BACKUP_ALREADY_ENROLLED', message: '予備認証アプリは設定済みです。' });
       }
-      const factor = await this.supabase.enrollTotp(this.sessions.requireExternalAccessToken(req, 8192));
-      await this.auth.db.$transaction(async tx => {
-        await tx.user.update({ where: { id: identity.id }, data: { pendingExternalMfaFactorId: factor.id, pendingExternalMfaKind: kind, pendingExternalMfaExpiresAt: new Date(Date.now() + 15 * 60_000) } });
-        await this.auth.audit(tx, req, 'MFA_ENROLL_START', identity.id, kind === 'BACKUP' ? 'Supabase予備認証アプリの登録開始' : 'Supabase二段階認証の登録開始', { factorKind: kind });
-      });
-      return { factorId: factor.id, kind, secret: factor.totp.secret, uri: factor.totp.uri, qrCode: factor.totp.qr_code };
+      return this.mfa.enrollExternal(identity, kind, req);
     }
     this.auth.ensureLocal();
     const identity = await this.auth.authenticate(req);
     if (identity.user.mfaSecret) throw new ForbiddenException({ code: 'MFA_ALREADY_ENROLLED', message: '二段階認証は設定済みです。' });
-    const secret = new Secret({ size: 20 }).base32;
-    await this.auth.db.$transaction(async tx => {
-      await tx.user.update({ where: { id: identity.id }, data: { pendingMfaSecret: encrypt(secret) } });
-      await this.auth.audit(tx, req, 'MFA_ENROLL_START', identity.id, '二段階認証の登録開始');
-    });
-    return { secret, uri: otp(secret, identity.user.email ?? `user-${identity.user.id}`).toString() };
+    return this.mfa.enrollLocal(identity, req);
   }
   @Post('mfa/verify') async verify(@Body() body: unknown, @Req() req: AppRequest, @Res({ passthrough: true }) res: Response) {
     if (process.env.AUTH_PROVIDER === 'supabase') {
       const identity = await this.auth.authenticate(req);
-      const { code, factor, factorId: submittedFactorId } = externalMfaVerifySchema.parse(body);
-      const pending = submittedFactorId && identity.user.pendingExternalMfaFactorId === submittedFactorId
-        ? { factorId: submittedFactorId, kind: identity.user.pendingExternalMfaKind, expiresAt: identity.user.pendingExternalMfaExpiresAt }
-        : null;
-      if (submittedFactorId && !pending && ![identity.user.externalMfaFactorId, identity.user.externalBackupMfaFactorId].includes(submittedFactorId)) throw new BadRequestException({ code: 'MFA_FACTOR_INVALID', message: '認証要素を確認できません。' });
-      if (pending && (!pending.expiresAt || pending.expiresAt <= new Date() || !['PRIMARY', 'BACKUP'].includes(pending.kind ?? ''))) throw new BadRequestException({ code: 'MFA_ENROLLMENT_EXPIRED', message: '設定時間を過ぎました。もう一度登録を開始してください。' });
-      const factorId = submittedFactorId ?? (factor === 'BACKUP' ? identity.user.externalBackupMfaFactorId : identity.user.externalMfaFactorId);
-      if (!factorId) throw new BadRequestException({ code: 'MFA_NOT_ENROLLED', message: '二段階認証の設定を開始してください。' });
-      const resolvedFactorKind = pending?.kind === 'BACKUP' || factorId === identity.user.externalBackupMfaFactorId ? 'BACKUP' : 'PRIMARY';
-      const token = this.sessions.requireExternalAccessToken(req, 8192);
-      const challenge = await this.supabase.challengeFactor(token, factorId);
-      const session = await this.supabase.verifyFactor(token, factorId, challenge.id, code);
-      if (session.user.id !== identity.user.authSubject) throw new UnauthorizedException();
-      req.auth = { ...identity, aal: 2 };
-      await this.auth.db.$transaction(async tx => {
-        if (pending) {
-          const field = pending.kind === 'BACKUP' ? 'externalBackupMfaFactorId' : 'externalMfaFactorId';
-          const changed = await tx.user.updateMany({ where: { id: identity.id, pendingExternalMfaFactorId: factorId, pendingExternalMfaExpiresAt: { gt: new Date() }, ...(pending.kind === 'BACKUP' ? { externalMfaFactorId: { not: null }, externalBackupMfaFactorId: null } : { externalMfaFactorId: null }) }, data: { [field]: factorId, pendingExternalMfaFactorId: null, pendingExternalMfaKind: null, pendingExternalMfaExpiresAt: null } });
-          if (changed.count !== 1) throw new ConflictException({ code: 'MFA_ENROLLMENT_CHANGED', message: '設定状態が変わりました。最新の状態を確認してください。' });
-          await this.auth.audit(tx, req, 'MFA_FACTOR_ENROLLED', identity.id, pending.kind === 'BACKUP' ? 'Supabase予備認証アプリの登録完了' : 'Supabase二段階認証の登録完了', { factorKind: pending.kind, otherSessionsRevokedByProvider: true });
-        } else {
-          await this.auth.audit(tx, req, 'MFA_VERIFIED', identity.id, resolvedFactorKind === 'BACKUP' ? 'Supabase予備認証アプリで二段階認証成功' : 'Supabase二段階認証成功', { factorKind: resolvedFactorKind });
-        }
-      });
+      const input = externalMfaVerifySchema.parse(body);
+      const session = await this.mfa.verifyExternal(identity, input, req);
       this.sessions.setExternalSession(res, session);
       return { verified: true };
     }
     this.auth.ensureLocal();
     const identity = await this.auth.authenticate(req);
     const { code } = mfaCodeSchema.parse(body);
-    const encrypted = identity.user.mfaSecret ?? identity.user.pendingMfaSecret;
-    if (!encrypted || !identity.sessionId) throw new BadRequestException('MFA_NOT_ENROLLED');
-    const timestamp = Date.now();
-    const delta = otp(decrypt(encrypted), identity.user.email ?? `user-${identity.user.id}`).validate({ token: code, window: 1, timestamp });
-    if (delta === null) throw new UnauthorizedException({ code: 'MFA_INVALID', message: '認証コードを確認してください。' });
-    const step = BigInt(Math.floor(timestamp / 30000) + delta);
-    const token = await this.auth.db.$transaction(async tx => {
-      const changed = await tx.user.updateMany({ where: { id: identity.id, mfaSecret: identity.user.mfaSecret, pendingMfaSecret: identity.user.pendingMfaSecret, OR: [{ mfaLastStep: null }, { mfaLastStep: { lt: step } }] }, data: { mfaSecret: encrypted, pendingMfaSecret: null, mfaLastStep: step } });
-      if (changed.count !== 1) throw new UnauthorizedException({ code: 'MFA_REPLAY', message: '次の認証コードで再度お試しください。' });
-      await tx.session.delete({ where: { id: identity.sessionId } });
-      await this.auth.audit(tx, req, 'MFA_VERIFIED', identity.id, '二段階認証成功');
-      return this.auth.session(tx, identity.id, 2);
-    });
+    const token = await this.mfa.verifyLocal(identity, code, req);
     this.sessions.setLocalSession(res, token);
     return { ok: true };
   }
@@ -270,15 +225,7 @@ export class AuthController {
     const { reason } = z.object({ reason: z.string().trim().min(1).max(500) }).strict().parse(body);
     const factorId = identity.user.externalBackupMfaFactorId;
     if (!factorId) throw new BadRequestException({ code: 'MFA_BACKUP_NOT_ENROLLED', message: '予備認証アプリは設定されていません。' });
-    const accessToken = this.sessions.requireExternalAccessToken(req, 8192);
-    await this.supabase.unenrollFactor(accessToken, factorId);
-    await this.supabase.logout(accessToken);
-    await this.auth.db.$transaction(async tx => {
-      const changed = await tx.user.updateMany({ where: { id: identity.id, externalBackupMfaFactorId: factorId }, data: { externalBackupMfaFactorId: null } });
-      if (changed.count !== 1) throw new ConflictException({ code: 'MFA_BACKUP_CHANGED', message: '設定状態が変わりました。最新の状態を確認してください。' });
-      const localSessions = await tx.session.deleteMany({ where: { userId: identity.id } });
-      await this.auth.audit(tx, req, 'MFA_BACKUP_REVOKED', identity.id, reason, { factorKind: 'BACKUP', providerSessionsRevoked: true, localSessionsRevoked: localSessions.count });
-    });
+    await this.mfa.revokeExternalBackup(identity, factorId, reason, req);
     this.sessions.clearExternalSession(res);
     this.sessions.clearLocalSession(res);
     return { revoked: true, signedOut: true };
