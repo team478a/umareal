@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { billingSupportCategories, billingSupportStatuses } from './billing-support';
+import { dateSchema } from './races';
 
 export const subscriptionPlans = ['FOUNDER', 'STANDARD'] as const;
 export const subscriptionCheckoutSchema = z.object({ planCode: z.enum(subscriptionPlans) }).strict();
@@ -34,6 +36,55 @@ export const billingPlansResponseSchema = z.object({
   plans: z.tuple([founderBillingPlanSchema, standardBillingPlanSchema, dayPassBillingPlanSchema])
 }).strict();
 export type BillingPlansResponse = z.infer<typeof billingPlansResponseSchema>;
+const billingDateTimeSchema = z.preprocess(
+  value => value instanceof Date ? value.toISOString() : value,
+  z.string().datetime({ offset: true })
+);
+const memberSubscriptionSchema = z.object({
+  id: z.string().uuid(),
+  planCode: z.string(),
+  status: z.string(),
+  priceYen: z.number().int().nonnegative(),
+  currentPeriodEndsAt: billingDateTimeSchema,
+  graceEndsAt: billingDateTimeSchema.nullable(),
+  cancelAtPeriodEnd: z.boolean()
+}).strict();
+const memberDayPassSchema = z.object({
+  id: z.string().uuid(),
+  raceDate: dateSchema,
+  status: z.string(),
+  priceYen: z.number().int().nonnegative()
+}).strict();
+const memberPaymentSchema = z.object({
+  id: z.string().uuid(),
+  provider: z.string(),
+  kind: z.string(),
+  status: z.string(),
+  amountYen: z.number().int(),
+  occurredAt: billingDateTimeSchema
+}).strict();
+const memberBillingSupportEventSchema = z.object({
+  eventType: z.string(),
+  occurredAt: billingDateTimeSchema
+}).strict();
+const memberBillingSupportRequestSchema = z.object({
+  id: z.string().uuid(),
+  paymentTransactionId: z.string().uuid().nullable(),
+  category: z.enum(billingSupportCategories),
+  message: z.string(),
+  status: z.enum(billingSupportStatuses),
+  createdAt: billingDateTimeSchema,
+  updatedAt: billingDateTimeSchema,
+  events: z.array(memberBillingSupportEventSchema)
+}).strict();
+export const memberBillingResponseSchema = z.object({
+  subscriptions: z.array(memberSubscriptionSchema),
+  dayPasses: z.array(memberDayPassSchema),
+  payments: z.array(memberPaymentSchema),
+  supportRequests: z.array(memberBillingSupportRequestSchema),
+  customerPortalAvailable: z.boolean()
+}).strict();
+export type MemberBillingResponse = z.infer<typeof memberBillingResponseSchema>;
 export const dayPassCheckoutSchema = z.object({ raceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).strict().superRefine((value, context) => {
   const parsed = new Date(`${value.raceDate}T00:00:00+09:00`);
   const roundTrip = new Date(parsed.getTime() + 9 * 3600000).toISOString().slice(0, 10);

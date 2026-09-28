@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addCalendarMonthUtc, billingPlansResponseSchema, billingReviewResolutionSchema, dayPassCheckoutSchema, dayPassWindow } from './index';
+import { addCalendarMonthUtc, billingPlansResponseSchema, billingReviewResolutionSchema, dayPassCheckoutSchema, dayPassWindow, memberBillingResponseSchema } from './index';
 
 describe('billing periods', () => {
   it('uses an exclusive JST day-pass boundary', () => {
@@ -32,5 +32,24 @@ describe('billing periods', () => {
     };
     expect(billingPlansResponseSchema.parse(response)).toEqual(response);
     expect(() => billingPlansResponseSchema.parse({ ...response, stripeSecretKey: 'secret' })).toThrow();
+  });
+  it('keeps member billing responses public and serializes database timestamps', () => {
+    const response = {
+      subscriptions: [{ id: '10000000-0000-4000-8000-000000000001', planCode: 'STANDARD', status: 'ACTIVE', priceYen: 2980, currentPeriodEndsAt: new Date('2027-02-01T00:00:00Z'), graceEndsAt: null, cancelAtPeriodEnd: false }],
+      dayPasses: [{ id: '10000000-0000-4000-8000-000000000002', raceDate: '2027-02-07', status: 'ACTIVE', priceYen: 980 }],
+      payments: [{ id: '10000000-0000-4000-8000-000000000003', provider: 'STRIPE', kind: 'SUBSCRIPTION', status: 'SUCCEEDED', amountYen: 2980, occurredAt: new Date('2027-01-01T00:00:00Z') }],
+      supportRequests: [{ id: '10000000-0000-4000-8000-000000000004', paymentTransactionId: null, category: 'OTHER' as const, message: '請求について確認したいです。', status: 'OPEN' as const, createdAt: new Date('2027-01-02T00:00:00Z'), updatedAt: new Date('2027-01-02T00:00:00Z'), events: [{ eventType: 'CREATED', occurredAt: new Date('2027-01-02T00:00:00Z') }] }],
+      customerPortalAvailable: true
+    };
+    expect(memberBillingResponseSchema.parse(response)).toEqual({
+      ...response,
+      subscriptions: [{ ...response.subscriptions[0], currentPeriodEndsAt: '2027-02-01T00:00:00.000Z' }],
+      payments: [{ ...response.payments[0], occurredAt: '2027-01-01T00:00:00.000Z' }],
+      supportRequests: [{ ...response.supportRequests[0], createdAt: '2027-01-02T00:00:00.000Z', updatedAt: '2027-01-02T00:00:00.000Z', events: [{ eventType: 'CREATED', occurredAt: '2027-01-02T00:00:00.000Z' }] }]
+    });
+    expect(() => memberBillingResponseSchema.parse({ ...response, subscriptions: [{ ...response.subscriptions[0], providerSubscriptionId: 'sub_internal' }] })).toThrow();
+    expect(() => memberBillingResponseSchema.parse({ ...response, dayPasses: [{ ...response.dayPasses[0], providerPassId: 'pass_internal' }] })).toThrow();
+    expect(() => memberBillingResponseSchema.parse({ ...response, payments: [{ ...response.payments[0], providerPaymentId: 'payment_internal' }] })).toThrow();
+    expect(() => memberBillingResponseSchema.parse({ ...response, supportRequests: [{ ...response.supportRequests[0], events: [{ ...response.supportRequests[0].events[0], reason: 'internal reason' }] }] })).toThrow();
   });
 });
