@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ArrowRight, CreditCard, ShieldCheck } from 'lucide-react';
-import type { AdminBillingResponse, BillingCouponPreviewResponse, BillingDayPassCheckoutResponse, BillingPlansResponse, BillingPortalResponse, BillingReceiptResponse, BillingSubscriptionCheckoutResponse, MemberBillingResponse } from '@keiba/domain';
+import type { AdminBillingResponse, BillingCouponPreviewResponse, BillingDayPassCheckoutResponse, BillingPlansResponse, BillingPortalResponse, BillingReceiptResponse, BillingSubscriptionCheckoutResponse, BillingSubscriptionLifecycleResponse, BillingSupportRequestCreatedResponse, MemberBillingResponse } from '@keiba/domain';
 import { AdminBillingCoupons } from './billing-coupons';
 
 type Plan = BillingPlansResponse['plans'][number];
@@ -57,13 +57,13 @@ export function BillingAccount() {
   const [supportCategory, setSupportCategory] = useState<keyof typeof supportCategoryLabels>('PAYMENT_FAILURE'); const [supportPaymentId, setSupportPaymentId] = useState(''); const [supportMessage, setSupportMessage] = useState(''); const [supportBusy, setSupportBusy] = useState(false);
   const load = () => request<MemberBillingResponse>('billing/me').then(setData).catch(e => setError(e.message));
   useEffect(() => { void load(); }, []);
-  async function cancel(id: string) { setError(''); try { await request(`billing/subscriptions/${id}/cancel`, 'POST'); setMessage('次回更新を停止しました。支払済み期間の終了まで閲覧できます。'); await load(); } catch (e) { setError((e as Error).message); } }
-  async function resume(id: string) { setError(''); try { await request(`billing/subscriptions/${id}/resume`, 'POST'); setMessage('月額契約の継続を再開しました。'); await load(); } catch (e) { setError((e as Error).message); } }
+  async function cancel(id: string) { setError(''); try { await request<BillingSubscriptionLifecycleResponse>(`billing/subscriptions/${id}/cancel`, 'POST'); setMessage('次回更新を停止しました。支払済み期間の終了まで閲覧できます。'); await load(); } catch (e) { setError((e as Error).message); } }
+  async function resume(id: string) { setError(''); try { await request<BillingSubscriptionLifecycleResponse>(`billing/subscriptions/${id}/resume`, 'POST'); setMessage('月額契約の継続を再開しました。'); await load(); } catch (e) { setError((e as Error).message); } }
   async function openPortal() { setError(''); try { const result = await request<BillingPortalResponse>('billing/portal', 'POST'); window.location.assign(result.portalUrl); } catch (e) { setError((e as Error).message); } }
   async function createSupportRequest() { setError(''); setMessage(''); setSupportBusy(true); try {
     const needsPayment = supportCategory === 'REFUND' || supportCategory === 'RECEIPT';
     if (needsPayment && !supportPaymentId) throw new Error('対象の支払いを選択してください。');
-    await request('billing/support-requests', 'POST', { category: supportCategory, paymentTransactionId: supportPaymentId || null, message: supportMessage }, true);
+    await request<BillingSupportRequestCreatedResponse>('billing/support-requests', 'POST', { category: supportCategory, paymentTransactionId: supportPaymentId || null, message: supportMessage }, true);
     setSupportMessage(''); setSupportPaymentId(''); setMessage('請求に関する問い合わせを受け付けました。'); await load();
   } catch (e) { setError((e as Error).message); } finally { setSupportBusy(false); } }
   async function openReceipt(id: string) { setError(''); try { const result = await request<BillingReceiptResponse>(`billing/payments/${id}/receipt`); window.location.assign(result.receiptUrl); } catch (e) { setError((e as Error).message); } }

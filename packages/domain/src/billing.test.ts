@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addCalendarMonthUtc, adminBillingResponseSchema, billingCouponCreateSchema, billingDayPassCheckoutResponseSchema, billingPlansResponseSchema, billingPortalResponseSchema, billingReceiptResponseSchema, billingReviewResolutionSchema, billingSubscriptionCheckoutResponseSchema, dayPassCheckoutSchema, dayPassCheckoutWithCouponSchema, dayPassWindow, memberBillingResponseSchema } from './index';
+import { addCalendarMonthUtc, adminBillingResponseSchema, billingCouponCreateSchema, billingDayPassCheckoutResponseSchema, billingPlansResponseSchema, billingPortalResponseSchema, billingReceiptResponseSchema, billingReviewResolutionSchema, billingSubscriptionCheckoutResponseSchema, billingSubscriptionLifecycleResponseSchema, billingSupportRequestCreatedResponseSchema, dayPassCheckoutSchema, dayPassCheckoutWithCouponSchema, dayPassWindow, memberBillingResponseSchema } from './index';
 
 describe('billing periods', () => {
   it('uses an exclusive JST day-pass boundary', () => {
@@ -67,6 +67,26 @@ describe('billing periods', () => {
     expect(billingReceiptResponseSchema.safeParse({ ...receipt, receiptUrl: 'https://stripe.com.example.test/receipt' }).success).toBe(false);
     expect(billingPortalResponseSchema.parse({ portalUrl: 'https://billing.stripe.com/p/session/test' })).toEqual({ portalUrl: 'https://billing.stripe.com/p/session/test' });
     expect(billingPortalResponseSchema.safeParse({ portalUrl: 'http://billing.stripe.com/p/session/test' }).success).toBe(false);
+  });
+  it('shares member billing action responses without exposing internal identifiers', () => {
+    const lifecycle = {
+      id: '30000000-0000-4000-8000-000000000006',
+      status: 'ACTIVE',
+      cancelAtPeriodEnd: true,
+      accessEndsAt: new Date('2027-03-01T00:00:00Z')
+    };
+    expect(billingSubscriptionLifecycleResponseSchema.parse(lifecycle)).toEqual({ ...lifecycle, accessEndsAt: '2027-03-01T00:00:00.000Z' });
+    expect(() => billingSubscriptionLifecycleResponseSchema.parse({ ...lifecycle, providerSubscriptionId: 'sub_secret' })).toThrow();
+
+    const support = {
+      id: '30000000-0000-4000-8000-000000000007',
+      category: 'REFUND',
+      status: 'OPEN',
+      paymentTransactionId: '30000000-0000-4000-8000-000000000008',
+      createdAt: new Date('2027-03-01T01:00:00Z')
+    } as const;
+    expect(billingSupportRequestCreatedResponseSchema.parse(support)).toEqual({ ...support, createdAt: '2027-03-01T01:00:00.000Z' });
+    expect(() => billingSupportRequestCreatedResponseSchema.parse({ ...support, userId: '30000000-0000-4000-8000-000000000009' })).toThrow();
   });
   it('keeps member billing responses public and serializes database timestamps', () => {
     const response = {

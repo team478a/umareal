@@ -40,8 +40,12 @@ describe('local billing lifecycle', () => {
 
   it('schedules cancellation without cutting off the paid period', async () => {
     const canceled = await member.call(`billing/subscriptions/${subscriptionId}/cancel`, 'POST'); expect(canceled.status).toBe(201); expect(canceled.body.cancelAtPeriodEnd).toBe(true);
+    expect(Object.keys(canceled.body).sort()).toEqual(['accessEndsAt', 'cancelAtPeriodEnd', 'id', 'status']);
+    expect(JSON.stringify(canceled.body)).not.toContain('providerSubscriptionId');
+    expect(JSON.stringify(canceled.body)).not.toContain('userId');
     const repeated = await member.call(`billing/subscriptions/${subscriptionId}/cancel`, 'POST'); expect(repeated.status).toBe(201);
     const resumed = await member.call(`billing/subscriptions/${subscriptionId}/resume`, 'POST'); expect(resumed.status).toBe(201); expect(resumed.body.cancelAtPeriodEnd).toBe(false);
+    expect(Object.keys(resumed.body).sort()).toEqual(['accessEndsAt', 'cancelAtPeriodEnd', 'id', 'status']);
     const repeatedResume = await member.call(`billing/subscriptions/${subscriptionId}/resume`, 'POST'); expect(repeatedResume.status).toBe(201); expect(repeatedResume.body.cancelAtPeriodEnd).toBe(false);
     expect(await db.billingEvent.count({ where: { subscriptionId, eventType: 'CANCELLATION_REVERSED' } })).toBe(1);
     const subscription = await db.subscription.findUniqueOrThrow({ where: { id: subscriptionId }, include: { entitlement: true } });

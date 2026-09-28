@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Req, ServiceUnavailableException } from '@nestjs/common';
-import { adminBillingCouponsResponseSchema, adminBillingResponseSchema, billingCouponCreateSchema, billingCouponDeactivateSchema, billingCouponPreviewResponseSchema, billingCouponPreviewSchema, billingDayPassCheckoutResponseSchema, billingPlansResponseSchema, billingPortalResponseSchema, billingReceiptResponseSchema, billingReviewResolutionSchema, billingSubscriptionCheckoutResponseSchema, billingSupportRequestSchema, billingSupportStatusSchema, canManage, dayPassCheckoutWithCouponSchema, jstDate, launchCapabilities, memberBillingResponseSchema, requiresMfa, resolveLaunchMode, subscriptionCheckoutSchema } from '@keiba/domain';
+import { adminBillingCouponsResponseSchema, adminBillingResponseSchema, billingCouponCreateSchema, billingCouponDeactivateSchema, billingCouponPreviewResponseSchema, billingCouponPreviewSchema, billingDayPassCheckoutResponseSchema, billingPlansResponseSchema, billingPortalResponseSchema, billingReceiptResponseSchema, billingReviewResolutionSchema, billingSubscriptionCheckoutResponseSchema, billingSubscriptionLifecycleResponseSchema, billingSupportRequestCreatedResponseSchema, billingSupportRequestSchema, billingSupportStatusSchema, canManage, dayPassCheckoutWithCouponSchema, jstDate, launchCapabilities, memberBillingResponseSchema, requiresMfa, resolveLaunchMode, subscriptionCheckoutSchema } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -81,7 +81,7 @@ export class BillingController {
     const input = billingSupportRequestSchema.parse(body);
     const key = this.key(req, 'billing-support', actor.id);
     const requestHash = hashToken(JSON.stringify(input));
-    return this.billingSupport.create(req, actor.id, input, key, requestHash);
+    return billingSupportRequestCreatedResponseSchema.parse(await this.billingSupport.create(req, actor.id, input, key, requestHash));
   }
 
   @Post('billing/checkout')
@@ -128,13 +128,13 @@ export class BillingController {
   @Post('billing/subscriptions/:id/cancel')
   async cancel(@Param('id') id: string, @Req() req: AppRequest) {
     const transport = this.transport(); const actor = await this.auth.authenticate(req); z.string().uuid().parse(id);
-    return this.subscriptionLifecycle.scheduleCancellation(req, actor.id, id, transport);
+    return billingSubscriptionLifecycleResponseSchema.parse(await this.subscriptionLifecycle.scheduleCancellation(req, actor.id, id, transport));
   }
 
   @Post('billing/subscriptions/:id/resume')
   async resume(@Param('id') id: string, @Req() req: AppRequest) {
     const transport = this.transport(); const actor = await this.auth.authenticate(req); z.string().uuid().parse(id);
-    return this.subscriptionLifecycle.resume(req, actor.id, id, transport);
+    return billingSubscriptionLifecycleResponseSchema.parse(await this.subscriptionLifecycle.resume(req, actor.id, id, transport));
   }
 
   @Post('billing/portal')
