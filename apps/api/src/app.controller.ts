@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminReadinessResponseSchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
+import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminReadinessResponseSchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -80,7 +80,7 @@ export class AppController {
     if (identity.user.passwordHash && (!input.currentPassword || !await verifyPassword(input.currentPassword, identity.user.passwordHash))) throw new UnauthorizedException({ code: 'CURRENT_PASSWORD_INVALID', message: '現在のパスワードを確認してください。' });
     const result = await this.accountClosure.close(identity.id, input.reasonCode, req);
     this.sessions.clearLocalSession(res);
-    return result;
+    return accountClosureCompletionResponseSchema.parse(result);
   }
   @Post('me/journey') async journey(@Body() body: unknown, @Req() req: AppRequest) {
     const identity = await this.auth.authenticate(req);

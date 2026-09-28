@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountClosureEligibilityResponseSchema } from './account-closure';
+import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema } from './account-closure';
 
 const response = {
   eligible: false,
@@ -27,5 +27,27 @@ describe('account closure eligibility response contract', () => {
       blockers: [{ ...response.blockers[0], subscriptionId: 'internal-subscription' }]
     }).success).toBe(false);
     expect(accountClosureEligibilityResponseSchema.safeParse({ ...response, passwordHash: 'secret' }).success).toBe(false);
+  });
+});
+
+describe('account closure completion response contract', () => {
+  const completed = {
+    closedAt: new Date('2026-09-29T00:00:00.000Z'),
+    alreadyClosed: false,
+    retainedHistory: true as const
+  };
+
+  it('preserves the existing public response and normalizes the closure timestamp', () => {
+    expect(accountClosureCompletionResponseSchema.parse(completed)).toEqual({
+      closedAt: '2026-09-29T00:00:00.000Z',
+      alreadyClosed: false,
+      retainedHistory: true
+    });
+  });
+
+  it('rejects closure, user and audit identifiers', () => {
+    expect(accountClosureCompletionResponseSchema.safeParse({ ...completed, closureId: 'internal-closure' }).success).toBe(false);
+    expect(accountClosureCompletionResponseSchema.safeParse({ ...completed, userId: '11111111-1111-4111-8111-111111111111' }).success).toBe(false);
+    expect(accountClosureCompletionResponseSchema.safeParse({ ...completed, auditLogId: 'internal-audit' }).success).toBe(false);
   });
 });
