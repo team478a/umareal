@@ -6,6 +6,14 @@ const accountDateTimeSchema = z.preprocess(
   z.string().datetime({ offset: true })
 );
 
+export const notificationPreferencesResponseSchema = z.object({
+  emailEnabled: z.boolean(),
+  predictions: z.boolean(),
+  changes: z.boolean(),
+  articles: z.boolean(),
+  billing: z.boolean()
+}).strict();
+
 export const currentAccountResponseSchema = z.object({
   id: z.string().uuid(),
   email: z.string().email().nullable(),
@@ -19,13 +27,7 @@ export const currentAccountResponseSchema = z.object({
   mfaRequired: z.boolean(),
   mfaBackupEnabled: z.boolean(),
   mfaBackupSupported: z.boolean(),
-  preferences: z.object({
-    emailEnabled: z.boolean(),
-    predictions: z.boolean(),
-    changes: z.boolean(),
-    articles: z.boolean(),
-    billing: z.boolean()
-  }).strict(),
+  preferences: notificationPreferencesResponseSchema,
   lineLinked: z.boolean(),
   lineNotificationState: z.enum(['NOT_LINKED', 'BLOCKED', 'DISABLED', 'READY']),
   lineNotificationReady: z.boolean(),
@@ -47,3 +49,4 @@ export const currentAccountResponseSchema = z.object({
 }).strict();
 
 export type CurrentAccountResponse = z.infer<typeof currentAccountResponseSchema>;
+export type NotificationPreferencesResponse = z.infer<typeof notificationPreferencesResponseSchema>;

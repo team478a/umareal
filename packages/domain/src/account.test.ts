@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { currentAccountResponseSchema } from './account';
+import { currentAccountResponseSchema, notificationPreferencesResponseSchema } from './account';
 
 const id = '11111111-1111-4111-8111-111111111111';
 
@@ -40,5 +40,18 @@ describe('current account response contract', () => {
   it('rejects database-only authentication fields', () => {
     expect(() => currentAccountResponseSchema.parse({ ...account(), passwordHash: 'secret' })).toThrow();
     expect(() => currentAccountResponseSchema.parse({ ...account(), authSubject: 'provider-subject' })).toThrow();
+  });
+});
+
+describe('notification preferences response contract', () => {
+  const preferences = { emailEnabled: true, predictions: false, changes: true, articles: true, billing: false };
+
+  it('accepts the existing public response', () => {
+    expect(notificationPreferencesResponseSchema.parse(preferences)).toEqual(preferences);
+  });
+
+  it('rejects account and delivery internals', () => {
+    expect(() => notificationPreferencesResponseSchema.parse({ ...preferences, userId: id })).toThrow();
+    expect(() => notificationPreferencesResponseSchema.parse({ ...preferences, emailDeliveryDisabledAt: null })).toThrow();
   });
 });
