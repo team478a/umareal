@@ -29,6 +29,9 @@ describe('billing support requests', () => {
     const first = await member.call('billing/support-requests', 'POST', body, undefined, { 'Idempotency-Key': key });
     expect(first.status).toBe(201);
     expect(first.body).toMatchObject({ category: 'REFUND', status: 'OPEN', paymentTransactionId: paymentId });
+    expect(Object.keys(first.body).sort()).toEqual(['category', 'createdAt', 'id', 'paymentTransactionId', 'status']);
+    expect(JSON.stringify(first.body)).not.toContain('userId');
+    expect(JSON.stringify(first.body)).not.toContain('providerPaymentId');
     requestId = first.body.id;
     const replay = await member.call('billing/support-requests', 'POST', body, undefined, { 'Idempotency-Key': key });
     expect(replay.body).toEqual(first.body);

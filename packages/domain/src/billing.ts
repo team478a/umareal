@@ -74,10 +74,25 @@ export const billingSubscriptionCheckoutResponseSchema = z.union([stripeCheckout
 export const billingDayPassCheckoutResponseSchema = z.union([stripeCheckoutResponseSchema, localDayPassCheckoutResponseSchema]);
 export const billingReceiptResponseSchema = z.object({ paymentId: z.string().uuid(), receiptUrl: stripeReceiptUrlSchema }).strict();
 export const billingPortalResponseSchema = z.object({ portalUrl: stripePortalUrlSchema }).strict();
+export const billingSubscriptionLifecycleResponseSchema = z.object({
+  id: z.string().uuid(),
+  status: z.string().min(1),
+  cancelAtPeriodEnd: z.boolean(),
+  accessEndsAt: billingDateTimeSchema
+}).strict();
+export const billingSupportRequestCreatedResponseSchema = z.object({
+  id: z.string().uuid(),
+  category: z.enum(billingSupportCategories),
+  status: z.literal('OPEN'),
+  paymentTransactionId: z.string().uuid().nullable(),
+  createdAt: billingDateTimeSchema
+}).strict();
 export type BillingSubscriptionCheckoutResponse = z.infer<typeof billingSubscriptionCheckoutResponseSchema>;
 export type BillingDayPassCheckoutResponse = z.infer<typeof billingDayPassCheckoutResponseSchema>;
 export type BillingReceiptResponse = z.infer<typeof billingReceiptResponseSchema>;
 export type BillingPortalResponse = z.infer<typeof billingPortalResponseSchema>;
+export type BillingSubscriptionLifecycleResponse = z.infer<typeof billingSubscriptionLifecycleResponseSchema>;
+export type BillingSupportRequestCreatedResponse = z.infer<typeof billingSupportRequestCreatedResponseSchema>;
 const memberSubscriptionSchema = z.object({
   id: z.string().uuid(),
   planCode: z.string(),
