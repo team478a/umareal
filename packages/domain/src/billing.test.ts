@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addCalendarMonthUtc, billingPlansResponseSchema, billingReviewResolutionSchema, dayPassCheckoutSchema, dayPassWindow, memberBillingResponseSchema } from './index';
+import { addCalendarMonthUtc, adminBillingResponseSchema, billingPlansResponseSchema, billingReviewResolutionSchema, dayPassCheckoutSchema, dayPassWindow, memberBillingResponseSchema } from './index';
 
 describe('billing periods', () => {
   it('uses an exclusive JST day-pass boundary', () => {
@@ -51,5 +51,17 @@ describe('billing periods', () => {
     expect(() => memberBillingResponseSchema.parse({ ...response, dayPasses: [{ ...response.dayPasses[0], providerPassId: 'pass_internal' }] })).toThrow();
     expect(() => memberBillingResponseSchema.parse({ ...response, payments: [{ ...response.payments[0], providerPaymentId: 'payment_internal' }] })).toThrow();
     expect(() => memberBillingResponseSchema.parse({ ...response, supportRequests: [{ ...response.supportRequests[0], events: [{ ...response.supportRequests[0].events[0], reason: 'internal reason' }] }] })).toThrow();
+  });
+  it('keeps the administrator billing dashboard within its explicit operational contract', () => {
+    const subscription = { id: '20000000-0000-4000-8000-000000000001', planCode: 'STANDARD', status: 'ACTIVE', priceYen: 2980, currentPeriodEndsAt: new Date('2027-02-01T00:00:00Z'), graceEndsAt: null, cancelAtPeriodEnd: false, user: { email: 'member@example.test', displayName: '会員' } };
+    const payment = { id: '20000000-0000-4000-8000-000000000002', provider: 'STRIPE', kind: 'SUBSCRIPTION', status: 'SUCCEEDED', amountYen: 2980, occurredAt: new Date('2027-01-01T00:00:00Z'), user: { email: 'member@example.test', displayName: '会員' } };
+    const response = { billingTransport: 'stripe' as const, subscriptions: [subscription], dayPasses: [], payments: [payment], checkouts: [], stripeWebhooks: [], supportRequests: [], pendingDayPassReviews: [], reviewCheckouts: [] };
+    expect(adminBillingResponseSchema.parse(response)).toEqual({
+      ...response,
+      subscriptions: [{ ...subscription, currentPeriodEndsAt: '2027-02-01T00:00:00.000Z' }],
+      payments: [{ ...payment, occurredAt: '2027-01-01T00:00:00.000Z' }]
+    });
+    expect(() => adminBillingResponseSchema.parse({ ...response, subscriptions: [{ ...subscription, providerSubscriptionId: 'sub_internal', entitlementId: '20000000-0000-4000-8000-000000000003' }] })).toThrow();
+    expect(() => adminBillingResponseSchema.parse({ ...response, payments: [{ ...payment, providerPaymentId: 'payment_internal', subscriptionId: subscription.id }] })).toThrow();
   });
 });

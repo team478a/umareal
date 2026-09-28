@@ -3,21 +3,9 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ArrowRight, CreditCard, ShieldCheck } from 'lucide-react';
-import type { BillingPlansResponse, MemberBillingResponse } from '@keiba/domain';
+import type { AdminBillingResponse, BillingPlansResponse, MemberBillingResponse } from '@keiba/domain';
 
 type Plan = BillingPlansResponse['plans'][number];
-type AdminBillingData = {
-  billingTransport?: 'test' | 'stripe';
-  customerPortalAvailable?: boolean;
-  subscriptions: { id: string; planCode: string; status: string; priceYen: number; currentPeriodEndsAt: string; graceEndsAt: string | null; cancelAtPeriodEnd: boolean; user?: { email: string; displayName: string } }[];
-  dayPasses: { id: string; raceDate: string; status: string; priceYen: number; user?: { email: string; displayName: string } }[];
-  payments: { id: string; provider: string; kind: string; status: string; amountYen: number; occurredAt: string; user?: { email: string; displayName: string } }[];
-  checkouts?: { id: string; kind: string; planCode: string; raceDate: string | null; amountYen: number; status: string; createdAt: string; expiresAt: string; completedAt: string | null; user: { email: string; displayName: string } }[];
-  stripeWebhooks?: { id: string; providerEventId: string; eventType: string; livemode: boolean; outcome: string; receivedAt: string }[];
-  supportRequests: { id: string; paymentTransactionId?: string | null; category: 'REFUND' | 'RECEIPT' | 'PAYMENT_FAILURE' | 'CANCELLATION' | 'OTHER'; message: string; status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED'; createdAt: string; updatedAt: string; user?: { email: string | null; displayName: string }; paymentTransaction?: { id: string; kind: string; status: string; amountYen: number; occurredAt: string } | null; events: { id?: string; eventType: string; actorRole?: string; reason?: string; occurredAt: string }[] }[];
-  pendingDayPassReviews?: { id: string; raceDate: string; status: string; priceYen: number; provider: string; endsAt: string; user: { email: string | null; displayName: string } }[];
-  reviewCheckouts?: { id: string; kind: string; planCode: string; raceDate: string | null; amountYen: number; status: string; completedAt: string | null; user: { email: string | null; displayName: string }; payments: { id: string; status: string; occurredAt: string }[] }[];
-};
 const supportCategoryLabels = { REFUND: '返金について', RECEIPT: '領収書について', PAYMENT_FAILURE: '支払い失敗について', CANCELLATION: '解約について', OTHER: 'その他の請求問い合わせ' } as const;
 const supportStatusLabels = { OPEN: '受付済み', IN_PROGRESS: '対応中', RESOLVED: '解決済み' } as const;
 const dayPassStatusLabels: Record<string, string> = { PENDING: 'WIN5初版公開待ち', REFUNDING: '返金処理中', ACTIVE: '利用中', USED: '使用済み', EXPIRED: '期限切れ', REFUNDED: '返金済み' };
@@ -81,8 +69,8 @@ export function BillingAccount() {
 }
 
 export function AdminBilling() {
-  const [data, setData] = useState<AdminBillingData | null>(null); const [reason, setReason] = useState(''); const [error, setError] = useState(''); const [message, setMessage] = useState('');
-  const load = () => request<AdminBillingData>('admin/billing').then(setData).catch(e => setError(e.message)); useEffect(() => { void load(); }, []);
+  const [data, setData] = useState<AdminBillingResponse | null>(null); const [reason, setReason] = useState(''); const [error, setError] = useState(''); const [message, setMessage] = useState('');
+  const load = () => request<AdminBillingResponse>('admin/billing').then(setData).catch(e => setError(e.message)); useEffect(() => { void load(); }, []);
   async function action(id: string, name: 'simulate-failure' | 'recover') { setError(''); setMessage(''); try { if (!reason.trim()) throw new Error('試験操作の理由を入力してください。'); await request(`admin/billing/subscriptions/${id}/${name}`, 'POST', { reason }); setMessage(name === 'recover' ? '支払回復を記録しました。' : '支払失敗を記録しました。'); setReason(''); await load(); } catch (e) { setError((e as Error).message); } }
   async function supportAction(id: string, status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED') { setError(''); setMessage(''); try { if (!reason.trim()) throw new Error('対応理由を入力してください。'); await request(`admin/billing/support-requests/${id}/status`, 'POST', { status, reason }); setMessage('問い合わせの対応状態を更新しました。'); setReason(''); await load(); } catch (e) { setError((e as Error).message); } }
   async function refundDayPass(id: string) { setError(''); setMessage(''); try { if (!reason.trim()) throw new Error('返金理由を入力してください。'); await request(`admin/billing/day-passes/${id}/refund`, 'POST', { reason }); setMessage('期限切れの公開待ち一日券を返金済みにしました。'); setReason(''); await load(); } catch (e) { setError((e as Error).message); } }
