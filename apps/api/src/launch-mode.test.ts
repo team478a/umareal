@@ -8,6 +8,7 @@ import type { StripeCustomerGatewayService } from './stripe-customer-gateway.ser
 import type { StripeWebhookService } from './stripe-webhook.service';
 import type { StripeCheckoutService } from './stripe-checkout.service';
 import type { BillingSubscriptionLifecycleService } from './billing-subscription-lifecycle.service';
+import type { BillingAdminResolutionService } from './billing-admin-resolution.service';
 
 const previousMode = process.env.LAUNCH_MODE;
 const previousBillingTransport = process.env.BILLING_TRANSPORT;
@@ -21,7 +22,7 @@ afterEach(() => {
 describe('free registration launch API boundaries', () => {
   it('rejects billing mutations before authentication or provider access', async () => {
     process.env.LAUNCH_MODE = 'FREE_REGISTRATION';
-    const controller = new BillingController({} as AuthService, {} as StripeCustomerGatewayService, {} as StripeWebhookService, {} as StripeCheckoutService, {} as BillingSubscriptionLifecycleService);
+    const controller = new BillingController({} as AuthService, {} as StripeCustomerGatewayService, {} as StripeWebhookService, {} as StripeCheckoutService, {} as BillingSubscriptionLifecycleService, {} as BillingAdminResolutionService);
     await expect(controller.checkout({} as never, {})).rejects.toMatchObject({ response: { code: 'BILLING_NOT_IN_LAUNCH' } });
   });
 
@@ -29,7 +30,7 @@ describe('free registration launch API boundaries', () => {
     process.env.LAUNCH_MODE = 'CLOUD_STAGING';
     process.env.BILLING_TRANSPORT = 'test';
     const authenticate = vi.fn().mockRejectedValue(new Error('AUTH_REACHED'));
-    const controller = new BillingController({ authenticate } as unknown as AuthService, {} as StripeCustomerGatewayService, {} as StripeWebhookService, {} as StripeCheckoutService, {} as BillingSubscriptionLifecycleService);
+    const controller = new BillingController({ authenticate } as unknown as AuthService, {} as StripeCustomerGatewayService, {} as StripeWebhookService, {} as StripeCheckoutService, {} as BillingSubscriptionLifecycleService, {} as BillingAdminResolutionService);
     await expect(controller.checkout({} as never, {})).rejects.toThrow('AUTH_REACHED');
     expect(authenticate).toHaveBeenCalledOnce();
   });
@@ -38,7 +39,7 @@ describe('free registration launch API boundaries', () => {
     process.env.LAUNCH_MODE = 'STRIPE_SANDBOX';
     process.env.BILLING_TRANSPORT = 'stripe';
     const authenticate = vi.fn().mockRejectedValue(new Error('AUTH_REACHED'));
-    const controller = new BillingController({ authenticate } as unknown as AuthService, {} as StripeCustomerGatewayService, {} as StripeWebhookService, {} as StripeCheckoutService, {} as BillingSubscriptionLifecycleService);
+    const controller = new BillingController({ authenticate } as unknown as AuthService, {} as StripeCustomerGatewayService, {} as StripeWebhookService, {} as StripeCheckoutService, {} as BillingSubscriptionLifecycleService, {} as BillingAdminResolutionService);
     await expect(controller.checkout({} as never, {})).rejects.toThrow('AUTH_REACHED');
     expect(authenticate).toHaveBeenCalledOnce();
   });
