@@ -7,7 +7,9 @@ test('administrator follows up an unverified free registration', async ({ page, 
   if (process.env.AUTH_PROVIDER !== 'local' || !['127.0.0.1', 'localhost'].includes(new URL(process.env.DATABASE_URL ?? '').hostname)) throw new Error('Follow-up browser test requires local development services');
   const admin = await account('ADMIN'); const client = new Client(); await client.login(admin); await client.mfa();
   const pending = await account();
-  await db.user.update({ where: { id: pending.user.id }, data: { emailVerifiedAt: null, createdAt: new Date('2000-01-01T00:00:00Z') } });
+  const oldestPending = await db.user.findFirst({ where: { role: 'MEMBER', registrationMethod: 'EMAIL', emailVerifiedAt: null, disabledAt: null }, select: { createdAt: true }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
+  const createdAt = oldestPending ? new Date(oldestPending.createdAt.getTime() - 86400000) : new Date('2000-01-01T00:00:00Z');
+  await db.user.update({ where: { id: pending.user.id }, data: { emailVerifiedAt: null, createdAt } });
   const [name, value] = client.cookie.split('=');
   await context.addCookies([{ name, value, domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
 
