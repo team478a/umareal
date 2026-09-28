@@ -90,6 +90,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 管理者課金例外解決pilot: 要確認Checkoutの返金・閲覧権限付与と、公開待ちのまま期限を過ぎた購入一日券の返金を`BillingAdminResolutionService`へ分離する。ControllerはADMIN+AAL2、Stripe transport、UUIDと理由・解決方法の入力検証を担当する。既存のadvisory lock、Stripe冪等キー、支払履歴・課金event・通知event・AuditLogの追記、返金対象条件、API URL・応答・エラーコード・DB schemaは変更しない。外部Stripe APIを使うsandbox/live返金疎通は引き続き本番外の手動確認対象とする。
 - 請求問い合わせpilot: 会員本人による問い合わせ受付、対象支払いの所有権確認、冪等受付と、管理者による状態遷移、追記イベント、AuditLogを`BillingSupportService`へ分離する。Controllerは認証、MEMBER/ADMIN+AAL2、入力検証、冪等キーとrequest hashの生成を担当する。既存のadvisory lock、問い合わせ状態遷移、append-only event、API URL・応答・エラーコード・個人情報の公開範囲・DB schemaは変更しない。
 - ローカル課金シミュレーションpilot: `CLOUD_STAGING`等の請求なしtest transportで管理者が実行する月額支払失敗・回復、Entitlement期間更新、支払履歴、課金event、通知event、AuditLogを`BillingLocalSimulationService`へ分離する。Controllerは起動モード・test transport、ADMIN+AAL2、UUIDと理由の入力検証を担当する。猶予日数、状態遷移、API URL・応答・エラーコード・DB schemaは変更せず、Stripe契約は従来どおりWebhook同期だけを使用する。
+- 会員請求読み取りpilot: 公開料金プランと会員本人の契約・一日利用・支払・請求問い合わせ履歴の限定問合せを`BillingQueryService`へ分離する。Controllerには本人認証を残し、創設会員枠、販売可否、Stripe Customer Portal表示条件、API URL・応答項目・DB schemaは変更しない。管理者請求一覧と申込処理はこのpilotに含めない。
 
 ### MA-005 DBアクセス境界（後続PR候補）
 

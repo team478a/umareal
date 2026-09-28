@@ -1,0 +1,54 @@
+import { Inject, Injectable } from '@nestjs/common';
+import { launchCapabilities, resolveLaunchMode } from '@keiba/domain';
+import { DbService } from './db.service';
+import { loadStripeConfig } from './stripe-config';
+
+@Injectable()
+export class BillingQueryService {
+  constructor(@Inject(DbService) private readonly db: DbService) {}
+
+  async plans() {
+    const settings = await this.db.systemSetting.findUniqueOrThrow({
+      where: { id: 'global' },
+      select: { newPurchasesEnabled: true, founderSalesEnabled: true, founderPriceYen: true, standardPriceYen: true, dayPassPriceYen: true, founderSalesLimit: true },
+    });
+    const now = new Date();
+    const [founderSold, founderReserved] = await Promise.all([
+      this.db.subscription.count({ where: { planCode: 'FOUNDER', status: { in: ['TRIALING', 'ACTIVE', 'PAST_DUE', 'CANCELED', 'EXPIRED'] } } }),
+      this.db.billingCheckout.count({ where: { planCode: 'FOUNDER', status: { in: ['INITIATED', 'OPEN'] }, completedAt: null, expiresAt: { gt: now } } }),
+    ]);
+    const founderUnavailable = founderSold + founderReserved;
+    const billingEnabled = launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).billing;
+    const stripeConfig = billingEnabled && process.env.BILLING_TRANSPORT === 'stripe' ? await loadStripeConfig(this.db) : null;
+    const transportAvailable = billingEnabled && (process.env.BILLING_TRANSPORT === 'test' || (process.env.BILLING_TRANSPORT === 'stripe' && stripeConfig?.usable));
+    return {
+      newPurchasesEnabled: billingEnabled && settings.newPurchasesEnabled,
+      developmentTerms: true,
+      billingTransport: process.env.BILLING_TRANSPORT,
+      stripeMode: stripeConfig ? stripeConfig.liveMode ? 'LIVE' : 'TEST' : null,
+      currency: 'JPY',
+      taxIncluded: true,
+      plans: [
+        { code: 'FOUNDER', name: '創設会員', priceYen: settings.founderPriceYen, interval: 'MONTH', available: transportAvailable && settings.newPurchasesEnabled && settings.founderSalesEnabled && founderUnavailable < settings.founderSalesLimit, remaining: Math.max(0, settings.founderSalesLimit - founderUnavailable) },
+        { code: 'STANDARD', name: '通常会員', priceYen: settings.standardPriceYen, interval: 'MONTH', available: transportAvailable && settings.newPurchasesEnabled },
+        { code: 'DAY_PASS', name: '1日利用', priceYen: settings.dayPassPriceYen, interval: 'JST_DAY', available: transportAvailable && settings.newPurchasesEnabled },
+      ],
+    };
+  }
+
+  async member(userId: string) {
+    const [subscriptions, dayPasses, payments, supportRequests] = await Promise.all([
+      this.db.subscription.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
+      this.db.dayPass.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
+      this.db.paymentTransaction.findMany({ where: { userId }, select: { id: true, provider: true, providerPaymentId: true, kind: true, status: true, amountYen: true, subscriptionId: true, dayPassId: true, occurredAt: true }, orderBy: { occurredAt: 'desc' } }),
+      this.db.billingSupportRequest.findMany({ where: { userId }, select: { id: true, paymentTransactionId: true, category: true, message: true, status: true, createdAt: true, updatedAt: true, events: { select: { eventType: true, occurredAt: true }, orderBy: { occurredAt: 'asc' } } }, orderBy: { createdAt: 'desc' } }),
+    ]);
+    return {
+      subscriptions,
+      dayPasses,
+      payments,
+      supportRequests,
+      customerPortalAvailable: process.env.BILLING_TRANSPORT === 'stripe' && subscriptions.some(item => item.provider === 'STRIPE' && ['TRIALING', 'ACTIVE', 'PAST_DUE'].includes(item.status)),
+    };
+  }
+}
