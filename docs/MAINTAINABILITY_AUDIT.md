@@ -84,6 +84,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - ログインorchestration pilot: ローカル認証の同一コスト照合・確認済みメール判定・旧セッション破棄・新規セッション発行と、Supabase認証の会員照合・メール確認同期・初回ログイン記録・紹介成立・監査を`AuthLoginService`へ分離する。Controllerは入力検証、認証方式の分岐、Cookie反映を担当し、API URL・応答、エラーコード、AAL1開始、セッション期限、紹介成立条件は変更しない。callback・refresh・logoutの分離は後続候補のままとする。
 - 認証セッションライフサイクルpilot: SupabaseのPKCE callback完了・会員照合・確認済みメール同期・signup時だけの紹介成立・refresh時の有効会員再確認・Provider logout監査と、ローカルlogoutの現セッション失効・監査を`AuthSessionLifecycleService`へ分離する。Controllerはcodeとflow Cookieの検証、成功・失敗リダイレクト、session Cookieの設定・削除を担当し、API URL・応答・リダイレクト先・監査・紹介成立条件・Cookie属性は変更しない。
 - Stripe会員セルフサービスgateway pilot: 外部決済済み領収書URLの解決とStripe Customer Portal Session作成を`StripeCustomerGatewayService`へ分離する。Controllerは本人認証、支払い・契約の所有権確認、監査を担当し、Stripe Checkout、Webhook、返金、契約状態、API URL・応答・エラーコード、許可するStripe HTTPSドメインは変更しない。
+- Stripe Webhook適用処理pilot: 署名・動作モード検証、イベント冪等性、Checkout完了、請求成功・失敗、契約更新・終了、返金同期を`StripeWebhookService`へ分離する。HTTP endpointはControllerに残し、課金イベントと通知eventのappend処理は共通関数を利用する。トランザクション、advisory lock、AuditLog、DayPass・Entitlement、API URL・応答・エラーコードは変更しない。Checkout作成、会員操作、管理者返金操作の分離は後続候補のままとする。
 
 ### MA-005 DBアクセス境界（後続PR候補）
 
