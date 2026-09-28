@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ArrowRight, BarChart3, BellRing, BookOpenCheck, CalendarDays, Check, ChevronRight, ClipboardCheck, ClipboardList, Clock3, CreditCard, DatabaseBackup, Gift, Home, LayoutDashboard, LogOut, MailCheck, Menu, MessageCircle, RefreshCw, Settings2, Share2, ShieldAlert, ShieldCheck, UserCog, UserRoundX, Users, X } from 'lucide-react';
-import { consentVersions, legalDocuments, type LegalDocument } from '@keiba/domain';
+import { consentVersions, legalDocuments, type CurrentAccountResponse, type LegalDocument } from '@keiba/domain';
 import { RaceManager } from './race-manager';
 import { AssessmentEditor } from './assessment-editor';
 import { PublishedPrediction } from './prediction-editor';
@@ -33,9 +33,9 @@ import { AdminSupport, MemberSupport } from './support';
 import { ReferralDashboard } from './referrals';
 import { AdminReferrals } from './admin-referrals';
 
-type Preferences = { emailEnabled: boolean; predictions: boolean; changes: boolean; articles: boolean; billing: boolean };
+type Preferences = CurrentAccountResponse['preferences'];
 type PublicConfig = { localOnly: boolean; launchMode: 'CLOUD_STAGING' | 'STRIPE_SANDBOX' | 'FREE_REGISTRATION' | 'FULL'; capabilities: { emailRegistration: true; freeContent: true; lineLogin: boolean; lineNotifications: boolean; billing: boolean }; registration: { enabled: boolean; message: string }; captcha: { enabled: boolean; siteKey: string | null; mode: 'TEST_ONLY' | 'TURNSTILE' }; emailNotificationsEnabled: boolean; lineEnabled: boolean; lineNotificationsEnabled: boolean };
-type Me = { id: string; email: string | null; emailVerified: boolean; hasPassword: boolean; registrationMethod: string; displayName: string; role: string; aal: number; mfaEnabled: boolean; mfaRequired: boolean; mfaBackupEnabled: boolean; mfaBackupSupported: boolean; lineLinked: boolean; lineNotificationState: 'NOT_LINKED' | 'BLOCKED' | 'DISABLED' | 'READY'; lineNotificationReady: boolean; emailNotificationState: 'BLOCKED' | 'UNVERIFIED' | 'DISABLED' | 'READY'; emailNotificationReady: boolean; emailDeliveryDisabledAt: string | null; emailDeliveryDisabledReason: 'BOUNCED' | 'COMPLAINED' | 'SUPPRESSED' | null; preferences: Preferences; entitlements: { planCode: string; startsAt: string; endsAt: string; raceDate?: string | null }[]; consents: { documentType: string; version: string; acceptedAt: string }[] };
+type Me = CurrentAccountResponse;
 type Race = { id: string; name: string; venue: string; number: number; raceDate: string; startsAt: string; status: string };
 type Announcement = { id: string; version: number; publishedAt: string; race: Race };
 type FunnelCounts = { registered: number; identityReady: number; lineReady: number; planViewed: number; checkoutReviewed: number; paid: number };

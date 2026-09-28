@@ -30,6 +30,7 @@ export * from './deployment';
 export * from './readiness';
 export * from './registration-followups';
 export * from './backup-status';
+export * from './account';
 
 export const roles = ['MEMBER', 'EXPERT', 'EDITOR', 'OPERATOR', 'ADMIN'] as const;
 export type Role = typeof roles[number];
