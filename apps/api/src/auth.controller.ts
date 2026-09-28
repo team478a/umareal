@@ -4,7 +4,6 @@ import { z } from 'zod';
 import { fallbackEmailSchema, launchCapabilities, loginSchema, mfaCodeSchema, registrationSchema, resolveLaunchMode } from '@keiba/domain';
 import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
-import { hashToken, verifyPassword } from './security';
 import { SupabaseAuthService } from './supabase-auth.service';
 import { RegistrationCaptchaService } from './registration-captcha.service';
 import { ReferralsService } from './referrals.service';
@@ -12,13 +11,14 @@ import { AuthSessionService } from './auth-session.service';
 import { AuthRegistrationService } from './auth-registration.service';
 import { AuthCredentialService } from './auth-credential.service';
 import { AuthMfaService } from './auth-mfa.service';
+import { AuthLoginService } from './auth-login.service';
 
 const publicUser = (user: { id: string; displayName: string; role: string }) => ({ id: user.id, displayName: user.displayName, role: user.role });
 const externalMfaEnrollSchema = z.object({ kind: z.enum(['PRIMARY', 'BACKUP']).default('PRIMARY') }).strict();
 const externalMfaVerifySchema = z.object({ code: z.string().regex(/^\d{6}$/), factor: z.enum(['PRIMARY', 'BACKUP']).default('PRIMARY'), factorId: z.string().uuid().optional() }).strict();
 @Controller('auth')
 export class AuthController {
-  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(SupabaseAuthService) private readonly supabase: SupabaseAuthService, @Inject(RegistrationCaptchaService) private readonly captcha: RegistrationCaptchaService, @Inject(ReferralsService) private readonly referrals: ReferralsService, @Inject(AuthSessionService) private readonly sessions: AuthSessionService, @Inject(AuthRegistrationService) private readonly registration: AuthRegistrationService, @Inject(AuthCredentialService) private readonly credentials: AuthCredentialService, @Inject(AuthMfaService) private readonly mfa: AuthMfaService) {}
+  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(SupabaseAuthService) private readonly supabase: SupabaseAuthService, @Inject(RegistrationCaptchaService) private readonly captcha: RegistrationCaptchaService, @Inject(ReferralsService) private readonly referrals: ReferralsService, @Inject(AuthSessionService) private readonly sessions: AuthSessionService, @Inject(AuthRegistrationService) private readonly registration: AuthRegistrationService, @Inject(AuthCredentialService) private readonly credentials: AuthCredentialService, @Inject(AuthMfaService) private readonly mfa: AuthMfaService, @Inject(AuthLoginService) private readonly loginService: AuthLoginService) {}
   @Get('config') async config() {
     const mode = resolveLaunchMode(process.env.LAUNCH_MODE);
     const capabilities = launchCapabilities(mode);
@@ -79,35 +79,15 @@ export class AuthController {
   @Post('login') async login(@Body() body: unknown, @Req() req: AppRequest, @Res({ passthrough: true }) res: Response) {
     const input = loginSchema.parse(body);
     if (process.env.AUTH_PROVIDER === 'supabase') {
-      const session = await this.supabase.signIn(input.email, input.password);
-      const user = await this.auth.db.user.findUnique({ where: { authSubject: session.user.id } });
-      if (!user || user.disabledAt) throw new UnauthorizedException({ code: 'LOGIN_FAILED', message: 'メールアドレスまたはパスワードを確認してください。' });
-      req.auth = { id: user.id, role: user.role, aal: 1, user };
-      await this.auth.db.$transaction(async tx => {
-        if (!user.emailVerifiedAt && (session.user.email_confirmed_at || session.user.confirmed_at)) await tx.user.update({ where: { id: user.id }, data: { emailVerifiedAt: new Date(session.user.email_confirmed_at ?? session.user.confirmed_at!) } });
-        await this.auth.journey(tx, user.id, 'FIRST_LOGIN');
-        if (session.user.email_confirmed_at || session.user.confirmed_at) await this.referrals.qualify(tx, user.id, req);
-        await this.auth.audit(tx, req, 'LOGIN', user.id, 'Supabaseログイン');
-      });
-      this.sessions.setExternalSession(res, session);
+      const result = await this.loginService.loginExternal(input, req);
+      this.sessions.setExternalSession(res, result.session);
       this.sessions.clearLocalSession(res);
-      return { user: publicUser(user) };
+      return { user: publicUser(result.user) };
     }
     this.auth.ensureLocal();
-    const user = await this.auth.db.user.findUnique({ where: { email: input.email } });
-    // Equal-cost password verification even for unknown addresses.
-    const stored = user?.passwordHash ?? `${'0'.repeat(32)}:${'0'.repeat(128)}`;
-    const valid = await verifyPassword(input.password, stored);
-    if (!user || !valid || user.disabledAt) throw new UnauthorizedException({ code: 'LOGIN_FAILED', message: 'メールアドレスまたはパスワードを確認してください。' });
-    if (!user.emailVerifiedAt) throw new ForbiddenException({ code: 'EMAIL_NOT_VERIFIED', message: '確認メールを開いて登録を完了してください。' });
-    req.auth = { id: user.id, role: user.role, aal: 1, user };
-    const token = await this.auth.db.$transaction(async tx => {
-      if (typeof req.cookies?.keiba_session === 'string') await tx.session.deleteMany({ where: { tokenHash: hashToken(req.cookies.keiba_session) } });
-      await this.auth.audit(tx, req, 'LOGIN', user.id, 'ログイン');
-      return this.auth.session(tx, user.id);
-    });
-    this.sessions.setLocalSession(res, token);
-    return { user: publicUser(user) };
+    const result = await this.loginService.loginLocal(input, req);
+    this.sessions.setLocalSession(res, result.sessionToken);
+    return { user: publicUser(result.user) };
   }
   @Get('callback') async callback(@Query('code') codeValue: unknown, @Req() req: AppRequest, @Res() res: Response) {
     if (process.env.AUTH_PROVIDER !== 'supabase') return res.redirect(303, `${process.env.APP_BASE_URL}/login`);
