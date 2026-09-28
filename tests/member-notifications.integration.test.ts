@@ -9,9 +9,22 @@ beforeAll(() => {
 });
 afterAll(() => db.$disconnect());
 
+async function availableWin5Date(seed: string) {
+  const occupiedDates = new Set((await db.predictionProduct.findMany({
+    where: { type: 'WIN5_PREVIEW' },
+    select: { targetDate: true },
+  })).map(item => item.targetDate));
+  const firstOffset = parseInt(seed, 16) % 10000;
+  for (let offset = 0; offset < 10000; offset += 1) {
+    const candidate = new Date(Date.UTC(2090, 0, 1) + ((firstOffset + offset) % 10000) * 86400000).toISOString().slice(0, 10);
+    if (!occupiedDates.has(candidate)) return candidate;
+  }
+  throw new Error('No unused WIN5 target date remains in the integration-test range');
+}
+
 async function events() {
   const publisher = await account('ADMIN'); const suffix = randomUUID().slice(0, 8); const raceDate = '2097-04-05';
-  const win5Date = new Date(Date.UTC(2090, 0, 1) + (parseInt(suffix, 16) % 10000) * 86400000).toISOString().slice(0, 10);
+  const win5Date = await availableWin5Date(suffix);
   return db.$transaction(async tx => {
     const race = await tx.race.create({ data: { raceDate, venue: `受信箱${suffix}`, number: 7, name: `会員履歴${suffix}`, startsAt: new Date(`${raceDate}T15:00:00+09:00`) } });
     const announcement = await tx.raceAnnouncement.create({ data: { raceId: race.id, version: 1, publishedBy: publisher.user.id, reason: '会員履歴の結合試験' } });
