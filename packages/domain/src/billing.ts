@@ -2,6 +2,38 @@ import { z } from 'zod';
 
 export const subscriptionPlans = ['FOUNDER', 'STANDARD'] as const;
 export const subscriptionCheckoutSchema = z.object({ planCode: z.enum(subscriptionPlans) }).strict();
+const founderBillingPlanSchema = z.object({
+  code: z.literal('FOUNDER'),
+  name: z.literal('創設会員'),
+  priceYen: z.number().int().nonnegative(),
+  interval: z.literal('MONTH'),
+  available: z.boolean(),
+  remaining: z.number().int().nonnegative()
+}).strict();
+const standardBillingPlanSchema = z.object({
+  code: z.literal('STANDARD'),
+  name: z.literal('通常会員'),
+  priceYen: z.number().int().nonnegative(),
+  interval: z.literal('MONTH'),
+  available: z.boolean()
+}).strict();
+const dayPassBillingPlanSchema = z.object({
+  code: z.literal('DAY_PASS'),
+  name: z.literal('1日利用'),
+  priceYen: z.number().int().nonnegative(),
+  interval: z.literal('JST_DAY'),
+  available: z.boolean()
+}).strict();
+export const billingPlansResponseSchema = z.object({
+  newPurchasesEnabled: z.boolean(),
+  developmentTerms: z.literal(true),
+  billingTransport: z.enum(['test', 'stripe', 'disabled']),
+  stripeMode: z.enum(['TEST', 'LIVE']).nullable(),
+  currency: z.literal('JPY'),
+  taxIncluded: z.literal(true),
+  plans: z.tuple([founderBillingPlanSchema, standardBillingPlanSchema, dayPassBillingPlanSchema])
+}).strict();
+export type BillingPlansResponse = z.infer<typeof billingPlansResponseSchema>;
 export const dayPassCheckoutSchema = z.object({ raceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).strict().superRefine((value, context) => {
   const parsed = new Date(`${value.raceDate}T00:00:00+09:00`);
   const roundTrip = new Date(parsed.getTime() + 9 * 3600000).toISOString().slice(0, 10);
