@@ -16,7 +16,9 @@ describe('local billing lifecycle', () => {
   });
 
   it('exposes settings and rejects purchases during the emergency stop', async () => {
-    const plans = await member.call('billing/plans'); expect(plans.status).toBe(200); expect(plans.body.plans.find((p: { code: string }) => p.code === 'STANDARD').priceYen).toBe(2980);
+    const plans = await member.call('billing/plans'); expect(plans.status).toBe(200);
+    expect(Object.keys(plans.body).sort()).toEqual(['billingTransport', 'currency', 'developmentTerms', 'newPurchasesEnabled', 'plans', 'stripeMode', 'taxIncluded']);
+    expect(plans.body.plans.find((p: { code: string }) => p.code === 'STANDARD').priceYen).toBe(2980);
     const stopped = await member.call('billing/checkout', 'POST', { planCode: 'STANDARD' }, undefined, { 'Idempotency-Key': randomUUID() });
     expect(stopped.status).toBe(503); expect(stopped.body.code).toBe('PURCHASES_STOPPED');
     await db.systemSetting.update({ where: { id: 'global' }, data: { newPurchasesEnabled: true } });

@@ -3,8 +3,9 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ArrowRight, CreditCard, ShieldCheck } from 'lucide-react';
+import type { BillingPlansResponse } from '@keiba/domain';
 
-type Plan = { code: 'FOUNDER' | 'STANDARD' | 'DAY_PASS'; name: string; priceYen: number; interval: string; available: boolean; remaining?: number };
+type Plan = BillingPlansResponse['plans'][number];
 type BillingData = {
   billingTransport?: 'test' | 'stripe';
   customerPortalAvailable?: boolean;
@@ -31,10 +32,10 @@ function Notice({ value, error = false }: { value: string; error?: boolean }) { 
 export function PlansPage({ loggedIn, purchaseReady, refresh }: { loggedIn: boolean; purchaseReady: boolean; refresh: () => Promise<void> }) {
   const search = useSearchParams();
   const [plans, setPlans] = useState<Plan[]>([]); const [enabled, setEnabled] = useState(false); const [raceDate, setRaceDate] = useState(() => search.get('date') ?? '');
-  const [transport, setTransport] = useState<'test' | 'stripe'>('test');
+  const [transport, setTransport] = useState<BillingPlansResponse['billingTransport']>('test');
   const [stripeMode, setStripeMode] = useState<'TEST' | 'LIVE' | null>(null);
   const [selected, setSelected] = useState<Plan | null>(null); const [message, setMessage] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
-  useEffect(() => { request<{ plans: Plan[]; newPurchasesEnabled: boolean; billingTransport: 'test' | 'stripe'; stripeMode: 'TEST' | 'LIVE' | null }>('billing/plans').then(v => { setPlans(v.plans); setEnabled(v.newPurchasesEnabled); setTransport(v.billingTransport); setStripeMode(v.stripeMode); }).catch(e => setError(e.message)); }, []);
+  useEffect(() => { request<BillingPlansResponse>('billing/plans').then(v => { setPlans(v.plans); setEnabled(v.newPurchasesEnabled); setTransport(v.billingTransport); setStripeMode(v.stripeMode); }).catch(e => setError(e.message)); }, []);
   useEffect(() => { if (loggedIn) void request('me/journey', 'POST', { eventType: 'PLAN_VIEWED' }).catch(() => undefined); }, [loggedIn]);
   useEffect(() => { if (selected) document.getElementById('plan-review')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, [selected]);
   async function buy(plan: Plan) { setBusy(true); setError(''); setMessage(''); try {
