@@ -38,13 +38,21 @@ export class BillingQueryService {
 
   async member(userId: string) {
     const [subscriptions, dayPasses, payments, supportRequests] = await Promise.all([
-      this.db.subscription.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
-      this.db.dayPass.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
-      this.db.paymentTransaction.findMany({ where: { userId }, select: { id: true, provider: true, providerPaymentId: true, kind: true, status: true, amountYen: true, subscriptionId: true, dayPassId: true, occurredAt: true }, orderBy: { occurredAt: 'desc' } }),
+      this.db.subscription.findMany({ where: { userId }, select: { id: true, planCode: true, status: true, priceYen: true, currentPeriodEndsAt: true, graceEndsAt: true, cancelAtPeriodEnd: true, provider: true }, orderBy: { createdAt: 'desc' } }),
+      this.db.dayPass.findMany({ where: { userId }, select: { id: true, raceDate: true, status: true, priceYen: true }, orderBy: { createdAt: 'desc' } }),
+      this.db.paymentTransaction.findMany({ where: { userId }, select: { id: true, provider: true, kind: true, status: true, amountYen: true, occurredAt: true }, orderBy: { occurredAt: 'desc' } }),
       this.db.billingSupportRequest.findMany({ where: { userId }, select: { id: true, paymentTransactionId: true, category: true, message: true, status: true, createdAt: true, updatedAt: true, events: { select: { eventType: true, occurredAt: true }, orderBy: { occurredAt: 'asc' } } }, orderBy: { createdAt: 'desc' } }),
     ]);
     return {
-      subscriptions,
+      subscriptions: subscriptions.map(item => ({
+        id: item.id,
+        planCode: item.planCode,
+        status: item.status,
+        priceYen: item.priceYen,
+        currentPeriodEndsAt: item.currentPeriodEndsAt,
+        graceEndsAt: item.graceEndsAt,
+        cancelAtPeriodEnd: item.cancelAtPeriodEnd,
+      })),
       dayPasses,
       payments,
       supportRequests,

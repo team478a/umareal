@@ -3,10 +3,10 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ArrowRight, CreditCard, ShieldCheck } from 'lucide-react';
-import type { BillingPlansResponse } from '@keiba/domain';
+import type { BillingPlansResponse, MemberBillingResponse } from '@keiba/domain';
 
 type Plan = BillingPlansResponse['plans'][number];
-type BillingData = {
+type AdminBillingData = {
   billingTransport?: 'test' | 'stripe';
   customerPortalAvailable?: boolean;
   subscriptions: { id: string; planCode: string; status: string; priceYen: number; currentPeriodEndsAt: string; graceEndsAt: string | null; cancelAtPeriodEnd: boolean; user?: { email: string; displayName: string } }[];
@@ -58,9 +58,9 @@ export function PlansPage({ loggedIn, purchaseReady, refresh }: { loggedIn: bool
 }
 
 export function BillingAccount() {
-  const [data, setData] = useState<BillingData | null>(null); const [error, setError] = useState(''); const [message, setMessage] = useState('');
+  const [data, setData] = useState<MemberBillingResponse | null>(null); const [error, setError] = useState(''); const [message, setMessage] = useState('');
   const [supportCategory, setSupportCategory] = useState<keyof typeof supportCategoryLabels>('PAYMENT_FAILURE'); const [supportPaymentId, setSupportPaymentId] = useState(''); const [supportMessage, setSupportMessage] = useState(''); const [supportBusy, setSupportBusy] = useState(false);
-  const load = () => request<BillingData>('billing/me').then(setData).catch(e => setError(e.message));
+  const load = () => request<MemberBillingResponse>('billing/me').then(setData).catch(e => setError(e.message));
   useEffect(() => { void load(); }, []);
   async function cancel(id: string) { setError(''); try { await request(`billing/subscriptions/${id}/cancel`, 'POST'); setMessage('次回更新を停止しました。支払済み期間の終了まで閲覧できます。'); await load(); } catch (e) { setError((e as Error).message); } }
   async function resume(id: string) { setError(''); try { await request(`billing/subscriptions/${id}/resume`, 'POST'); setMessage('月額契約の継続を再開しました。'); await load(); } catch (e) { setError((e as Error).message); } }
@@ -81,8 +81,8 @@ export function BillingAccount() {
 }
 
 export function AdminBilling() {
-  const [data, setData] = useState<BillingData | null>(null); const [reason, setReason] = useState(''); const [error, setError] = useState(''); const [message, setMessage] = useState('');
-  const load = () => request<BillingData>('admin/billing').then(setData).catch(e => setError(e.message)); useEffect(() => { void load(); }, []);
+  const [data, setData] = useState<AdminBillingData | null>(null); const [reason, setReason] = useState(''); const [error, setError] = useState(''); const [message, setMessage] = useState('');
+  const load = () => request<AdminBillingData>('admin/billing').then(setData).catch(e => setError(e.message)); useEffect(() => { void load(); }, []);
   async function action(id: string, name: 'simulate-failure' | 'recover') { setError(''); setMessage(''); try { if (!reason.trim()) throw new Error('試験操作の理由を入力してください。'); await request(`admin/billing/subscriptions/${id}/${name}`, 'POST', { reason }); setMessage(name === 'recover' ? '支払回復を記録しました。' : '支払失敗を記録しました。'); setReason(''); await load(); } catch (e) { setError((e as Error).message); } }
   async function supportAction(id: string, status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED') { setError(''); setMessage(''); try { if (!reason.trim()) throw new Error('対応理由を入力してください。'); await request(`admin/billing/support-requests/${id}/status`, 'POST', { status, reason }); setMessage('問い合わせの対応状態を更新しました。'); setReason(''); await load(); } catch (e) { setError((e as Error).message); } }
   async function refundDayPass(id: string) { setError(''); setMessage(''); try { if (!reason.trim()) throw new Error('返金理由を入力してください。'); await request(`admin/billing/day-passes/${id}/refund`, 'POST', { reason }); setMessage('期限切れの公開待ち一日券を返金済みにしました。'); setReason(''); await load(); } catch (e) { setError((e as Error).message); } }

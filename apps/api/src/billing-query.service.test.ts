@@ -44,10 +44,12 @@ describe('BillingQueryService', () => {
 
   it('limits member billing history to the requested user and exposes the existing portal flag', async () => {
     process.env.BILLING_TRANSPORT = 'stripe';
-    const subscription = { id: 'subscription-1', provider: 'STRIPE', status: 'ACTIVE' };
-    const pass = { id: 'pass-1' };
-    const payment = { id: 'payment-1' };
-    const supportRequest = { id: 'support-1', events: [] };
+    const currentPeriodEndsAt = new Date('2027-02-01T00:00:00Z');
+    const subscription = { id: 'subscription-1', planCode: 'STANDARD', provider: 'STRIPE', status: 'ACTIVE', priceYen: 2980, currentPeriodEndsAt, graceEndsAt: null, cancelAtPeriodEnd: false };
+    const publicSubscription = { id: 'subscription-1', planCode: 'STANDARD', status: 'ACTIVE', priceYen: 2980, currentPeriodEndsAt, graceEndsAt: null, cancelAtPeriodEnd: false };
+    const pass = { id: 'pass-1', raceDate: '2027-02-07', status: 'ACTIVE', priceYen: 980 };
+    const payment = { id: 'payment-1', provider: 'STRIPE', kind: 'SUBSCRIPTION', status: 'SUCCEEDED', amountYen: 2980, occurredAt: new Date('2027-01-01T00:00:00Z') };
+    const supportRequest = { id: 'support-1', paymentTransactionId: null, category: 'OTHER', message: '請求について確認したいです。', status: 'OPEN', createdAt: new Date('2027-01-02T00:00:00Z'), updatedAt: new Date('2027-01-02T00:00:00Z'), events: [] };
     const subscriptions = vi.fn().mockResolvedValue([subscription]);
     const dayPasses = vi.fn().mockResolvedValue([pass]);
     const payments = vi.fn().mockResolvedValue([payment]);
@@ -61,10 +63,10 @@ describe('BillingQueryService', () => {
 
     const result = await service.member('member-1');
 
-    expect(result).toEqual({ subscriptions: [subscription], dayPasses: [pass], payments: [payment], supportRequests: [supportRequest], customerPortalAvailable: true });
-    expect(subscriptions).toHaveBeenCalledWith({ where: { userId: 'member-1' }, orderBy: { createdAt: 'desc' } });
-    expect(dayPasses).toHaveBeenCalledWith({ where: { userId: 'member-1' }, orderBy: { createdAt: 'desc' } });
-    expect(payments).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: 'member-1' }, orderBy: { occurredAt: 'desc' } }));
+    expect(result).toEqual({ subscriptions: [publicSubscription], dayPasses: [pass], payments: [payment], supportRequests: [supportRequest], customerPortalAvailable: true });
+    expect(subscriptions).toHaveBeenCalledWith({ where: { userId: 'member-1' }, select: { id: true, planCode: true, status: true, priceYen: true, currentPeriodEndsAt: true, graceEndsAt: true, cancelAtPeriodEnd: true, provider: true }, orderBy: { createdAt: 'desc' } });
+    expect(dayPasses).toHaveBeenCalledWith({ where: { userId: 'member-1' }, select: { id: true, raceDate: true, status: true, priceYen: true }, orderBy: { createdAt: 'desc' } });
+    expect(payments).toHaveBeenCalledWith({ where: { userId: 'member-1' }, select: { id: true, provider: true, kind: true, status: true, amountYen: true, occurredAt: true }, orderBy: { occurredAt: 'desc' } });
     expect(supportRequests).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: 'member-1' }, orderBy: { createdAt: 'desc' } }));
   });
 });

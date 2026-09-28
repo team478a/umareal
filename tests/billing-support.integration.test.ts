@@ -48,10 +48,18 @@ describe('billing support requests', () => {
   it('returns only the member own requests without internal response reasons', async () => {
     const mine = await member.call('billing/me');
     expect(mine.status).toBe(200);
+    expect(Object.keys(mine.body).sort()).toEqual(['customerPortalAvailable', 'dayPasses', 'payments', 'subscriptions', 'supportRequests']);
+    expect(Object.keys(mine.body.subscriptions[0]).sort()).toEqual(['cancelAtPeriodEnd', 'currentPeriodEndsAt', 'graceEndsAt', 'id', 'planCode', 'priceYen', 'status']);
+    expect(Object.keys(mine.body.payments[0]).sort()).toEqual(['amountYen', 'id', 'kind', 'occurredAt', 'provider', 'status']);
     const support = mine.body.supportRequests.find((item: { id: string }) => item.id === requestId);
     expect(support).toMatchObject({ category: 'REFUND', status: 'OPEN' });
+    expect(Object.keys(support).sort()).toEqual(['category', 'createdAt', 'events', 'id', 'message', 'paymentTransactionId', 'status', 'updatedAt']);
     expect(support.events[0]).toEqual(expect.objectContaining({ eventType: 'CREATED' }));
-    expect(support.events[0].reason).toBeUndefined();
+    expect(Object.keys(support.events[0]).sort()).toEqual(['eventType', 'occurredAt']);
+    expect(JSON.stringify(mine.body)).not.toContain('providerPaymentId');
+    expect(JSON.stringify(mine.body)).not.toContain('providerSubscriptionId');
+    expect(JSON.stringify(mine.body)).not.toContain('entitlementId');
+    expect(JSON.stringify(mine.body)).not.toContain('userId');
   });
 
   it('requires administrator AAL2 and records valid status transitions', async () => {

@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Req, ServiceUnavailableException } from '@nestjs/common';
-import { addCalendarMonthUtc, billingPlansResponseSchema, billingReviewResolutionSchema, billingSupportRequestSchema, billingSupportStatusSchema, canManage, dayPassCheckoutSchema, jstDate, launchCapabilities, requiresMfa, resolveLaunchMode, subscriptionCheckoutSchema } from '@keiba/domain';
+import { addCalendarMonthUtc, billingPlansResponseSchema, billingReviewResolutionSchema, billingSupportRequestSchema, billingSupportStatusSchema, canManage, dayPassCheckoutSchema, jstDate, launchCapabilities, memberBillingResponseSchema, requiresMfa, resolveLaunchMode, subscriptionCheckoutSchema } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { randomUUID } from 'node:crypto';
@@ -60,7 +60,7 @@ export class BillingController {
   @Get('billing/me')
   async mine(@Req() req: AppRequest) {
     const actor = await this.auth.authenticate(req);
-    return this.billingQuery.member(actor.id);
+    return memberBillingResponseSchema.parse(await this.billingQuery.member(actor.id));
   }
 
   @Get('billing/payments/:id/receipt')
