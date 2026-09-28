@@ -10,8 +10,12 @@ describe('account closure and retained history', () => {
     await db.lineAccount.create({ data: { userId: fixture.user.id, subject: `closure-${randomUUID()}` } });
     const entitlement = await db.entitlement.create({ data: { userId: fixture.user.id, planCode: 'MANUAL', startsAt: new Date(), endsAt: new Date(Date.now() + 86400000), reason: '退会結合試験', grantedBy: fixture.user.id } });
     const first = new Client(); const second = new Client(); await first.login(fixture); await second.login(fixture);
+    expect((await new Client().call('me/closure')).status).toBe(401);
     const eligibility = await first.call('me/closure');
     expect(eligibility.status).toBe(200); expect(eligibility.body).toMatchObject({ eligible: true, passwordRequired: true, retentionPolicyVersion: 'development-v1' });
+    expect(Object.keys(eligibility.body).sort()).toEqual(['blockers', 'eligible', 'passwordRequired', 'retained', 'retentionPolicyVersion'].sort());
+    expect(eligibility.body.blockers).toEqual([]);
+    expect(JSON.stringify(eligibility.body)).not.toMatch(/passwordHash|userId|subscriptionId|dayPassId|checkoutId/);
     expect((await first.call('me/close', 'POST', { reasonCode: 'OTHER', confirmation: '退会', currentPassword: fixture.password })).status).toBe(400);
     expect((await first.call('me/close', 'POST', { reasonCode: 'OTHER', confirmation: '退会する', currentPassword: 'wrong-password' })).status).toBe(401);
     const closed = await first.call('me/close', 'POST', { reasonCode: 'SERVICE_NO_LONGER_NEEDED', confirmation: '退会する', currentPassword: fixture.password });
@@ -45,6 +49,7 @@ describe('account closure and retained history', () => {
     await db.subscription.create({ data: { userId: fixture.user.id, planCode: 'STANDARD', status: 'ACTIVE', priceYen: 2980, currentPeriodStartsAt: now, currentPeriodEndsAt: endsAt, provider: 'LOCAL_TEST', providerSubscriptionId: `closure-sub-${randomUUID()}`, entitlementId: entitlement.id } });
     const client = new Client(); await client.login(fixture);
     const eligibility = await client.call('me/closure'); expect(eligibility.body.eligible).toBe(false); expect(eligibility.body.blockers[0].code).toBe('ACTIVE_SUBSCRIPTION');
+    expect(Object.keys(eligibility.body.blockers[0]).sort()).toEqual(['code', 'endsAt', 'href', 'message'].sort());
     const response = await client.call('me/close', 'POST', { reasonCode: 'PRICE', confirmation: '退会する', currentPassword: fixture.password });
     expect(response.status).toBe(409); expect(response.body.code).toBe('ACTIVE_BILLING_EXISTS');
     expect((await client.call('me')).status).toBe(200); expect(await db.accountClosure.findUnique({ where: { userId: fixture.user.id } })).toBeNull();
