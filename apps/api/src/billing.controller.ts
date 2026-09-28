@@ -1,13 +1,10 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Req, ServiceUnavailableException } from '@nestjs/common';
-import { addCalendarMonthUtc, adminBillingResponseSchema, billingPlansResponseSchema, billingReviewResolutionSchema, billingSupportRequestSchema, billingSupportStatusSchema, canManage, dayPassCheckoutSchema, jstDate, launchCapabilities, memberBillingResponseSchema, requiresMfa, resolveLaunchMode, subscriptionCheckoutSchema } from '@keiba/domain';
+import { adminBillingResponseSchema, billingPlansResponseSchema, billingReviewResolutionSchema, billingSupportRequestSchema, billingSupportStatusSchema, canManage, dayPassCheckoutSchema, jstDate, launchCapabilities, memberBillingResponseSchema, requiresMfa, resolveLaunchMode, subscriptionCheckoutSchema } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
-import { Prisma } from '@keiba/db';
-import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
 import { hashToken } from './security';
-import { createDayPassAccess } from './day-pass-access';
 import { StripeCustomerGatewayService } from './stripe-customer-gateway.service';
 import { StripeWebhookService } from './stripe-webhook.service';
 import { StripeCheckoutService } from './stripe-checkout.service';
@@ -15,8 +12,8 @@ import { BillingSubscriptionLifecycleService } from './billing-subscription-life
 import { BillingAdminResolutionService } from './billing-admin-resolution.service';
 import { BillingSupportService } from './billing-support.service';
 import { BillingLocalSimulationService } from './billing-local-simulation.service';
+import { BillingLocalCheckoutService } from './billing-local-checkout.service';
 import { BillingQueryService } from './billing-query.service';
-import { recordBillingEvent } from './billing-events';
 
 const reasonSchema = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 
@@ -31,6 +28,7 @@ export class BillingController {
     @Inject(BillingAdminResolutionService) private readonly adminResolution: BillingAdminResolutionService,
     @Inject(BillingSupportService) private readonly billingSupport: BillingSupportService,
     @Inject(BillingLocalSimulationService) private readonly localSimulation: BillingLocalSimulationService,
+    @Inject(BillingLocalCheckoutService) private readonly localCheckout: BillingLocalCheckoutService,
     @Inject(BillingQueryService) private readonly billingQuery: BillingQueryService
   ) {}
 
@@ -91,33 +89,7 @@ export class BillingController {
     if (!this.purchaseIdentityReady(actor.user)) throw new ForbiddenException({ code: 'VERIFIED_LOGIN_REQUIRED', message: '申込前にメールアドレスの確認を完了してください。' });
     const key = this.key(req, 'subscription-checkout', actor.id); const requestHash = hashToken(JSON.stringify(input));
     if (transport === 'stripe') return this.stripeCheckout.create(req, actor.id, actor.user.email, 'SUBSCRIPTION', input.planCode, null, key, requestHash);
-    try {
-      return await this.auth.db.$transaction(async tx => {
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`billing:${actor.id}`}))::text`;
-        const previous = await tx.idempotencyKey.findUnique({ where: { key } });
-        if (previous) { if (previous.requestHash !== requestHash) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: '同じ申込キーが異なる内容で使われています。' }); return previous.response; }
-        const settings = await tx.systemSetting.findUniqueOrThrow({ where: { id: 'global' } });
-        if (!settings.newPurchasesEnabled) throw new ServiceUnavailableException({ code: 'PURCHASES_STOPPED', message: '現在、新規購入を停止しています。' });
-        if (await tx.subscription.count({ where: { userId: actor.id, status: { in: ['TRIALING', 'ACTIVE', 'PAST_DUE'] } } })) throw new ConflictException({ code: 'ACTIVE_SUBSCRIPTION_EXISTS', message: '有効な月額契約があります。' });
-        if (input.planCode === 'FOUNDER') {
-          if (!settings.founderSalesEnabled) throw new ConflictException({ code: 'FOUNDER_SALES_CLOSED', message: '創設会員プランは販売していません。' });
-          const sold = await tx.subscription.count({ where: { planCode: 'FOUNDER' } });
-          if (sold >= settings.founderSalesLimit) throw new ConflictException({ code: 'FOUNDER_LIMIT_REACHED', message: '創設会員プランは販売上限に達しました。' });
-        }
-        const now = new Date(); const endsAt = addCalendarMonthUtc(now); const priceYen = input.planCode === 'FOUNDER' ? settings.founderPriceYen : settings.standardPriceYen;
-        const entitlement = await tx.entitlement.create({ data: { userId: actor.id, planCode: input.planCode, startsAt: now, endsAt, reason: 'LOCAL_TEST_SUBSCRIPTION', grantedBy: actor.id } });
-        const subscription = await tx.subscription.create({ data: { userId: actor.id, planCode: input.planCode, status: 'ACTIVE', priceYen, currentPeriodStartsAt: now, currentPeriodEndsAt: endsAt, provider: 'LOCAL_TEST', providerSubscriptionId: `local-sub-${randomUUID()}`, entitlementId: entitlement.id } });
-        const payment = await tx.paymentTransaction.create({ data: { userId: actor.id, provider: 'LOCAL_TEST', providerPaymentId: `local-pay-${randomUUID()}`, kind: 'SUBSCRIPTION', status: 'SUCCEEDED', amountYen: priceYen, subscriptionId: subscription.id } });
-        await recordBillingEvent(tx, { userId: actor.id, eventType: 'SUBSCRIPTION_STARTED', subscriptionId: subscription.id, actorId: actor.id, details: { planCode: input.planCode, priceYen, developmentSimulation: true } }, 'BILLING_PAYMENT_SUCCEEDED');
-        const response = { subscriptionId: subscription.id, paymentId: payment.id, status: subscription.status, currentPeriodEndsAt: endsAt };
-        await tx.idempotencyKey.create({ data: { key, requestHash, response } }); return response;
-      }, { timeout: 20000, maxWait: 10000 });
-    } catch (error) {
-      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
-      const previous = await this.auth.db.idempotencyKey.findUnique({ where: { key } });
-      if (previous?.requestHash === requestHash) return previous.response;
-      throw new ConflictException({ code: 'BILLING_CONFLICT', message: '申込状態が競合しました。再読み込みしてください。' });
-    }
+    return this.localCheckout.subscription(actor.id, input.planCode, key, requestHash);
   }
 
   @Post('billing/day-pass')
@@ -128,25 +100,7 @@ export class BillingController {
     if (input.raceDate < jstDate(new Date())) throw new BadRequestException({ code: 'PAST_RACE_DATE', message: '過去の日付は購入できません。' });
     const key = this.key(req, 'day-pass', actor.id); const requestHash = hashToken(JSON.stringify(input));
     if (transport === 'stripe') return this.stripeCheckout.create(req, actor.id, actor.user.email, 'DAY_PASS', 'DAY_PASS', input.raceDate, key, requestHash);
-    try {
-      return await this.auth.db.$transaction(async tx => {
-        const previous = await tx.idempotencyKey.findUnique({ where: { key } });
-        if (previous) { if (previous.requestHash !== requestHash) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: '同じ申込キーが異なる内容で使われています。' }); return previous.response; }
-        const settings = await tx.systemSetting.findUniqueOrThrow({ where: { id: 'global' } });
-        if (!settings.newPurchasesEnabled) throw new ServiceUnavailableException({ code: 'PURCHASES_STOPPED', message: '現在、新規購入を停止しています。' });
-        const access = await createDayPassAccess(tx, { userId: actor.id, raceDate: input.raceDate, priceYen: settings.dayPassPriceYen, provider: 'LOCAL_TEST', providerPassId: `local-pass-${randomUUID()}`, reason: 'LOCAL_TEST_DAY_PASS', actorId: actor.id, source: 'LOCAL_TEST' });
-        const pass = access.pass;
-        const payment = await tx.paymentTransaction.create({ data: { userId: actor.id, provider: 'LOCAL_TEST', providerPaymentId: `local-pay-${randomUUID()}`, kind: 'DAY_PASS', status: 'SUCCEEDED', amountYen: settings.dayPassPriceYen, dayPassId: pass.id } });
-        await tx.notificationEvent.create({ data: { billingEventId: access.billingEvent.id, eventType: 'BILLING_PAYMENT_SUCCEEDED', status: 'QUEUED', payload: { billingEventId: access.billingEvent.id } } });
-        const response = { dayPassId: pass.id, paymentId: payment.id, status: pass.status, startsAt: access.startsAt, endsAt: access.endsAt, waitingForPublication: access.waitingForPublication };
-        await tx.idempotencyKey.create({ data: { key, requestHash, response } }); return response;
-      });
-    } catch (error) {
-      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
-      const previous = await this.auth.db.idempotencyKey.findUnique({ where: { key } });
-      if (previous?.requestHash === requestHash) return previous.response;
-      throw new ConflictException({ code: 'DAY_PASS_EXISTS', message: 'この開催日の1日利用は登録済みです。' });
-    }
+    return this.localCheckout.dayPass(actor.id, input.raceDate, key, requestHash);
   }
 
   @Post('webhooks/stripe')
