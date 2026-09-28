@@ -7,12 +7,13 @@ import { DbService } from './db.service';
 import { createDayPassAccess } from './day-pass-access';
 import { recordBillingEvent } from './billing-events';
 import { loadStripeConfig, type StripeRuntimeConfig } from './stripe-config';
+import { BillingCouponService } from './billing-coupon.service';
 
 type StripeRefundContext = { checkoutId?: string; dayPassId?: string; subscriptionId?: string; providerSubscriptionId?: string };
 
 @Injectable()
 export class StripeWebhookService {
-  constructor(@Inject(DbService) private readonly db: DbService) {}
+  constructor(@Inject(DbService) private readonly db: DbService, @Inject(BillingCouponService) private readonly coupons: BillingCouponService) {}
 
   async handle(req: AppRequest) {
     if (!launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).billing) throw new ServiceUnavailableException({ code: 'BILLING_NOT_IN_LAUNCH', message: '有料プランは現在準備中です。' });
@@ -64,6 +65,7 @@ export class StripeWebhookService {
         return { received: true, duplicate: true, outcome: 'DUPLICATE_CHECKOUT' };
       }
       const now = new Date();
+      await this.coupons.markCheckoutRedeemed(tx, checkout.id, now);
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`billing:${userId}`}))::text`;
       const account = await tx.user.findUnique({ where: { id: userId }, select: { role: true, disabledAt: true, accountClosure: { select: { id: true } } } });
       const rejectPaidCheckout = async (outcome: 'REJECTED_ACCOUNT_STATE' | 'REJECTED_EXISTING_ACCESS' | 'REJECTED_FOUNDER_LIMIT') => {
@@ -92,9 +94,9 @@ export class StripeWebhookService {
         if (!providerSubscriptionId) throw new ConflictException({ code: 'STRIPE_SUBSCRIPTION_MISSING', message: '契約情報を確認できません。' });
         const endsAt = addCalendarMonthUtc(now);
         const entitlement = await tx.entitlement.create({ data: { userId, planCode: checkout.planCode, startsAt: now, endsAt, reason: 'STRIPE_CHECKOUT_COMPLETED', grantedBy: userId } });
-        const subscription = await tx.subscription.create({ data: { userId, planCode: checkout.planCode, status: 'ACTIVE', priceYen: checkout.amountYen, currentPeriodStartsAt: now, currentPeriodEndsAt: endsAt, provider: 'STRIPE', providerSubscriptionId, entitlementId: entitlement.id } });
+        const subscription = await tx.subscription.create({ data: { userId, planCode: checkout.planCode, status: 'ACTIVE', priceYen: checkout.recurringAmountYen ?? checkout.amountYen, currentPeriodStartsAt: now, currentPeriodEndsAt: endsAt, provider: 'STRIPE', providerSubscriptionId, entitlementId: entitlement.id } });
         await tx.paymentTransaction.create({ data: { userId, provider: 'STRIPE', providerPaymentId: `checkout:${session.id}`, kind: 'SUBSCRIPTION', status: 'SUCCEEDED', amountYen: checkout.amountYen, subscriptionId: subscription.id } });
-        await recordBillingEvent(tx, { userId, eventType: 'SUBSCRIPTION_STARTED', subscriptionId: subscription.id, actorId: userId, details: { planCode: checkout.planCode, priceYen: checkout.amountYen, source: 'STRIPE_CHECKOUT' } }, 'BILLING_PAYMENT_SUCCEEDED');
+        await recordBillingEvent(tx, { userId, eventType: 'SUBSCRIPTION_STARTED', subscriptionId: subscription.id, actorId: userId, details: { planCode: checkout.planCode, priceYen: subscription.priceYen, chargedAmountYen: checkout.amountYen, discountAmountYen: checkout.discountAmountYen, couponId: checkout.couponId, source: 'STRIPE_CHECKOUT' } }, 'BILLING_PAYMENT_SUCCEEDED');
         await tx.billingCheckout.update({ where: { id: checkout.id }, data: { status: 'COMPLETED', completedAt: now, providerSubscriptionId } });
       } else {
         if (!checkout.raceDate) throw new ConflictException({ code: 'DAY_PASS_DATE_MISSING', message: '利用日を確認できません。' });
@@ -105,7 +107,7 @@ export class StripeWebhookService {
         await tx.billingCheckout.update({ where: { id: checkout.id }, data: { status: 'COMPLETED', completedAt: now } });
       }
       await tx.stripeWebhookEvent.create({ data: { providerEventId: event.id, eventType: event.type, livemode: event.livemode, outcome: 'PROCESSED' } });
-      await tx.auditLog.create({ data: { actorId: userId, actorRole: 'MEMBER', action: 'STRIPE_CHECKOUT_COMPLETED', targetType: 'BillingCheckout', targetId: checkout.id, reason: '署名済みStripe Webhookによる決済確定', details: { kind: checkout.kind, planCode: checkout.planCode, amountYen: checkout.amountYen }, requestId: req.requestId } });
+      await tx.auditLog.create({ data: { actorId: userId, actorRole: 'MEMBER', action: 'STRIPE_CHECKOUT_COMPLETED', targetType: 'BillingCheckout', targetId: checkout.id, reason: '署名済みStripe Webhookによる決済確定', details: { kind: checkout.kind, planCode: checkout.planCode, baseAmountYen: checkout.baseAmountYen, discountAmountYen: checkout.discountAmountYen, amountYen: checkout.amountYen, couponId: checkout.couponId }, requestId: req.requestId } });
       return { received: true, duplicate: false, outcome: 'PROCESSED' };
     }, { timeout: 20000, maxWait: 10000 });
   }

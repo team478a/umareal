@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type Stripe from 'stripe';
 import type { AuthService } from './auth.service';
+import type { BillingCouponService } from './billing-coupon.service';
 import type { AppRequest } from './context';
 import type { StripeRuntimeConfig } from './stripe-config';
 import { StripeCheckoutService } from './stripe-checkout.service';
 
 class TestStripeCheckoutService extends StripeCheckoutService {
-  constructor(auth: AuthService, private readonly client: Stripe) { super(auth); }
+  constructor(auth: AuthService, coupons: BillingCouponService, private readonly client: Stripe) { super(auth, coupons); }
   protected override async configuredClient() {
     return {
       config: {
@@ -19,10 +20,14 @@ class TestStripeCheckoutService extends StripeCheckoutService {
   }
 }
 
-function fixture(input: { existing?: Record<string, unknown> | null; stripePrice?: Record<string, unknown> } = {}) {
+function fixture(input: { existing?: Record<string, unknown> | null; stripePrice?: Record<string, unknown>; coupon?: boolean; couponFailure?: boolean } = {}) {
   const checkout = {
     id: 'checkout-1',
-    amountYen: 980,
+    baseAmountYen: 980,
+    discountAmountYen: input.coupon ? 98 : 0,
+    amountYen: input.coupon ? 882 : 980,
+    recurringAmountYen: null,
+    couponId: input.coupon ? 'coupon-1' : null,
     expiresAt: new Date('2027-10-01T01:30:00.000Z')
   };
   const tx = {
@@ -38,6 +43,8 @@ function fixture(input: { existing?: Record<string, unknown> | null; stripePrice
       findUniqueOrThrow: vi.fn().mockResolvedValue({
         newPurchasesEnabled: true,
         founderSalesEnabled: true,
+        standardSalesEnabled: true,
+        dayPassSalesEnabled: true,
         founderSalesLimit: 100,
         founderPriceYen: 1980,
         standardPriceYen: 2980,
@@ -45,20 +52,28 @@ function fixture(input: { existing?: Record<string, unknown> | null; stripePrice
       })
     },
     subscription: { count: vi.fn().mockResolvedValue(0) },
-    dayPass: { count: vi.fn().mockResolvedValue(0) }
+    dayPass: { count: vi.fn().mockResolvedValue(0) },
+    billingCoupon: { findUniqueOrThrow: vi.fn().mockResolvedValue({ id: 'coupon-1', name: '10%割引', discountType: 'PERCENT', discountValue: 10, duration: 'ONCE' }) }
   };
   const updateMany = vi.fn().mockResolvedValue({ count: 1 });
   const update = vi.fn().mockResolvedValue(checkout);
   const db = {
     $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)),
-    billingCheckout: { updateMany, update }
+    billingCheckout: { updateMany, update },
+    billingCoupon: tx.billingCoupon
   };
   const audit = vi.fn().mockResolvedValue(undefined);
   const auth = { db, audit } as unknown as AuthService;
   const retrieve = vi.fn().mockResolvedValue(input.stripePrice ?? { active: true, currency: 'jpy', unit_amount: 980, recurring: null });
   const create = vi.fn().mockResolvedValue({ id: 'cs_test_1', url: 'https://checkout.stripe.com/c/pay', expires_at: 1822354200 });
-  const service = new TestStripeCheckoutService(auth, { prices: { retrieve }, checkout: { sessions: { create } } } as unknown as Stripe);
-  return { service, tx, db, audit, retrieve, create, updateMany, update };
+  const createCoupon = input.couponFailure ? vi.fn().mockRejectedValue(new Error('provider unavailable')) : vi.fn().mockResolvedValue({ id: 'stripe_coupon_1' });
+  const couponMethods = {
+    quoteForPurchase: vi.fn().mockResolvedValue(input.coupon ? { coupon: { id: 'coupon-1', duration: 'ONCE' }, discountAmountYen: 98, amountYen: 882 } : null),
+    reserveQuoted: vi.fn(),
+    releaseCheckout: vi.fn()
+  };
+  const service = new TestStripeCheckoutService(auth, couponMethods as unknown as BillingCouponService, { prices: { retrieve }, coupons: { create: createCoupon }, checkout: { sessions: { create } } } as unknown as Stripe);
+  return { service, tx, db, audit, retrieve, create, createCoupon, updateMany, update, coupons: couponMethods };
 }
 
 const request = { requestId: 'request-1' } as AppRequest;
@@ -82,7 +97,7 @@ describe('StripeCheckoutService', () => {
     };
     const { service, retrieve, create } = fixture({ existing });
 
-    await expect(service.create(request, 'user-1', 'member@example.test', 'SUBSCRIPTION', 'STANDARD', null, 'checkout-key', 'same-request')).resolves.toEqual({
+    await expect(service.create(request, 'user-1', 'member@example.test', 'SUBSCRIPTION', 'STANDARD', null, undefined, 'checkout-key', 'same-request')).resolves.toEqual({
       checkoutId: 'checkout-existing',
       checkoutUrl: 'https://checkout.stripe.com/c/existing',
       status: 'OPEN'
@@ -94,7 +109,7 @@ describe('StripeCheckoutService', () => {
   it('marks the reservation failed when the configured Stripe Price does not match', async () => {
     const { service, create, updateMany } = fixture({ stripePrice: { active: true, currency: 'jpy', unit_amount: 1, recurring: null } });
 
-    await expect(service.create(request, 'user-1', 'member@example.test', 'DAY_PASS', 'DAY_PASS', '2027-10-01', 'checkout-key', 'request-hash')).rejects.toMatchObject({ response: { code: 'STRIPE_PRICE_MISMATCH' } });
+    await expect(service.create(request, 'user-1', 'member@example.test', 'DAY_PASS', 'DAY_PASS', '2027-10-01', undefined, 'checkout-key', 'request-hash')).rejects.toMatchObject({ response: { code: 'STRIPE_PRICE_MISMATCH' } });
     expect(updateMany).toHaveBeenCalledWith({ where: { id: 'checkout-1', status: 'INITIATED' }, data: { status: 'FAILED' } });
     expect(create).not.toHaveBeenCalled();
   });
@@ -102,7 +117,7 @@ describe('StripeCheckoutService', () => {
   it('creates a one-time Checkout Session and records the existing audit boundary', async () => {
     const { service, create, update, audit } = fixture();
 
-    await expect(service.create(request, 'user-1', 'member@example.test', 'DAY_PASS', 'DAY_PASS', '2027-10-01', 'checkout-key', 'request-hash')).resolves.toEqual({
+    await expect(service.create(request, 'user-1', 'member@example.test', 'DAY_PASS', 'DAY_PASS', '2027-10-01', undefined, 'checkout-key', 'request-hash')).resolves.toEqual({
       checkoutId: 'checkout-1',
       checkoutUrl: 'https://checkout.stripe.com/c/pay',
       status: 'OPEN'
@@ -116,6 +131,23 @@ describe('StripeCheckoutService', () => {
       cancel_url: 'https://app.example.test/plans?checkout=canceled'
     }), { idempotencyKey: 'checkout-key' });
     expect(update).toHaveBeenCalledWith({ where: { id: 'checkout-1' }, data: expect.objectContaining({ status: 'OPEN', providerSessionId: 'cs_test_1', providerCheckoutUrl: 'https://checkout.stripe.com/c/pay' }) });
-    expect(audit).toHaveBeenCalledWith(expect.anything(), request, 'STRIPE_CHECKOUT_CREATED', 'checkout-1', '会員本人による外部決済開始', { kind: 'DAY_PASS', planCode: 'DAY_PASS', amountYen: 980, raceDate: '2027-10-01' }, 'BillingCheckout');
+    expect(audit).toHaveBeenCalledWith(expect.anything(), request, 'STRIPE_CHECKOUT_CREATED', 'checkout-1', '会員本人による外部決済開始', { kind: 'DAY_PASS', planCode: 'DAY_PASS', baseAmountYen: 980, discountAmountYen: 0, amountYen: 980, couponId: null, raceDate: '2027-10-01' }, 'BillingCheckout');
+  });
+
+  it('creates and attaches an idempotent Stripe coupon from the locked checkout snapshot', async () => {
+    const { service, create, createCoupon, coupons } = fixture({ coupon: true });
+
+    await expect(service.create(request, 'user-1', 'member@example.test', 'DAY_PASS', 'DAY_PASS', '2027-10-01', 'SAVE10', 'checkout-key', 'request-hash')).resolves.toMatchObject({ checkoutId: 'checkout-1', status: 'OPEN' });
+    expect(coupons.reserveQuoted).toHaveBeenCalledWith(expect.anything(), { userId: 'user-1', couponId: 'coupon-1', checkoutId: 'checkout-1', reservedUntil: expect.any(Date) });
+    expect(createCoupon).toHaveBeenCalledWith({ duration: 'once', name: '10%割引', amount_off: 98, currency: 'jpy' }, { idempotencyKey: 'billing-coupon:checkout-1' });
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ discounts: [{ coupon: 'stripe_coupon_1' }] }), { idempotencyKey: 'checkout-key' });
+  });
+
+  it('releases the coupon reservation when Stripe cannot create the discount', async () => {
+    const { service, coupons, updateMany } = fixture({ coupon: true, couponFailure: true });
+
+    await expect(service.create(request, 'user-1', 'member@example.test', 'DAY_PASS', 'DAY_PASS', '2027-10-01', 'SAVE10', 'checkout-key', 'request-hash')).rejects.toMatchObject({ response: { code: 'STRIPE_CHECKOUT_UNAVAILABLE' } });
+    expect(updateMany).toHaveBeenCalledWith({ where: { id: 'checkout-1', status: 'INITIATED' }, data: { status: 'FAILED' } });
+    expect(coupons.releaseCheckout).toHaveBeenCalledWith('checkout-1');
   });
 });

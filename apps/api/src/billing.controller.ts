@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Req, ServiceUnavailableException } from '@nestjs/common';
-import { adminBillingResponseSchema, billingPlansResponseSchema, billingReviewResolutionSchema, billingSupportRequestSchema, billingSupportStatusSchema, canManage, dayPassCheckoutSchema, jstDate, launchCapabilities, memberBillingResponseSchema, requiresMfa, resolveLaunchMode, subscriptionCheckoutSchema } from '@keiba/domain';
+import { adminBillingCouponsResponseSchema, adminBillingResponseSchema, billingCouponCreateSchema, billingCouponDeactivateSchema, billingCouponPreviewResponseSchema, billingCouponPreviewSchema, billingPlansResponseSchema, billingReviewResolutionSchema, billingSupportRequestSchema, billingSupportStatusSchema, canManage, dayPassCheckoutWithCouponSchema, jstDate, launchCapabilities, memberBillingResponseSchema, requiresMfa, resolveLaunchMode, subscriptionCheckoutSchema } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -14,6 +14,7 @@ import { BillingSupportService } from './billing-support.service';
 import { BillingLocalSimulationService } from './billing-local-simulation.service';
 import { BillingLocalCheckoutService } from './billing-local-checkout.service';
 import { BillingQueryService } from './billing-query.service';
+import { BillingCouponService } from './billing-coupon.service';
 
 const reasonSchema = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 
@@ -29,7 +30,8 @@ export class BillingController {
     @Inject(BillingSupportService) private readonly billingSupport: BillingSupportService,
     @Inject(BillingLocalSimulationService) private readonly localSimulation: BillingLocalSimulationService,
     @Inject(BillingLocalCheckoutService) private readonly localCheckout: BillingLocalCheckoutService,
-    @Inject(BillingQueryService) private readonly billingQuery: BillingQueryService
+    @Inject(BillingQueryService) private readonly billingQuery: BillingQueryService,
+    @Inject(BillingCouponService) private readonly coupons: BillingCouponService
   ) {}
 
   private transport() {
@@ -88,19 +90,29 @@ export class BillingController {
     if (actor.role !== 'MEMBER') throw new ForbiddenException({ code: 'MEMBER_REQUIRED', message: '会員本人としてログインしてください。' });
     if (!this.purchaseIdentityReady(actor.user)) throw new ForbiddenException({ code: 'VERIFIED_LOGIN_REQUIRED', message: '申込前にメールアドレスの確認を完了してください。' });
     const key = this.key(req, 'subscription-checkout', actor.id); const requestHash = hashToken(JSON.stringify(input));
-    if (transport === 'stripe') return this.stripeCheckout.create(req, actor.id, actor.user.email, 'SUBSCRIPTION', input.planCode, null, key, requestHash);
-    return this.localCheckout.subscription(actor.id, input.planCode, key, requestHash);
+    if (transport === 'stripe') return this.stripeCheckout.create(req, actor.id, actor.user.email, 'SUBSCRIPTION', input.planCode, null, input.couponCode, key, requestHash);
+    return this.localCheckout.subscription(actor.id, input.planCode, input.couponCode, key, requestHash);
   }
 
   @Post('billing/day-pass')
   async dayPass(@Req() req: AppRequest, @Body() body: unknown) {
-    const transport = this.transport(); const actor = await this.auth.authenticate(req); const input = dayPassCheckoutSchema.parse(body);
+    const transport = this.transport(); const actor = await this.auth.authenticate(req); const input = dayPassCheckoutWithCouponSchema.parse(body);
     if (actor.role !== 'MEMBER') throw new ForbiddenException({ code: 'MEMBER_REQUIRED', message: '会員本人としてログインしてください。' });
     if (!this.purchaseIdentityReady(actor.user)) throw new ForbiddenException({ code: 'VERIFIED_LOGIN_REQUIRED', message: '申込前にメールアドレスの確認を完了してください。' });
     if (input.raceDate < jstDate(new Date())) throw new BadRequestException({ code: 'PAST_RACE_DATE', message: '過去の日付は購入できません。' });
     const key = this.key(req, 'day-pass', actor.id); const requestHash = hashToken(JSON.stringify(input));
-    if (transport === 'stripe') return this.stripeCheckout.create(req, actor.id, actor.user.email, 'DAY_PASS', 'DAY_PASS', input.raceDate, key, requestHash);
-    return this.localCheckout.dayPass(actor.id, input.raceDate, key, requestHash);
+    if (transport === 'stripe') return this.stripeCheckout.create(req, actor.id, actor.user.email, 'DAY_PASS', 'DAY_PASS', input.raceDate, input.couponCode, key, requestHash);
+    return this.localCheckout.dayPass(actor.id, input.raceDate, input.couponCode, key, requestHash);
+  }
+
+  @Post('billing/coupons/preview')
+  async previewCoupon(@Req() req: AppRequest, @Body() body: unknown) {
+    const actor = await this.auth.authenticate(req);
+    if (actor.role !== 'MEMBER') throw new ForbiddenException({ code: 'MEMBER_REQUIRED', message: '会員本人としてログインしてください。' });
+    const input = billingCouponPreviewSchema.parse(body);
+    const settings = await this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { founderPriceYen: true, standardPriceYen: true, dayPassPriceYen: true } });
+    const baseAmountYen = input.planCode === 'FOUNDER' ? settings.founderPriceYen : input.planCode === 'STANDARD' ? settings.standardPriceYen : settings.dayPassPriceYen;
+    return billingCouponPreviewResponseSchema.parse(await this.coupons.preview(actor.id, input.planCode, baseAmountYen, input.couponCode));
   }
 
   @Post('webhooks/stripe')
@@ -137,6 +149,29 @@ export class BillingController {
   async admin(@Req() req: AppRequest) {
     await this.staff(req, ['ADMIN']);
     return adminBillingResponseSchema.parse(await this.billingQuery.admin());
+  }
+
+  @Get('admin/billing/coupons')
+  async adminCoupons(@Req() req: AppRequest) {
+    await this.staff(req, ['ADMIN']);
+    return adminBillingCouponsResponseSchema.parse(await this.coupons.list());
+  }
+
+  @Post('admin/billing/coupons')
+  async createCoupon(@Req() req: AppRequest, @Body() body: unknown) {
+    const actor = await this.staff(req, ['ADMIN']);
+    const input = billingCouponCreateSchema.parse(body);
+    await this.coupons.create(req, actor.id, input);
+    return adminBillingCouponsResponseSchema.parse(await this.coupons.list());
+  }
+
+  @Post('admin/billing/coupons/:id/deactivate')
+  async deactivateCoupon(@Param('id') id: string, @Req() req: AppRequest, @Body() body: unknown) {
+    const actor = await this.staff(req, ['ADMIN']);
+    z.string().uuid().parse(id);
+    const input = billingCouponDeactivateSchema.parse(body);
+    await this.coupons.deactivate(req, actor.id, id, input.reason);
+    return adminBillingCouponsResponseSchema.parse(await this.coupons.list());
   }
 
   @Post('admin/billing/checkouts/:id/resolve')

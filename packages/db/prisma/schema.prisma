@@ -52,6 +52,9 @@ model User {
   billingCheckouts               BillingCheckout[]
   billingSupportRequests         BillingSupportRequest[]    @relation("BillingSupportRequester")
   billingSupportEvents           BillingSupportEvent[]      @relation("BillingSupportActor")
+  billingCouponsCreated          BillingCoupon[]             @relation("BillingCouponCreator")
+  billingCouponsDeactivated      BillingCoupon[]             @relation("BillingCouponDeactivator")
+  billingCouponRedemptions       BillingCouponRedemption[]
   supportRequests                SupportRequest[]           @relation("SupportRequester")
   assignedSupportRequests        SupportRequest[]           @relation("SupportAssignee")
   supportEvents                  SupportEvent[]             @relation("SupportActor")
@@ -420,6 +423,7 @@ model PaymentTransaction {
   billingCheckoutId String?                 @db.Uuid
   billingCheckout   BillingCheckout?        @relation(fields: [billingCheckoutId], references: [id])
   supportRequests   BillingSupportRequest[]
+  couponRedemption  BillingCouponRedemption?
   occurredAt        DateTime                @default(now()) @db.Timestamptz(3)
   createdTxId       BigInt                  @default(dbgenerated("txid_current()"))
 
@@ -531,7 +535,12 @@ model BillingCheckout {
   kind                   String
   planCode               String
   raceDate               String?
+  baseAmountYen           Int
+  discountAmountYen       Int       @default(0)
   amountYen              Int
+  recurringAmountYen      Int?
+  couponId                String?   @db.Uuid
+  coupon                  BillingCoupon? @relation(fields: [couponId], references: [id])
   status                 String    @default("INITIATED")
   idempotencyKey         String    @unique
   requestHash            String
@@ -543,9 +552,59 @@ model BillingCheckout {
   completedAt            DateTime? @db.Timestamptz(3)
   payments               PaymentTransaction[]
   events                 BillingEvent[]
+  couponRedemption       BillingCouponRedemption?
 
   @@index([userId, status])
+  @@index([couponId])
   @@map("billing_checkouts")
+}
+
+model BillingCoupon {
+  id                  String                    @id @default(uuid()) @db.Uuid
+  code                String                    @unique
+  name                String
+  discountType        String
+  discountValue       Int
+  duration            String
+  applicablePlanCodes String[]
+  startsAt            DateTime                  @db.Timestamptz(3)
+  endsAt              DateTime                  @db.Timestamptz(3)
+  maxRedemptions      Int?
+  active              Boolean                   @default(true)
+  createdById         String                    @db.Uuid
+  createdBy           User                      @relation("BillingCouponCreator", fields: [createdById], references: [id])
+  deactivatedById     String?                   @db.Uuid
+  deactivatedBy       User?                     @relation("BillingCouponDeactivator", fields: [deactivatedById], references: [id])
+  deactivatedAt       DateTime?                 @db.Timestamptz(3)
+  deactivationReason  String?
+  createdAt           DateTime                  @default(now()) @db.Timestamptz(3)
+  checkouts           BillingCheckout[]
+  redemptions         BillingCouponRedemption[]
+
+  @@index([active, startsAt, endsAt])
+  @@map("billing_coupons")
+}
+
+model BillingCouponRedemption {
+  id                   String              @id @default(uuid()) @db.Uuid
+  couponId             String              @db.Uuid
+  coupon               BillingCoupon       @relation(fields: [couponId], references: [id])
+  userId               String              @db.Uuid
+  user                 User                @relation(fields: [userId], references: [id])
+  billingCheckoutId    String?             @unique @db.Uuid
+  billingCheckout      BillingCheckout?    @relation(fields: [billingCheckoutId], references: [id])
+  paymentTransactionId String?             @unique @db.Uuid
+  paymentTransaction   PaymentTransaction? @relation(fields: [paymentTransactionId], references: [id])
+  status               String
+  reservedUntil        DateTime?            @db.Timestamptz(3)
+  redeemedAt           DateTime?            @db.Timestamptz(3)
+  createdAt            DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime             @default(now()) @db.Timestamptz(3)
+
+  @@unique([couponId, userId])
+  @@index([couponId, status, reservedUntil])
+  @@index([userId, createdAt])
+  @@map("billing_coupon_redemptions")
 }
 
 model StripeWebhookEvent {
@@ -1435,6 +1494,8 @@ model SystemSetting {
   lineLoginEnabled                Boolean  @default(false)
   newPurchasesEnabled             Boolean  @default(false)
   founderSalesEnabled             Boolean  @default(false)
+  standardSalesEnabled            Boolean  @default(true)
+  dayPassSalesEnabled             Boolean  @default(true)
   founderPriceYen                 Int      @default(1980)
   standardPriceYen                Int      @default(2980)
   dayPassPriceYen                 Int      @default(980)

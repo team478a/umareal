@@ -29,6 +29,8 @@ test('register, save preferences, sign out and sign in on desktop/mobile', async
   await expect(page.getByRole('heading', { name: '利用準備' })).toBeVisible();
   await expect(page.getByText('2 / 4', { exact: true })).toBeVisible();
   const publisher = await db.user.findFirstOrThrow({ where: { role: 'ADMIN' } }); const raceDate = '2095-05-05'; const suffix = randomBytes(5).toString('hex');
+  const couponCode = `E2E_${randomBytes(5).toString('hex').toUpperCase()}`;
+  await db.billingCoupon.create({ data: { code: couponCode, name: '画面確認10%割引', discountType: 'PERCENT', discountValue: 10, duration: 'ONCE', applicablePlanCodes: ['STANDARD'], startsAt: new Date(Date.now() - 60000), endsAt: new Date(Date.now() + 86400000), createdById: publisher.id } });
   const dashboardRace = await db.race.create({ data: { raceDate, venue: `ホーム${suffix}`, number: 5, name: `ホーム告知${suffix}`, startsAt: new Date(`${raceDate}T15:00:00+09:00`) } });
   const dashboardAnnouncement = await db.raceAnnouncement.create({ data: { raceId: dashboardRace.id, version: 1, publishedBy: publisher.id, reason: '会員ホームE2E' } });
   await db.notificationEvent.create({ data: { announcementId: dashboardAnnouncement.id, eventType: 'RACE_ANNOUNCED', status: 'SENT', expandedAt: new Date(), payload: { raceId: dashboardRace.id } } });
@@ -78,6 +80,10 @@ test('register, save preferences, sign out and sign in on desktop/mobile', async
   await expect(page.getByRole('heading', { name: '申込内容の確認' })).toBeVisible();
   await expect(page.locator('#plan-review')).toContainText('通常会員');
   await expect(page.locator('#plan-review')).toContainText('外部への請求やカード情報の送信はありません');
+  await page.getByLabel('クーポンコード').fill(couponCode);
+  await page.getByRole('button', { name: 'クーポンを適用', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('クーポンを適用しました');
+  await expect(page.locator('#plan-review')).toContainText('￥2,682');
   await expect(page.locator('#plan-review').getByRole('button').last()).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

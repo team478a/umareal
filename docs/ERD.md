@@ -125,6 +125,8 @@ Phase 6Bでは同じ追記専用Stripe受信履歴を使い、Invoice成功・�
 
 Phase 6Cでsystem_settingsにStripeの暗号化Secret key、暗号化Webhook secret、動作モード、3つのPrice IDを追加した。秘密値は設定APIへ返さず、変更理由と設定状態だけを既存の監査ログへ残す。
 
+料金・クーポンV1で`system_settings`に通常月額と1日利用の販売可否を追加し、`billing_coupons`と`billing_coupon_redemptions`を追加した。クーポン定義は発行後に変更せず、停止情報と監査を残す。会員とクーポンの組を一意にし、Checkout予約または成功支払へ接続する。`billing_checkouts`は通常金額、割引額、今回支払額、月額継続金額、クーポンを固定し、金額の算術整合をDB制約でも保証する。
+
 Phase 6Dでfree_report_drafts、追記専用free_report_versions、固定1枠のfree_member_benefitsを追加した。無料速報は有料予想版から分離し、UP/DOWN各1頭と理由、音声URL、結果確定後の検証だけを会員へ返す。notification_eventsは予想版、対象レース告知、無料速報版のいずれか1件だけを参照する。
 
 Phase 6Pでnotification_preferencesにメール全体の購読設定、notification_eventsにメール展開完了時刻、system_settingsにメール通知の全体停止設定を追加した。notification_deliveriesのchannelはLINEまたはEMAILで、同じevent・会員でもチャネルごとに独立した配送と試行履歴を持つ。
@@ -165,4 +167,4 @@ WIN5 Phase 2で`prediction_products`、`prediction_product_races`、`prediction_
 
 `notification_events`は公開元に加えて通常レース結果版またはWIN5評価結果版を参照でき、常にいずれか1種類だけを参照するXOR制約を持つ。評価結果版と通知イベントは同じ確定トランザクションで作成すること、最新評価が`REVIEW_REQUIRED`でないことをDBトリガーで強制する。結果通知は確認済みの評価事実だけを表示し、通常レースとWIN5を結合した状態は作らない。
 
-期限切れ公開待ち一日券の全額返金、Stripe領収書導線、課金状態の会員向け通知は実装済み。月額・利用開始後・一部返金、プラン変更、クーポン、試用、実Supabase・メール・LINE・Stripe本番資格情報を使う接続、正式価格、正式返金条件、CMSは未確定・未実施。
+期限切れ公開待ち一日券の全額返金、Stripe領収書導線、課金状態の会員向け通知、定率・定額クーポンは実装済み。月額・利用開始後・一部返金、プラン変更、試用、実Supabase・メール・LINE・Stripe本番資格情報を使う接続、正式価格、正式返金条件、CMSは未確定・未実施。

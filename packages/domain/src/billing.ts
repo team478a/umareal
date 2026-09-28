@@ -3,7 +3,9 @@ import { billingSupportCategories, billingSupportStatuses } from './billing-supp
 import { dateSchema } from './races';
 
 export const subscriptionPlans = ['FOUNDER', 'STANDARD'] as const;
-export const subscriptionCheckoutSchema = z.object({ planCode: z.enum(subscriptionPlans) }).strict();
+export const billingPlanCodes = ['FOUNDER', 'STANDARD', 'DAY_PASS'] as const;
+export const billingCouponCodeSchema = z.string().trim().toUpperCase().regex(/^[A-Z0-9][A-Z0-9_-]{3,31}$/);
+export const subscriptionCheckoutSchema = z.object({ planCode: z.enum(subscriptionPlans), couponCode: billingCouponCodeSchema.optional() }).strict();
 const founderBillingPlanSchema = z.object({
   code: z.literal('FOUNDER'),
   name: z.literal('創設会員'),
@@ -177,20 +179,62 @@ export const adminBillingResponseSchema = z.object({
   reviewCheckouts: z.array(adminReviewCheckoutSchema)
 }).strict();
 export type AdminBillingResponse = z.infer<typeof adminBillingResponseSchema>;
-export const dayPassCheckoutSchema = z.object({ raceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).strict().superRefine((value, context) => {
+const validDayPassDate = (value: { raceDate: string }, context: z.RefinementCtx) => {
   const parsed = new Date(`${value.raceDate}T00:00:00+09:00`);
   const roundTrip = new Date(parsed.getTime() + 9 * 3600000).toISOString().slice(0, 10);
   if (!Number.isFinite(parsed.getTime()) || roundTrip !== value.raceDate) context.addIssue({ code: 'custom', path: ['raceDate'], message: '有効な開催日を指定してください。' });
-});
+};
+export const dayPassCheckoutSchema = z.object({ raceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).strict().superRefine(validDayPassDate);
+export const dayPassCheckoutWithCouponSchema = z.object({ raceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), couponCode: billingCouponCodeSchema.optional() }).strict().superRefine(validDayPassDate);
 export const billingReviewResolutionSchema = z.object({
   action: z.enum(['GRANT_ACCESS', 'REFUND']),
   reason: z.string().trim().min(1).max(500)
 }).strict();
 export const billingSettingsSchema = z.object({
-  founderSalesEnabled: z.boolean(), founderPriceYen: z.number().int().min(0).max(1_000_000),
+  founderSalesEnabled: z.boolean(), standardSalesEnabled: z.boolean(), dayPassSalesEnabled: z.boolean(), founderPriceYen: z.number().int().min(0).max(1_000_000),
   standardPriceYen: z.number().int().min(0).max(1_000_000), dayPassPriceYen: z.number().int().min(0).max(1_000_000),
   founderSalesLimit: z.number().int().min(1).max(100_000), billingGraceDays: z.number().int().min(0).max(30)
 }).strict();
+
+export const billingCouponDiscountTypes = ['PERCENT', 'FIXED_YEN'] as const;
+export const billingCouponDurations = ['ONCE', 'FOREVER'] as const;
+export const billingCouponCreateSchema = z.object({
+  code: billingCouponCodeSchema,
+  name: z.string().trim().min(1).max(100),
+  discountType: z.enum(billingCouponDiscountTypes),
+  discountValue: z.number().int().min(1).max(1_000_000),
+  duration: z.enum(billingCouponDurations),
+  applicablePlanCodes: z.array(z.enum(billingPlanCodes)).min(1).max(3).transform(values => [...new Set(values)]),
+  startsAt: billingDateTimeSchema,
+  endsAt: billingDateTimeSchema,
+  maxRedemptions: z.number().int().positive().max(1_000_000).nullable(),
+  reason: z.string().trim().min(1).max(500)
+}).strict().superRefine((value, context) => {
+  if (new Date(value.endsAt) <= new Date(value.startsAt)) context.addIssue({ code: 'custom', path: ['endsAt'], message: '終了日時は開始日時より後にしてください。' });
+  if (value.discountType === 'PERCENT' && value.discountValue > 100) context.addIssue({ code: 'custom', path: ['discountValue'], message: '定率割引は100%以下にしてください。' });
+});
+export const billingCouponDeactivateSchema = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
+export const billingCouponPreviewSchema = z.object({ planCode: z.enum(billingPlanCodes), couponCode: billingCouponCodeSchema }).strict();
+export const billingCouponPreviewResponseSchema = z.object({
+  code: billingCouponCodeSchema,
+  name: z.string(),
+  planCode: z.enum(billingPlanCodes),
+  baseAmountYen: z.number().int().nonnegative(),
+  discountAmountYen: z.number().int().positive(),
+  amountYen: z.number().int().positive(),
+  duration: z.enum(billingCouponDurations),
+  endsAt: billingDateTimeSchema
+}).strict();
+export type BillingCouponPreviewResponse = z.infer<typeof billingCouponPreviewResponseSchema>;
+export const adminBillingCouponSchema = z.object({
+  id: z.string().uuid(), code: billingCouponCodeSchema, name: z.string(),
+  discountType: z.enum(billingCouponDiscountTypes), discountValue: z.number().int().positive(), duration: z.enum(billingCouponDurations),
+  applicablePlanCodes: z.array(z.enum(billingPlanCodes)), startsAt: billingDateTimeSchema, endsAt: billingDateTimeSchema,
+  maxRedemptions: z.number().int().positive().nullable(), active: z.boolean(), reservedCount: z.number().int().nonnegative(), redeemedCount: z.number().int().nonnegative(),
+  createdAt: billingDateTimeSchema, deactivatedAt: billingDateTimeSchema.nullable(), deactivationReason: z.string().nullable()
+}).strict();
+export const adminBillingCouponsResponseSchema = z.object({ items: z.array(adminBillingCouponSchema) }).strict();
+export type AdminBillingCouponsResponse = z.infer<typeof adminBillingCouponsResponseSchema>;
 
 export function addCalendarMonthUtc(input: Date) {
   const next = new Date(input);

@@ -16,7 +16,7 @@ function signature(payload: unknown, secret = process.env.STRIPE_WEBHOOK_SECRET!
 stripe('Stripe checkout webhook', () => {
   it('grants access only after a signed, matching and idempotent completion event', async () => {
     const fixture = await account();
-    const checkout = await db.billingCheckout.create({ data: { userId: fixture.user.id, kind: 'SUBSCRIPTION', planCode: 'STANDARD', amountYen: 2980, status: 'OPEN', idempotencyKey: `subscription-checkout:${fixture.user.id}:${randomUUID()}`, requestHash: 'test-request', providerSessionId: `cs_test_${randomUUID()}`, providerCheckoutUrl: 'https://checkout.stripe.test/session', expiresAt: new Date(Date.now() + 30 * 60000) } });
+    const checkout = await db.billingCheckout.create({ data: { userId: fixture.user.id, kind: 'SUBSCRIPTION', planCode: 'STANDARD', baseAmountYen: 2980, recurringAmountYen: 2980, amountYen: 2980, status: 'OPEN', idempotencyKey: `subscription-checkout:${fixture.user.id}:${randomUUID()}`, requestHash: 'test-request', providerSessionId: `cs_test_${randomUUID()}`, providerCheckoutUrl: 'https://checkout.stripe.test/session', expiresAt: new Date(Date.now() + 30 * 60000) } });
     expect(await db.entitlement.count({ where: { userId: fixture.user.id } })).toBe(0);
     const payload = { id: `evt_${randomUUID()}`, object: 'event', type: 'checkout.session.completed', livemode: false, data: { object: { id: checkout.providerSessionId, object: 'checkout.session', metadata: { checkoutId: checkout.id, userId: fixture.user.id, kind: 'SUBSCRIPTION', planCode: 'STANDARD', raceDate: '' }, payment_status: 'paid', currency: 'jpy', amount_total: 2980, subscription: `sub_${randomUUID()}` } } };
     const client = new Client();
@@ -45,9 +45,30 @@ stripe('Stripe checkout webhook', () => {
     expect(await db.stripeWebhookEvent.count({ where: { providerEventId: payload.id } })).toBe(0);
   });
 
+  it('redeems a reserved coupon and preserves the undiscounted recurring amount after signed payment', async () => {
+    const fixture = await account();
+    const coupon = await db.billingCoupon.create({ data: {
+      code: `STRIPE_${randomUUID().replaceAll('-', '').slice(0, 10).toUpperCase()}`,
+      name: 'Stripe初回10%割引', discountType: 'PERCENT', discountValue: 10, duration: 'ONCE', applicablePlanCodes: ['STANDARD'],
+      startsAt: new Date(Date.now() - 60000), endsAt: new Date(Date.now() + 86400000), maxRedemptions: 1, createdById: fixture.user.id
+    } });
+    const checkout = await db.billingCheckout.create({ data: {
+      userId: fixture.user.id, kind: 'SUBSCRIPTION', planCode: 'STANDARD', baseAmountYen: 2980, discountAmountYen: 298, amountYen: 2682, recurringAmountYen: 2980,
+      couponId: coupon.id, status: 'OPEN', idempotencyKey: `coupon-checkout:${fixture.user.id}:${randomUUID()}`, requestHash: 'coupon-checkout', providerSessionId: `cs_test_${randomUUID()}`,
+      providerCheckoutUrl: 'https://checkout.stripe.test/session', expiresAt: new Date(Date.now() + 30 * 60000)
+    } });
+    const redemption = await db.billingCouponRedemption.create({ data: { couponId: coupon.id, userId: fixture.user.id, billingCheckoutId: checkout.id, status: 'RESERVED', reservedUntil: checkout.expiresAt } });
+    const payload = { id: `evt_${randomUUID()}`, object: 'event', type: 'checkout.session.completed', livemode: false, data: { object: { id: checkout.providerSessionId, object: 'checkout.session', metadata: { checkoutId: checkout.id, userId: fixture.user.id, kind: 'SUBSCRIPTION', planCode: 'STANDARD', raceDate: '' }, payment_status: 'paid', currency: 'jpy', amount_total: 2682, subscription: `sub_${randomUUID()}` } } };
+
+    expect((await new Client().call('webhooks/stripe', 'POST', payload, undefined, { 'Stripe-Signature': signature(payload) })).body.outcome).toBe('PROCESSED');
+    expect(await db.billingCouponRedemption.findUniqueOrThrow({ where: { id: redemption.id } })).toMatchObject({ status: 'REDEEMED', reservedUntil: null, redeemedAt: expect.any(Date) });
+    expect(await db.subscription.findFirstOrThrow({ where: { userId: fixture.user.id } })).toMatchObject({ priceYen: 2980 });
+    expect(await db.paymentTransaction.findFirstOrThrow({ where: { userId: fixture.user.id, status: 'SUCCEEDED' } })).toMatchObject({ amountYen: 2682 });
+  });
+
   it('records a paid checkout for review without granting access when the account is no longer eligible', async () => {
     const fixture = await account();
-    const checkout = await db.billingCheckout.create({ data: { userId: fixture.user.id, kind: 'SUBSCRIPTION', planCode: 'STANDARD', amountYen: 2980, status: 'OPEN', idempotencyKey: `disabled-checkout:${fixture.user.id}:${randomUUID()}`, requestHash: 'disabled-checkout', providerSessionId: `cs_test_${randomUUID()}`, providerCheckoutUrl: 'https://checkout.stripe.test/session', expiresAt: new Date(Date.now() + 30 * 60000) } });
+    const checkout = await db.billingCheckout.create({ data: { userId: fixture.user.id, kind: 'SUBSCRIPTION', planCode: 'STANDARD', baseAmountYen: 2980, recurringAmountYen: 2980, amountYen: 2980, status: 'OPEN', idempotencyKey: `disabled-checkout:${fixture.user.id}:${randomUUID()}`, requestHash: 'disabled-checkout', providerSessionId: `cs_test_${randomUUID()}`, providerCheckoutUrl: 'https://checkout.stripe.test/session', expiresAt: new Date(Date.now() + 30 * 60000) } });
     await db.user.update({ where: { id: fixture.user.id }, data: { disabledAt: new Date() } });
     const payload = { id: `evt_${randomUUID()}`, object: 'event', type: 'checkout.session.completed', livemode: false, data: { object: { id: checkout.providerSessionId, object: 'checkout.session', metadata: { checkoutId: checkout.id, userId: fixture.user.id, kind: 'SUBSCRIPTION', planCode: 'STANDARD', raceDate: '' }, payment_status: 'paid', currency: 'jpy', amount_total: 2980, subscription: `sub_${randomUUID()}` } } };
     const response = await new Client().call('webhooks/stripe', 'POST', payload, undefined, { 'Stripe-Signature': signature(payload) });
@@ -71,7 +92,7 @@ stripe('Stripe checkout webhook', () => {
 
   it('synchronizes a successful Stripe refund for a review checkout exactly once', async () => {
     const fixture = await account();
-    const checkout = await db.billingCheckout.create({ data: { userId: fixture.user.id, kind: 'DAY_PASS', planCode: 'DAY_PASS', raceDate: '2027-10-03', amountYen: 980, status: 'REJECTED_EXISTING_ACCESS', idempotencyKey: `review-refund:${fixture.user.id}:${randomUUID()}`, requestHash: 'review-refund', providerSessionId: `cs_test_${randomUUID()}`, providerCheckoutUrl: 'https://checkout.stripe.test/session', expiresAt: new Date(Date.now() + 30 * 60000), completedAt: new Date() } });
+    const checkout = await db.billingCheckout.create({ data: { userId: fixture.user.id, kind: 'DAY_PASS', planCode: 'DAY_PASS', raceDate: '2027-10-03', baseAmountYen: 980, amountYen: 980, status: 'REJECTED_EXISTING_ACCESS', idempotencyKey: `review-refund:${fixture.user.id}:${randomUUID()}`, requestHash: 'review-refund', providerSessionId: `cs_test_${randomUUID()}`, providerCheckoutUrl: 'https://checkout.stripe.test/session', expiresAt: new Date(Date.now() + 30 * 60000), completedAt: new Date() } });
     await db.paymentTransaction.create({ data: { userId: fixture.user.id, provider: 'STRIPE', providerPaymentId: `checkout:${checkout.providerSessionId}`, kind: 'DAY_PASS', status: 'REQUIRES_REVIEW', amountYen: 980, billingCheckoutId: checkout.id } });
     const refundId = `re_${randomUUID()}`;
     const payload = { id: `evt_${randomUUID()}`, object: 'event', type: 'refund.created', livemode: false, data: { object: { id: refundId, object: 'refund', amount: 980, currency: 'jpy', status: 'succeeded', metadata: { checkoutId: checkout.id }, payment_intent: `pi_${randomUUID()}`, charge: `ch_${randomUUID()}` } } };
@@ -116,7 +137,7 @@ stripe('Stripe checkout webhook', () => {
 
   it('acknowledges cancellation webhooks for a reviewed subscription without retrying forever', async () => {
     const fixture = await account(); const providerSubscriptionId = `sub_${randomUUID()}`;
-    const checkout = await db.billingCheckout.create({ data: { userId: fixture.user.id, kind: 'SUBSCRIPTION', planCode: 'STANDARD', amountYen: 2980, status: 'REVIEW_REFUNDING', idempotencyKey: `review-subscription:${fixture.user.id}:${randomUUID()}`, requestHash: 'review-subscription', providerSessionId: `cs_test_${randomUUID()}`, providerSubscriptionId, providerCheckoutUrl: 'https://checkout.stripe.test/session', expiresAt: new Date(Date.now() + 30 * 60000), completedAt: new Date() } });
+    const checkout = await db.billingCheckout.create({ data: { userId: fixture.user.id, kind: 'SUBSCRIPTION', planCode: 'STANDARD', baseAmountYen: 2980, recurringAmountYen: 2980, amountYen: 2980, status: 'REVIEW_REFUNDING', idempotencyKey: `review-subscription:${fixture.user.id}:${randomUUID()}`, requestHash: 'review-subscription', providerSessionId: `cs_test_${randomUUID()}`, providerSubscriptionId, providerCheckoutUrl: 'https://checkout.stripe.test/session', expiresAt: new Date(Date.now() + 30 * 60000), completedAt: new Date() } });
     await db.paymentTransaction.create({ data: { userId: fixture.user.id, provider: 'STRIPE', providerPaymentId: `checkout:${checkout.providerSessionId}`, kind: 'SUBSCRIPTION', status: 'REQUIRES_REVIEW', amountYen: 2980, billingCheckoutId: checkout.id } });
     const payload = { id: `evt_${randomUUID()}`, object: 'event', type: 'customer.subscription.deleted', livemode: false, data: { object: { id: providerSubscriptionId, object: 'subscription', canceled_at: Math.floor(Date.now() / 1000) } } };
     const response = await new Client().call('webhooks/stripe', 'POST', payload, undefined, { 'Stripe-Signature': signature(payload) });
@@ -125,7 +146,7 @@ stripe('Stripe checkout webhook', () => {
 
   it('does not open a second subscription checkout while the first can still be paid', async () => {
     const fixture = await account();
-    await db.billingCheckout.create({ data: { userId: fixture.user.id, kind: 'SUBSCRIPTION', planCode: 'STANDARD', amountYen: 2980, status: 'OPEN', idempotencyKey: `open-checkout:${fixture.user.id}:${randomUUID()}`, requestHash: 'open-checkout', providerSessionId: `cs_test_${randomUUID()}`, providerCheckoutUrl: 'https://checkout.stripe.test/session', expiresAt: new Date(Date.now() + 30 * 60000) } });
+    await db.billingCheckout.create({ data: { userId: fixture.user.id, kind: 'SUBSCRIPTION', planCode: 'STANDARD', baseAmountYen: 2980, recurringAmountYen: 2980, amountYen: 2980, status: 'OPEN', idempotencyKey: `open-checkout:${fixture.user.id}:${randomUUID()}`, requestHash: 'open-checkout', providerSessionId: `cs_test_${randomUUID()}`, providerCheckoutUrl: 'https://checkout.stripe.test/session', expiresAt: new Date(Date.now() + 30 * 60000) } });
     const settings = await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { newPurchasesEnabled: true } });
     await db.systemSetting.update({ where: { id: 'global' }, data: { newPurchasesEnabled: true } });
     try {
@@ -140,7 +161,7 @@ stripe('Stripe checkout webhook', () => {
   it('synchronizes renewal, failure, recovery, cancellation scheduling and termination', async () => {
     const fixture = await account();
     const providerSubscriptionId = `sub_${randomUUID()}`;
-    const checkout = await db.billingCheckout.create({ data: { userId: fixture.user.id, kind: 'SUBSCRIPTION', planCode: 'STANDARD', amountYen: 2980, status: 'OPEN', idempotencyKey: `subscription-checkout:${fixture.user.id}:${randomUUID()}`, requestHash: 'lifecycle-test', providerSessionId: `cs_test_${randomUUID()}`, providerCheckoutUrl: 'https://checkout.stripe.test/session', expiresAt: new Date(Date.now() + 30 * 60000) } });
+    const checkout = await db.billingCheckout.create({ data: { userId: fixture.user.id, kind: 'SUBSCRIPTION', planCode: 'STANDARD', baseAmountYen: 2980, recurringAmountYen: 2980, amountYen: 2980, status: 'OPEN', idempotencyKey: `subscription-checkout:${fixture.user.id}:${randomUUID()}`, requestHash: 'lifecycle-test', providerSessionId: `cs_test_${randomUUID()}`, providerCheckoutUrl: 'https://checkout.stripe.test/session', expiresAt: new Date(Date.now() + 30 * 60000) } });
     const client = new Client();
     const post = async (type: string, object: Record<string, unknown>) => {
       const payload = { id: `evt_${randomUUID()}`, object: 'event', type, livemode: false, data: { object } };

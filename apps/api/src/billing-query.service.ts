@@ -10,7 +10,7 @@ export class BillingQueryService {
   async plans() {
     const settings = await this.db.systemSetting.findUniqueOrThrow({
       where: { id: 'global' },
-      select: { newPurchasesEnabled: true, founderSalesEnabled: true, founderPriceYen: true, standardPriceYen: true, dayPassPriceYen: true, founderSalesLimit: true },
+      select: { newPurchasesEnabled: true, founderSalesEnabled: true, standardSalesEnabled: true, dayPassSalesEnabled: true, founderPriceYen: true, standardPriceYen: true, dayPassPriceYen: true, founderSalesLimit: true },
     });
     const now = new Date();
     const [founderSold, founderReserved] = await Promise.all([
@@ -30,8 +30,8 @@ export class BillingQueryService {
       taxIncluded: true,
       plans: [
         { code: 'FOUNDER', name: '創設会員', priceYen: settings.founderPriceYen, interval: 'MONTH', available: transportAvailable && settings.newPurchasesEnabled && settings.founderSalesEnabled && founderUnavailable < settings.founderSalesLimit, remaining: Math.max(0, settings.founderSalesLimit - founderUnavailable) },
-        { code: 'STANDARD', name: '通常会員', priceYen: settings.standardPriceYen, interval: 'MONTH', available: transportAvailable && settings.newPurchasesEnabled },
-        { code: 'DAY_PASS', name: '1日利用', priceYen: settings.dayPassPriceYen, interval: 'JST_DAY', available: transportAvailable && settings.newPurchasesEnabled },
+        { code: 'STANDARD', name: '通常会員', priceYen: settings.standardPriceYen, interval: 'MONTH', available: transportAvailable && settings.newPurchasesEnabled && settings.standardSalesEnabled },
+        { code: 'DAY_PASS', name: '1日利用', priceYen: settings.dayPassPriceYen, interval: 'JST_DAY', available: transportAvailable && settings.newPurchasesEnabled && settings.dayPassSalesEnabled },
       ],
     };
   }

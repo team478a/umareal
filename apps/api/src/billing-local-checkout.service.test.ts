@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuthService } from './auth.service';
+import type { BillingCouponService } from './billing-coupon.service';
 import { BillingLocalCheckoutService } from './billing-local-checkout.service';
 
 const now = new Date('2027-10-15T03:00:00.000Z');
@@ -9,7 +10,11 @@ function serviceWith(tx: Record<string, unknown>) {
     $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)),
     idempotencyKey: { findUnique: vi.fn() },
   };
-  return { service: new BillingLocalCheckoutService({ db } as unknown as AuthService), db };
+  const coupons = {
+    quoteForPurchase: vi.fn(),
+    recordLocalRedemption: vi.fn(),
+  };
+  return { service: new BillingLocalCheckoutService({ db } as unknown as AuthService, coupons as unknown as BillingCouponService), db, coupons };
 }
 
 describe('BillingLocalCheckoutService', () => {
@@ -29,7 +34,7 @@ describe('BillingLocalCheckoutService', () => {
     const tx = {
       $queryRaw: vi.fn().mockResolvedValue([]),
       idempotencyKey: { findUnique: vi.fn().mockResolvedValue(null), create: idempotencyCreate },
-      systemSetting: { findUniqueOrThrow: vi.fn().mockResolvedValue({ newPurchasesEnabled: true, founderSalesEnabled: true, founderSalesLimit: 100, founderPriceYen: 1980, standardPriceYen: 2980 }) },
+      systemSetting: { findUniqueOrThrow: vi.fn().mockResolvedValue({ newPurchasesEnabled: true, founderSalesEnabled: true, standardSalesEnabled: true, founderSalesLimit: 100, founderPriceYen: 1980, standardPriceYen: 2980 }) },
       subscription: { count: vi.fn().mockResolvedValue(0), create: subscriptionCreate },
       entitlement: { create: entitlementCreate },
       paymentTransaction: { create: paymentCreate },
@@ -38,7 +43,7 @@ describe('BillingLocalCheckoutService', () => {
     };
     const { service, db } = serviceWith(tx);
 
-    await expect(service.subscription('user-1', 'STANDARD', 'checkout-key', 'request-hash')).resolves.toEqual({
+    await expect(service.subscription('user-1', 'STANDARD', undefined, 'checkout-key', 'request-hash')).resolves.toEqual({
       subscriptionId: 'subscription-1',
       paymentId: 'payment-1',
       status: 'ACTIVE',
@@ -49,7 +54,7 @@ describe('BillingLocalCheckoutService', () => {
     expect(entitlementCreate).toHaveBeenCalledWith({ data: expect.objectContaining({ userId: 'user-1', planCode: 'STANDARD', startsAt: now, endsAt: new Date('2027-11-15T03:00:00.000Z'), reason: 'LOCAL_TEST_SUBSCRIPTION', grantedBy: 'user-1' }) });
     expect(subscriptionCreate).toHaveBeenCalledWith({ data: expect.objectContaining({ provider: 'LOCAL_TEST', providerSubscriptionId: expect.stringMatching(/^local-sub-/), priceYen: 2980, entitlementId: 'entitlement-1' }) });
     expect(paymentCreate).toHaveBeenCalledWith({ data: expect.objectContaining({ provider: 'LOCAL_TEST', providerPaymentId: expect.stringMatching(/^local-pay-/), status: 'SUCCEEDED', amountYen: 2980, subscriptionId: 'subscription-1' }) });
-    expect(billingEventCreate).toHaveBeenCalledWith({ data: expect.objectContaining({ eventType: 'SUBSCRIPTION_STARTED', subscriptionId: 'subscription-1', actorId: 'user-1', details: { planCode: 'STANDARD', priceYen: 2980, developmentSimulation: true } }) });
+    expect(billingEventCreate).toHaveBeenCalledWith({ data: expect.objectContaining({ eventType: 'SUBSCRIPTION_STARTED', subscriptionId: 'subscription-1', actorId: 'user-1', details: { planCode: 'STANDARD', priceYen: 2980, chargedAmountYen: 2980, discountAmountYen: 0, couponId: null, developmentSimulation: true } }) });
     expect(notificationEventCreate).toHaveBeenCalledWith({ data: { billingEventId: 'billing-event-1', eventType: 'BILLING_PAYMENT_SUCCEEDED', status: 'QUEUED', payload: { billingEventId: 'billing-event-1' } } });
     expect(idempotencyCreate).toHaveBeenCalledWith({ data: { key: 'checkout-key', requestHash: 'request-hash', response: expect.objectContaining({ subscriptionId: 'subscription-1', paymentId: 'payment-1' }) } });
   });
@@ -64,7 +69,7 @@ describe('BillingLocalCheckoutService', () => {
     };
     const { service } = serviceWith(tx);
 
-    await expect(service.subscription('user-1', 'STANDARD', 'checkout-key', 'request-hash')).resolves.toEqual(response);
+    await expect(service.subscription('user-1', 'STANDARD', undefined, 'checkout-key', 'request-hash')).resolves.toEqual(response);
     expect(entitlementCreate).not.toHaveBeenCalled();
   });
 
@@ -73,13 +78,13 @@ describe('BillingLocalCheckoutService', () => {
     const tx = {
       $queryRaw: vi.fn().mockResolvedValue([]),
       idempotencyKey: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn() },
-      systemSetting: { findUniqueOrThrow: vi.fn().mockResolvedValue({ newPurchasesEnabled: true, founderSalesEnabled: true, founderSalesLimit: 3, founderPriceYen: 1980, standardPriceYen: 2980 }) },
+      systemSetting: { findUniqueOrThrow: vi.fn().mockResolvedValue({ newPurchasesEnabled: true, founderSalesEnabled: true, standardSalesEnabled: true, founderSalesLimit: 3, founderPriceYen: 1980, standardPriceYen: 2980 }) },
       subscription: { count: vi.fn().mockResolvedValueOnce(0).mockResolvedValueOnce(3) },
       entitlement: { create: entitlementCreate },
     };
     const { service } = serviceWith(tx);
 
-    await expect(service.subscription('user-1', 'FOUNDER', 'checkout-key', 'request-hash')).rejects.toMatchObject({ response: { code: 'FOUNDER_LIMIT_REACHED' } });
+    await expect(service.subscription('user-1', 'FOUNDER', undefined, 'checkout-key', 'request-hash')).rejects.toMatchObject({ response: { code: 'FOUNDER_LIMIT_REACHED' } });
     expect(entitlementCreate).not.toHaveBeenCalled();
   });
 
@@ -92,7 +97,7 @@ describe('BillingLocalCheckoutService', () => {
     const idempotencyCreate = vi.fn().mockResolvedValue({});
     const tx = {
       idempotencyKey: { findUnique: vi.fn().mockResolvedValue(null), create: idempotencyCreate },
-      systemSetting: { findUniqueOrThrow: vi.fn().mockResolvedValue({ newPurchasesEnabled: true, dayPassPriceYen: 980 }) },
+      systemSetting: { findUniqueOrThrow: vi.fn().mockResolvedValue({ newPurchasesEnabled: true, dayPassSalesEnabled: true, dayPassPriceYen: 980 }) },
       predictionProduct: { findUnique: vi.fn().mockResolvedValue(null) },
       entitlement: { create: entitlementCreate },
       dayPass: { create: passCreate },
@@ -102,7 +107,7 @@ describe('BillingLocalCheckoutService', () => {
     };
     const { service } = serviceWith(tx);
 
-    await expect(service.dayPass('user-1', '2027-10-18', 'pass-key', 'request-hash')).resolves.toEqual({
+    await expect(service.dayPass('user-1', '2027-10-18', undefined, 'pass-key', 'request-hash')).resolves.toEqual({
       dayPassId: 'pass-1',
       paymentId: 'payment-1',
       status: 'ACTIVE',
