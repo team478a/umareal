@@ -82,6 +82,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 認証資格情報orchestration pilot: LINE会員の予備メール設定、ローカルのパスワード再設定token発行・消費・全セッション失効、SupabaseのPKCE回復開始・パスワード更新を`AuthCredentialService`へ分離する。Controllerは入力検証、本人認証、Cookieからの外部token取得とPKCE Cookie反映を担当し、API URL・同一応答による会員有無の秘匿、15分期限、監査、セッション失効範囲は変更しない。ログインとMFAの分離は後続候補のままとする。
 - MFA orchestration pilot: ローカルTOTPの暗号化登録・時刻ステップ再利用防止・AAL2セッション入替と、Supabaseの主／予備factor登録・challenge検証・競合防止・予備factor解除を`AuthMfaService`へ分離する。Controllerは入力検証、本人認証、サーバー所有ロールとAALによる事前認可、認証Cookie反映を担当し、API URL・応答、15分の未確認factor期限、監査、Provider全体logoutとローカルセッション失効範囲は変更しない。ログインorchestrationの分離は後続候補のままとする。
 - ログインorchestration pilot: ローカル認証の同一コスト照合・確認済みメール判定・旧セッション破棄・新規セッション発行と、Supabase認証の会員照合・メール確認同期・初回ログイン記録・紹介成立・監査を`AuthLoginService`へ分離する。Controllerは入力検証、認証方式の分岐、Cookie反映を担当し、API URL・応答、エラーコード、AAL1開始、セッション期限、紹介成立条件は変更しない。callback・refresh・logoutの分離は後続候補のままとする。
+- 認証セッションライフサイクルpilot: SupabaseのPKCE callback完了・会員照合・確認済みメール同期・signup時だけの紹介成立・refresh時の有効会員再確認・Provider logout監査と、ローカルlogoutの現セッション失効・監査を`AuthSessionLifecycleService`へ分離する。Controllerはcodeとflow Cookieの検証、成功・失敗リダイレクト、session Cookieの設定・削除を担当し、API URL・応答・リダイレクト先・監査・紹介成立条件・Cookie属性は変更しない。
 
 ### MA-005 DBアクセス境界（後続PR候補）
 
