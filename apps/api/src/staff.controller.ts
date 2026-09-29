@@ -1,5 +1,5 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Req } from '@nestjs/common';
-import { adminStaffListResponseSchema, canManage, jstDate, managedStaffRoles, requiresMfa, staffAccountStatusSchema, staffResponsibilityTransferSchema, staffRoleChangeSchema } from '@keiba/domain';
+import { adminStaffListResponseSchema, canManage, jstDate, managedStaffRoles, requiresMfa, staffAccountStatusResponseSchema, staffAccountStatusSchema, staffResponsibilityTransferResponseSchema, staffResponsibilityTransferSchema, staffRoleChangeResponseSchema, staffRoleChangeSchema } from '@keiba/domain';
 import type { ManagedStaffRole, Role } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -91,14 +91,14 @@ export class StaffController {
         await this.auth.audit(tx, req, 'STAFF_ROLE_CHANGED', target.id, input.reason, {
           previousRole: target.role, nextRole: input.nextRole, localSessionsRevoked: revokedLocalSessions.count
         });
-        return {
+        return staffRoleChangeResponseSchema.parse({
           userId: target.id,
           previousRole: target.role,
           nextRole: input.nextRole,
           localSessionsRevoked: revokedLocalSessions.count,
           mfaEnrollmentRequired: requiresMfa(input.nextRole),
           win5MfaRequired: input.nextRole === 'OPERATOR'
-        };
+        });
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 20000, maxWait: 10000 });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') throw new ConflictException({ code: 'STAFF_ROLE_CHANGE_CONFLICT', message: '同時に状態が変わりました。最新の状態を確認してください。' });
@@ -132,7 +132,7 @@ export class StaffController {
           await tx.user.update({ where: { id: target.id }, data: { disabledAt: null } });
           const revokedLocalSessions = await tx.session.deleteMany({ where: { userId: target.id } });
           await this.auth.audit(tx, req, 'STAFF_ACCOUNT_RESTORED', target.id, input.reason, { role: target.role, localSessionsRevoked: revokedLocalSessions.count });
-          return { userId: target.id, role: target.role, status: 'ACTIVE' as const, localSessionsRevoked: revokedLocalSessions.count };
+          return staffAccountStatusResponseSchema.parse({ userId: target.id, role: target.role, status: 'ACTIVE', localSessionsRevoked: revokedLocalSessions.count });
         }
         if (target.disabledAt) throw new ConflictException({ code: 'STAFF_ALREADY_SUSPENDED', message: 'このスタッフアカウントはすでに停止済みです。' });
         const now = new Date(); const dependencies = await this.dependencies(tx, target.id, now);
@@ -142,7 +142,7 @@ export class StaffController {
         await tx.user.update({ where: { id: target.id }, data: { disabledAt: now } });
         const revokedLocalSessions = await tx.session.deleteMany({ where: { userId: target.id } });
         await this.auth.audit(tx, req, 'STAFF_ACCOUNT_SUSPENDED', target.id, input.reason, { role: target.role, suspendedAt: now.toISOString(), localSessionsRevoked: revokedLocalSessions.count });
-        return { userId: target.id, role: target.role, status: 'SUSPENDED' as const, suspendedAt: now, localSessionsRevoked: revokedLocalSessions.count };
+        return staffAccountStatusResponseSchema.parse({ userId: target.id, role: target.role, status: 'SUSPENDED', suspendedAt: now, localSessionsRevoked: revokedLocalSessions.count });
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 20000, maxWait: 10000 });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') throw new ConflictException({ code: 'STAFF_STATUS_CONFLICT', message: '同時に状態が変わりました。最新の状態を確認してください。' });
@@ -186,7 +186,7 @@ export class StaffController {
         await this.auth.audit(tx, req, 'STAFF_RESPONSIBILITIES_TRANSFERRED', source.id, input.reason, {
           nextExpertId: destination.id, upcomingRaceAssignments: assignments.length, activeWin5Products: products.count
         });
-        return { sourceExpertId: source.id, nextExpert: { id: destination.id, displayName: destination.displayName }, upcomingRaceAssignments: assignments.length, activeWin5Products: products.count };
+        return staffResponsibilityTransferResponseSchema.parse({ sourceExpertId: source.id, nextExpert: { id: destination.id, displayName: destination.displayName }, upcomingRaceAssignments: assignments.length, activeWin5Products: products.count });
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 20000, maxWait: 10000 });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') throw new ConflictException({ code: 'STAFF_TRANSFER_CONFLICT', message: '同時に担当が変更されました。最新の状態を確認してください。' });

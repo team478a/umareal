@@ -43,6 +43,47 @@ export const adminStaffListResponseSchema = z.object({
 export type AdminStaffAccount = z.infer<typeof adminStaffAccountSchema>;
 export type AdminStaffListResponse = z.infer<typeof adminStaffListResponseSchema>;
 
+export const staffRoleChangeResponseSchema = z.object({
+  userId: z.string().uuid(),
+  previousRole: z.enum(managedStaffRoles),
+  nextRole: z.enum(managedStaffRoles),
+  localSessionsRevoked: z.number().int().nonnegative(),
+  mfaEnrollmentRequired: z.boolean(),
+  win5MfaRequired: z.boolean()
+}).strict();
+
+const staffOperationalRoleSchema = z.enum(['EXPERT', 'EDITOR', 'OPERATOR']);
+
+export const staffAccountStatusResponseSchema = z.discriminatedUnion('status', [
+  z.object({
+    userId: z.string().uuid(),
+    role: staffOperationalRoleSchema,
+    status: z.literal('ACTIVE'),
+    localSessionsRevoked: z.number().int().nonnegative()
+  }).strict(),
+  z.object({
+    userId: z.string().uuid(),
+    role: staffOperationalRoleSchema,
+    status: z.literal('SUSPENDED'),
+    suspendedAt: staffResponseDateTimeSchema,
+    localSessionsRevoked: z.number().int().nonnegative()
+  }).strict()
+]);
+
+export const staffResponsibilityTransferResponseSchema = z.object({
+  sourceExpertId: z.string().uuid(),
+  nextExpert: z.object({
+    id: z.string().uuid(),
+    displayName: z.string().min(1)
+  }).strict(),
+  upcomingRaceAssignments: z.number().int().nonnegative(),
+  activeWin5Products: z.number().int().nonnegative()
+}).strict();
+
+export type StaffRoleChangeResponse = z.infer<typeof staffRoleChangeResponseSchema>;
+export type StaffAccountStatusResponse = z.infer<typeof staffAccountStatusResponseSchema>;
+export type StaffResponsibilityTransferResponse = z.infer<typeof staffResponsibilityTransferResponseSchema>;
+
 export const staffRoleChangeSchema = z.object({
   expectedRole: z.enum(managedStaffRoles),
   nextRole: z.enum(managedStaffRoles),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adminStaffListResponseSchema, administratorContinuitySatisfied, administratorDemotionSchema, administratorStatusSchema, staffAccountStatusSchema, staffResponsibilityTransferSchema, staffRoleChangeSchema } from './staff';
+import { adminStaffListResponseSchema, administratorContinuitySatisfied, administratorDemotionSchema, administratorStatusSchema, staffAccountStatusResponseSchema, staffAccountStatusSchema, staffResponsibilityTransferResponseSchema, staffResponsibilityTransferSchema, staffRoleChangeResponseSchema, staffRoleChangeSchema } from './staff';
 
 const staffListResponse = {
   accounts: [{
@@ -45,6 +45,45 @@ describe('admin staff list response', () => {
       accounts: [{ ...staffListResponse.accounts[0], role: 'ADMIN' }]
     }).success).toBe(false);
     expect(adminStaffListResponseSchema.safeParse({ ...staffListResponse, token: 'secret' }).success).toBe(false);
+  });
+});
+
+describe('admin staff action responses', () => {
+  it('preserves the existing role-change response and rejects internal fields', () => {
+    const response = {
+      userId: '11111111-1111-4111-8111-111111111111',
+      previousRole: 'MEMBER',
+      nextRole: 'EXPERT',
+      localSessionsRevoked: 2,
+      mfaEnrollmentRequired: true,
+      win5MfaRequired: false
+    };
+    expect(staffRoleChangeResponseSchema.parse(response)).toEqual(response);
+    expect(staffRoleChangeResponseSchema.safeParse({ ...response, authSubject: 'private' }).success).toBe(false);
+  });
+
+  it('keeps active and suspended staff status responses distinct', () => {
+    const base = { userId: '11111111-1111-4111-8111-111111111111', role: 'OPERATOR', localSessionsRevoked: 1 };
+    expect(staffAccountStatusResponseSchema.parse({ ...base, status: 'ACTIVE' })).toEqual({ ...base, status: 'ACTIVE' });
+    expect(staffAccountStatusResponseSchema.parse({ ...base, status: 'SUSPENDED', suspendedAt: new Date('2026-09-29T01:00:00.000Z') })).toMatchObject({
+      status: 'SUSPENDED', suspendedAt: '2026-09-29T01:00:00.000Z'
+    });
+    expect(staffAccountStatusResponseSchema.safeParse({ ...base, status: 'ACTIVE', suspendedAt: '2026-09-29T01:00:00.000Z' }).success).toBe(false);
+    expect(staffAccountStatusResponseSchema.safeParse({ ...base, role: 'MEMBER', status: 'ACTIVE' }).success).toBe(false);
+  });
+
+  it('preserves the responsibility-transfer response and rejects contact details', () => {
+    const response = {
+      sourceExpertId: '11111111-1111-4111-8111-111111111111',
+      nextExpert: { id: '22222222-2222-4222-8222-222222222222', displayName: '移管先' },
+      upcomingRaceAssignments: 2,
+      activeWin5Products: 1
+    };
+    expect(staffResponsibilityTransferResponseSchema.parse(response)).toEqual(response);
+    expect(staffResponsibilityTransferResponseSchema.safeParse({
+      ...response,
+      nextExpert: { ...response.nextExpert, email: 'private@example.test' }
+    }).success).toBe(false);
   });
 });
 
