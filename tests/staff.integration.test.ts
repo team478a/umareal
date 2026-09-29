@@ -13,8 +13,15 @@ describe('staff role management', () => {
     const candidateFixture = await account('MEMBER'); const candidate = new Client(); await candidate.login(candidateFixture);
     const list = await actor.call('admin/staff');
     expect(list.status).toBe(200);
-    expect(list.body.accounts.find((item: { id: string }) => item.id === candidateFixture.user.id)).toMatchObject({ role: 'MEMBER', dependencies: { upcomingRaceAssignments: 0, activeWin5Products: 0 } });
-    expect(JSON.stringify(list.body)).not.toMatch(/passwordHash|mfaSecret|pendingMfa|tokenHash/);
+    expect(Object.keys(list.body).sort()).toEqual(['accounts', 'policy', 'roles']);
+    expect(Object.keys(list.body.policy).sort()).toEqual(['administratorChangesManagedSeparately', 'expertDependenciesProtected', 'reasonRequired', 'sessionsRevoked', 'verifiedEmailRequired']);
+    expect(list.body.roles).toHaveLength(4);
+    expect(list.body.roles.map((item: { role: string }) => item.role)).toEqual(['MEMBER', 'EXPERT', 'EDITOR', 'OPERATOR']);
+    const listedCandidate = list.body.accounts.find((item: { id: string }) => item.id === candidateFixture.user.id);
+    expect(listedCandidate).toMatchObject({ role: 'MEMBER', dependencies: { upcomingRaceAssignments: 0, activeWin5Products: 0, pendingPublicationSchedules: 0 } });
+    expect(Object.keys(listedCandidate).sort()).toEqual(['createdAt', 'dependencies', 'disabledAt', 'displayName', 'email', 'id', 'registrationMethod', 'role']);
+    expect(Object.keys(listedCandidate.dependencies).sort()).toEqual(['activeWin5Products', 'pendingPublicationSchedules', 'upcomingRaceAssignments']);
+    expect(JSON.stringify(list.body)).not.toMatch(/passwordHash|authSubject|mfaSecret|pendingMfa|tokenHash|stripeCustomerId|auditLogs/);
 
     const mismatch = await actor.call(`admin/staff/${candidateFixture.user.id}/role`, 'PATCH', { expectedRole: 'MEMBER', nextRole: 'EXPERT', confirmationEmail: 'different@example.test', reason: '専門家として業務開始' });
     expect(mismatch).toMatchObject({ status: 409, body: { code: 'STAFF_CONFIRMATION_MISMATCH' } });

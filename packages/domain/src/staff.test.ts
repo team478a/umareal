@@ -1,5 +1,52 @@
 import { describe, expect, it } from 'vitest';
-import { administratorContinuitySatisfied, administratorDemotionSchema, administratorStatusSchema, staffAccountStatusSchema, staffResponsibilityTransferSchema, staffRoleChangeSchema } from './staff';
+import { adminStaffListResponseSchema, administratorContinuitySatisfied, administratorDemotionSchema, administratorStatusSchema, staffAccountStatusSchema, staffResponsibilityTransferSchema, staffRoleChangeSchema } from './staff';
+
+const staffListResponse = {
+  accounts: [{
+    id: '11111111-1111-4111-8111-111111111111',
+    displayName: '運営担当',
+    email: 'staff@example.test',
+    role: 'OPERATOR',
+    registrationMethod: 'EMAIL',
+    disabledAt: null,
+    createdAt: new Date('2026-09-29T01:00:00.000Z'),
+    dependencies: { upcomingRaceAssignments: 0, activeWin5Products: 0, pendingPublicationSchedules: 2 }
+  }],
+  roles: [{ role: 'MEMBER', mfaRequired: false, win5MfaRequired: false, reserved: false }],
+  policy: {
+    administratorChangesManagedSeparately: true,
+    verifiedEmailRequired: true,
+    reasonRequired: true,
+    sessionsRevoked: true,
+    expertDependenciesProtected: true
+  }
+};
+
+describe('admin staff list response', () => {
+  it('normalizes database timestamps and preserves the existing public response', () => {
+    const parsed = adminStaffListResponseSchema.parse(staffListResponse);
+    expect(parsed.accounts[0]).toMatchObject({
+      role: 'OPERATOR',
+      createdAt: '2026-09-29T01:00:00.000Z',
+      dependencies: { pendingPublicationSchedules: 2 }
+    });
+  });
+
+  it.each(['passwordHash', 'authSubject', 'mfaSecretEncrypted', 'stripeCustomerId', 'auditLogs'])('rejects the internal field %s', field => {
+    expect(adminStaffListResponseSchema.safeParse({
+      ...staffListResponse,
+      accounts: [{ ...staffListResponse.accounts[0], [field]: field === 'auditLogs' ? [] : 'secret' }]
+    }).success).toBe(false);
+  });
+
+  it('rejects administrators and unknown top-level fields from the managed staff list', () => {
+    expect(adminStaffListResponseSchema.safeParse({
+      ...staffListResponse,
+      accounts: [{ ...staffListResponse.accounts[0], role: 'ADMIN' }]
+    }).success).toBe(false);
+    expect(adminStaffListResponseSchema.safeParse({ ...staffListResponse, token: 'secret' }).success).toBe(false);
+  });
+});
 
 describe('staff role changes', () => {
   it('normalizes a verified account confirmation and accepts a different managed role', () => {

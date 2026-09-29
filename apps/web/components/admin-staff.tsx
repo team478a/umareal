@@ -2,17 +2,9 @@
 import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshCw, ShieldAlert, ShieldCheck, UserCog, Users } from 'lucide-react';
+import type { AdminStaffAccount, AdminStaffListResponse } from '@keiba/domain';
 
-type StaffRole = 'MEMBER' | 'EXPERT' | 'EDITOR' | 'OPERATOR';
-type Account = {
-  id: string; displayName: string; email: string; role: StaffRole; registrationMethod: string; disabledAt: string | null; createdAt: string;
-  dependencies: { upcomingRaceAssignments: number; activeWin5Products: number; pendingPublicationSchedules: number };
-};
-type StaffData = {
-  accounts: Account[];
-  roles: { role: StaffRole; mfaRequired: boolean; win5MfaRequired: boolean; reserved: boolean }[];
-  policy: { administratorChangesManagedSeparately: boolean; verifiedEmailRequired: boolean; reasonRequired: boolean; sessionsRevoked: boolean; expertDependenciesProtected: boolean };
-};
+type StaffRole = AdminStaffAccount['role'];
 const labels: Record<StaffRole, string> = { MEMBER: '会員', EXPERT: '専門家', EDITOR: '編集担当（予約）', OPERATOR: '運営担当' };
 const descriptions: Record<StaffRole, string> = {
   MEMBER: '会員向け機能を利用します。',
@@ -29,12 +21,12 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
 }
 
 export function AdminStaff() {
-  const [data, setData] = useState<StaffData | null>(null); const [selectedId, setSelectedId] = useState(''); const [nextRole, setNextRole] = useState<StaffRole | ''>('');
+  const [data, setData] = useState<AdminStaffListResponse | null>(null); const [selectedId, setSelectedId] = useState(''); const [nextRole, setNextRole] = useState<StaffRole | ''>('');
   const [confirmationEmail, setConfirmationEmail] = useState(''); const [reason, setReason] = useState('');
   const [nextExpertId, setNextExpertId] = useState(''); const [transferEmail, setTransferEmail] = useState(''); const [transferReason, setTransferReason] = useState('');
   const [statusEmail, setStatusEmail] = useState(''); const [statusReason, setStatusReason] = useState('');
   const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false);
-  const load = useCallback(async () => { setLoading(true); setError(''); try { setData(await request<StaffData>('admin/staff')); } catch (e) { setError((e as Error).message); } finally { setLoading(false); } }, []);
+  const load = useCallback(async () => { setLoading(true); setError(''); try { setData(await request<AdminStaffListResponse>('admin/staff')); } catch (e) { setError((e as Error).message); } finally { setLoading(false); } }, []);
   useEffect(() => { void load(); }, [load]);
   const account = useMemo(() => data?.accounts.find(item => item.id === selectedId), [data, selectedId]);
   const changeableRoles = data?.roles.filter(item => item.role !== account?.role) ?? [];
