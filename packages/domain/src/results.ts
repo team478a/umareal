@@ -138,15 +138,17 @@ export const adminResultImportHistoryResponseSchema = z.object({
   items: z.array(adminResultImportHistoryItemSchema).max(30)
 }).strict();
 export type AdminResultImportHistoryResponse = z.infer<typeof adminResultImportHistoryResponseSchema>;
+const adminResultRaceSchema = z.object({
+  id: z.string().uuid(),
+  raceDate: dateSchema,
+  venue: z.string().min(1),
+  number: z.number().int().min(1).max(12),
+  name: z.string().min(1).max(100),
+  startsAt: publicResultDateTimeSchema,
+  status: z.string().min(1)
+}).strict();
 export const adminResultRacesResponseSchema = z.object({
-  items: z.array(z.object({
-    id: z.string().uuid(),
-    raceDate: dateSchema,
-    venue: z.string().min(1),
-    number: z.number().int().min(1).max(12),
-    name: z.string().min(1).max(100),
-    startsAt: publicResultDateTimeSchema,
-    status: z.string().min(1),
+  items: z.array(adminResultRaceSchema.extend({
     draftRevision: z.number().int().nonnegative(),
     draftSource: z.enum(['CSV_SINGLE', 'CSV_BATCH']).nullable(),
     draftProvider: resultDataProviderIdSchema.nullable(),
@@ -159,6 +161,30 @@ export const adminResultRacesResponseSchema = z.object({
   }).strict()).max(100)
 }).strict();
 export type AdminResultRacesResponse = z.infer<typeof adminResultRacesResponseSchema>;
+export const adminResultRaceDetailResponseSchema = z.object({
+  race: adminResultRaceSchema,
+  entries: z.array(z.object({
+    id: z.string().uuid(),
+    number: z.number().int().min(1).max(18),
+    horseName: z.string().min(1)
+  }).strict()).max(18),
+  draft: z.object({
+    revision: z.number().int().nonnegative(),
+    raceCanceled: z.boolean(),
+    reason: z.string().max(500),
+    entries: z.array(resultEntrySchema).max(18)
+  }).strict(),
+  versions: z.array(z.object({
+    id: z.string().uuid(),
+    version: z.number().int().positive(),
+    sourceRevision: z.number().int().positive(),
+    ruleVersion: z.string().min(1),
+    raceCanceled: z.boolean(),
+    reason: z.string().min(1).max(500),
+    confirmedAt: publicResultDateTimeSchema
+  }).strict())
+}).strict();
+export type AdminResultRaceDetailResponse = z.infer<typeof adminResultRaceDetailResponseSchema>;
 export type ResultDataProviderInfo = { id: ResultDataProviderId; label: string; formatVersion: string; headers: readonly string[] };
 export type ResultDataProviderParseResult = { provider: ResultDataProviderInfo; rows: BatchResultCsvRow[]; errors: ResultCsvIssue[] };
 export interface ResultDataProvider { info: ResultDataProviderInfo; parse(source: string): ResultDataProviderParseResult }

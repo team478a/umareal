@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { adminResultDataProvidersResponseSchema, adminResultImportHistoryResponseSchema, adminResultRacesResponseSchema, aggregatePerformances, getResultDataProvider, legacyRaceResultInputSchema, parseBatchResultCsv, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, resultDataProviderCatalog, settlePrediction, verifyJraVanResultBundle } from './results';
+import { adminResultDataProvidersResponseSchema, adminResultImportHistoryResponseSchema, adminResultRaceDetailResponseSchema, adminResultRacesResponseSchema, aggregatePerformances, getResultDataProvider, legacyRaceResultInputSchema, parseBatchResultCsv, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, resultDataProviderCatalog, settlePrediction, verifyJraVanResultBundle } from './results';
 
 const entry = (entryId: string, finishPosition: number) => ({ entryId, status: 'FINISHED' as const, finishPosition, popularity: finishPosition, finalOdds: '2.5' });
 
@@ -152,6 +152,45 @@ describe('admin result race list contract', () => {
     }).success).toBe(false);
     expect(adminResultRacesResponseSchema.safeParse({
       items: [{ ...response.items[0], draftProvider: 'PRIVATE_PROVIDER' }]
+    }).success).toBe(false);
+  });
+});
+
+describe('admin result race detail contract', () => {
+  const entryId = crypto.randomUUID();
+  const response = {
+    race: {
+      id: crypto.randomUUID(), raceDate: '2026-09-27', venue: '東京', number: 10, name: 'テストレース',
+      startsAt: new Date('2026-09-27T06:00:00.000Z'), status: 'FINISHED'
+    },
+    entries: [{ id: entryId, number: 6, horseName: 'テストホース' }],
+    draft: {
+      revision: 0, raceCanceled: false, reason: '',
+      entries: [{ entryId, status: 'FINISHED' as const, finishPosition: null, popularity: null, finalOdds: null }]
+    },
+    versions: [{
+      id: crypto.randomUUID(), version: 1, sourceRevision: 1, ruleVersion: 'HORSE_EVALUATION_V1', raceCanceled: false,
+      reason: '公式結果を確認', confirmedAt: new Date('2026-09-27T07:00:00.000Z')
+    }]
+  };
+
+  it('preserves an editable incomplete draft and normalizes response dates', () => {
+    expect(adminResultRaceDetailResponseSchema.parse(response)).toMatchObject({
+      race: { startsAt: '2026-09-27T06:00:00.000Z' },
+      draft: { revision: 0, reason: '', entries: [{ finishPosition: null }] },
+      versions: [{ confirmedAt: '2026-09-27T07:00:00.000Z' }]
+    });
+  });
+
+  it('rejects staff identity and unselected race or entry data', () => {
+    expect(adminResultRaceDetailResponseSchema.safeParse({
+      ...response, race: { ...response.race, expertId: crypto.randomUUID() }
+    }).success).toBe(false);
+    expect(adminResultRaceDetailResponseSchema.safeParse({
+      ...response, entries: [{ ...response.entries[0], jockey: '内部取得対象外' }]
+    }).success).toBe(false);
+    expect(adminResultRaceDetailResponseSchema.safeParse({
+      ...response, versions: [{ ...response.versions[0], confirmedBy: crypto.randomUUID() }]
     }).success).toBe(false);
   });
 });

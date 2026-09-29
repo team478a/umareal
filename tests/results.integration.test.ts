@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
-import { adminResultDataProvidersResponseSchema, adminResultImportHistoryResponseSchema, adminResultRacesResponseSchema, adminSocialSharesResponseSchema, emptyPredictionDraft, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema } from '../packages/domain/src';
+import { adminResultDataProvidersResponseSchema, adminResultImportHistoryResponseSchema, adminResultRaceDetailResponseSchema, adminResultRacesResponseSchema, adminSocialSharesResponseSchema, emptyPredictionDraft, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema } from '../packages/domain/src';
 import { assessmentFixture } from './assessment-fixtures';
 import { account, Client, db } from './helpers';
 
@@ -61,6 +61,12 @@ describe('immutable results and horse-evaluation performance', () => {
     const publicResultValue = publicRaceResultResponseSchema.parse(publicResult.body);
     expect(publicResultValue).toMatchObject({ confirmed: true, version: 2, evaluations: [{ status: 'PRIMARY_WIN' }] });
     expect(JSON.stringify(publicResult.body)).not.toMatch(/payout|stakeYen|returnYen|recovery|confirmedBy|reason|sourceRevision|calculationRuleVersion|predictionVersionId/i);
+    const detail = await operator.call(`admin/results/races/${fixture.race.id}`);
+    expect(detail.status).toBe(200);
+    const detailValue = adminResultRaceDetailResponseSchema.parse(detail.body);
+    expect(detailValue).toMatchObject({ race: { id: fixture.race.id }, draft: { revision: correctionDraft.body.revision }, versions: [{ version: 2 }, { version: 1 }] });
+    expect(Object.keys(detail.body).sort()).toEqual(['draft', 'entries', 'race', 'versions']);
+    expect(JSON.stringify(detail.body)).not.toMatch(/confirmedBy|updatedBy|expertId|assignment|jockey|trainer|authSubject|lineSubject|token|secret|payoutsSnapshot/i);
     expect((await member.call('admin/social-shares')).status).toBe(403);
     expect((await adminWithoutMfa.call('admin/social-shares')).body.code).toBe('MFA_REQUIRED');
     const shares = await fixture.client.call('admin/social-shares');
