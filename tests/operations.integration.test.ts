@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { blankAssessment, jstDate } from '../packages/domain/src';
+import { adminOperationsResponseSchema, blankAssessment, jstDate } from '../packages/domain/src';
 import { afterAll, describe, expect, it } from 'vitest';
 import { account, Client, db } from './helpers';
 
@@ -19,7 +19,10 @@ describe('race-day operations board', () => {
     await db.notificationDelivery.create({ data: { eventId: event.id, userId: recipient.user.id, status: 'FAILED', idempotencyKey: `operations-${randomUUID()}`, lastErrorCode: 'TEST_FAILURE' } });
 
     const response = await admin.call(`admin/operations?date=${date}`); expect(response.status).toBe(200);
-    const item = response.body.items.find((value: { id: string }) => value.id === race.id); expect(item).toBeTruthy();
+    const operations = adminOperationsResponseSchema.parse(response.body);
+    expect(Object.keys(response.body).sort()).toEqual(['alerts', 'date', 'generatedAt', 'items', 'rehearsal']);
+    expect(JSON.stringify(response.body)).not.toMatch(/passwordHash|authSubject|email|lineSubject|lineAccessToken|lineChannelSecret|assessmentContent/);
+    const item = operations.items.find(value => value.id === race.id); expect(item).toBeTruthy();
     expect(item).toMatchObject({ deadlineState: 'DUE_SOON', entries: { total: 2, paddockCompleted: 1 }, announcement: { version: 1 }, prediction: null, notification: { queued: 0, sent: 0, failed: 1 }, result: null });
     expect(item.assignments[0]).toMatchObject({ id: expert.user.id, active: true });
     expect(item.warnings).toEqual(expect.arrayContaining(['パドック未完了 1頭', '最終予想未公開', '通知失敗 1件']));
@@ -31,7 +34,7 @@ describe('race-day operations board', () => {
       expect.objectContaining({ key: 'DELIVERY', state: 'BLOCKED' }),
       expect.objectContaining({ key: 'RESULT', state: 'NOT_DUE' })
     ]));
-    expect(response.body.rehearsal).toMatchObject({ total: expect.any(Number), ready: expect.any(Number), blocked: expect.any(Number), preflight: { csvImportEnabled: expect.any(Boolean), predictionPublicationEnabled: expect.any(Boolean), lineNotificationsEnabled: expect.any(Boolean), lineConfigured: expect.any(Boolean) } });
+    expect(operations.rehearsal).toMatchObject({ total: expect.any(Number), ready: expect.any(Number), blocked: expect.any(Number), preflight: { csvImportEnabled: expect.any(Boolean), predictionPublicationEnabled: expect.any(Boolean), lineNotificationsEnabled: expect.any(Boolean), lineConfigured: expect.any(Boolean) } });
 
     const operator = new Client(); await operator.login(await account('OPERATOR')); await operator.mfa();
     expect((await operator.call(`admin/operations?date=${date}`)).status).toBe(200);
