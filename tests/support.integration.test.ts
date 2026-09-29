@@ -9,6 +9,11 @@ describe('general member support', () => {
   beforeAll(async () => { member = new Client(); await member.login(await account()); });
   afterAll(async () => { await db.$disconnect(); });
 
+  it('rejects unauthenticated member history reads', async () => {
+    const response = await new Client().call('support/me');
+    expect(response.status).toBe(401);
+  });
+
   it('creates an inquiry idempotently and returns only the member own content', async () => {
     const key = randomUUID();
     const body = { category: 'NOTIFICATION', subject: 'LINE通知が届きません', message: '連携済みと表示されていますが、対象レースの通知が届きませんでした。' };
@@ -18,7 +23,11 @@ describe('general member support', () => {
     expect(repeated.body).toEqual(created.body);
     expect(await db.supportRequest.count({ where: { id: requestId } })).toBe(1);
     const mine = await member.call('support/me');
-    expect(mine.body.items.find((item: { id: string }) => item.id === requestId)).toMatchObject({ message: body.message, events: [] });
+    const item = mine.body.items.find((row: { id: string }) => row.id === requestId);
+    expect(Object.keys(mine.body).sort()).toEqual(['items']);
+    expect(Object.keys(item).sort()).toEqual(['category', 'createdAt', 'events', 'id', 'message', 'status', 'subject', 'updatedAt']);
+    expect(item).toMatchObject({ message: body.message, events: [] });
+    expect(JSON.stringify(item)).not.toMatch(/priority|assignedToId|dueAt|password|authSubject|reason|audit/i);
   });
 
   it('allows an operator to investigate and answer without exposing internal reasons', async () => {
