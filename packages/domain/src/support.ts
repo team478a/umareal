@@ -33,7 +33,7 @@ export const memberSupportHistoryResponseSchema = z.object({
 export type MemberSupportItem = z.infer<typeof memberSupportItemSchema>;
 export type MemberSupportHistoryResponse = z.infer<typeof memberSupportHistoryResponseSchema>;
 
-const adminSupportAssigneeSchema = z.object({
+export const adminSupportAssigneeSchema = z.object({
   id: z.string().uuid(),
   displayName: z.string(),
   role: z.enum(['ADMIN', 'OPERATOR'])
@@ -76,6 +76,42 @@ export const adminSupportListResponseSchema = z.object({
 export type AdminSupportItem = z.infer<typeof adminSupportItemSchema>;
 export type AdminSupportAssignee = z.infer<typeof adminSupportAssigneeSchema>;
 export type AdminSupportListResponse = z.infer<typeof adminSupportListResponseSchema>;
+
+export const memberSupportCreateResponseSchema = z.object({
+  id: z.string().uuid(),
+  category: z.enum(supportCategories),
+  subject: z.string(),
+  status: z.enum(supportStatuses),
+  createdAt: supportDateTimeSchema
+}).strict();
+
+export const memberSupportMessageResponseSchema = z.object({
+  id: z.string().uuid(),
+  requestId: z.string().uuid(),
+  status: z.enum(supportStatuses),
+  reopened: z.boolean(),
+  occurredAt: supportDateTimeSchema
+}).strict();
+
+export const adminSupportTriageResponseSchema = z.object({
+  id: z.string().uuid(),
+  priority: z.enum(supportPriorities),
+  assignedToId: z.string().uuid().nullable(),
+  dueAt: supportDateTimeSchema.nullable(),
+  updatedAt: supportDateTimeSchema,
+  assignee: adminSupportAssigneeSchema.nullable()
+}).strict();
+
+export const adminSupportStatusResponseSchema = z.object({
+  id: z.string().uuid(),
+  status: z.enum(supportStatuses),
+  updatedAt: supportDateTimeSchema
+}).strict();
+
+export type MemberSupportCreateResponse = z.infer<typeof memberSupportCreateResponseSchema>;
+export type MemberSupportMessageResponse = z.infer<typeof memberSupportMessageResponseSchema>;
+export type AdminSupportTriageResponse = z.infer<typeof adminSupportTriageResponseSchema>;
+export type AdminSupportStatusResponse = z.infer<typeof adminSupportStatusResponseSchema>;
 
 export const supportRequestSchema = z.object({
   category: z.enum(supportCategories),

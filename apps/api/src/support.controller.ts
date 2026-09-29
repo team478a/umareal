@@ -1,5 +1,5 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req } from '@nestjs/common';
-import { adminSupportListResponseSchema, canManage, memberSupportHistoryResponseSchema, requiresMfa, supportEventType, supportMessageSchema, supportRequestSchema, supportStatuses, supportStatusSchema, supportTriageSchema } from '@keiba/domain';
+import { adminSupportListResponseSchema, adminSupportStatusResponseSchema, adminSupportTriageResponseSchema, canManage, memberSupportCreateResponseSchema, memberSupportHistoryResponseSchema, memberSupportMessageResponseSchema, requiresMfa, supportEventType, supportMessageSchema, supportRequestSchema, supportStatuses, supportStatusSchema, supportTriageSchema } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -48,14 +48,14 @@ export class SupportController {
         const previous = await tx.idempotencyKey.findUnique({ where: { key } });
         if (previous) {
           if (previous.requestHash !== requestHash) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: '同じ受付キーが異なる内容で使われています。' });
-          return previous.response;
+          return memberSupportMessageResponseSchema.parse(previous.response);
         }
         const current = await tx.supportRequest.findFirst({ where: { id, userId: actor.id } });
         if (!current) throw new NotFoundException({ code: 'SUPPORT_REQUEST_NOT_FOUND', message: '問い合わせを確認できません。' });
         const reopened = current.status === 'RESOLVED';
         const updated = await tx.supportRequest.update({ where: { id }, data: { status: reopened ? 'OPEN' : current.status, updatedAt: new Date() } });
         const supportEvent = await tx.supportEvent.create({ data: { requestId: id, eventType: 'MEMBER_MESSAGE', actorId: actor.id, actorRole: 'MEMBER', reason: reopened ? '会員本人の追加質問により受付を再開' : '会員本人による追加情報', publicMessage: input.message } });
-        const response = { id: supportEvent.id, requestId: id, status: updated.status, reopened, occurredAt: supportEvent.occurredAt.toISOString() };
+        const response = memberSupportMessageResponseSchema.parse({ id: supportEvent.id, requestId: id, status: updated.status, reopened, occurredAt: supportEvent.occurredAt });
         await tx.idempotencyKey.create({ data: { key, requestHash, response } });
         await this.auth.audit(tx, req, 'SUPPORT_MEMBER_MESSAGE_ADDED', id, reopened ? '会員本人の追加質問により受付を再開' : '会員本人による追加情報', { previousStatus: current.status, status: updated.status, reopened });
         return response;
@@ -63,7 +63,7 @@ export class SupportController {
     } catch (error) {
       if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
       const previous = await this.auth.db.idempotencyKey.findUnique({ where: { key } });
-      if (previous?.requestHash === requestHash) return previous.response;
+      if (previous?.requestHash === requestHash) return memberSupportMessageResponseSchema.parse(previous.response);
       throw new ConflictException({ code: 'SUPPORT_MESSAGE_CONFLICT', message: '追記状態が競合しました。再読み込みしてください。' });
     }
   }
@@ -80,10 +80,10 @@ export class SupportController {
         const previous = await tx.idempotencyKey.findUnique({ where: { key } });
         if (previous) {
           if (previous.requestHash !== requestHash) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: '同じ受付キーが異なる内容で使われています。' });
-          return previous.response;
+          return memberSupportCreateResponseSchema.parse(previous.response);
         }
         const support = await tx.supportRequest.create({ data: { userId: actor.id, category: input.category, subject: input.subject, message: input.message, events: { create: { eventType: 'CREATED', actorId: actor.id, actorRole: 'MEMBER', reason: '会員本人による問い合わせ受付' } } } });
-        const response = { id: support.id, category: support.category, subject: support.subject, status: support.status, createdAt: support.createdAt.toISOString() };
+        const response = memberSupportCreateResponseSchema.parse({ id: support.id, category: support.category, subject: support.subject, status: support.status, createdAt: support.createdAt });
         await tx.idempotencyKey.create({ data: { key, requestHash, response } });
         await this.auth.audit(tx, req, 'SUPPORT_REQUEST_CREATED', support.id, '会員本人による一般問い合わせ受付', { category: support.category });
         return response;
@@ -91,7 +91,7 @@ export class SupportController {
     } catch (error) {
       if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
       const previous = await this.auth.db.idempotencyKey.findUnique({ where: { key } });
-      if (previous?.requestHash === requestHash) return previous.response;
+      if (previous?.requestHash === requestHash) return memberSupportCreateResponseSchema.parse(previous.response);
       throw new ConflictException({ code: 'SUPPORT_REQUEST_CONFLICT', message: '受付状態が競合しました。再読み込みしてください。' });
     }
   }
@@ -134,7 +134,7 @@ export class SupportController {
       const updated = await tx.supportRequest.update({ where: { id }, data: { priority: input.priority, assignedToId: input.assignedToId, dueAt, updatedAt: new Date() }, select: { id: true, priority: true, assignedToId: true, dueAt: true, updatedAt: true, assignee: { select: { id: true, displayName: true, role: true } } } });
       await tx.supportEvent.create({ data: { requestId: id, eventType: 'TRIAGED', actorId: actor.id, actorRole: actor.role, reason: input.reason } });
       await this.auth.audit(tx, req, 'SUPPORT_TRIAGE_UPDATED', id, input.reason, { category: current.category, previous: { priority: current.priority, assignedToId: current.assignedToId, dueAt: current.dueAt?.toISOString() ?? null }, next: { priority: input.priority, assignedToId: input.assignedToId, dueAt: input.dueAt } });
-      return updated;
+      return adminSupportTriageResponseSchema.parse(updated);
     });
   }
 
@@ -152,7 +152,7 @@ export class SupportController {
       const supportEvent = await tx.supportEvent.create({ data: { requestId: id, eventType, actorId: actor.id, actorRole: actor.role, reason: input.reason, publicMessage: input.status === 'RESOLVED' ? input.publicReply! : null } });
       if (input.status === 'RESOLVED') await tx.notificationEvent.create({ data: { supportEventId: supportEvent.id, eventType: 'SUPPORT_RESPONSE_POSTED', status: 'QUEUED', payload: { supportRequestId: id, supportEventId: supportEvent.id } } });
       await this.auth.audit(tx, req, 'SUPPORT_STATUS_CHANGED', id, input.reason, { category: current.category, previousStatus: current.status, status: input.status, memberReplyProvided: input.status === 'RESOLVED' });
-      return { id: updated.id, status: updated.status, updatedAt: updated.updatedAt };
+      return adminSupportStatusResponseSchema.parse({ id: updated.id, status: updated.status, updatedAt: updated.updatedAt });
     });
   }
 }

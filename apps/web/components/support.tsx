@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { MessageCircle, RefreshCw } from 'lucide-react';
-import type { AdminSupportAssignee, AdminSupportItem, AdminSupportListResponse, MemberSupportHistoryResponse, MemberSupportItem } from '@keiba/domain';
+import type { AdminSupportAssignee, AdminSupportItem, AdminSupportListResponse, AdminSupportStatusResponse, AdminSupportTriageResponse, MemberSupportCreateResponse, MemberSupportHistoryResponse, MemberSupportItem, MemberSupportMessageResponse } from '@keiba/domain';
 
 type Status = MemberSupportItem['status'];
 type Category = MemberSupportItem['category'];
@@ -32,7 +32,7 @@ function MemberSupportItem({ item, onUpdated }: { item: MemberItem; onUpdated: (
     event.preventDefault(); setBusy(true); setNotice(''); setError('');
     try {
       const wasResolved = item.status === 'RESOLVED';
-      await request(`support/requests/${item.id}/messages`, 'POST', { message }, true);
+      await request<MemberSupportMessageResponse>(`support/requests/${item.id}/messages`, 'POST', { message }, true);
       setMessage(''); setNotice(wasResolved ? '追加質問を受け付け、問い合わせを再開しました。' : '追加情報を送信しました。'); await onUpdated();
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
@@ -52,7 +52,7 @@ export function MemberSupport() {
   useEffect(() => { void load(); }, [load]);
   async function submit(event: FormEvent) {
     event.preventDefault(); setBusy(true); setNotice(''); setError('');
-    try { await request('support/requests', 'POST', { category, subject, message }, true); setSubject(''); setMessage(''); setNotice('お問い合わせを受け付けました。回答はこちらの画面で確認できます。'); await load(); }
+    try { await request<MemberSupportCreateResponse>('support/requests', 'POST', { category, subject, message }, true); setSubject(''); setMessage(''); setNotice('お問い合わせを受け付けました。回答はこちらの画面で確認できます。'); await load(); }
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   return <><div className="page-heading"><span className="eyebrow">SUPPORT</span><h1>お問い合わせ</h1><p>操作方法やサービスについて、運営へ問い合わせできます。</p></div><Notice value={error} error /><Notice value={notice} />
@@ -66,12 +66,12 @@ function AdminSupportItem({ item, assignees, onUpdated }: { item: AdminItem; ass
   useEffect(() => { setPriority(item.priority); setAssignedToId(item.assignedToId ?? ''); setDueAt(localDateTime(item.dueAt)); }, [item.priority, item.assignedToId, item.dueAt]);
   async function update(status: Status) {
     setBusy(true); setError('');
-    try { await request(`admin/support/${item.id}/status`, 'POST', { status, reason, publicReply: status === 'RESOLVED' ? reply : null }); setReason(''); setReply(''); await onUpdated(); }
+    try { await request<AdminSupportStatusResponse>(`admin/support/${item.id}/status`, 'POST', { status, reason, publicReply: status === 'RESOLVED' ? reply : null }); setReason(''); setReply(''); await onUpdated(); }
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   async function saveTriage(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError(''); setNotice('');
-    try { await request(`admin/support/${item.id}/triage`, 'POST', { priority, assignedToId: assignedToId || null, dueAt: dueAt ? new Date(dueAt).toISOString() : null, reason: triageReason }); setTriageReason(''); setNotice('担当・優先度・対応期限を更新しました。'); await onUpdated(); }
+    try { await request<AdminSupportTriageResponse>(`admin/support/${item.id}/triage`, 'POST', { priority, assignedToId: assignedToId || null, dueAt: dueAt ? new Date(dueAt).toISOString() : null, reason: triageReason }); setTriageReason(''); setNotice('担当・優先度・対応期限を更新しました。'); await onUpdated(); }
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   const overdue = item.status !== 'RESOLVED' && !!item.dueAt && new Date(item.dueAt) < new Date();

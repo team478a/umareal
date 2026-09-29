@@ -19,6 +19,8 @@ describe('general member support', () => {
     const body = { category: 'NOTIFICATION', subject: 'LINE通知が届きません', message: '連携済みと表示されていますが、対象レースの通知が届きませんでした。' };
     const created = await member.call('support/requests', 'POST', body, undefined, { 'Idempotency-Key': key });
     expect(created.status).toBe(201); expect(created.body).toMatchObject({ category: 'NOTIFICATION', status: 'OPEN', subject: body.subject }); requestId = created.body.id;
+    expect(Object.keys(created.body).sort()).toEqual(['category', 'createdAt', 'id', 'status', 'subject']);
+    expect(created.body.createdAt).toMatch(/Z$/);
     const repeated = await member.call('support/requests', 'POST', body, undefined, { 'Idempotency-Key': key });
     expect(repeated.body).toEqual(created.body);
     expect(await db.supportRequest.count({ where: { id: requestId } })).toBe(1);
@@ -36,11 +38,13 @@ describe('general member support', () => {
     const operator = new Client(); await operator.login(await account('OPERATOR'));
     const started = await operator.call(`admin/support/${requestId}/status`, 'POST', { status: 'IN_PROGRESS', reason: '通知設定と配送履歴を確認します。', publicReply: null });
     expect(started.status).toBe(201); expect(started.body.status).toBe('IN_PROGRESS');
+    expect(Object.keys(started.body).sort()).toEqual(['id', 'status', 'updatedAt']);
     const invalid = await operator.call(`admin/support/${requestId}/status`, 'POST', { status: 'OPEN', reason: '受付に戻します。', publicReply: null });
     expect(invalid.status).toBe(409); expect(invalid.body.code).toBe('SUPPORT_TRANSITION_INVALID');
     const answer = '通知設定を確認しました。次回の対象レース告知から受信できます。';
     const resolved = await operator.call(`admin/support/${requestId}/status`, 'POST', { status: 'RESOLVED', reason: '配信対象条件を確認し、会員へ案内します。', publicReply: answer });
     expect(resolved.body.status).toBe('RESOLVED');
+    expect(Object.keys(resolved.body).sort()).toEqual(['id', 'status', 'updatedAt']);
     const mine = await member.call('support/me'); const item = mine.body.items.find((row: { id: string }) => row.id === requestId);
     expect(item.events).toEqual([expect.objectContaining({ publicMessage: answer })]);
     expect(JSON.stringify(item)).not.toContain('配信対象条件を確認');
@@ -70,6 +74,7 @@ describe('general member support', () => {
     const key = randomUUID(); const message = '追加で確認したところ、メール通知も同じように届いていません。';
     const added = await member.call(`support/requests/${requestId}/messages`, 'POST', { message }, undefined, { 'Idempotency-Key': key });
     expect(added.status).toBe(201); expect(added.body).toMatchObject({ requestId, status: 'OPEN', reopened: true });
+    expect(Object.keys(added.body).sort()).toEqual(['id', 'occurredAt', 'reopened', 'requestId', 'status']);
     const repeated = await member.call(`support/requests/${requestId}/messages`, 'POST', { message }, undefined, { 'Idempotency-Key': key });
     expect(repeated.body).toEqual(added.body);
     expect(await db.supportEvent.count({ where: { requestId, eventType: 'MEMBER_MESSAGE' } })).toBe(1);
@@ -91,6 +96,9 @@ describe('general member support', () => {
     const dueAt = new Date(Date.now() + 6 * 60 * 60_000).toISOString();
     const updated = await operator.call(`admin/support/${requestId}/triage`, 'POST', { priority: 'URGENT', assignedToId: operatorAccount.user.id, dueAt, reason: '次回配信前に通知設定を確認するため' });
     expect(updated.status).toBe(201); expect(updated.body).toMatchObject({ id: requestId, priority: 'URGENT', assignedToId: operatorAccount.user.id, assignee: { displayName: operatorAccount.user.displayName } });
+    expect(Object.keys(updated.body).sort()).toEqual(['assignedToId', 'assignee', 'dueAt', 'id', 'priority', 'updatedAt']);
+    expect(Object.keys(updated.body.assignee).sort()).toEqual(['displayName', 'id', 'role']);
+    expect(JSON.stringify(updated.body)).not.toMatch(/userId|actorId|auditLog|stripeCustomer/i);
 
     const queue = await operator.call('admin/support?status=OPEN');
     expect(queue.body.assignees).toEqual(expect.arrayContaining([expect.objectContaining({ id: operatorAccount.user.id, role: 'OPERATOR' })]));

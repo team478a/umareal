@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adminSupportListResponseSchema, memberSupportHistoryResponseSchema, supportEventType, supportMessageSchema, supportRequestSchema, supportStatusSchema, supportTriageSchema } from './support';
+import { adminSupportListResponseSchema, adminSupportStatusResponseSchema, adminSupportTriageResponseSchema, memberSupportCreateResponseSchema, memberSupportHistoryResponseSchema, memberSupportMessageResponseSchema, supportEventType, supportMessageSchema, supportRequestSchema, supportStatusSchema, supportTriageSchema } from './support';
 
 describe('general support', () => {
   it('validates a member inquiry without billing information', () => {
@@ -68,5 +68,29 @@ describe('general support', () => {
       expect(adminSupportListResponseSchema.safeParse({ items: [{ ...item, user: { ...item.user, ...privateField } }], assignees: [], now: new Date() }).success).toBe(false);
     }
     expect(adminSupportListResponseSchema.safeParse({ items: [{ ...item, events: [{ ...item.events[0], actor: { displayName: '担当者', email: 'staff@example.test' } }] }], assignees: [], now: new Date() }).success).toBe(false);
+  });
+
+  it('normalizes support action responses and rejects internal identifiers', () => {
+    const requestId = '10000000-0000-4000-8000-000000000001';
+    const eventId = '20000000-0000-4000-8000-000000000002';
+    const actorId = '30000000-0000-4000-8000-000000000003';
+    const created = { id: requestId, category: 'SERVICE', subject: '利用方法について確認したい', status: 'OPEN', createdAt: new Date('2026-09-29T00:00:00Z') };
+    const message = { id: eventId, requestId, status: 'OPEN', reopened: true, occurredAt: new Date('2026-09-29T00:10:00Z') };
+    const triage = { id: requestId, priority: 'HIGH', assignedToId: actorId, dueAt: new Date('2026-09-30T00:00:00Z'), updatedAt: new Date('2026-09-29T00:20:00Z'), assignee: { id: actorId, displayName: '担当者', role: 'OPERATOR' } };
+    const status = { id: requestId, status: 'IN_PROGRESS', updatedAt: new Date('2026-09-29T00:30:00Z') };
+    expect(memberSupportCreateResponseSchema.parse(created).createdAt).toBe('2026-09-29T00:00:00.000Z');
+    expect(memberSupportMessageResponseSchema.parse(message).occurredAt).toBe('2026-09-29T00:10:00.000Z');
+    expect(adminSupportTriageResponseSchema.parse(triage).dueAt).toBe('2026-09-30T00:00:00.000Z');
+    expect(adminSupportStatusResponseSchema.parse(status).updatedAt).toBe('2026-09-29T00:30:00.000Z');
+    for (const [schema, value] of [
+      [memberSupportCreateResponseSchema, created],
+      [memberSupportMessageResponseSchema, message],
+      [adminSupportTriageResponseSchema, triage],
+      [adminSupportStatusResponseSchema, status]
+    ] as const) {
+      expect(schema.safeParse({ ...value, userId: actorId }).success).toBe(false);
+      expect(schema.safeParse({ ...value, auditLogId: eventId }).success).toBe(false);
+      expect(schema.safeParse({ ...value, stripeCustomerId: 'cus_internal' }).success).toBe(false);
+    }
   });
 });
