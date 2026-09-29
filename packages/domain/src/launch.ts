@@ -3,13 +3,14 @@ import { z } from 'zod';
 export const launchModeSchema = z.enum(['CLOUD_STAGING', 'STRIPE_SANDBOX', 'FREE_REGISTRATION', 'FULL']);
 export type LaunchMode = z.infer<typeof launchModeSchema>;
 
-export type LaunchCapabilities = {
-  emailRegistration: true;
-  freeContent: true;
-  lineLogin: boolean;
-  lineNotifications: boolean;
-  billing: boolean;
-};
+export const launchCapabilitiesSchema = z.object({
+  emailRegistration: z.literal(true),
+  freeContent: z.literal(true),
+  lineLogin: z.boolean(),
+  lineNotifications: z.boolean(),
+  billing: z.boolean()
+}).strict();
+export type LaunchCapabilities = z.infer<typeof launchCapabilitiesSchema>;
 
 export function resolveLaunchMode(value: string | undefined): LaunchMode {
   return launchModeSchema.parse(value ?? 'FULL');

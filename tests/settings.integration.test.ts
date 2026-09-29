@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { adminSettingsResponseSchema, emptyPredictionDraft, raceHeaders } from '../packages/domain/src';
+import { adminSettingsResponseSchema, emptyPredictionDraft, publicAuthConfigResponseSchema, raceHeaders } from '../packages/domain/src';
 import { assessmentFixture } from './assessment-fixtures';
 import { account, Client, db } from './helpers';
 
@@ -60,6 +60,9 @@ describe('audited administration settings', () => {
     expect(JSON.stringify(audit.details)).not.toContain(channelSecret); expect(JSON.stringify(audit.details)).not.toContain(channelAccessToken); expect(JSON.stringify(audit.details)).not.toContain(loginChannelSecret); expect(JSON.stringify(audit.details)).not.toContain(stripeSecretKey); expect(JSON.stringify(audit.details)).not.toContain(stripeWebhookSecret); expect(JSON.stringify(audit.details)).not.toContain(mailApiKey); expect(JSON.stringify(audit.details)).not.toContain(mailWebhookSecret); expect(JSON.stringify(audit.details)).not.toContain(turnstileSecret);
 
     const publicConfig = await new Client().call('auth/config');
+    expect(publicConfig.status).toBe(200);
+    publicAuthConfigResponseSchema.parse(publicConfig.body);
+    expect(Object.keys(publicConfig.body).sort()).toEqual(['provider', 'localOnly', 'launchMode', 'capabilities', 'registration', 'captcha', 'emailNotificationsEnabled', 'lineEnabled', 'lineNotificationsEnabled'].sort());
     expect(publicConfig.body.registration).toEqual({ enabled: false, message: stoppedBody.registrationPauseMessage });
     expect(publicConfig.body.captcha).toEqual({ enabled: true, siteKey: '0x4AAAA-test-site-key', mode: 'TEST_ONLY' });
     expect(publicConfig.body.emailNotificationsEnabled).toBe(false);

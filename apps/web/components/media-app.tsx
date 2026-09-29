@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ArrowRight, BarChart3, BellRing, BookOpenCheck, CalendarDays, Check, ChevronRight, ClipboardCheck, ClipboardList, Clock3, CreditCard, DatabaseBackup, Gift, Home, LayoutDashboard, LogOut, MailCheck, Menu, MessageCircle, RefreshCw, Settings2, Share2, ShieldAlert, ShieldCheck, UserCog, UserRoundX, Users, X } from 'lucide-react';
-import { consentVersions, legalDocuments, type AdminUsersResponse, type CurrentAccountResponse, type LegalDocument, type MemberJourneyResponse, type NotificationPreferencesResponse } from '@keiba/domain';
+import { consentVersions, legalDocuments, type AdminUsersResponse, type CurrentAccountResponse, type LegalDocument, type MemberJourneyResponse, type NotificationPreferencesResponse, type PublicAuthConfigResponse } from '@keiba/domain';
 import { RaceManager } from './race-manager';
 import { AssessmentEditor } from './assessment-editor';
 import { PublishedPrediction } from './prediction-editor';
@@ -34,7 +34,7 @@ import { ReferralDashboard } from './referrals';
 import { AdminReferrals } from './admin-referrals';
 
 type Preferences = NotificationPreferencesResponse;
-type PublicConfig = { localOnly: boolean; launchMode: 'CLOUD_STAGING' | 'STRIPE_SANDBOX' | 'FREE_REGISTRATION' | 'FULL'; capabilities: { emailRegistration: true; freeContent: true; lineLogin: boolean; lineNotifications: boolean; billing: boolean }; registration: { enabled: boolean; message: string }; captcha: { enabled: boolean; siteKey: string | null; mode: 'TEST_ONLY' | 'TURNSTILE' }; emailNotificationsEnabled: boolean; lineEnabled: boolean; lineNotificationsEnabled: boolean };
+type PublicConfig = PublicAuthConfigResponse;
 type Me = CurrentAccountResponse;
 type Race = { id: string; name: string; venue: string; number: number; raceDate: string; startsAt: string; status: string };
 type Announcement = { id: string; version: number; publishedAt: string; race: Race };
@@ -64,7 +64,7 @@ function Unavailable({ title, detail }: { title: string; detail: string }) { ret
 export function MediaApp() {
   const path = usePathname(); const router = useRouter();
   const [me, setMe] = useState<Me | null>(null); const [unreadNotifications, setUnreadNotifications] = useState(0); const [loading, setLoading] = useState(true); const [menu, setMenu] = useState(false);
-  const [config, setConfig] = useState<PublicConfig>({ localOnly: false, launchMode: 'FREE_REGISTRATION', capabilities: { emailRegistration: true, freeContent: true, lineLogin: false, lineNotifications: false, billing: false }, registration: { enabled: false, message: '' }, captcha: { enabled: false, siteKey: null, mode: 'TEST_ONLY' }, emailNotificationsEnabled: false, lineEnabled: false, lineNotificationsEnabled: false });
+  const [config, setConfig] = useState<PublicConfig>({ provider: 'supabase', localOnly: false, launchMode: 'FREE_REGISTRATION', capabilities: { emailRegistration: true, freeContent: true, lineLogin: false, lineNotifications: false, billing: false }, registration: { enabled: false, message: '' }, captcha: { enabled: false, siteKey: null, mode: 'TEST_ONLY' }, emailNotificationsEnabled: false, lineEnabled: false, lineNotificationsEnabled: false });
   const [configLoaded, setConfigLoaded] = useState(false);
   const [error, setError] = useState('');
   const loadMe = useCallback(async () => {

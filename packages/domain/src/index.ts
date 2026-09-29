@@ -19,6 +19,7 @@ export * from './publication-schedule';
 export * from './incidents';
 export * from './legal';
 export * from './launch';
+export * from './public-auth-config';
 export * from './operational-alert';
 export * from './win5';
 export * from './win5-results';
