@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAccountClosuresResponseSchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminReadinessResponseSchema, adminSummaryResponseSchema, adminUsersResponseSchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
+import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAccountClosuresResponseSchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminOperationsResponseSchema, adminReadinessResponseSchema, adminSummaryResponseSchema, adminUsersResponseSchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -199,12 +199,12 @@ export class AppController {
         notification, result: race.resultVersions[0] ?? null, warnings,
         rehearsal: { status: rehearsalStatus, done, total: steps.length, nextStep: actionable?.key ?? null, steps } };
     });
-    return { date, generatedAt: now, items, alerts: items.reduce((sum, item) => sum + item.warnings.length, 0), rehearsal: {
+    return adminOperationsResponseSchema.parse({ date, generatedAt: now, items, alerts: items.reduce((sum, item) => sum + item.warnings.length, 0), rehearsal: {
       ready: items.filter(item => ['READY', 'COMPLETE'].includes(item.rehearsal.status)).length,
       blocked: items.filter(item => item.rehearsal.status === 'BLOCKED').length,
       total: items.length,
       preflight: { csvImportEnabled: settings.csvImportEnabled, predictionPublicationEnabled: settings.predictionPublicationEnabled, lineNotificationsEnabled: settings.lineNotificationsEnabled, lineConfigured: !!settings.lineChannelId && !!settings.lineChannelSecretEncrypted && !!settings.lineAccessTokenEncrypted }
-    } };
+    } });
   }
   @Get('admin/acquisition') async acquisition(@Req() req: AppRequest, @Query() query: unknown) {
     await this.staff(req, ['ADMIN']); const { days } = acquisitionReportQuerySchema.parse(query); const since = new Date(Date.now() - days * 86400000);

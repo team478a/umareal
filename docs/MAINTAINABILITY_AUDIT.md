@@ -166,6 +166,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 管理設定応答pilot: `GET /admin/settings`と`PATCH /admin/settings`の運用停止、価格、通知再試行、公開方針とStripe・メール・LINE・Bot対策の非秘密状態を同じ共有Contractへ接続し、管理設定画面の手書き応答型を置き換える。ADMIN+AAL2更新、OPERATOR閲覧、revision競合、暗号化保存、監査、設定値、画面表示、DB schemaは変更しない。API key、Webhook secret、LINE secret・token、暗号化値の追加を厳格なContractとcharacterization testで拒否する。
 - 公開認証設定pilot: `GET /auth/config`の認証方式、公開モード、利用可能機能、登録可否、Bot対策と通知状態の既存応答を共有Contractへ接続し、全画面で使う手書き応答型を置き換える。公開モード、登録・LINE・課金・通知の判定、画面表示、DB schemaは変更しない。Supabase、Turnstile、LINE、Stripe、DBの資格情報と管理設定内部値の追加を厳格なContractとcharacterization testで拒否する。
 - 管理ダッシュボード集計pilot: `GET /admin/summary`の会員・閲覧権限・レース・通知・結果・操作履歴件数、運用停止状態、無料登録ファネル、流入別有料化集計の既存応答を共有Contractへ接続し、管理ダッシュボードの手書き応答型を置き換える。ADMINとOPERATORの既存認可、集計式、最大20件、画面表示、DB schemaは変更しない。会員識別情報、メールアドレス、決済事業者側ID、監査詳細、資格情報の追加を厳格なContractとcharacterization testで拒否する。
+- 開催日運用ボードpilot: `GET /admin/operations`の開催日別レース進捗、期限、警告、通知集計、6段階リハーサル、運用機能の事前確認を共有Contractへ接続し、管理ダッシュボードの手書き応答型を置き換える。ADMINとOPERATORの既存認可、進捗・期限・リハーサル判定、30秒更新、画面表示、DB schemaは変更しない。会員連絡先、LINE識別子、出走馬・評価本文、配送先、接続資格情報の追加を厳格なContractとcharacterization testで拒否する。
 
 ### MA-007 CIジョブ構成
 
