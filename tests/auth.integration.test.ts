@@ -93,6 +93,12 @@ describe('server enforced staff authorization', () => {
     const { code } = await client.mfa();
     expect(client.cookie).not.toBe(first);
     expect((await client.call('admin/summary')).status).toBe(200);
+    const users = await client.call('admin/users?limit=50');
+    expect(users.status).toBe(200);
+    expect(Object.keys(users.body).sort()).toEqual(['items', 'limit', 'page', 'total'].sort());
+    const listedAdministrator = users.body.items.find((item: { id: string }) => item.id === fixture.user.id);
+    expect(Object.keys(listedAdministrator).sort()).toEqual(['createdAt', 'displayName', 'email', 'emailVerifiedAt', 'id', 'lineAccount', 'registrationMethod', 'role'].sort());
+    expect(JSON.stringify(users.body)).not.toMatch(/passwordHash|authSubject|mfaSecret|referralCode|stripeCustomerId/);
     expect((await client.call('auth/mfa/verify', 'POST', { code })).status).toBe(401);
     const user = await account();
     expect((await client.call(`admin/users/${user.user.id}/entitlements`, 'POST', { startsAt: '2026-01-01T00:00:00Z', reason: 'テスト', planCode: 'MANUAL' })).status).toBe(400);

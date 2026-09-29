@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ArrowRight, BarChart3, BellRing, BookOpenCheck, CalendarDays, Check, ChevronRight, ClipboardCheck, ClipboardList, Clock3, CreditCard, DatabaseBackup, Gift, Home, LayoutDashboard, LogOut, MailCheck, Menu, MessageCircle, RefreshCw, Settings2, Share2, ShieldAlert, ShieldCheck, UserCog, UserRoundX, Users, X } from 'lucide-react';
-import { consentVersions, legalDocuments, type CurrentAccountResponse, type LegalDocument, type MemberJourneyResponse, type NotificationPreferencesResponse } from '@keiba/domain';
+import { consentVersions, legalDocuments, type AdminUsersResponse, type CurrentAccountResponse, type LegalDocument, type MemberJourneyResponse, type NotificationPreferencesResponse } from '@keiba/domain';
 import { RaceManager } from './race-manager';
 import { AssessmentEditor } from './assessment-editor';
 import { PublishedPrediction } from './prediction-editor';
@@ -253,7 +253,7 @@ function Admin({ me, path }: { me: Me; path: string }) {
   if (path === '/admin/win5' && me.role === 'OPERATOR' && me.aal !== 2) return <><Heading eyebrow="SECURITY" title="WIN5操作には二段階認証が必要です" description="セキュリティ画面で認証アプリを設定し、確認後にWIN5予想管理へ戻ってください。" /><Link className="button" href="/security">セキュリティ設定へ <ArrowRight size={17} /></Link></>;
   return <AccessGate me={me} allowed={operational ? ['ADMIN', 'OPERATOR'] : ['ADMIN']}>{path === '/admin/support' ? <AdminSupport /> : path === '/admin/races' ? <RaceManager /> : path === '/admin/win5' ? <Win5Manager role={me.role} /> : path === '/admin/publication-schedules' ? <PublicationSchedules canTest={me.role === 'ADMIN' && me.aal === 2} /> : path === '/admin/results' ? <AdminResults /> : path === '/admin/social-shares' ? <SocialShareManager /> : path === '/admin/onboarding-funnel' ? <OnboardingFunnel /> : path === '/admin/registration-followups' ? <RegistrationFollowups /> : path === '/admin/acquisition' ? <AcquisitionManager /> : path === '/admin/referrals' ? <AdminReferrals /> : path === '/admin/settings' ? me.role === 'ADMIN' ? <AdminSettings /> : <OperatorSettingsStatus /> : path === '/admin/notifications' ? <AdminNotifications canTest={me.role === 'ADMIN' && me.aal === 2} /> : path === '/admin/incidents' ? <AdminIncidents role={me.role} /> : path === '/admin/readiness' ? <AdminReadiness /> : path === '/admin/continuity' ? <AdminContinuity currentUserId={me.id} /> : path === '/admin/staff' ? <AdminStaff /> : path === '/admin/backups' ? <AdminBackups /> : path === '/admin/account-closures' ? <AdminAccountClosures /> : path === '/admin/billing' ? <AdminBilling /> : <AdminContent key={path} path={path} me={me} />}</AccessGate>;
 }
-type UserRow = { id: string; displayName: string; email: string | null; emailVerifiedAt: string | null; registrationMethod: string; lineAccount: { unlinkedAt: string | null } | null; role: string; createdAt: string };
+type UserRow = AdminUsersResponse['items'][number];
 type AuditRow = { id: string; action: string; reason: string; createdAt: string; requestId: string };
 function Funnel({ summary }: { summary: Summary }) {
   const recent = summary.funnel.last30Days;
@@ -306,7 +306,7 @@ function AdminContent({ path, me }: { path: string; me: Me }) {
   const [error, setError] = useState(''); const [page, setPage] = useState(1); const [total, setTotal] = useState(0); const [loading, setLoading] = useState(true);
   useEffect(() => { setLoading(true); setError(''); const run = async () => {
     try { if (path === '/admin') setSummary(await api<Summary>('admin/summary'));
-      else if (path === '/admin/users') { const v = await api<{ items: UserRow[]; total: number }>(`admin/users?page=${page}`); setUsers(v.items); setTotal(v.total); }
+      else if (path === '/admin/users') { const v = await api<AdminUsersResponse>(`admin/users?page=${page}`); setUsers(v.items); setTotal(v.total); }
       else { const v = await api<{ items: AuditRow[]; total: number }>(`admin/audit?page=${page}`); setAudits(v.items); setTotal(v.total); }
     } catch (e) { setError((e as Error).message); } finally { setLoading(false); }
   }; void run(); }, [path, page]);
