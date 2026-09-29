@@ -33,6 +33,50 @@ export const memberSupportHistoryResponseSchema = z.object({
 export type MemberSupportItem = z.infer<typeof memberSupportItemSchema>;
 export type MemberSupportHistoryResponse = z.infer<typeof memberSupportHistoryResponseSchema>;
 
+const adminSupportAssigneeSchema = z.object({
+  id: z.string().uuid(),
+  displayName: z.string(),
+  role: z.enum(['ADMIN', 'OPERATOR'])
+}).strict();
+
+export const adminSupportItemSchema = z.object({
+  id: z.string().uuid(),
+  category: z.enum(supportCategories),
+  subject: z.string(),
+  message: z.string(),
+  status: z.enum(supportStatuses),
+  priority: z.enum(supportPriorities),
+  assignedToId: z.string().uuid().nullable(),
+  dueAt: supportDateTimeSchema.nullable(),
+  createdAt: supportDateTimeSchema,
+  updatedAt: supportDateTimeSchema,
+  user: z.object({
+    id: z.string().uuid(),
+    displayName: z.string(),
+    email: z.string().email().nullable()
+  }).strict(),
+  assignee: adminSupportAssigneeSchema.extend({ disabledAt: supportDateTimeSchema.nullable() }).strict().nullable(),
+  events: z.array(z.object({
+    id: z.string().uuid(),
+    eventType: z.string().min(1),
+    actorRole: z.string().min(1),
+    reason: z.string(),
+    publicMessage: z.string().nullable(),
+    occurredAt: supportDateTimeSchema,
+    actor: z.object({ displayName: z.string() }).strict()
+  }).strict())
+}).strict();
+
+export const adminSupportListResponseSchema = z.object({
+  items: z.array(adminSupportItemSchema),
+  assignees: z.array(adminSupportAssigneeSchema),
+  now: supportDateTimeSchema
+}).strict();
+
+export type AdminSupportItem = z.infer<typeof adminSupportItemSchema>;
+export type AdminSupportAssignee = z.infer<typeof adminSupportAssigneeSchema>;
+export type AdminSupportListResponse = z.infer<typeof adminSupportListResponseSchema>;
+
 export const supportRequestSchema = z.object({
   category: z.enum(supportCategories),
   subject: z.string().trim().min(5).max(120),

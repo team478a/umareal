@@ -22,6 +22,8 @@ describe('general member support', () => {
     const repeated = await member.call('support/requests', 'POST', body, undefined, { 'Idempotency-Key': key });
     expect(repeated.body).toEqual(created.body);
     expect(await db.supportRequest.count({ where: { id: requestId } })).toBe(1);
+    const adminRejected = await member.call('admin/support');
+    expect(adminRejected.status).toBe(403); expect(adminRejected.body.code).toBe('FORBIDDEN');
     const mine = await member.call('support/me');
     const item = mine.body.items.find((row: { id: string }) => row.id === requestId);
     expect(Object.keys(mine.body).sort()).toEqual(['items']);
@@ -95,6 +97,14 @@ describe('general member support', () => {
     const queuedItem = queue.body.items.find((row: { id: string }) => row.id === requestId);
     expect(queuedItem).toMatchObject({ id: requestId, priority: 'URGENT', assignedToId: operatorAccount.user.id });
     expect(queuedItem.events).toEqual(expect.arrayContaining([expect.objectContaining({ eventType: 'TRIAGED', reason: '次回配信前に通知設定を確認するため' })]));
+    expect(Object.keys(queue.body).sort()).toEqual(['assignees', 'items', 'now']);
+    expect(Object.keys(queuedItem).sort()).toEqual(['assignedToId', 'assignee', 'category', 'createdAt', 'dueAt', 'events', 'id', 'message', 'priority', 'status', 'subject', 'updatedAt', 'user']);
+    expect(Object.keys(queuedItem.user).sort()).toEqual(['displayName', 'email', 'id']);
+    expect(Object.keys(queuedItem.assignee).sort()).toEqual(['disabledAt', 'displayName', 'id', 'role']);
+    expect(Object.keys(queuedItem.events.at(-1)).sort()).toEqual(['actor', 'actorRole', 'eventType', 'id', 'occurredAt', 'publicMessage', 'reason']);
+    expect(Object.keys(queuedItem.events.at(-1).actor).sort()).toEqual(['displayName']);
+    expect(Object.keys(queue.body.assignees[0]).sort()).toEqual(['displayName', 'id', 'role']);
+    expect(JSON.stringify(queue.body)).not.toMatch(/passwordHash|authSubject|mfaSecret|stripeCustomerId|auditLog/i);
 
     const invalidAssignee = await account();
     const rejected = await operator.call(`admin/support/${requestId}/triage`, 'POST', { priority: 'HIGH', assignedToId: invalidAssignee.user.id, dueAt: null, reason: '無効な担当者の指定試験' });

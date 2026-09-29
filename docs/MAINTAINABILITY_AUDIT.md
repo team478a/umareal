@@ -158,6 +158,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 退会記録管理一覧pilot: `GET /admin/account-closures`の退会記録、停止状態、会員表示情報、ページ情報の既存応答を共有Contractへ接続し、管理画面の手書き型を置き換える。ADMIN+AAL2認可、一覧順序、表示内容、保持方針、画面表示、DB schemaは変更しない。認証秘密、監査詳細、選択していないDB列の追加を厳格なContractとcharacterization testで拒否する。
 - 会員管理一覧pilot: `GET /admin/users`の表示名、メール確認状態、登録方式、LINE連携状態、ロール、登録日時、ページ情報の既存応答を共有Contractへ接続し、管理画面の手書き型を置き換える。ADMIN+AAL2認可、一覧順序、表示内容、画面表示、DB schemaは変更しない。認証subject、password hash、MFA秘密、紹介コード、決済識別子、監査情報の追加を厳格なContractとcharacterization testで拒否する。
 - 会員問い合わせ履歴pilot: `GET /support/me`の問い合わせ種別、件名、本文、状態、作成・更新時刻と、会員へ公開された追記・回答だけを共有Contractへ接続し、会員画面の手書き応答型を置き換える。MEMBER本人認可、最大100件と並び順、問い合わせ受付・追記・状態遷移、画面表示、DB schemaは変更しない。優先度、担当者、対応期限、会員識別情報、内部対応理由、監査情報の追加を厳格なContractとcharacterization testで拒否する。
+- 問い合わせ対応管理一覧pilot: `GET /admin/support`の会員表示情報、問い合わせ内容、状態、優先度、担当者、対応期限、内部対応履歴と有効な担当候補を共有Contractへ接続し、管理画面の手書き応答型を置き換える。ADMIN+AAL2またはOPERATOR認可、最大200件、絞り込み、期限超過・優先度・期限・更新時刻による並び順、対応操作、画面表示、DB schemaは変更しない。認証subject、password hash、MFA秘密、決済識別子、監査情報、イベント担当者の連絡先の追加を厳格なContractとcharacterization testで拒否する。
 
 ### MA-007 CIジョブ構成
 
