@@ -164,6 +164,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - スタッフ権限管理操作応答pilot: ロール変更、担当移管、スタッフ利用停止・再開の既存成功応答を共有Contractへ接続し、スタッフ権限管理画面の手書き応答型を置き換える。ADMIN+AAL2認可、確認メールと理由、対象行ロック、担当・会員アクセス保護、セッション失効、監査、状態遷移、API URL、画面表示、DB schemaは変更しない。連絡先、認証情報、MFA秘密、監査情報など既存応答にない内部項目の追加を厳格なContractとcharacterization testで拒否する。
 - 管理者継続運用状態pilot: `GET /admin/continuity`の有効・停止中管理者、昇格候補、主・予備MFA準備数、固定ポリシーの既存応答を共有Contractへ接続し、管理者継続運用画面の手書き応答型を置き換える。ADMIN+AAL2認可、管理者追加・停止・再開・降格、継続可能性判定、画面表示、DB schemaは変更しない。パスワード、認証subject、TOTP秘密、Provider factor ID、監査情報の追加を厳格なContractとcharacterization testで拒否する。
 - 管理設定応答pilot: `GET /admin/settings`と`PATCH /admin/settings`の運用停止、価格、通知再試行、公開方針とStripe・メール・LINE・Bot対策の非秘密状態を同じ共有Contractへ接続し、管理設定画面の手書き応答型を置き換える。ADMIN+AAL2更新、OPERATOR閲覧、revision競合、暗号化保存、監査、設定値、画面表示、DB schemaは変更しない。API key、Webhook secret、LINE secret・token、暗号化値の追加を厳格なContractとcharacterization testで拒否する。
+- 公開認証設定pilot: `GET /auth/config`の認証方式、公開モード、利用可能機能、登録可否、Bot対策と通知状態の既存応答を共有Contractへ接続し、全画面で使う手書き応答型を置き換える。公開モード、登録・LINE・課金・通知の判定、画面表示、DB schemaは変更しない。Supabase、Turnstile、LINE、Stripe、DBの資格情報と管理設定内部値の追加を厳格なContractとcharacterization testで拒否する。
 
 ### MA-007 CIジョブ構成
 

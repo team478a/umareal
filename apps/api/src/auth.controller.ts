@@ -1,7 +1,7 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
 import { z } from 'zod';
-import { fallbackEmailSchema, launchCapabilities, loginSchema, mfaCodeSchema, registrationSchema, resolveLaunchMode } from '@keiba/domain';
+import { fallbackEmailSchema, launchCapabilities, loginSchema, mfaCodeSchema, publicAuthConfigResponseSchema, registrationSchema, resolveLaunchMode } from '@keiba/domain';
 import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
 import { RegistrationCaptchaService } from './registration-captcha.service';
@@ -26,7 +26,7 @@ export class AuthController {
       this.auth.registrationAvailability(),
       this.captcha.publicConfig()
     ]);
-    return {
+    return publicAuthConfigResponseSchema.parse({
       provider: process.env.AUTH_PROVIDER,
       localOnly: process.env.AUTH_PROVIDER === 'local',
       launchMode: mode,
@@ -36,7 +36,7 @@ export class AuthController {
       emailNotificationsEnabled: settings?.emailNotificationsEnabled === true,
       lineEnabled: capabilities.lineLogin && settings?.lineLoginEnabled === true,
       lineNotificationsEnabled: capabilities.lineNotifications && settings?.lineNotificationsEnabled === true
-    };
+    });
   }
   @Post('register') async register(@Body() body: unknown, @Req() req: AppRequest, @Res({ passthrough: true }) res: Response) {
     const input = registrationSchema.parse(body);
