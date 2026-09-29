@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
-import { adminResultDataProvidersResponseSchema, adminResultImportHistoryResponseSchema, adminSocialSharesResponseSchema, emptyPredictionDraft, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema } from '../packages/domain/src';
+import { adminResultDataProvidersResponseSchema, adminResultImportHistoryResponseSchema, adminResultRacesResponseSchema, adminSocialSharesResponseSchema, emptyPredictionDraft, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema } from '../packages/domain/src';
 import { assessmentFixture } from './assessment-fixtures';
 import { account, Client, db } from './helpers';
 
@@ -179,8 +179,14 @@ describe('immutable results and horse-evaluation performance', () => {
     expect(historyValue.items).toEqual(expect.arrayContaining([expect.objectContaining({ batchId: preview.body.batchId, sourceDisposition: 'NEW' }), expect.objectContaining({ batchId: correctionPreview.body.batchId, sourceDisposition: 'CORRECTION', previousImportBatchId: preview.body.batchId })]));
     expect(Object.keys(history.body)).toEqual(['items']);
     expect(JSON.stringify(history.body)).not.toMatch(/actorId|email|password|authSubject|lineSubject|token|secret|databaseUrl|providerConfig|rows/i);
+    expect((await member.call('admin/results/races')).status).toBe(403);
+    expect((await adminWithoutMfa.call('admin/results/races')).body.code).toBe('MFA_REQUIRED');
     const list = await operator.call('admin/results/races');
-    expect(list.body.items.filter((item: { id: string }) => [first.race.id, second.race.id].includes(item.id)).every((item: { draftSource: string; draftProvider: string }) => item.draftSource === 'CSV_BATCH' && item.draftProvider === 'JRA_VAN_BRIDGE_V1')).toBe(true);
+    expect(list.status).toBe(200);
+    const listValue = adminResultRacesResponseSchema.parse(list.body);
+    expect(Object.keys(list.body)).toEqual(['items']);
+    expect(JSON.stringify(list.body)).not.toMatch(/expertId|assignment|resultDraft|entries|confirmedBy|email|password|authSubject|lineSubject|token|secret|databaseUrl/i);
+    expect(listValue.items.filter(item => [first.race.id, second.race.id].includes(item.id)).every(item => item.draftSource === 'CSV_BATCH' && item.draftProvider === 'JRA_VAN_BRIDGE_V1')).toBe(true);
   });
 
   it('verifies JRA-VAN bundle provenance before creating result drafts', async () => {

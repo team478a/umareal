@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { adminResultDataProvidersResponseSchema, adminResultImportHistoryResponseSchema, aggregatePerformances, getResultDataProvider, legacyRaceResultInputSchema, parseBatchResultCsv, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, resultDataProviderCatalog, settlePrediction, verifyJraVanResultBundle } from './results';
+import { adminResultDataProvidersResponseSchema, adminResultImportHistoryResponseSchema, adminResultRacesResponseSchema, aggregatePerformances, getResultDataProvider, legacyRaceResultInputSchema, parseBatchResultCsv, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, resultDataProviderCatalog, settlePrediction, verifyJraVanResultBundle } from './results';
 
 const entry = (entryId: string, finishPosition: number) => ({ entryId, status: 'FINISHED' as const, finishPosition, popularity: finishPosition, finalOdds: '2.5' });
 
@@ -116,6 +116,42 @@ describe('admin result import history contract', () => {
     }).success).toBe(false);
     expect(adminResultImportHistoryResponseSchema.safeParse({
       items: [{ ...response.items[0], sourceDisposition: 'NEW', previousImportBatchId }]
+    }).success).toBe(false);
+  });
+});
+
+describe('admin result race list contract', () => {
+  const response = {
+    items: [{
+      id: crypto.randomUUID(),
+      raceDate: '2026-09-27',
+      venue: '東京' as const,
+      number: 10,
+      name: 'テストレース',
+      startsAt: new Date('2026-09-27T06:00:00.000Z'),
+      status: 'FINISHED' as const,
+      draftRevision: 2,
+      draftSource: 'CSV_BATCH' as const,
+      draftProvider: 'JRA_VAN_BRIDGE_V1' as const,
+      latestResult: { version: 1, sourceRevision: 2, confirmedAt: new Date('2026-09-27T07:00:00.000Z'), raceCanceled: false }
+    }]
+  };
+
+  it('normalizes dates while preserving the existing list response', () => {
+    expect(adminResultRacesResponseSchema.parse(response)).toMatchObject({
+      items: [{ startsAt: '2026-09-27T06:00:00.000Z', latestResult: { confirmedAt: '2026-09-27T07:00:00.000Z' } }]
+    });
+  });
+
+  it('rejects result drafts, staff identity and invalid provider data', () => {
+    expect(adminResultRacesResponseSchema.safeParse({
+      items: [{ ...response.items[0], resultDraft: { content: { reason: '内部情報' } } }]
+    }).success).toBe(false);
+    expect(adminResultRacesResponseSchema.safeParse({
+      items: [{ ...response.items[0], latestResult: { ...response.items[0].latestResult, confirmedBy: crypto.randomUUID() } }]
+    }).success).toBe(false);
+    expect(adminResultRacesResponseSchema.safeParse({
+      items: [{ ...response.items[0], draftProvider: 'PRIVATE_PROVIDER' }]
     }).success).toBe(false);
   });
 });

@@ -138,6 +138,27 @@ export const adminResultImportHistoryResponseSchema = z.object({
   items: z.array(adminResultImportHistoryItemSchema).max(30)
 }).strict();
 export type AdminResultImportHistoryResponse = z.infer<typeof adminResultImportHistoryResponseSchema>;
+export const adminResultRacesResponseSchema = z.object({
+  items: z.array(z.object({
+    id: z.string().uuid(),
+    raceDate: dateSchema,
+    venue: z.string().min(1),
+    number: z.number().int().min(1).max(12),
+    name: z.string().min(1).max(100),
+    startsAt: publicResultDateTimeSchema,
+    status: z.string().min(1),
+    draftRevision: z.number().int().nonnegative(),
+    draftSource: z.enum(['CSV_SINGLE', 'CSV_BATCH']).nullable(),
+    draftProvider: resultDataProviderIdSchema.nullable(),
+    latestResult: z.object({
+      version: z.number().int().positive(),
+      sourceRevision: z.number().int().positive(),
+      confirmedAt: publicResultDateTimeSchema,
+      raceCanceled: z.boolean()
+    }).strict().nullable()
+  }).strict()).max(100)
+}).strict();
+export type AdminResultRacesResponse = z.infer<typeof adminResultRacesResponseSchema>;
 export type ResultDataProviderInfo = { id: ResultDataProviderId; label: string; formatVersion: string; headers: readonly string[] };
 export type ResultDataProviderParseResult = { provider: ResultDataProviderInfo; rows: BatchResultCsvRow[]; errors: ResultCsvIssue[] };
 export interface ResultDataProvider { info: ResultDataProviderInfo; parse(source: string): ResultDataProviderParseResult }

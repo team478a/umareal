@@ -139,6 +139,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 公開成績pilot: `GET /results/stats`の全体、信頼度別、競馬場別、馬場別、月別の既存応答を共有Contractへ接続し、会員向け成績画面の手書き応答型を置き換える。最新確定結果版の選択、馬評価集計ルール、画面表示、DB schemaは変更しない。
 - 結果取込元一覧pilot: `GET /admin/results/import/providers`の取込元ID、表示名、形式版、CSV見出しの既存応答を共有Contractへ接続し、結果管理画面の手書き応答型を置き換える。取込方式、JRA-VAN連携、ADMIN+AAL2とOPERATORの既存認可、画面表示、DB schemaは変更しない。接続設定、資格情報、内部provider実装の追加を厳格なContractとcharacterization testで拒否する。
 - 結果取込履歴pilot: `GET /admin/results/import/history`の確定済み取込元、CSV指紋、初回・訂正区分、bundle検証情報、担当表示名、対象レースの既存応答を共有Contractへ接続し、結果管理画面の手書き応答型を置き換える。最大30件の表示、取込・訂正処理、ADMIN+AAL2とOPERATORの既存認可、画面表示、DB schemaは変更しない。取込行、担当者ID、会員連絡先、接続設定、資格情報の追加を厳格なContractとcharacterization testで拒否する。
+- 結果管理レース一覧pilot: `GET /admin/results/races`のレース基本情報、結果下書きの版・取込元、最新確定結果の版・確定時刻の既存応答を共有Contractへ接続し、結果管理画面の手書き応答型を置き換える。発走済み対象の抽出、並び順、最大100件、ADMIN+AAL2とOPERATORの既存認可、結果入力・確定処理、画面表示、DB schemaは変更しない。出走馬、下書き本文、担当専門家、結果確認者、会員連絡先、接続設定、資格情報の追加を厳格なContractとcharacterization testで拒否する。
 - 公開WIN5成績pilot: `GET /win5/performance`の公開回数、対象レース数、勝ち馬候補内選出、中心馬の1着・連対・複勝率の既存応答を共有Contractへ接続する。集計対象の版選択、計算ルール、API URL、画面表示、DB schemaは変更しない。現在のWeb画面はこのAPIを使用していないため、未使用の画面型は追加しない。
 - 公開WIN5一覧pilot: `GET /win5`の公開予定・公開版メタデータ、対象5レース、ページ情報の既存応答を共有Contractへ接続し、会員向けWIN5一覧画面の手書き応答型を置き換える。公開条件、無料会員への評価馬・理由・本文制限、詳細閲覧権限、画面表示、DB schemaは変更しない。
 - 公開WIN5詳細pilot: `GET /win5/:productId`の未公開・無料向けメタデータと、月額・一日利用・許可されたスタッフ向け公開本文を判別可能な共有Contractへ接続し、会員向けWIN5紙面の手書き応答型を置き換える。公開版選択、有限期間権限、無料会員への評価馬・理由・総評・訂正理由制限、画面表示、DB schemaは変更しない。
