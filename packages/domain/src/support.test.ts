@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { memberSupportHistoryResponseSchema, supportEventType, supportMessageSchema, supportRequestSchema, supportStatusSchema, supportTriageSchema } from './support';
+import { adminSupportListResponseSchema, memberSupportHistoryResponseSchema, supportEventType, supportMessageSchema, supportRequestSchema, supportStatusSchema, supportTriageSchema } from './support';
 
 describe('general support', () => {
   it('validates a member inquiry without billing information', () => {
@@ -51,5 +51,22 @@ describe('general support', () => {
       { user: { id, email: 'member@example.test' } }
     ]) expect(memberSupportHistoryResponseSchema.safeParse({ items: [{ ...item, ...privateField }] }).success).toBe(false);
     expect(memberSupportHistoryResponseSchema.safeParse({ items: [{ ...item, events: [{ id, eventType: 'RESOLVED', actorRole: 'OPERATOR', publicMessage: '回答です。', occurredAt: '2026-09-29T00:30:00.000Z', reason: '内部調査内容' }] }] }).success).toBe(false);
+  });
+
+  it('keeps the administrator queue contract limited to support operations', () => {
+    const id = '10000000-0000-4000-8000-000000000001';
+    const item = {
+      id, category: 'TECHNICAL', subject: '画面が開けません', message: 'レース一覧を開くとエラーが表示されます。', status: 'IN_PROGRESS', priority: 'HIGH', assignedToId: id,
+      dueAt: new Date('2026-09-30T00:00:00Z'), createdAt: new Date('2026-09-29T00:00:00Z'), updatedAt: new Date('2026-09-29T01:00:00Z'),
+      user: { id, displayName: '会員', email: 'member@example.test' },
+      assignee: { id, displayName: '担当者', role: 'OPERATOR', disabledAt: null },
+      events: [{ id, eventType: 'IN_PROGRESS', actorRole: 'OPERATOR', reason: '調査を開始', publicMessage: null, occurredAt: new Date('2026-09-29T00:30:00Z'), actor: { displayName: '担当者' } }]
+    };
+    const parsed = adminSupportListResponseSchema.parse({ items: [item], assignees: [{ id, displayName: '担当者', role: 'OPERATOR' }], now: new Date('2026-09-29T02:00:00Z') });
+    expect(parsed).toMatchObject({ items: [{ dueAt: '2026-09-30T00:00:00.000Z', events: [{ occurredAt: '2026-09-29T00:30:00.000Z' }] }], now: '2026-09-29T02:00:00.000Z' });
+    for (const privateField of [{ passwordHash: 'hash' }, { authSubject: 'subject' }, { mfaSecretEncrypted: 'secret' }, { stripeCustomerId: 'cus_internal' }, { auditLogs: [] }]) {
+      expect(adminSupportListResponseSchema.safeParse({ items: [{ ...item, user: { ...item.user, ...privateField } }], assignees: [], now: new Date() }).success).toBe(false);
+    }
+    expect(adminSupportListResponseSchema.safeParse({ items: [{ ...item, events: [{ ...item.events[0], actor: { displayName: '担当者', email: 'staff@example.test' } }] }], assignees: [], now: new Date() }).success).toBe(false);
   });
 });

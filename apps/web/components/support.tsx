@@ -1,14 +1,14 @@
 'use client';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { MessageCircle, RefreshCw } from 'lucide-react';
-import type { MemberSupportHistoryResponse, MemberSupportItem } from '@keiba/domain';
+import type { AdminSupportAssignee, AdminSupportItem, AdminSupportListResponse, MemberSupportHistoryResponse, MemberSupportItem } from '@keiba/domain';
 
 type Status = MemberSupportItem['status'];
 type Category = MemberSupportItem['category'];
-type Priority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
 type MemberItem = MemberSupportItem;
-type Assignee = { id: string; displayName: string; role: 'ADMIN' | 'OPERATOR' };
-type AdminItem = Omit<MemberItem, 'events'> & { priority: Priority; assignedToId: string | null; dueAt: string | null; assignee: (Assignee & { disabledAt?: string | null }) | null; user: { id: string; displayName: string; email: string | null }; events: { id: string; eventType: string; actorRole: string; reason: string; publicMessage: string | null; occurredAt: string; actor: { displayName: string } }[] };
+type Priority = AdminSupportItem['priority'];
+type Assignee = AdminSupportAssignee;
+type AdminItem = AdminSupportItem;
 
 const categoryLabels: Record<Category, string> = { ACCOUNT: 'アカウント・ログイン', NOTIFICATION: 'LINE・メール通知', CONTENT: '予想・掲載内容', TECHNICAL: '画面・操作の不具合', SERVICE: 'サービスについて', OTHER: 'その他' };
 const statusLabels: Record<Status, string> = { OPEN: '受付済み', IN_PROGRESS: '確認中', RESOLVED: '回答済み' };
@@ -83,7 +83,7 @@ function AdminSupportItem({ item, assignees, onUpdated }: { item: AdminItem; ass
 
 export function AdminSupport() {
   const [items, setItems] = useState<AdminItem[]>([]); const [assignees, setAssignees] = useState<Assignee[]>([]); const [status, setStatus] = useState<'ALL' | Status>('ALL'); const [error, setError] = useState(''); const [loading, setLoading] = useState(true);
-  const load = useCallback(async () => { setLoading(true); try { const result = await request<{ items: AdminItem[]; assignees: Assignee[] }>(`admin/support?status=${status}`); setItems(result.items); setAssignees(result.assignees); setError(''); } catch (e) { setError((e as Error).message); } finally { setLoading(false); } }, [status]);
+  const load = useCallback(async () => { setLoading(true); try { const result = await request<AdminSupportListResponse>(`admin/support?status=${status}`); setItems(result.items); setAssignees(result.assignees); setError(''); } catch (e) { setError((e as Error).message); } finally { setLoading(false); } }, [status]);
   useEffect(() => { void load(); }, [load]);
   return <><div className="page-heading"><span className="eyebrow">MEMBER SUPPORT</span><h1>お問い合わせ対応</h1><p>期限超過、優先度、対応期限の順に確認できます。担当者を決めてから回答してください。</p></div><Notice value={error} error /><section className="panel"><div className="panel-heading"><div><h2>受付一覧</h2><span className="count-tag">未解決 {items.filter(item => item.status !== 'RESOLVED').length}件</span></div><label className="compact-filter">状態<select value={status} onChange={event => setStatus(event.target.value as 'ALL' | Status)}><option value="ALL">すべて</option><option value="OPEN">受付済み</option><option value="IN_PROGRESS">確認中</option><option value="RESOLVED">回答済み</option></select></label></div>{loading ? <div className="panel-body" role="status">お問い合わせを読み込み中…</div> : !items.length ? <div className="panel-body"><p className="muted">該当するお問い合わせはありません。</p></div> : <div className="support-list admin-support-list">{items.map(item => <AdminSupportItem key={item.id} item={item} assignees={assignees} onUpdated={load} />)}</div>}</section></>;
 }

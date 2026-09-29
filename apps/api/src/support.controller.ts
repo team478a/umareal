@@ -1,5 +1,5 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req } from '@nestjs/common';
-import { canManage, memberSupportHistoryResponseSchema, requiresMfa, supportEventType, supportMessageSchema, supportRequestSchema, supportStatuses, supportStatusSchema, supportTriageSchema } from '@keiba/domain';
+import { adminSupportListResponseSchema, canManage, memberSupportHistoryResponseSchema, requiresMfa, supportEventType, supportMessageSchema, supportRequestSchema, supportStatuses, supportStatusSchema, supportTriageSchema } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -115,7 +115,7 @@ export class SupportController {
       const bQueue = b.status === 'RESOLVED' ? 2 : b.dueAt && b.dueAt < now ? 0 : 1;
       return aQueue - bQueue || priorityRank[b.priority] - priorityRank[a.priority] || (a.dueAt?.getTime() ?? Number.MAX_SAFE_INTEGER) - (b.dueAt?.getTime() ?? Number.MAX_SAFE_INTEGER) || b.updatedAt.getTime() - a.updatedAt.getTime();
     });
-    return { items, assignees, now: now.toISOString() };
+    return adminSupportListResponseSchema.parse({ items, assignees, now });
   }
 
   @Post('admin/support/:id/triage')
