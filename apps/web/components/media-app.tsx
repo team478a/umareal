@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ArrowRight, BarChart3, BellRing, BookOpenCheck, CalendarDays, Check, ChevronRight, ClipboardCheck, ClipboardList, Clock3, CreditCard, DatabaseBackup, Gift, Home, LayoutDashboard, LogOut, MailCheck, Menu, MessageCircle, RefreshCw, Settings2, Share2, ShieldAlert, ShieldCheck, UserCog, UserRoundX, Users, X } from 'lucide-react';
-import { consentVersions, legalDocuments, type AdminOperationsRace, type AdminOperationsResponse, type AdminOperationsStep, type AdminSummaryResponse, type AdminUsersResponse, type CurrentAccountResponse, type LegalDocument, type MemberJourneyResponse, type NotificationPreferencesResponse, type PublicAuthConfigResponse } from '@keiba/domain';
+import { consentVersions, legalDocuments, type AdminOperationsRace, type AdminOperationsResponse, type AdminOperationsStep, type AdminSummaryResponse, type AdminUsersResponse, type CurrentAccountResponse, type LegalDocument, type MemberJourneyResponse, type NotificationPreferencesResponse, type PublicAuthConfigResponse, type PublicRaceAnnouncementsResponse } from '@keiba/domain';
 import { RaceManager } from './race-manager';
 import { AssessmentEditor } from './assessment-editor';
 import { PublishedPrediction } from './prediction-editor';
@@ -37,7 +37,7 @@ type Preferences = NotificationPreferencesResponse;
 type PublicConfig = PublicAuthConfigResponse;
 type Me = CurrentAccountResponse;
 type Race = { id: string; name: string; venue: string; number: number; raceDate: string; startsAt: string; status: string };
-type Announcement = { id: string; version: number; publishedAt: string; race: Race };
+type Announcement = PublicRaceAnnouncementsResponse['items'][number];
 type Summary = AdminSummaryResponse;
 type FunnelCounts = Summary['funnel']['all'];
 type AcquisitionRow = Summary['acquisition']['last30Days'][number];
@@ -113,7 +113,7 @@ export function MediaApp() {
 
 function HomePage({ me, unreadNotifications, capabilities, registration }: { me: Me | null; unreadNotifications: number; capabilities: PublicConfig['capabilities']; registration: PublicConfig['registration'] }) {
   const [races, setRaces] = useState<Race[]>([]); const [announcements, setAnnouncements] = useState<Announcement[]>([]); const [error, setError] = useState(''); const [loading, setLoading] = useState(true);
-  useEffect(() => { Promise.all([api<{ items: Race[] }>('races'), api<{ items: Announcement[] }>('announcements')]).then(([raceData, announcementData]) => { setRaces(raceData.items); setAnnouncements(announcementData.items); }).catch(e => setError(e.message)).finally(() => setLoading(false)); }, []);
+  useEffect(() => { Promise.all([api<{ items: Race[] }>('races'), api<PublicRaceAnnouncementsResponse>('announcements')]).then(([raceData, announcementData]) => { setRaces(raceData.items); setAnnouncements(announcementData.items); }).catch(e => setError(e.message)).finally(() => setLoading(false)); }, []);
   const now = new Date(); const paid = !!me?.entitlements.some(item => new Date(item.startsAt) <= now && now < new Date(item.endsAt));
   const nextAction = unreadNotifications > 0 ? { href: '/notifications', title: '未読のお知らせを確認', detail: `${unreadNotifications}件の新しい告知・公開情報があります。` } : me && capabilities.lineNotifications && !me.lineNotificationReady ? { href: '/account', title: 'LINE通知を設定', detail: '対象レース告知と最終予想の公開を受け取れるようにします。' } : me && capabilities.billing && !paid ? { href: '/plans', title: '料金プランを確認', detail: '有料予想の提供内容と料金を確認できます。' } : { href: '/races', title: '公開中のレースを確認', detail: '開催日と公開状態からレースを探せます。' };
   return <>

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
-import { CsvRaceDataProvider, dateSchema, entryHeaders, parseCsv, parseJraVanRaceBundle, publicRaceListResponseSchema, raceHeaders, raceInputSchema } from './races';
+import { CsvRaceDataProvider, dateSchema, entryHeaders, parseCsv, parseJraVanRaceBundle, publicRaceAnnouncementsResponseSchema, publicRaceListResponseSchema, raceHeaders, raceInputSchema } from './races';
 const provider = new CsvRaceDataProvider();
 const race = '2099-01-10,東京,1,"名前,引用",未勝利,1600,TURF,LEFT,2099-01-10T10:00:00+09:00,GOOD,晴,SCHEDULED,';
 describe('CSV validation before mutations', () => {
@@ -95,5 +95,22 @@ describe('CSV validation before mutations', () => {
     expect(parsed.items[0]?.latestPrediction?.publishedAt).toBe('2026-09-27T05:00:00.000Z');
     expect(publicRaceListResponseSchema.safeParse({ ...response, items: [{ ...response.items[0], contentSnapshot: { secret: true } }] }).success).toBe(false);
     expect(publicRaceListResponseSchema.safeParse({ ...response, items: [{ ...response.items[0], assignments: [{ userId: raceId }] }] }).success).toBe(false);
+  });
+  it('normalizes public announcements without exposing internal announcement or race data', () => {
+    const id = '11111111-1111-4111-8111-111111111111';
+    const response = {
+      items: [{
+        id, version: 2, publishedAt: new Date('2026-09-29T04:00:00.000Z'),
+        race: {
+          id: '22222222-2222-4222-8222-222222222222', raceDate: '2026-09-29', venue: '中山', number: 11,
+          name: 'テスト競走', startsAt: new Date('2026-09-29T06:00:00.000Z')
+        }
+      }]
+    };
+    const parsed = publicRaceAnnouncementsResponseSchema.parse(response);
+    expect(parsed.items[0]).toMatchObject({ id, version: 2, publishedAt: '2026-09-29T04:00:00.000Z' });
+    expect(parsed.items[0]?.race.startsAt).toBe('2026-09-29T06:00:00.000Z');
+    expect(publicRaceAnnouncementsResponseSchema.safeParse({ items: [{ ...response.items[0], reason: '内部理由' }] }).success).toBe(false);
+    expect(publicRaceAnnouncementsResponseSchema.safeParse({ items: [{ ...response.items[0], race: { ...response.items[0].race, assignments: [{ userId: id }] } }] }).success).toBe(false);
   });
 });

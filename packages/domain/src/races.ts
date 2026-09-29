@@ -71,6 +71,24 @@ export const publicRaceListResponseSchema = z.object({
 }).strict();
 
 export type PublicRaceListResponse = z.infer<typeof publicRaceListResponseSchema>;
+
+export const publicRaceAnnouncementsResponseSchema = z.object({
+  items: z.array(z.object({
+    id: z.string().uuid(),
+    version: z.number().int().positive(),
+    publishedAt: raceDiscoveryDateTimeSchema,
+    race: z.object({
+      id: z.string().uuid(),
+      raceDate: dateSchema,
+      venue: z.string().min(1),
+      number: z.number().int().min(1).max(12),
+      name: z.string().min(1),
+      startsAt: raceDiscoveryDateTimeSchema
+    }).strict()
+  }).strict()).max(10)
+}).strict();
+
+export type PublicRaceAnnouncementsResponse = z.infer<typeof publicRaceAnnouncementsResponseSchema>;
 export type ImportKind = 'races' | 'entries';
 export const raceHeaders = ['raceDate', 'venue', 'number', 'name', 'raceClass', 'distance', 'surface', 'direction', 'startsAt', 'going', 'weather', 'status', 'expertId'];
 export const entryHeaders = ['horseId', 'number', 'gate', 'horseName', 'sex', 'age', 'carriedWeight', 'jockey', 'trainer', 'winOdds', 'popularity', 'status'];
