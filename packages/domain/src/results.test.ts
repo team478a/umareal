@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { adminResultDataProvidersResponseSchema, aggregatePerformances, getResultDataProvider, legacyRaceResultInputSchema, parseBatchResultCsv, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, resultDataProviderCatalog, settlePrediction, verifyJraVanResultBundle } from './results';
+import { adminResultDataProvidersResponseSchema, adminResultImportHistoryResponseSchema, aggregatePerformances, getResultDataProvider, legacyRaceResultInputSchema, parseBatchResultCsv, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, resultDataProviderCatalog, settlePrediction, verifyJraVanResultBundle } from './results';
 
 const entry = (entryId: string, finishPosition: number) => ({ entryId, status: 'FINISHED' as const, finishPosition, popularity: finishPosition, finalOdds: '2.5' });
 
@@ -79,6 +79,44 @@ describe('admin result data provider contract', () => {
     }).success).toBe(false);
     expect(adminResultDataProvidersResponseSchema.safeParse({ items: response.items.slice(0, 1) }).success).toBe(false);
     expect(adminResultDataProvidersResponseSchema.safeParse({ items: [response.items[0], response.items[0]] }).success).toBe(false);
+  });
+});
+
+describe('admin result import history contract', () => {
+  const previousImportBatchId = crypto.randomUUID();
+  const response = {
+    items: [{
+      batchId: crypto.randomUUID(),
+      provider: { id: 'JRA_VAN_BRIDGE_V1' as const, label: 'JRA-VAN連携ブリッジ', formatVersion: 'UMAREAL_JRA_VAN_BRIDGE_V1' },
+      sourceChecksum: 'a'.repeat(64),
+      sourceDisposition: 'CORRECTION' as const,
+      previousImportBatchId,
+      bundle: { formatVersion: 'UMAREAL_JRA_VAN_BUNDLE_V1' as const, targetDate: '2026-09-27', manifestChecksum: 'b'.repeat(64) },
+      actorDisplayName: '運営担当者',
+      confirmedAt: new Date('2026-09-27T03:00:00.000Z'),
+      races: [{ raceId: crypto.randomUUID(), label: '2026-09-27 東京 10R テストレース', revision: 2 }]
+    }]
+  };
+
+  it('normalizes dates while preserving the existing history response', () => {
+    expect(adminResultImportHistoryResponseSchema.parse(response)).toMatchObject({
+      items: [{ confirmedAt: '2026-09-27T03:00:00.000Z', previousImportBatchId }]
+    });
+  });
+
+  it('rejects internal data and inconsistent correction provenance', () => {
+    expect(adminResultImportHistoryResponseSchema.safeParse({
+      items: [{ ...response.items[0], actorId: crypto.randomUUID() }]
+    }).success).toBe(false);
+    expect(adminResultImportHistoryResponseSchema.safeParse({
+      items: [{ ...response.items[0], provider: { ...response.items[0].provider, accessToken: 'secret' } }]
+    }).success).toBe(false);
+    expect(adminResultImportHistoryResponseSchema.safeParse({
+      items: [{ ...response.items[0], sourceDisposition: 'CORRECTION', previousImportBatchId: null }]
+    }).success).toBe(false);
+    expect(adminResultImportHistoryResponseSchema.safeParse({
+      items: [{ ...response.items[0], sourceDisposition: 'NEW', previousImportBatchId }]
+    }).success).toBe(false);
   });
 });
 

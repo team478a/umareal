@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Req } from '@nestjs/common';
-import { adminResultDataProvidersResponseSchema, aggregatePredictionEvaluations, canManage, dateSchema, evaluatePrediction, getResultDataProvider, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, raceResultInputSchema, requiresMfa, resultDataProviderCatalog, resultDataProviderIdSchema, resultEntrySchema, verifyJraVanResultBundle } from '@keiba/domain';
+import { adminResultDataProvidersResponseSchema, adminResultImportHistoryResponseSchema, aggregatePredictionEvaluations, canManage, dateSchema, evaluatePrediction, getResultDataProvider, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, raceResultInputSchema, requiresMfa, resultDataProviderCatalog, resultDataProviderIdSchema, resultEntrySchema, verifyJraVanResultBundle } from '@keiba/domain';
 import type { BatchResultCsvRow, RaceResultInput, ResultEntry, Role } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -225,7 +225,7 @@ export class ResultsController {
       this.auth.db.race.findMany({ where: { id: { in: raceIds } }, select: { id: true, raceDate: true, venue: true, number: true, name: true } })
     ]);
     const actorById = new Map(actors.map(actor => [actor.id, actor.displayName])), raceById = new Map(races.map(race => [race.id, race]));
-    return { items: imports.slice(0, 30).map(item => {
+    return adminResultImportHistoryResponseSchema.parse({ items: imports.slice(0, 30).map(item => {
       const provider = resultDataProviderCatalog.find(candidate => candidate.id === item.stored.providerId)!;
       return {
         batchId: item.batch.id, provider: { id: provider.id, label: provider.label, formatVersion: item.stored.providerFormatVersion },
@@ -233,7 +233,7 @@ export class ResultsController {
         actorDisplayName: actorById.get(item.batch.actorId) ?? '不明な担当者', confirmedAt: item.batch.confirmedAt,
         races: item.stored.races.map(storedRace => { const race = raceById.get(storedRace.raceId); return race ? { raceId: race.id, label: `${race.raceDate} ${race.venue} ${race.number}R ${race.name}`, revision: storedRace.targetRevision } : { raceId: storedRace.raceId, label: '削除済みレース', revision: storedRace.targetRevision }; })
       };
-    }) };
+    }) });
   }
 
   @Post('admin/results/import/:batchId/confirm')
