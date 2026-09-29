@@ -33,6 +33,7 @@ export * from './backup-status';
 export * from './account';
 export * from './account-closure';
 export * from './member-journey';
+export * from './admin-users';
 
 export const roles = ['MEMBER', 'EXPERT', 'EDITOR', 'OPERATOR', 'ADMIN'] as const;
 export type Role = typeof roles[number];

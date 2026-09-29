@@ -156,6 +156,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 退会条件確認pilot: `GET /me/closure`の退会可否、本人確認要否、契約・一日券・決済中の停止理由、保持方針の既存応答を共有Contractへ接続し、退会画面の手書き型を置き換える。MEMBER認可、退会条件、停止処理、保持対象、画面表示、DB schemaは変更しない。会員IDや請求内部IDなど既存応答にない情報の追加を厳格なContractとcharacterization testで拒否する。
 - 退会完了応答pilot: `POST /me/close`の停止時刻、冪等状態、履歴保持フラグの既存成功応答を共有Contractへ接続し、退会画面も同じ型を参照する。本人認証、現在パスワード確認、advisory lock、契約再検査、通知・LINE・閲覧権限・全セッション停止、Cookie削除、保持対象、DB schemaは変更しない。退会記録ID、会員ID、監査IDなど既存応答にない情報の追加を厳格なContractとcharacterization testで拒否する。
 - 退会記録管理一覧pilot: `GET /admin/account-closures`の退会記録、停止状態、会員表示情報、ページ情報の既存応答を共有Contractへ接続し、管理画面の手書き型を置き換える。ADMIN+AAL2認可、一覧順序、表示内容、保持方針、画面表示、DB schemaは変更しない。認証秘密、監査詳細、選択していないDB列の追加を厳格なContractとcharacterization testで拒否する。
+- 会員管理一覧pilot: `GET /admin/users`の表示名、メール確認状態、登録方式、LINE連携状態、ロール、登録日時、ページ情報の既存応答を共有Contractへ接続し、管理画面の手書き型を置き換える。ADMIN+AAL2認可、一覧順序、表示内容、画面表示、DB schemaは変更しない。認証subject、password hash、MFA秘密、紹介コード、決済識別子、監査情報の追加を厳格なContractとcharacterization testで拒否する。
 
 ### MA-007 CIジョブ構成
 
