@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
-import { CsvRaceDataProvider, dateSchema, entryHeaders, parseCsv, parseJraVanRaceBundle, publicRaceAnnouncementsResponseSchema, publicRaceListResponseSchema, raceHeaders, raceInputSchema } from './races';
+import { CsvRaceDataProvider, dateSchema, entryHeaders, expertRaceListResponseSchema, parseCsv, parseJraVanRaceBundle, publicRaceAnnouncementsResponseSchema, publicRaceListResponseSchema, raceHeaders, raceInputSchema } from './races';
 const provider = new CsvRaceDataProvider();
 const race = '2099-01-10,東京,1,"名前,引用",未勝利,1600,TURF,LEFT,2099-01-10T10:00:00+09:00,GOOD,晴,SCHEDULED,';
 describe('CSV validation before mutations', () => {
@@ -112,5 +112,15 @@ describe('CSV validation before mutations', () => {
     expect(parsed.items[0]?.race.startsAt).toBe('2026-09-29T06:00:00.000Z');
     expect(publicRaceAnnouncementsResponseSchema.safeParse({ items: [{ ...response.items[0], reason: '内部理由' }] }).success).toBe(false);
     expect(publicRaceAnnouncementsResponseSchema.safeParse({ items: [{ ...response.items[0], race: { ...response.items[0].race, assignments: [{ userId: id }] } }] }).success).toBe(false);
+  });
+  it('normalizes the expert race list without exposing management fields', () => {
+    const item = {
+      id: '11111111-1111-4111-8111-111111111111', raceDate: '2026-09-30', venue: '中山', number: 11,
+      name: '担当レース', startsAt: new Date('2026-09-30T06:00:00.000Z'), status: 'SCHEDULED' as const
+    };
+    const parsed = expertRaceListResponseSchema.parse({ items: [item] });
+    expect(parsed.items[0]?.startsAt).toBe('2026-09-30T06:00:00.000Z');
+    expect(expertRaceListResponseSchema.safeParse({ items: [{ ...item, raceDayId: item.id, revision: 1 }] }).success).toBe(false);
+    expect(expertRaceListResponseSchema.safeParse({ items: [{ ...item, assignments: [{ userId: item.id }] }] }).success).toBe(false);
   });
 });

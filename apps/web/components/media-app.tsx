@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ArrowRight, BarChart3, BellRing, BookOpenCheck, CalendarDays, Check, ChevronRight, ClipboardCheck, ClipboardList, Clock3, CreditCard, DatabaseBackup, Gift, Home, LayoutDashboard, LogOut, MailCheck, Menu, MessageCircle, RefreshCw, Settings2, Share2, ShieldAlert, ShieldCheck, UserCog, UserRoundX, Users, X } from 'lucide-react';
-import { consentVersions, legalDocuments, type AdminOperationsRace, type AdminOperationsResponse, type AdminOperationsStep, type AdminSummaryResponse, type AdminUsersResponse, type CurrentAccountResponse, type LegalDocument, type MemberJourneyResponse, type NotificationPreferencesResponse, type PublicAuthConfigResponse, type PublicRaceAnnouncementsResponse, type PublicRaceListResponse } from '@keiba/domain';
+import { consentVersions, legalDocuments, type AdminOperationsRace, type AdminOperationsResponse, type AdminOperationsStep, type AdminSummaryResponse, type AdminUsersResponse, type CurrentAccountResponse, type ExpertRaceListResponse, type LegalDocument, type MemberJourneyResponse, type NotificationPreferencesResponse, type PublicAuthConfigResponse, type PublicRaceAnnouncementsResponse, type PublicRaceListResponse } from '@keiba/domain';
 import { RaceManager } from './race-manager';
 import { AssessmentEditor } from './assessment-editor';
 import { PublishedPrediction } from './prediction-editor';
@@ -37,7 +37,6 @@ type Preferences = NotificationPreferencesResponse;
 type PublicConfig = PublicAuthConfigResponse;
 type Me = CurrentAccountResponse;
 type PublicRace = PublicRaceListResponse['items'][number];
-type ExpertRace = { id: string; name: string; venue: string; number: number; raceDate: string; startsAt: string; status: string };
 type Announcement = PublicRaceAnnouncementsResponse['items'][number];
 type Summary = AdminSummaryResponse;
 type FunnelCounts = Summary['funnel']['all'];
@@ -244,8 +243,8 @@ function AccessGate({ me, allowed, children }: { me: Me; allowed: string[]; chil
 function Expert({ me }: { me: Me }) { return <AccessGate me={me} allowed={['ADMIN', 'EXPERT']}><ExpertContent userId={me.id} /></AccessGate>; }
 function ExpertContent({ userId }: { userId: string }) {
   const search = useSearchParams(); const [selected, setSelected] = useState<string | null>(() => search.get('race'));
-  const [races, setRaces] = useState<ExpertRace[]>([]); const [error, setError] = useState('');
-  useEffect(() => { api<{ items: ExpertRace[] }>('expert/races').then(v => setRaces(v.items)).catch(e => setError(e.message)); }, []);
+  const [races, setRaces] = useState<ExpertRaceListResponse['items']>([]); const [error, setError] = useState('');
+  useEffect(() => { api<ExpertRaceListResponse>('expert/races').then(v => setRaces(v.items)).catch(e => setError(e.message)); }, []);
   if (selected) return <AssessmentEditor key={selected} raceId={selected} userId={userId} onClose={() => setSelected(null)} />;
   return <><Heading eyebrow="EXPERT WORKSPACE" title="担当レース" description="あなたが担当するレースを確認できます。" /><Notice text={error} error /><section className="panel">{races.length ? races.map(race => <div className="race-row" key={race.id}><div className="race-number">{race.number}<small>R</small></div><div className="race-info"><span className="muted">{race.venue} · {formatDate(race.startsAt)}</span><h3>{race.name}</h3></div><button className="button secondary small" onClick={() => setSelected(race.id)}>評価を入力</button></div>) : <Empty title="担当レースはありません">レースが割り当てられると、こちらに表示されます。</Empty>}</section></>;
 }
