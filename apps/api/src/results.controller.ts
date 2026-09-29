@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Req } from '@nestjs/common';
-import { adminResultDataProvidersResponseSchema, adminResultImportHistoryResponseSchema, aggregatePredictionEvaluations, canManage, dateSchema, evaluatePrediction, getResultDataProvider, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, raceResultInputSchema, requiresMfa, resultDataProviderCatalog, resultDataProviderIdSchema, resultEntrySchema, verifyJraVanResultBundle } from '@keiba/domain';
+import { adminResultDataProvidersResponseSchema, adminResultImportHistoryResponseSchema, adminResultRacesResponseSchema, aggregatePredictionEvaluations, canManage, dateSchema, evaluatePrediction, getResultDataProvider, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, raceResultInputSchema, requiresMfa, resultDataProviderCatalog, resultDataProviderIdSchema, resultEntrySchema, verifyJraVanResultBundle } from '@keiba/domain';
 import type { BatchResultCsvRow, RaceResultInput, ResultEntry, Role } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -128,10 +128,10 @@ export class ResultsController {
   async races(@Req() req: AppRequest) {
     await this.staff(req);
     const items = await this.auth.db.race.findMany({ where: { startsAt: { lte: new Date() }, OR: [{ prediction: { versions: { some: {} } } }, { win5ProductRaces: { some: { product: { versions: { some: {} } } } } }, { resultDraft: { isNot: null } }, { resultVersions: { some: {} } }] }, orderBy: [{ startsAt: 'desc' }, { id: 'asc' }], take: 100, include: { resultDraft: { select: { revision: true, updatedAt: true, content: true } }, resultVersions: { orderBy: { version: 'desc' }, take: 1, select: { version: true, sourceRevision: true, confirmedAt: true, raceCanceled: true } } } });
-    return { items: items.map(item => {
+    return adminResultRacesResponseSchema.parse({ items: items.map(item => {
       const source = z.object({ source: z.enum(['CSV_SINGLE', 'CSV_BATCH']), sourceProvider: resultDataProviderIdSchema.optional() }).passthrough().safeParse(item.resultDraft?.content);
       return { id: item.id, raceDate: item.raceDate, venue: item.venue, number: item.number, name: item.name, startsAt: item.startsAt, status: item.status, draftRevision: item.resultDraft?.revision ?? 0, draftSource: source.success ? source.data.source : null, draftProvider: source.success ? source.data.sourceProvider ?? null : null, latestResult: item.resultVersions[0] ?? null };
-    }) };
+    }) });
   }
 
   @Post('admin/results/import/preview')

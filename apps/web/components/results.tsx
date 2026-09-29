@@ -1,11 +1,11 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { Check, ChevronRight, FileUp } from 'lucide-react';
-import type { AdminResultDataProvidersResponse, AdminResultImportHistoryResponse, PublicPredictionStatsResponse, PublicRaceResultResponse, ResultDataProviderId } from '@keiba/domain';
+import type { AdminResultDataProvidersResponse, AdminResultImportHistoryResponse, AdminResultRacesResponse, PublicPredictionStatsResponse, PublicRaceResultResponse, ResultDataProviderId } from '@keiba/domain';
 
 async function api<T>(path: string, method = 'GET', body?: unknown): Promise<T> { const response = await fetch(`/api/v1/${path}`, { method, cache: 'no-store', headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined }); const value = await response.json(); if (!response.ok) throw new Error(value.message ?? '処理できませんでした。'); return value; }
 type ResultProvider = AdminResultDataProvidersResponse['items'][number];
-type RaceRow = { id: string; raceDate: string; venue: string; number: number; name: string; startsAt: string; status: string; draftRevision: number; draftSource: 'CSV_SINGLE' | 'CSV_BATCH' | null; draftProvider: ResultDataProviderId | null; latestResult: { version: number; sourceRevision: number; confirmedAt: string; raceCanceled: boolean } | null };
+type RaceRow = AdminResultRacesResponse['items'][number];
 type DraftEntry = { entryId: string; status: 'FINISHED' | 'WITHDRAWN' | 'EXCLUDED' | 'DNF' | 'CANCELED'; finishPosition: number | null; popularity: number | null; finalOdds: string | null };
 type Detail = { race: RaceRow; entries: { id: string; number: number; horseName: string }[]; draft: { revision: number; raceCanceled: boolean; reason: string; entries: DraftEntry[] }; versions: { id: string; version: number; sourceRevision: number; ruleVersion: string; raceCanceled: boolean; reason: string; confirmedAt: string }[] };
 type ImportPreview = { batchId: string | null; expiresAt?: string; errors: { row: number; field: string; message: string }[]; changes: { key: string; action: '変更' | '変更なし'; fields: { field: string; before: unknown; after: unknown }[] }[] };
@@ -17,7 +17,7 @@ const resultProviderLabels: Record<ResultDataProviderId, string> = { CANONICAL_C
 export function AdminResults() {
   const [races, setRaces] = useState<RaceRow[]>([]), [selected, setSelected] = useState<string | null>(null), [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState(''), [message, setMessage] = useState(''), [busy, setBusy] = useState(false);
-  async function loadList() { try { setRaces((await api<{ items: RaceRow[] }>('admin/results/races')).items); } catch (e) { setError((e as Error).message); } }
+  async function loadList() { try { setRaces((await api<AdminResultRacesResponse>('admin/results/races')).items); } catch (e) { setError((e as Error).message); } }
   async function load(id: string) { setSelected(id); setError(''); try { setDetail(await api<Detail>(`admin/results/races/${id}`)); } catch (e) { setError((e as Error).message); } }
   useEffect(() => { void loadList(); }, []);
   function entry(id: string, patch: Partial<DraftEntry>) { if (!detail) return; setDetail({ ...detail, draft: { ...detail.draft, entries: detail.draft.entries.map(item => item.entryId === id ? { ...item, ...patch } : item) } }); }
