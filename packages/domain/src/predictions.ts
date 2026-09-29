@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { evaluationConfidences } from './evaluations';
 import { assessmentSchema } from './assessments';
+import { entryStatuses, raceStatuses } from './races';
 
 export const publicationVisibilities = ['FREE', 'PAID'] as const;
 export const confidences = ['S', 'A', 'B', 'C'] as const;
@@ -40,6 +41,46 @@ export const publishablePredictionSchema = predictionDraftSchema.superRefine((va
 });
 export const predictionSaveSchema = z.object({ draft: predictionDraftSchema, revision: z.number().int().min(0), raceRevision: z.number().int().positive(), mutationId: z.string().uuid(), reason: z.string().trim().min(1).max(500) }).strict();
 export const publishPreviewSchema = z.object({ predictionRevision: z.number().int().positive(), raceRevision: z.number().int().positive(), correctionReason: z.string().trim().max(500).default('') }).strict();
+
+const expertPredictionAssessmentSchema = z.object({
+  content: assessmentSchema.pick({ change: true, paddockComment: true })
+}).strict();
+
+export const expertPredictionEditorResponseSchema = z.object({
+  race: z.object({
+    id: z.string().uuid(),
+    name: z.string().min(1),
+    venue: z.string().min(1),
+    number: z.number().int().min(1).max(12),
+    startsAt: predictionDateTimeSchema,
+    status: z.enum(raceStatuses),
+    revision: z.number().int().positive()
+  }).strict(),
+  entries: z.array(z.object({
+    id: z.string().uuid(),
+    number: z.number().int().min(1).max(18),
+    horseName: z.string().min(1),
+    status: z.enum(entryStatuses),
+    assessment: expertPredictionAssessmentSchema.nullable()
+  }).strict()).max(18),
+  prediction: z.object({
+    id: z.string().uuid(),
+    revision: z.number().int().positive(),
+    draft: predictionDraftSchema
+  }).strict().nullable(),
+  versions: z.array(z.object({
+    id: z.string().uuid(),
+    version: z.number().int().positive(),
+    status: z.enum(['PUBLISHED', 'CORRECTED']),
+    confidence: z.enum(evaluationConfidences),
+    summary: z.string(),
+    publishedAt: predictionDateTimeSchema,
+    correctionReason: z.string().nullable()
+  }).strict()),
+  correctionPolicy: z.enum(['ADMIN_ONLY', 'EXPERT_OR_ADMIN'])
+}).strict();
+
+export type ExpertPredictionEditorResponse = z.infer<typeof expertPredictionEditorResponseSchema>;
 
 const publicPredictionRaceSchema = z.object({
   id: z.string().uuid(),
