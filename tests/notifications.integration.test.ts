@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import type { NotificationTransport } from '../apps/worker/src/notification-runner';
 import { runEmailNotificationBatch, runNotificationBatch, skipPendingNotificationEvents, TestNotificationTransport } from '../apps/worker/src/notification-runner';
-import { adminNotificationListResponseSchema } from '../packages/domain/src';
+import { adminNotificationListResponseSchema, publicRaceAnnouncementsResponseSchema } from '../packages/domain/src';
 import { account, Client, db } from './helpers';
 
 let settingsBefore: Awaited<ReturnType<typeof db.systemSetting.findUniqueOrThrow>>;
@@ -190,7 +190,13 @@ describe('notification worker and administration', () => {
     await expect(db.raceAnnouncement.update({ where: { id: announcement.id }, data: { reason: '上書き' } })).rejects.toThrow();
     await expect(db.raceAnnouncement.delete({ where: { id: announcement.id } })).rejects.toThrow();
     const publicList = await new Client().call('announcements');
-    expect(publicList.body.items.some((item: { id: string }) => item.id === announcement.id)).toBe(true);
+    expect(publicList.status).toBe(200);
+    const publicAnnouncements = publicRaceAnnouncementsResponseSchema.parse(publicList.body);
+    expect(Object.keys(publicList.body)).toEqual(['items']);
+    expect(publicAnnouncements.items.some(item => item.id === announcement.id)).toBe(true);
+    expect(Object.keys(publicAnnouncements.items.find(item => item.id === announcement.id)!)).toEqual(['id', 'version', 'publishedAt', 'race']);
+    expect(Object.keys(publicAnnouncements.items.find(item => item.id === announcement.id)!.race)).toEqual(['id', 'raceDate', 'venue', 'number', 'name', 'startsAt']);
+    expect(JSON.stringify(publicList.body)).not.toMatch(/reason|createdBy|expertId|assignments|entries|prediction|email|lineSubject|token|secret/i);
     const messages: string[] = [];
     const event = await db.notificationEvent.findUniqueOrThrow({ where: { announcementId: announcement.id } });
     const transport: NotificationTransport = { async send(input) { if (input.recipient === subject && input.targetId === announcement.id) messages.push(input.message.text); return { kind: 'SENT', providerMessageId: `announcement-${input.retryKey}` }; } };

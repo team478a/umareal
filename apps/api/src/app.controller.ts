@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAccountClosuresResponseSchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminOperationsResponseSchema, adminReadinessResponseSchema, adminSummaryResponseSchema, adminUsersResponseSchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
+import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAccountClosuresResponseSchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminOperationsResponseSchema, adminReadinessResponseSchema, adminSummaryResponseSchema, adminUsersResponseSchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceAnnouncementsResponseSchema, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -105,10 +105,10 @@ export class AppController {
   }
   @Get('announcements') async announcements() {
     const now = new Date();
-    const rows = await this.auth.db.raceAnnouncement.findMany({ where: { publishedAt: { lte: now }, race: { startsAt: { gt: new Date(now.getTime() - 6 * 3600000) }, status: { notIn: ['CANCELLED'] } } }, include: { race: true }, orderBy: [{ publishedAt: 'desc' }, { id: 'asc' }], take: 50 });
+    const rows = await this.auth.db.raceAnnouncement.findMany({ where: { publishedAt: { lte: now }, race: { startsAt: { gt: new Date(now.getTime() - 6 * 3600000) }, status: { notIn: ['CANCELLED'] } } }, select: { id: true, raceId: true, version: true, publishedAt: true, race: { select: { id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true } } }, orderBy: [{ publishedAt: 'desc' }, { id: 'asc' }], take: 50 });
     const seen = new Set<string>();
     const items = rows.filter(row => { if (seen.has(row.raceId)) return false; seen.add(row.raceId); return true; }).slice(0, 10);
-    return { items: items.map(row => ({ id: row.id, version: row.version, publishedAt: row.publishedAt, race: { id: row.race.id, raceDate: row.race.raceDate, venue: row.race.venue, number: row.race.number, name: row.race.name, startsAt: row.race.startsAt } })) };
+    return publicRaceAnnouncementsResponseSchema.parse({ items: items.map(row => ({ id: row.id, version: row.version, publishedAt: row.publishedAt, race: { id: row.race.id, raceDate: row.race.raceDate, venue: row.race.venue, number: row.race.number, name: row.race.name, startsAt: row.race.startsAt } })) });
   }
   @Get('expert/races') async assigned(@Req() req: AppRequest) {
     const identity = await this.staff(req, ['EXPERT', 'ADMIN']);

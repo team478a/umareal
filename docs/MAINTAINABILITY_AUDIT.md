@@ -168,6 +168,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 管理ダッシュボード集計pilot: `GET /admin/summary`の会員・閲覧権限・レース・通知・結果・操作履歴件数、運用停止状態、無料登録ファネル、流入別有料化集計の既存応答を共有Contractへ接続し、管理ダッシュボードの手書き応答型を置き換える。ADMINとOPERATORの既存認可、集計式、最大20件、画面表示、DB schemaは変更しない。会員識別情報、メールアドレス、決済事業者側ID、監査詳細、資格情報の追加を厳格なContractとcharacterization testで拒否する。
 - 開催日運用ボードpilot: `GET /admin/operations`の開催日別レース進捗、期限、警告、通知集計、6段階リハーサル、運用機能の事前確認を共有Contractへ接続し、管理ダッシュボードの手書き応答型を置き換える。ADMINとOPERATORの既存認可、進捗・期限・リハーサル判定、30秒更新、画面表示、DB schemaは変更しない。会員連絡先、LINE識別子、出走馬・評価本文、配送先、接続資格情報の追加を厳格なContractとcharacterization testで拒否する。
 - SNS共有候補一覧pilot: `GET /admin/social-shares`の通常レースとWIN5の確定評価結果、共有可否、事実に限定した共有文・画像表示行の既存応答を共有Contractへ接続し、SNS共有管理画面の手書き応答型を置き換える。ADMINとOPERATORの既存認可、最新確定版の選択、共有文生成、画面表示、DB schemaは変更しない。会員連絡先、確認者、内部版ID、金額、SNS資格情報の追加と、種別・評価状態・結果URL・共有可否の矛盾を厳格なContractとcharacterization testで拒否する。
+- 公開対象レース告知一覧pilot: `GET /announcements`の告知ID、版番号、公開日時とレース基本情報の既存応答を共有Contractへ接続し、会員ホームの手書き応答型を置き換える。公開済みかつ中止でないレースから各レースの最新版を最大10件表示する既存条件、並び順、画面表示、通知、DB schemaは変更しない。告知理由、作成者、担当者、出走馬、予想内容、会員連絡先、認証・配信資格情報の追加を厳格なContractとcharacterization testで拒否する。
 
 ### MA-007 CIジョブ構成
 
