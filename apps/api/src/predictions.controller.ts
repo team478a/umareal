@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req, UnauthorizedException } from '@nestjs/common';
-import { assessmentSchema, canEditRace, canReadPrediction, expertPredictionEditorResponseSchema, legacyPredictionDraftSchema, paddockComplete, predictionDraftSchema, predictionSaveSchema, publicPredictionResponseSchema, publishablePredictionSchema, publishPreviewSchema } from '@keiba/domain';
+import { assessmentSchema, canEditRace, canReadPrediction, expertPredictionDraftSaveResponseSchema, expertPredictionEditorResponseSchema, expertPredictionPreviewResponseSchema, expertPredictionPublishResponseSchema, legacyPredictionDraftSchema, paddockComplete, predictionDraftSchema, predictionSaveSchema, publicPredictionResponseSchema, publishablePredictionSchema, publishPreviewSchema } from '@keiba/domain';
 import type { PredictionDraft } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -84,14 +84,18 @@ export class PredictionsController {
       const { actor } = await this.access(tx, req, raceId); const state = await this.state(tx, raceId);
       const key = `prediction:${actor.id}:${raceId}:${input.mutationId}`; const requestHash = hashToken(JSON.stringify(input));
       const prior = await tx.idempotencyKey.findUnique({ where: { key } });
-      if (prior) { if (prior.requestHash !== requestHash) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: '再送の内容が変わっています。' }); return prior.response; }
+      if (prior) {
+        if (prior.requestHash !== requestHash) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: '再送の内容が変わっています。' });
+        const previous = expertPredictionDraftSaveResponseSchema.passthrough().parse(prior.response);
+        return expertPredictionDraftSaveResponseSchema.parse({ id: previous.id, revision: previous.revision, draft: previous.draft, updatedAt: previous.updatedAt });
+      }
       if (state.revision !== input.raceRevision) throw new ConflictException({ code: 'RACE_CHANGED', message: 'レース・出走馬・担当が変更されました。再読み込みしてください。' });
       if ((state.prediction?.revision ?? 0) !== input.revision) throw new ConflictException({ code: 'PREDICTION_CONFLICT', message: '別の端末で最終予想が変更されました。再読み込みしてください。' });
       const revision = input.revision + 1;
       const saved = await tx.prediction.upsert({ where: { raceId }, create: { raceId, draft: json(input.draft), revision, updatedBy: actor.id }, update: { draft: json(input.draft), revision, updatedBy: actor.id, updatedAt: new Date() } });
       await tx.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: 'PREDICTION_DRAFT_SAVE', targetType: 'PREDICTION', targetId: saved.id, reason: input.reason, details: json({ revision, raceId }), requestId: req.requestId } });
-      const response = json({ id: saved.id, revision: saved.revision, draft: saved.draft, updatedAt: saved.updatedAt });
-      await tx.idempotencyKey.create({ data: { key, requestHash, response } }); return response;
+      const response = expertPredictionDraftSaveResponseSchema.parse({ id: saved.id, revision: saved.revision, draft: saved.draft, updatedAt: saved.updatedAt });
+      await tx.idempotencyKey.create({ data: { key, requestHash, response: json(response) } }); return response;
     });
   }
   @Post('expert/races/:raceId/prediction/preview') async preview(@Req() req: AppRequest, @Param('raceId') raceId: string, @Body() body: unknown) {
@@ -108,7 +112,7 @@ export class PredictionsController {
       const warnings = missing.length ? [`パドック未入力：${missing.join('、')}番`] : [];
       const snapshot = { correctionReason: input.correctionReason, nextVersion: (state.prediction.versions[0]?.version ?? 0) + 1 };
       const created = await tx.publicationPreview.create({ data: { actorId: actor.id, predictionId: state.prediction.id, baselineHash: this.fingerprint(state), snapshot, expiresAt: new Date(Date.now() + 15 * 60000) } });
-      return { previewId: created.id, expiresAt: created.expiresAt, version: snapshot.nextVersion, correction: correcting, correctionReason: input.correctionReason, warnings, deadlineAt: state.startsAt, draft, entries: state.entries.map(e => ({ id: e.id, horseId: e.horseId, number: e.number, horseName: e.horseName, status: e.status, assessment: e.assessment?.content ?? null })) };
+      return expertPredictionPreviewResponseSchema.parse({ previewId: created.id, expiresAt: created.expiresAt, version: snapshot.nextVersion, correction: correcting, correctionReason: input.correctionReason, warnings, deadlineAt: state.startsAt, draft, entries: state.entries.map(e => ({ id: e.id, number: e.number, horseName: e.horseName })) });
     });
   }
   @Post('expert/races/:raceId/prediction/publish/:previewId') async publish(@Req() req: AppRequest, @Param('raceId') raceId: string, @Param('previewId') previewId: string) {
@@ -117,7 +121,7 @@ export class PredictionsController {
       const { actor } = await this.access(tx, req, raceId); await this.ensurePublicationEnabled(tx);
       const preview = await tx.publicationPreview.findUnique({ where: { id: previewId } });
       if (!preview || preview.actorId !== actor.id) throw new NotFoundException();
-      if (preview.confirmedVersionId) return { published: true, versionId: preview.confirmedVersionId, alreadyPublished: true };
+      if (preview.confirmedVersionId) return expertPredictionPublishResponseSchema.parse({ published: true, versionId: preview.confirmedVersionId, alreadyPublished: true });
       if (preview.expiresAt <= new Date()) throw new ConflictException({ code: 'PREVIEW_EXPIRED', message: '公開前確認の有効期限が切れました。再確認してください。' });
       const state = await this.state(tx, raceId);
       const settings = await tx.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { predictionCorrectionPolicy: true, delayedPublicationPolicy: true } });
@@ -133,7 +137,7 @@ export class PredictionsController {
       await tx.notificationEvent.create({ data: { versionId: version.id, eventType: correcting ? 'PREDICTION_CORRECTED' : 'PREDICTION_PUBLISHED', status: 'QUEUED', payload: json({ versionId: version.id, raceId, visibility: draft.visibility }) } });
       await tx.publicationPreview.update({ where: { id: preview.id }, data: { confirmedVersionId: version.id } });
       await tx.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: correcting ? 'PREDICTION_CORRECT' : 'PREDICTION_PUBLISH', targetType: 'PREDICTION_VERSION', targetId: version.id, reason: correcting ? details.correctionReason : '最終予想の公開', details: json({ raceId, predictionId: state.prediction.id, version: details.nextVersion, formatVersion: version.formatVersion, previousVersionId: previous?.id ?? null }), requestId: req.requestId } });
-      return { published: true, versionId: version.id, version: details.nextVersion, alreadyPublished: false, publishedAt: version.publishedAt };
+      return expertPredictionPublishResponseSchema.parse({ published: true, versionId: version.id, version: details.nextVersion, alreadyPublished: false, publishedAt: version.publishedAt });
     });
   }
   @Get('races/:raceId/prediction') async publicPrediction(@Req() req: AppRequest, @Param('raceId') raceId: string, @Query() query: unknown) {
