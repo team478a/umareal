@@ -43,6 +43,10 @@ describe('account closure and retained history', () => {
     expect((await admin.call('admin/account-closures')).status).toBe(403); await admin.mfa();
     const records = await admin.call('admin/account-closures'); expect(records.status).toBe(200);
     expect(records.body.items).toEqual(expect.arrayContaining([expect.objectContaining({ id: closure.id, status: 'CLOSED', retentionPolicyVersion: 'development-v1' })]));
+    expect(Object.keys(records.body).sort()).toEqual(['items', 'limit', 'page', 'total'].sort());
+    const record = records.body.items.find((item: { id: string }) => item.id === closure.id);
+    expect(Object.keys(record).sort()).toEqual(['accessRevokedAt', 'id', 'reasonCode', 'requestedAt', 'retentionPolicyVersion', 'status', 'user'].sort());
+    expect(Object.keys(record.user).sort()).toEqual(['disabledAt', 'displayName', 'email', 'id', 'registrationMethod'].sort());
     expect(JSON.stringify(records.body)).not.toMatch(/passwordHash|mfaSecret|tokenHash/);
   });
 

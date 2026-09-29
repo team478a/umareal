@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema } from './account-closure';
+import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, adminAccountClosuresResponseSchema } from './account-closure';
 
 const response = {
   eligible: false,
@@ -49,5 +49,46 @@ describe('account closure completion response contract', () => {
     expect(accountClosureCompletionResponseSchema.safeParse({ ...completed, closureId: 'internal-closure' }).success).toBe(false);
     expect(accountClosureCompletionResponseSchema.safeParse({ ...completed, userId: '11111111-1111-4111-8111-111111111111' }).success).toBe(false);
     expect(accountClosureCompletionResponseSchema.safeParse({ ...completed, auditLogId: 'internal-audit' }).success).toBe(false);
+  });
+});
+
+describe('administrator account closures response contract', () => {
+  const list = {
+    items: [{
+      id: '11111111-1111-4111-8111-111111111111',
+      reasonCode: 'PRICE' as const,
+      requestedAt: new Date('2026-09-29T01:00:00.000Z'),
+      accessRevokedAt: new Date('2026-09-29T01:00:01.000Z'),
+      retentionPolicyVersion: 'development-v1',
+      status: 'CLOSED' as const,
+      user: {
+        id: '22222222-2222-4222-8222-222222222222',
+        displayName: '退会済み会員',
+        email: 'closed@example.test',
+        registrationMethod: 'EMAIL',
+        disabledAt: new Date('2026-09-29T01:00:01.000Z')
+      }
+    }],
+    total: 1,
+    page: 1,
+    limit: 20
+  };
+
+  it('preserves the existing paginated administration response', () => {
+    const parsed = adminAccountClosuresResponseSchema.parse(list);
+    expect(parsed.items[0].requestedAt).toBe('2026-09-29T01:00:00.000Z');
+    expect(parsed.items[0].user.disabledAt).toBe('2026-09-29T01:00:01.000Z');
+  });
+
+  it('rejects authentication, audit and unselected database fields', () => {
+    expect(adminAccountClosuresResponseSchema.safeParse({
+      ...list,
+      items: [{ ...list.items[0], userId: list.items[0].user.id }]
+    }).success).toBe(false);
+    expect(adminAccountClosuresResponseSchema.safeParse({
+      ...list,
+      items: [{ ...list.items[0], user: { ...list.items[0].user, passwordHash: 'secret' } }]
+    }).success).toBe(false);
+    expect(adminAccountClosuresResponseSchema.safeParse({ ...list, auditLog: [] }).success).toBe(false);
   });
 });
