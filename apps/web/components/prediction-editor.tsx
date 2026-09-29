@@ -1,12 +1,10 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { emptyPredictionDraft, evaluationConfidences, finalMarks, publicationVisibilities, type ExpertPredictionEditorResponse, type PredictionDraft, type PublicFreeReportMetadataResponse, type PublicPredictionFullVersion, type PublicPredictionResponse } from '@keiba/domain';
+import { emptyPredictionDraft, evaluationConfidences, finalMarks, publicationVisibilities, type ExpertPredictionDraftSaveResponse, type ExpertPredictionEditorResponse, type ExpertPredictionPreviewResponse, type ExpertPredictionPublishResponse, type PredictionDraft, type PublicFreeReportMetadataResponse, type PublicPredictionFullVersion, type PublicPredictionResponse } from '@keiba/domain';
 import { RaceResultPanel } from './results';
 
-type Entry = { id: string; number: number; horseName: string; status: string; assessment?: { content: { change?: string | null; paddockComment?: string } } | null };
 type State = ExpertPredictionEditorResponse;
-type Preview = { previewId: string; expiresAt: string; version: number; correction: boolean; correctionReason: string; warnings: string[]; deadlineAt: string; draft: PredictionDraft; entries: Entry[] };
 
 const markLabels: Record<string, string> = { HONMEI: '◎ 最終本命', TAIKO: '○ 対抗', TANANA: '▲ 単穴', RENKA: '△ 連下', ANA: '☆ 穴候補', DANGER: '危険馬' };
 const confidenceLabel = (value: string) => value === 'SKIP' ? '見送り' : `信頼度 ${value}`;
@@ -24,7 +22,7 @@ export function PredictionEditor({ raceId }: { raceId: string }) {
   const [revision, setRevision] = useState(0);
   const [reason, setReason] = useState('最終評価の編集');
   const [correctionReason, setCorrectionReason] = useState('');
-  const [preview, setPreview] = useState<Preview | null>(null);
+  const [preview, setPreview] = useState<ExpertPredictionPreviewResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -51,18 +49,18 @@ export function PredictionEditor({ raceId }: { raceId: string }) {
   function markReason(entryId: string, value: string) { change({ marks: draft.marks.map(item => item.entryId === entryId ? { ...item, reason: value } : item) }); }
   async function saveDraft() {
     if (!state) throw new Error('レース情報を再読み込みしてください。');
-    const saved = await request<{ revision: number; draft: PredictionDraft }>(`${raceId}/prediction/draft`, 'POST', { draft, revision, raceRevision: state.race.revision, mutationId: crypto.randomUUID(), reason });
+    const saved = await request<ExpertPredictionDraftSaveResponse>(`${raceId}/prediction/draft`, 'POST', { draft, revision, raceRevision: state.race.revision, mutationId: crypto.randomUUID(), reason });
     setDraft(saved.draft); setRevision(saved.revision); setDirty(false); setMessage('下書きを保存しました。'); return saved.revision;
   }
   async function save() { setBusy(true); setError(''); try { await saveDraft(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
   async function check() {
     setBusy(true); setError(''); setMessage(''); setPreview(null);
-    try { const savedRevision = dirty || revision === 0 ? await saveDraft() : revision; setPreview(await request<Preview>(`${raceId}/prediction/preview`, 'POST', { predictionRevision: savedRevision, raceRevision: state!.race.revision, correctionReason })); }
+    try { const savedRevision = dirty || revision === 0 ? await saveDraft() : revision; setPreview(await request<ExpertPredictionPreviewResponse>(`${raceId}/prediction/preview`, 'POST', { predictionRevision: savedRevision, raceRevision: state!.race.revision, correctionReason })); }
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   async function publish() {
     setBusy(true); setError('');
-    try { const result = await request<{ version: number }>(`${raceId}/prediction/publish/${preview!.previewId}`, 'POST'); setPreview(null); await load(); setMessage(`公開版${result.version}を保存しました。`); }
+    try { const result = await request<ExpertPredictionPublishResponse>(`${raceId}/prediction/publish/${preview!.previewId}`, 'POST'); setPreview(null); await load(); setMessage(result.alreadyPublished ? 'この公開版は保存済みです。' : `公開版${result.version}を保存しました。`); }
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
 

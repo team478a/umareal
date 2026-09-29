@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { emptyPredictionDraft, expertPredictionEditorResponseSchema, legacyPredictionDraftSchema, predictionDraftSchema, publicPredictionResponseSchema, publishablePredictionSchema, totalYenFor } from './predictions';
+import { emptyPredictionDraft, expertPredictionDraftSaveResponseSchema, expertPredictionEditorResponseSchema, expertPredictionPreviewResponseSchema, expertPredictionPublishResponseSchema, legacyPredictionDraftSchema, predictionDraftSchema, publicPredictionResponseSchema, publishablePredictionSchema, totalYenFor } from './predictions';
 
 const entryId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const current = { ...emptyPredictionDraft, visibility: 'PAID' as const, confidence: 'A' as const, summary: '展開と適性を評価', marks: [{ entryId, mark: 'HONMEI' as const, reason: '最終本命として評価' }] };
@@ -83,5 +83,32 @@ describe('expert prediction editor response contract', () => {
     expect(expertPredictionEditorResponseSchema.safeParse({ ...response, entries: [{ ...response.entries[0], assessment: { ...response.entries[0].assessment, updatedBy: '55555555-5555-4555-8555-555555555555' } }] }).success).toBe(false);
     expect(expertPredictionEditorResponseSchema.safeParse({ ...response, versions: [{ ...response.versions[0], publisherId: '66666666-6666-4666-8666-666666666666' }] }).success).toBe(false);
     expect(expertPredictionEditorResponseSchema.safeParse({ ...response, versions: [{ ...response.versions[0], marks: [] }] }).success).toBe(false);
+  });
+});
+
+describe('expert prediction write response contracts', () => {
+  const predictionId = '22222222-2222-4222-8222-222222222222';
+  const previewId = '33333333-3333-4333-8333-333333333333';
+  const versionId = '44444444-4444-4444-8444-444444444444';
+
+  it('normalizes draft-save and preview dates without exposing internal fields', () => {
+    const saved = expertPredictionDraftSaveResponseSchema.parse({ id: predictionId, revision: 1, draft: current, updatedAt: new Date('2026-09-27T04:00:00.000Z') });
+    expect(saved.updatedAt).toBe('2026-09-27T04:00:00.000Z');
+    expect(expertPredictionDraftSaveResponseSchema.safeParse({ ...saved, updatedBy: versionId }).success).toBe(false);
+
+    const preview = expertPredictionPreviewResponseSchema.parse({
+      previewId, expiresAt: new Date('2026-09-27T04:15:00.000Z'), version: 1, correction: false, correctionReason: '', warnings: ['パドック未入力：6番'],
+      deadlineAt: new Date('2026-09-27T06:00:00.000Z'), draft: current, entries: [{ id: entryId, number: 6, horseName: '試験馬' }]
+    });
+    expect(preview.expiresAt).toBe('2026-09-27T04:15:00.000Z');
+    expect(expertPredictionPreviewResponseSchema.safeParse({ ...preview, actorId: versionId }).success).toBe(false);
+    expect(expertPredictionPreviewResponseSchema.safeParse({ ...preview, entries: [{ ...preview.entries[0], horseId: versionId }] }).success).toBe(false);
+  });
+
+  it('keeps initial publication and idempotent replay responses distinct', () => {
+    const published = expertPredictionPublishResponseSchema.parse({ published: true, versionId, version: 1, alreadyPublished: false, publishedAt: new Date('2026-09-27T05:00:00.000Z') });
+    expect(published).toMatchObject({ version: 1, alreadyPublished: false, publishedAt: '2026-09-27T05:00:00.000Z' });
+    expect(expertPredictionPublishResponseSchema.parse({ published: true, versionId, alreadyPublished: true })).toEqual({ published: true, versionId, alreadyPublished: true });
+    expect(expertPredictionPublishResponseSchema.safeParse({ ...published, notificationEventId: predictionId }).success).toBe(false);
   });
 });

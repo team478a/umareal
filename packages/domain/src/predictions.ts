@@ -42,6 +42,47 @@ export const publishablePredictionSchema = predictionDraftSchema.superRefine((va
 export const predictionSaveSchema = z.object({ draft: predictionDraftSchema, revision: z.number().int().min(0), raceRevision: z.number().int().positive(), mutationId: z.string().uuid(), reason: z.string().trim().min(1).max(500) }).strict();
 export const publishPreviewSchema = z.object({ predictionRevision: z.number().int().positive(), raceRevision: z.number().int().positive(), correctionReason: z.string().trim().max(500).default('') }).strict();
 
+export const expertPredictionDraftSaveResponseSchema = z.object({
+  id: z.string().uuid(),
+  revision: z.number().int().positive(),
+  draft: predictionDraftSchema,
+  updatedAt: predictionDateTimeSchema
+}).strict();
+export type ExpertPredictionDraftSaveResponse = z.infer<typeof expertPredictionDraftSaveResponseSchema>;
+
+export const expertPredictionPreviewResponseSchema = z.object({
+  previewId: z.string().uuid(),
+  expiresAt: predictionDateTimeSchema,
+  version: z.number().int().positive(),
+  correction: z.boolean(),
+  correctionReason: z.string().max(500),
+  warnings: z.array(z.string().min(1)).max(18),
+  deadlineAt: predictionDateTimeSchema,
+  draft: predictionDraftSchema,
+  entries: z.array(z.object({
+    id: z.string().uuid(),
+    number: z.number().int().min(1).max(18),
+    horseName: z.string().min(1)
+  }).strict()).max(18)
+}).strict();
+export type ExpertPredictionPreviewResponse = z.infer<typeof expertPredictionPreviewResponseSchema>;
+
+export const expertPredictionPublishResponseSchema = z.discriminatedUnion('alreadyPublished', [
+  z.object({
+    published: z.literal(true),
+    versionId: z.string().uuid(),
+    alreadyPublished: z.literal(true)
+  }).strict(),
+  z.object({
+    published: z.literal(true),
+    versionId: z.string().uuid(),
+    version: z.number().int().positive(),
+    alreadyPublished: z.literal(false),
+    publishedAt: predictionDateTimeSchema
+  }).strict()
+]);
+export type ExpertPredictionPublishResponse = z.infer<typeof expertPredictionPublishResponseSchema>;
+
 const expertPredictionAssessmentSchema = z.object({
   content: assessmentSchema.pick({ change: true, paddockComment: true })
 }).strict();
