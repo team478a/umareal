@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminReadinessResponseSchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
+import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAccountClosuresResponseSchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminReadinessResponseSchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -322,7 +322,7 @@ export class AppController {
       this.auth.db.accountClosure.findMany({ include: { user: { select: { id: true, displayName: true, email: true, registrationMethod: true, disabledAt: true } } }, orderBy: [{ requestedAt: 'desc' }, { id: 'asc' }], skip: (page - 1) * limit, take: limit }),
       this.auth.db.accountClosure.count()
     ]);
-    return { items: items.map(item => ({ id: item.id, reasonCode: item.reasonCode, requestedAt: item.requestedAt, accessRevokedAt: item.accessRevokedAt, retentionPolicyVersion: item.retentionPolicyVersion, status: item.user.disabledAt ? 'CLOSED' : 'REVIEW_REQUIRED', user: item.user })), total, page, limit };
+    return adminAccountClosuresResponseSchema.parse({ items: items.map(item => ({ id: item.id, reasonCode: item.reasonCode, requestedAt: item.requestedAt, accessRevokedAt: item.accessRevokedAt, retentionPolicyVersion: item.retentionPolicyVersion, status: item.user.disabledAt ? 'CLOSED' : 'REVIEW_REQUIRED', user: item.user })), total, page, limit });
   }
   @Get('admin/users') async users(@Req() req: AppRequest, @Query() query: unknown) {
     await this.staff(req, ['ADMIN']);

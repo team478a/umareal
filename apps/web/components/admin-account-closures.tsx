@@ -1,14 +1,15 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import { Archive, RefreshCw, UserRoundX } from 'lucide-react';
+import type { AdminAccountClosuresResponse } from '@keiba/domain';
 
-type Item = { id: string; reasonCode: string; requestedAt: string; accessRevokedAt: string; retentionPolicyVersion: string; status: 'CLOSED' | 'REVIEW_REQUIRED'; user: { id: string; displayName: string; email: string | null; registrationMethod: string; disabledAt: string | null } };
+type Item = AdminAccountClosuresResponse['items'][number];
 const reasons: Record<string, string> = { SERVICE_NO_LONGER_NEEDED: '利用しなくなった', PRICE: '料金', CONTENT: '内容', OTHER: 'その他' };
 const formatDate = (value: string) => new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 
 export function AdminAccountClosures() {
   const [items, setItems] = useState<Item[]>([]); const [total, setTotal] = useState(0); const [page, setPage] = useState(1); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
-  const load = useCallback(async () => { setLoading(true); setError(''); try { const response = await fetch(`/api/v1/admin/account-closures?page=${page}`, { cache: 'no-store' }); const result = await response.json(); if (!response.ok) throw new Error(result.message ?? '退会記録を取得できませんでした。'); setItems(result.items); setTotal(result.total); } catch (e) { setError((e as Error).message); } finally { setLoading(false); } }, [page]);
+  const load = useCallback(async () => { setLoading(true); setError(''); try { const response = await fetch(`/api/v1/admin/account-closures?page=${page}`, { cache: 'no-store' }); const result = await response.json() as AdminAccountClosuresResponse & { message?: string }; if (!response.ok) throw new Error(result.message ?? '退会記録を取得できませんでした。'); setItems(result.items); setTotal(result.total); } catch (e) { setError((e as Error).message); } finally { setLoading(false); } }, [page]);
   useEffect(() => { void load(); }, [load]);
   return <><div className="page-heading"><span className="eyebrow">ACCOUNT RETENTION</span><h1>退会・保持記録</h1><p>利用停止済みの会員と、履歴保持方針を確認します。</p></div>
     {error && <div className="notice error" role="alert">{error}</div>}
