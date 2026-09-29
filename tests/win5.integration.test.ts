@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { publicWin5DetailResponseSchema, publicWin5ListResponseSchema, publicWin5PerformanceResponseSchema } from '../packages/domain/src';
+import { adminSocialSharesResponseSchema, publicWin5DetailResponseSchema, publicWin5ListResponseSchema, publicWin5PerformanceResponseSchema } from '../packages/domain/src';
 import { assessmentFixture } from './assessment-fixtures';
 import { account, Client, db } from './helpers';
 import type { NotificationTransport } from '../apps/worker/src/notification-runner';
@@ -169,7 +169,8 @@ describe('WIN5 product drafting and publication', () => {
     expect(storedEvaluation.legs).toHaveLength(5); expect(storedEvaluation.legs.every(leg => leg.winnerInRecommended)).toBe(true);
     await expect(db.win5EvaluationVersion.update({ where: { id: storedEvaluation.id }, data: { status: 'WIN5_MISSED' } })).rejects.toThrow();
     const shares = await admin.client.call('admin/social-shares'); expect(shares.status).toBe(200);
-    const win5Share = shares.body.items.find((item: { path: string }) => item.path === `/win5/${created.body.id}`);
+    const socialShares = adminSocialSharesResponseSchema.parse(shares.body);
+    const win5Share = socialShares.items.find(item => item.path === `/win5/${created.body.id}`);
     expect(win5Share).toMatchObject({ kind: 'WIN5', status: 'WIN5_ALL_WINNERS_RECOMMENDED', shareable: true, headline: 'WIN5対象5レース 勝ち馬をすべて候補内に選出' });
     expect(JSON.stringify(win5Share)).not.toMatch(/買い目|組み合わせ|購入|払戻|回収率|収支|利益|的中/);
     const memberNotices = await freeClient.call('me/notifications');

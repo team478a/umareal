@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
-import { emptyPredictionDraft, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema } from '../packages/domain/src';
+import { adminSocialSharesResponseSchema, emptyPredictionDraft, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema } from '../packages/domain/src';
 import { assessmentFixture } from './assessment-fixtures';
 import { account, Client, db } from './helpers';
 
@@ -65,7 +65,10 @@ describe('immutable results and horse-evaluation performance', () => {
     expect((await adminWithoutMfa.call('admin/social-shares')).body.code).toBe('MFA_REQUIRED');
     const shares = await fixture.client.call('admin/social-shares');
     expect(shares.status).toBe(200);
-    const raceShare = shares.body.items.find((item: { path: string }) => item.path === `/races/${fixture.race.id}`);
+    const socialShares = adminSocialSharesResponseSchema.parse(shares.body);
+    expect(Object.keys(shares.body)).toEqual(['items']);
+    expect(JSON.stringify(shares.body)).not.toMatch(/confirmedBy|email|lineSubject|predictionVersionId|resultVersionId|accessToken|secret|payoutYen/i);
+    const raceShare = socialShares.items.find(item => item.path === `/races/${fixture.race.id}`);
     expect(raceShare).toMatchObject({ kind: 'PADDOCK', status: 'PRIMARY_WIN', shareable: true });
     expect(raceShare.text).toContain('本命馬が1着');
     expect(JSON.stringify(raceShare)).not.toMatch(/買い目|組み合わせ|購入|払戻|回収率|収支|利益|的中/);
