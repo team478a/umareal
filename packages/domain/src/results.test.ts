@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { adminResultDataProvidersResponseSchema, adminResultImportHistoryResponseSchema, adminResultRaceDetailResponseSchema, adminResultRacesResponseSchema, aggregatePerformances, getResultDataProvider, legacyRaceResultInputSchema, parseBatchResultCsv, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, resultDataProviderCatalog, settlePrediction, verifyJraVanResultBundle } from './results';
+import { adminResultConfirmResponseSchema, adminResultDataProvidersResponseSchema, adminResultDraftSaveResponseSchema, adminResultImportHistoryResponseSchema, adminResultRaceDetailResponseSchema, adminResultRacesResponseSchema, aggregatePerformances, getResultDataProvider, legacyRaceResultInputSchema, parseBatchResultCsv, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, resultDataProviderCatalog, settlePrediction, verifyJraVanResultBundle } from './results';
 
 const entry = (entryId: string, finishPosition: number) => ({ entryId, status: 'FINISHED' as const, finishPosition, popularity: finishPosition, finalOdds: '2.5' });
 
@@ -192,6 +192,20 @@ describe('admin result race detail contract', () => {
     expect(adminResultRaceDetailResponseSchema.safeParse({
       ...response, versions: [{ ...response.versions[0], confirmedBy: crypto.randomUUID() }]
     }).success).toBe(false);
+  });
+});
+
+describe('admin result mutation response contracts', () => {
+  it('keeps the draft save response limited to its new revision', () => {
+    expect(adminResultDraftSaveResponseSchema.parse({ revision: 2 })).toEqual({ revision: 2 });
+    expect(adminResultDraftSaveResponseSchema.safeParse({ revision: 2, updatedBy: crypto.randomUUID() }).success).toBe(false);
+  });
+
+  it('preserves first confirmation and idempotent replay without internal fields', () => {
+    const versionId = crypto.randomUUID();
+    expect(adminResultConfirmResponseSchema.parse({ versionId, version: 2, alreadyConfirmed: false })).toEqual({ versionId, version: 2, alreadyConfirmed: false });
+    expect(adminResultConfirmResponseSchema.parse({ versionId, version: 2, alreadyConfirmed: true })).toEqual({ versionId, version: 2, alreadyConfirmed: true });
+    expect(adminResultConfirmResponseSchema.safeParse({ versionId, version: 2, alreadyConfirmed: false, confirmedBy: crypto.randomUUID() }).success).toBe(false);
   });
 });
 

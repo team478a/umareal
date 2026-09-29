@@ -185,6 +185,16 @@ export const adminResultRaceDetailResponseSchema = z.object({
   }).strict())
 }).strict();
 export type AdminResultRaceDetailResponse = z.infer<typeof adminResultRaceDetailResponseSchema>;
+export const adminResultDraftSaveResponseSchema = z.object({
+  revision: z.number().int().positive()
+}).strict();
+export type AdminResultDraftSaveResponse = z.infer<typeof adminResultDraftSaveResponseSchema>;
+export const adminResultConfirmResponseSchema = z.object({
+  versionId: z.string().uuid(),
+  version: z.number().int().positive(),
+  alreadyConfirmed: z.boolean()
+}).strict();
+export type AdminResultConfirmResponse = z.infer<typeof adminResultConfirmResponseSchema>;
 export type ResultDataProviderInfo = { id: ResultDataProviderId; label: string; formatVersion: string; headers: readonly string[] };
 export type ResultDataProviderParseResult = { provider: ResultDataProviderInfo; rows: BatchResultCsvRow[]; errors: ResultCsvIssue[] };
 export interface ResultDataProvider { info: ResultDataProviderInfo; parse(source: string): ResultDataProviderParseResult }
