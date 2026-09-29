@@ -1,11 +1,9 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { assessmentSaveSchema, blankAssessment, changeLabels, changes, markLabels, marks, metricLabels, metrics, paddockComplete, preComplete, type AssessmentInput } from '@keiba/domain';
+import { assessmentSaveSchema, blankAssessment, changeLabels, changes, markLabels, marks, metricLabels, metrics, paddockComplete, preComplete, type AssessmentInput, type AssessmentSaveInput, type ExpertAssessmentHistoryResponse, type ExpertAssessmentSaveResponse, type ExpertAssessmentWorkspaceResponse } from '@keiba/domain';
 import { PredictionEditor } from './prediction-editor';
-type Saved = { revision: number; content: AssessmentInput };
-type Entry = { id: string; horseId: string; number: number; horseName: string; status: string; assessment: Saved | null };
-type Workspace = { race: { id: string; name: string; venue: string; number: number; startsAt: string; status: string; revision: number }; entries: Entry[] };
-type Draft = { content: AssessmentInput; revision: number; raceRevision: number; horseId: string; mutationId: string; reason: string };
+type Entry = ExpertAssessmentWorkspaceResponse['entries'][number];
+type Draft = AssessmentSaveInput;
 type Drafts = Record<string, Draft>;
 const fieldLabels: Record<string, string> = { preScore: '事前点数', preRank: '事前順位', preMark: '事前印', preComment: '事前短評', ...metricLabels, change: '総合変化', paddockComment: 'パドック短評' };
 function valueText(key: string, value: unknown) {
@@ -23,11 +21,11 @@ async function request<T>(path: string, body?: unknown): Promise<T> {
   return result;
 }
 export function AssessmentEditor({ raceId, userId, onClose }: { raceId: string; userId: string; onClose: () => void }) {
-  const [workspace, setWorkspace] = useState<Workspace | null>(null); const [drafts, setDrafts] = useState<Drafts>({});
+  const [workspace, setWorkspace] = useState<ExpertAssessmentWorkspaceResponse | null>(null); const [drafts, setDrafts] = useState<Drafts>({});
   const [index, setIndex] = useState(0); const [mode, setMode] = useState<'pre' | 'paddock'>('paddock'); const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [failed, setFailed] = useState(false);
   const [conflict, setConflict] = useState<string | null>(null); const [reason, setReason] = useState('担当評価の入力');
-  const [review, setReview] = useState(false); const [history, setHistory] = useState<{ revision: number; content: AssessmentInput; reason: string; createdAt: string }[]>([]);
+  const [review, setReview] = useState(false); const [history, setHistory] = useState<ExpertAssessmentHistoryResponse['items']>([]);
   const [onlineVersion, setOnlineVersion] = useState(0);
   const [historyPage, setHistoryPage] = useState(1); const [historyTotal, setHistoryTotal] = useState(0);
   const storageKey = `keiba:assessment:${userId}:${raceId}`; const raw = useRef<string | null>(null); const sending = useRef(false);
@@ -37,7 +35,7 @@ export function AssessmentEditor({ raceId, userId, onClose }: { raceId: string; 
   }, [storageKey]);
   const load = useCallback(async () => {
     try {
-      const result = await request<Workspace>(`${raceId}/assessments`);
+      const result = await request<ExpertAssessmentWorkspaceResponse>(`${raceId}/assessments`);
       raw.current = localStorage.getItem(storageKey);
       const stored: unknown = JSON.parse(raw.current ?? '{}');
       const restored: Drafts = {};
@@ -63,7 +61,7 @@ export function AssessmentEditor({ raceId, userId, onClose }: { raceId: string; 
       const [entryId, draft] = Object.entries(drafts)[0]; sending.current = true; setBusy(true);
       try {
         if (localStorage.getItem(storageKey) !== raw.current) throw new Error('別のタブが一時保存を変更しました。再読み込みして確認してください。');
-        const saved = await request<Saved>(`${raceId}/entries/${entryId}/assessment`, draft);
+        const saved = await request<ExpertAssessmentSaveResponse>(`${raceId}/entries/${entryId}/assessment`, draft);
         const next = { ...drafts }; delete next[entryId]; persist(next);
         setWorkspace(current => current ? { ...current, entries: current.entries.map(e => e.id === entryId ? { ...e, assessment: saved } : e) } : current);
         setError('');
@@ -71,7 +69,7 @@ export function AssessmentEditor({ raceId, userId, onClose }: { raceId: string; 
         setError((e as Error).message); setFailed(true);
         if (e instanceof RequestError && e.status === 409) {
           setConflict(entryId);
-          try { setWorkspace(await request<Workspace>(`${raceId}/assessments`)); } catch { /* Keep local draft; retry reload explicitly. */ }
+          try { setWorkspace(await request<ExpertAssessmentWorkspaceResponse>(`${raceId}/assessments`)); } catch { /* Keep local draft; retry reload explicitly. */ }
         }
       } finally { sending.current = false; setBusy(false); }
     }, Object.keys(drafts).length > 1 ? 0 : 650);
@@ -91,7 +89,7 @@ export function AssessmentEditor({ raceId, userId, onClose }: { raceId: string; 
   async function resolve(keepLocal: boolean) {
     if (!conflict) return;
     try {
-      const latest = await request<Workspace>(`${raceId}/assessments`); const current = latest.entries.find(e => e.id === conflict);
+      const latest = await request<ExpertAssessmentWorkspaceResponse>(`${raceId}/assessments`); const current = latest.entries.find(e => e.id === conflict);
       if (latest.race.revision !== workspace!.race.revision || current?.assessment?.revision !== workspace!.entries.find(e => e.id === conflict)?.assessment?.revision) {
         setWorkspace(latest); throw new Error('比較中に再更新されました。表示された最新の内容をもう一度確認してください。');
       }
@@ -104,7 +102,7 @@ export function AssessmentEditor({ raceId, userId, onClose }: { raceId: string; 
     } catch (e) { setError((e as Error).message); }
   }
   async function loadHistory(page = 1) {
-    try { const result = await request<{ items: typeof history; total: number }>(`${raceId}/entries/${entry.id}/history?page=${page}`); setHistory(result.items); setHistoryPage(page); setHistoryTotal(result.total); }
+    try { const result = await request<ExpertAssessmentHistoryResponse>(`${raceId}/entries/${entry.id}/history?page=${page}`); setHistory(result.items); setHistoryPage(page); setHistoryTotal(result.total); }
     catch (e) { setError((e as Error).message); }
   }
   const completed = workspace.entries.filter(e => paddockComplete(contentFor(e))).length;
