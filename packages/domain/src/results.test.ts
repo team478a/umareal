@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { aggregatePerformances, getResultDataProvider, legacyRaceResultInputSchema, parseBatchResultCsv, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, resultDataProviderCatalog, settlePrediction, verifyJraVanResultBundle } from './results';
+import { adminResultDataProvidersResponseSchema, aggregatePerformances, getResultDataProvider, legacyRaceResultInputSchema, parseBatchResultCsv, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, resultDataProviderCatalog, settlePrediction, verifyJraVanResultBundle } from './results';
 
 const entry = (entryId: string, finishPosition: number) => ({ entryId, status: 'FINISHED' as const, finishPosition, popularity: finishPosition, finalOdds: '2.5' });
 
@@ -55,6 +55,30 @@ describe('public prediction statistics contract', () => {
     expect(() => publicPredictionStatsResponseSchema.parse({ ...response, returnRate: 120 })).toThrow();
     expect(() => publicPredictionStatsResponseSchema.parse({ ...response, userId: crypto.randomUUID() })).toThrow();
     expect(() => publicPredictionStatsResponseSchema.parse({ ...response, overall: { ...metric, confirmedBy: crypto.randomUUID() } })).toThrow();
+  });
+});
+
+describe('admin result data provider contract', () => {
+  const response = {
+    items: resultDataProviderCatalog.map(provider => ({
+      id: provider.id,
+      label: provider.label,
+      formatVersion: provider.formatVersion,
+      headers: provider.headers
+    }))
+  };
+
+  it('accepts every existing provider without changing the response shape', () => {
+    expect(adminResultDataProvidersResponseSchema.parse(response)).toEqual(response);
+  });
+
+  it('rejects internal configuration, missing providers and duplicate IDs', () => {
+    expect(adminResultDataProvidersResponseSchema.safeParse({ ...response, databaseUrl: 'postgresql://private' }).success).toBe(false);
+    expect(adminResultDataProvidersResponseSchema.safeParse({
+      items: response.items.map((provider, index) => index === 0 ? { ...provider, accessToken: 'secret' } : provider)
+    }).success).toBe(false);
+    expect(adminResultDataProvidersResponseSchema.safeParse({ items: response.items.slice(0, 1) }).success).toBe(false);
+    expect(adminResultDataProvidersResponseSchema.safeParse({ items: [response.items[0], response.items[0]] }).success).toBe(false);
   });
 });
 
