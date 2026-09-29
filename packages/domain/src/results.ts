@@ -92,6 +92,22 @@ export type BatchResultCsvRow = z.infer<typeof batchResultCsvRowSchema>;
 export const resultDataProviderIds = ['CANONICAL_CSV', 'JRA_VAN_BRIDGE_V1'] as const;
 export const resultDataProviderIdSchema = z.enum(resultDataProviderIds);
 export type ResultDataProviderId = z.infer<typeof resultDataProviderIdSchema>;
+export const adminResultDataProviderSchema = z.object({
+  id: resultDataProviderIdSchema,
+  label: z.string().min(1),
+  formatVersion: z.string().min(1),
+  headers: z.array(z.string().min(1)).min(1)
+}).strict();
+export const adminResultDataProvidersResponseSchema = z.object({
+  items: z.array(adminResultDataProviderSchema).length(resultDataProviderIds.length)
+}).strict().superRefine((value, context) => {
+  const ids = new Set(value.items.map(item => item.id));
+  for (const id of resultDataProviderIds) {
+    if (!ids.has(id)) context.addIssue({ code: 'custom', path: ['items'], message: `${id}がありません。` });
+  }
+  if (ids.size !== value.items.length) context.addIssue({ code: 'custom', path: ['items'], message: '取込元IDが重複しています。' });
+});
+export type AdminResultDataProvidersResponse = z.infer<typeof adminResultDataProvidersResponseSchema>;
 export type ResultDataProviderInfo = { id: ResultDataProviderId; label: string; formatVersion: string; headers: readonly string[] };
 export type ResultDataProviderParseResult = { provider: ResultDataProviderInfo; rows: BatchResultCsvRow[]; errors: ResultCsvIssue[] };
 export interface ResultDataProvider { info: ResultDataProviderInfo; parse(source: string): ResultDataProviderParseResult }

@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Req } from '@nestjs/common';
-import { aggregatePredictionEvaluations, canManage, dateSchema, evaluatePrediction, getResultDataProvider, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, raceResultInputSchema, requiresMfa, resultDataProviderCatalog, resultDataProviderIdSchema, resultEntrySchema, verifyJraVanResultBundle } from '@keiba/domain';
+import { adminResultDataProvidersResponseSchema, aggregatePredictionEvaluations, canManage, dateSchema, evaluatePrediction, getResultDataProvider, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, raceResultInputSchema, requiresMfa, resultDataProviderCatalog, resultDataProviderIdSchema, resultEntrySchema, verifyJraVanResultBundle } from '@keiba/domain';
 import type { BatchResultCsvRow, RaceResultInput, ResultEntry, Role } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -212,7 +212,7 @@ export class ResultsController {
   @Get('admin/results/import/providers')
   async resultImportProviders(@Req() req: AppRequest) {
     await this.staff(req);
-    return { items: resultDataProviderCatalog.map(provider => ({ id: provider.id, label: provider.label, formatVersion: provider.formatVersion, headers: provider.headers })) };
+    return adminResultDataProvidersResponseSchema.parse({ items: resultDataProviderCatalog.map(provider => ({ id: provider.id, label: provider.label, formatVersion: provider.formatVersion, headers: provider.headers })) });
   }
 
   @Get('admin/results/import/history')

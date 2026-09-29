@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
-import { adminSocialSharesResponseSchema, emptyPredictionDraft, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema } from '../packages/domain/src';
+import { adminResultDataProvidersResponseSchema, adminSocialSharesResponseSchema, emptyPredictionDraft, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema } from '../packages/domain/src';
 import { assessmentFixture } from './assessment-fixtures';
 import { account, Client, db } from './helpers';
 
@@ -115,9 +115,17 @@ describe('immutable results and horse-evaluation performance', () => {
     const uniqueKey = () => { const value = Number.parseInt(randomUUID().slice(0, 8), 16); return { raceDate: `${2050 + value % 40}-${String(1 + Math.floor(value / 40) % 12).padStart(2, '0')}-${String(1 + Math.floor(value / 480) % 28).padStart(2, '0')}`, venue: ['札幌', '函館', '福島', '新潟', '東京', '中山', '中京', '京都', '阪神', '小倉'][Math.floor(value / 13440) % 10], number: 1 + Math.floor(value / 134400) % 12 }; };
     first.race = await db.race.update({ where: { id: first.race.id }, data: uniqueKey() });
     second.race = await db.race.update({ where: { id: second.race.id }, data: uniqueKey() });
+    const member = new Client(); await member.login(await account());
+    expect((await member.call('admin/results/import/providers')).status).toBe(403);
+    const adminWithoutMfa = new Client(); await adminWithoutMfa.login(await account('ADMIN'));
+    expect((await adminWithoutMfa.call('admin/results/import/providers')).body.code).toBe('MFA_REQUIRED');
     const operator = new Client(); await operator.login(await account('OPERATOR'));
     const providers = await operator.call('admin/results/import/providers');
-    expect(providers.status).toBe(200); expect(providers.body.items).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'CANONICAL_CSV' }), expect.objectContaining({ id: 'JRA_VAN_BRIDGE_V1', formatVersion: 'UMAREAL_JRA_VAN_BRIDGE_V1' })]));
+    expect(providers.status).toBe(200);
+    const providerCatalog = adminResultDataProvidersResponseSchema.parse(providers.body);
+    expect(providerCatalog.items).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'CANONICAL_CSV' }), expect.objectContaining({ id: 'JRA_VAN_BRIDGE_V1', formatVersion: 'UMAREAL_JRA_VAN_BRIDGE_V1' })]));
+    expect(Object.keys(providers.body)).toEqual(['items']);
+    expect(JSON.stringify(providers.body)).not.toMatch(/email|password|authSubject|lineSubject|token|secret|databaseUrl|providerConfig/i);
     const header = 'raceDate,venue,raceNumber,horseNumber,status,finishPosition,popularity,finalOdds';
     const row = (fixture: typeof first, entryIndex: number, oddsOffset = 0) => {
       const entry = fixture.entries[entryIndex]; return `${fixture.race.raceDate},${fixture.race.venue},${fixture.race.number},${entry.number},FINISHED,${entryIndex + 1},${entryIndex + 1},${entryIndex + 2 + oddsOffset}.5`;

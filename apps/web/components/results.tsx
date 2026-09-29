@@ -1,12 +1,11 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { Check, ChevronRight, FileUp } from 'lucide-react';
-import type { PublicPredictionStatsResponse, PublicRaceResultResponse } from '@keiba/domain';
+import type { AdminResultDataProvidersResponse, PublicPredictionStatsResponse, PublicRaceResultResponse, ResultDataProviderId } from '@keiba/domain';
 
 async function api<T>(path: string, method = 'GET', body?: unknown): Promise<T> { const response = await fetch(`/api/v1/${path}`, { method, cache: 'no-store', headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined }); const value = await response.json(); if (!response.ok) throw new Error(value.message ?? '処理できませんでした。'); return value; }
-type ResultProviderId = 'CANONICAL_CSV' | 'JRA_VAN_BRIDGE_V1';
-type ResultProvider = { id: ResultProviderId; label: string; formatVersion: string; headers: string[] };
-type RaceRow = { id: string; raceDate: string; venue: string; number: number; name: string; startsAt: string; status: string; draftRevision: number; draftSource: 'CSV_SINGLE' | 'CSV_BATCH' | null; draftProvider: ResultProviderId | null; latestResult: { version: number; sourceRevision: number; confirmedAt: string; raceCanceled: boolean } | null };
+type ResultProvider = AdminResultDataProvidersResponse['items'][number];
+type RaceRow = { id: string; raceDate: string; venue: string; number: number; name: string; startsAt: string; status: string; draftRevision: number; draftSource: 'CSV_SINGLE' | 'CSV_BATCH' | null; draftProvider: ResultDataProviderId | null; latestResult: { version: number; sourceRevision: number; confirmedAt: string; raceCanceled: boolean } | null };
 type DraftEntry = { entryId: string; status: 'FINISHED' | 'WITHDRAWN' | 'EXCLUDED' | 'DNF' | 'CANCELED'; finishPosition: number | null; popularity: number | null; finalOdds: string | null };
 type Detail = { race: RaceRow; entries: { id: string; number: number; horseName: string }[]; draft: { revision: number; raceCanceled: boolean; reason: string; entries: DraftEntry[] }; versions: { id: string; version: number; sourceRevision: number; ruleVersion: string; raceCanceled: boolean; reason: string; confirmedAt: string }[] };
 type ImportPreview = { batchId: string | null; expiresAt?: string; errors: { row: number; field: string; message: string }[]; changes: { key: string; action: '変更' | '変更なし'; fields: { field: string; before: unknown; after: unknown }[] }[] };
@@ -14,7 +13,7 @@ type ResultBundleProvenance = { formatVersion: 'UMAREAL_JRA_VAN_BUNDLE_V1'; targ
 type BatchImportPreview = { provider: Omit<ResultProvider, 'headers'>; sourceChecksum: string; bundle?: ResultBundleProvenance | null; sourceDisposition?: 'NEW' | 'CORRECTION'; previousImport?: { batchId: string; confirmedAt: string; sourceChecksum: string } | null; duplicateOf?: { batchId: string; confirmedAt: string }; batchId: string | null; expiresAt?: string; errors: { row: number; field: string; message: string }[]; races: { raceId: string; key: string; targetRevision: number; changes: ImportPreview['changes'] }[] };
 type ResultImportHistory = { batchId: string; provider: Omit<ResultProvider, 'headers'>; sourceChecksum: string; bundle: ResultBundleProvenance | null; sourceDisposition: 'NEW' | 'CORRECTION'; previousImportBatchId: string | null; actorDisplayName: string; confirmedAt: string; races: { raceId: string; label: string; revision: number }[] };
 const resultFieldLabels: Record<string, string> = { raceCanceled: 'レース中止', status: '状態', finishPosition: '着順', popularity: '人気', finalOdds: '確定単勝', number: '馬番', horseNumber: '馬番', raceNumber: 'レース番号', raceDate: '開催日', venue: '競馬場', venueCode: '競馬場コード', abnormalCode: '異常区分コード', recordType: 'レコード種別', csv: 'CSV', header: '見出し' };
-const resultProviderLabels: Record<ResultProviderId, string> = { CANONICAL_CSV: '内部標準CSV', JRA_VAN_BRIDGE_V1: 'JRA-VAN連携ブリッジ' };
+const resultProviderLabels: Record<ResultDataProviderId, string> = { CANONICAL_CSV: '内部標準CSV', JRA_VAN_BRIDGE_V1: 'JRA-VAN連携ブリッジ' };
 
 export function AdminResults() {
   const [races, setRaces] = useState<RaceRow[]>([]), [selected, setSelected] = useState<string | null>(null), [detail, setDetail] = useState<Detail | null>(null);
@@ -33,10 +32,10 @@ function BatchResultCsvImport({ onImported }: { onImported: () => Promise<void> 
   const [csv, setCsv] = useState(''), [reason, setReason] = useState(''), [preview, setPreview] = useState<BatchImportPreview | null>(null);
   const [bundleManifest, setBundleManifest] = useState('');
   const [error, setError] = useState(''), [message, setMessage] = useState(''), [busy, setBusy] = useState(false);
-  const [providers, setProviders] = useState<ResultProvider[]>([]), [providerId, setProviderId] = useState<ResultProviderId>('CANONICAL_CSV');
+  const [providers, setProviders] = useState<ResultProvider[]>([]), [providerId, setProviderId] = useState<ResultDataProviderId>('CANONICAL_CSV');
   const [history, setHistory] = useState<ResultImportHistory[]>([]);
   async function loadHistory() { setHistory((await api<{ items: ResultImportHistory[] }>('admin/results/import/history')).items); }
-  useEffect(() => { api<{ items: ResultProvider[] }>('admin/results/import/providers').then(value => setProviders(value.items)).catch(e => setError(e.message)); loadHistory().catch(e => setError(e.message)); }, []);
+  useEffect(() => { api<AdminResultDataProvidersResponse>('admin/results/import/providers').then(value => setProviders(value.items)).catch(e => setError(e.message)); loadHistory().catch(e => setError(e.message)); }, []);
   const provider = providers.find(item => item.id === providerId);
   async function fileChanged(file?: File) {
     setPreview(null); setError(''); setMessage(''); if (!file) return;
@@ -69,7 +68,7 @@ function BatchResultCsvImport({ onImported }: { onImported: () => Promise<void> 
       {error && <div className="notice error" role="alert">{error}</div>}
       {message && <div className="notice" role="status">{message}</div>}
       <div className="race-form-grid">
-        <label className="field">取込元<select aria-label="結果CSVの取込元" value={providerId} onChange={e => { setProviderId(e.target.value as ResultProviderId); setCsv(''); setBundleManifest(''); setPreview(null); setError(''); setMessage(''); }}>{providers.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+        <label className="field">取込元<select aria-label="結果CSVの取込元" value={providerId} onChange={e => { setProviderId(e.target.value as ResultDataProviderId); setCsv(''); setBundleManifest(''); setPreview(null); setError(''); setMessage(''); }}>{providers.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
         <label className="field">CSVファイル<input aria-label="複数レース結果CSVファイル" type="file" accept=".csv,text/csv" onChange={e => void fileChanged(e.target.files?.[0])} /></label>
         {providerId === 'JRA_VAN_BRIDGE_V1' && <label className="field">一括出力manifest<input aria-label="JRA-VAN結果manifest" type="file" accept=".json,application/json" onChange={e => void manifestChanged(e.target.files?.[0])} /></label>}
         <a className="text-link" href={providerId === 'JRA_VAN_BRIDGE_V1' ? '/samples/jra-van-bridge-results.csv' : '/samples/batch-results.csv'} download>{providerId === 'JRA_VAN_BRIDGE_V1' ? 'JRA-VANブリッジ用サンプルCSV' : '内部標準サンプルCSV'}</a>
