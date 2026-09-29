@@ -1,13 +1,11 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { emptyPredictionDraft, evaluationConfidences, finalMarks, publicationVisibilities, type PredictionDraft, type PublicFreeReportMetadataResponse, type PublicPredictionFullVersion, type PublicPredictionResponse } from '@keiba/domain';
+import { emptyPredictionDraft, evaluationConfidences, finalMarks, publicationVisibilities, type ExpertPredictionEditorResponse, type PredictionDraft, type PublicFreeReportMetadataResponse, type PublicPredictionFullVersion, type PublicPredictionResponse } from '@keiba/domain';
 import { RaceResultPanel } from './results';
 
 type Entry = { id: string; number: number; horseName: string; status: string; assessment?: { content: { change?: string | null; paddockComment?: string } } | null };
-type Assessment = { entryId: string; number: number; horseName: string; assessment: { change?: string | null; paddockComment?: string } | null };
-type Version = { id: string; version: number; status: string; visibility: string; confidence: string; formatVersion: string; summary: string; assessmentSnapshot: Assessment[]; publishedAt: string; correctionReason: string | null; marks: { id?: string; entryId: string; horseNumber: number; horseName: string; mark: string; reason: string }[] };
-type State = { race: { id: string; name: string; venue: string; number: number; startsAt: string; status: string; revision: number }; entries: Entry[]; prediction: { id: string; revision: number; draft: PredictionDraft } | null; versions: Version[]; correctionPolicy: string };
+type State = ExpertPredictionEditorResponse;
 type Preview = { previewId: string; expiresAt: string; version: number; correction: boolean; correctionReason: string; warnings: string[]; deadlineAt: string; draft: PredictionDraft; entries: Entry[] };
 
 const markLabels: Record<string, string> = { HONMEI: '◎ 最終本命', TAIKO: '○ 対抗', TANANA: '▲ 単穴', RENKA: '△ 連下', ANA: '☆ 穴候補', DANGER: '危険馬' };

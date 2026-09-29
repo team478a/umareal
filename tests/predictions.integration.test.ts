@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { emptyPredictionDraft, publicPredictionResponseSchema } from '../packages/domain/src';
+import { emptyPredictionDraft, expertPredictionEditorResponseSchema, publicPredictionResponseSchema } from '../packages/domain/src';
 import type { PredictionDraft } from '../packages/domain/src';
 import { assessmentFixture } from './assessment-fixtures';
 import { Client, db } from './helpers';
@@ -17,7 +17,13 @@ describe('prediction drafts, publication and immutable versions', () => {
   it('authorizes drafts, makes retries idempotent and detects concurrent edits', async () => {
     const fixture = await assessmentFixture(); const member = await assessmentFixture('MEMBER');
     expect((await member.client.call(`expert/races/${fixture.race.id}/prediction`)).status).toBe(403);
-    expect((await member.client.call(`expert/races/${fixture.race.id}/prediction/draft`, 'POST', { ...(await save(fixture)).body, role: 'EXPERT' })).status).toBe(400);
+    const initial = await save(fixture);
+    expect((await member.client.call(`expert/races/${fixture.race.id}/prediction/draft`, 'POST', { ...initial.body, role: 'EXPERT' })).status).toBe(400);
+    const editorResult = await fixture.client.call(`expert/races/${fixture.race.id}/prediction`); const editor = expertPredictionEditorResponseSchema.parse(editorResult.body);
+    expect(editorResult.status).toBe(200); expect(editor.prediction).toMatchObject({ id: initial.result.body.id, revision: 1, draft: initial.body.draft }); expect(editor.versions).toEqual([]);
+    expect(Object.keys(editor.race).sort()).toEqual(['id', 'name', 'number', 'revision', 'startsAt', 'status', 'venue']);
+    expect(Object.keys(editor.entries[0]).sort()).toEqual(['assessment', 'horseName', 'id', 'number', 'status']);
+    expect(JSON.stringify(editor)).not.toMatch(/horseId|gate|jockey|trainer|updatedBy|publisherId|deadlineAt|previousVersionId|contentSnapshot/);
     const mutationId = randomUUID(); const first = await save(fixture, undefined, 1, mutationId);
     // The helper call used above created revision 1; this call creates revision 2.
     expect(first.result.status).toBe(201); expect(first.result.body.revision).toBe(2);
@@ -36,6 +42,9 @@ describe('prediction drafts, publication and immutable versions', () => {
     expect((await fixture.client.call(path, 'POST')).body.alreadyPublished).toBe(true);
     const version = await db.predictionVersion.findUniqueOrThrow({ where: { id: published.body.versionId }, include: { marks: true, bets: true, notificationEvent: true } });
     expect(version.marks).toHaveLength(1); expect(version.bets).toHaveLength(0); expect(version.stance).toBeNull(); expect(version.estimatedTotalYen).toBeNull(); expect(version.formatVersion).toBe('HORSE_EVALUATION_V1'); expect(version.notificationEvent?.status).toBe('QUEUED');
+    const editorResult = await fixture.client.call(`expert/races/${fixture.race.id}/prediction`); const editor = expertPredictionEditorResponseSchema.parse(editorResult.body);
+    expect(editor.versions).toHaveLength(1); expect(Object.keys(editor.versions[0]).sort()).toEqual(['confidence', 'correctionReason', 'id', 'publishedAt', 'status', 'summary', 'version']);
+    expect(JSON.stringify(editor.versions[0])).not.toMatch(/publisherId|deadlineAt|previousVersionId|formatVersion|assessmentSnapshot|marks/);
     const publicResult = await new Client().call(`races/${fixture.race.id}/prediction`); expect(publicResult.body.locked).toBe(true); expect(publicResult.body.latest.summary).toBeUndefined();
     await expect(db.predictionVersion.update({ where: { id: version.id }, data: { summary: 'rewrite' } })).rejects.toThrow();
     await expect(db.predictionVersion.delete({ where: { id: version.id } })).rejects.toThrow();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { emptyPredictionDraft, legacyPredictionDraftSchema, predictionDraftSchema, publicPredictionResponseSchema, publishablePredictionSchema, totalYenFor } from './predictions';
+import { emptyPredictionDraft, expertPredictionEditorResponseSchema, legacyPredictionDraftSchema, predictionDraftSchema, publicPredictionResponseSchema, publishablePredictionSchema, totalYenFor } from './predictions';
 
 const entryId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const current = { ...emptyPredictionDraft, visibility: 'PAID' as const, confidence: 'A' as const, summary: '展開と適性を評価', marks: [{ entryId, mark: 'HONMEI' as const, reason: '最終本命として評価' }] };
@@ -58,5 +58,30 @@ describe('public prediction response contract', () => {
     expect(parsed.latest?.publishedAt).toBe('2026-09-27T05:00:00.000Z');
     expect(publicPredictionResponseSchema.safeParse({ ...response, latest: { ...full, contentSnapshot: { secret: true } } }).success).toBe(false);
     expect(publicPredictionResponseSchema.safeParse({ ...response, latest: { ...full, bets: [{ amountPerPointYen: 100 }] } }).success).toBe(false);
+  });
+});
+
+describe('expert prediction editor response contract', () => {
+  const response = {
+    race: { id: '11111111-1111-4111-8111-111111111111', name: '編集予想試験', venue: '中山', number: 11, startsAt: new Date('2026-09-27T06:00:00.000Z'), status: 'SCHEDULED' as const, revision: 2 },
+    entries: [{ id: entryId, number: 6, horseName: '試験馬', status: 'ACTIVE' as const, assessment: { content: { change: 'UP' as const, paddockComment: '歩様が良い' } } }],
+    prediction: { id: '22222222-2222-4222-8222-222222222222', revision: 1, draft: current },
+    versions: [{ id: '33333333-3333-4333-8333-333333333333', version: 1, status: 'PUBLISHED' as const, confidence: 'A' as const, summary: '公開済み見解', publishedAt: new Date('2026-09-27T05:00:00.000Z'), correctionReason: null }],
+    correctionPolicy: 'ADMIN_ONLY' as const
+  };
+
+  it('normalizes dates while retaining the existing editor data', () => {
+    const parsed = expertPredictionEditorResponseSchema.parse(response);
+    expect(parsed.race.startsAt).toBe('2026-09-27T06:00:00.000Z');
+    expect(parsed.versions[0].publishedAt).toBe('2026-09-27T05:00:00.000Z');
+    expect(parsed.entries[0].assessment?.content).toEqual({ change: 'UP', paddockComment: '歩様が良い' });
+    expect(expertPredictionEditorResponseSchema.parse({ ...response, prediction: null, versions: [] }).prediction).toBeNull();
+  });
+
+  it('rejects database-only entry, assessment and publication fields', () => {
+    expect(expertPredictionEditorResponseSchema.safeParse({ ...response, entries: [{ ...response.entries[0], horseId: '44444444-4444-4444-8444-444444444444' }] }).success).toBe(false);
+    expect(expertPredictionEditorResponseSchema.safeParse({ ...response, entries: [{ ...response.entries[0], assessment: { ...response.entries[0].assessment, updatedBy: '55555555-5555-4555-8555-555555555555' } }] }).success).toBe(false);
+    expect(expertPredictionEditorResponseSchema.safeParse({ ...response, versions: [{ ...response.versions[0], publisherId: '66666666-6666-4666-8666-666666666666' }] }).success).toBe(false);
+    expect(expertPredictionEditorResponseSchema.safeParse({ ...response, versions: [{ ...response.versions[0], marks: [] }] }).success).toBe(false);
   });
 });

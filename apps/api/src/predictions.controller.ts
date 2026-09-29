@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req, UnauthorizedException } from '@nestjs/common';
-import { assessmentSchema, canEditRace, canReadPrediction, legacyPredictionDraftSchema, paddockComplete, predictionDraftSchema, predictionSaveSchema, publicPredictionResponseSchema, publishablePredictionSchema, publishPreviewSchema } from '@keiba/domain';
+import { assessmentSchema, canEditRace, canReadPrediction, expertPredictionEditorResponseSchema, legacyPredictionDraftSchema, paddockComplete, predictionDraftSchema, predictionSaveSchema, publicPredictionResponseSchema, publishablePredictionSchema, publishPreviewSchema } from '@keiba/domain';
 import type { PredictionDraft } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -62,8 +62,20 @@ export class PredictionsController {
     return this.locked(async tx => {
       await this.access(tx, req, raceId); const state = await this.state(tx, raceId);
       const settings = await tx.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { predictionCorrectionPolicy: true } });
-      const versions = state.prediction ? await tx.predictionVersion.findMany({ where: { predictionId: state.prediction.id }, orderBy: { version: 'desc' }, select: versionSelect }) : [];
-      return { race: { id: state.id, name: state.name, venue: state.venue, number: state.number, startsAt: state.startsAt, status: state.status, revision: state.revision }, entries: state.entries, prediction: state.prediction ? { id: state.prediction.id, draft: this.currentDraft(state.prediction.draft), revision: state.prediction.revision } : null, versions, correctionPolicy: settings.predictionCorrectionPolicy };
+      const versions = state.prediction ? await tx.predictionVersion.findMany({
+        where: { predictionId: state.prediction.id }, orderBy: { version: 'desc' },
+        select: { id: true, version: true, status: true, confidence: true, summary: true, publishedAt: true, correctionReason: true }
+      }) : [];
+      return expertPredictionEditorResponseSchema.parse({
+        race: { id: state.id, name: state.name, venue: state.venue, number: state.number, startsAt: state.startsAt, status: state.status, revision: state.revision },
+        entries: state.entries.map(entry => {
+          const content = entry.assessment ? assessmentSchema.parse(entry.assessment.content) : null;
+          return { id: entry.id, number: entry.number, horseName: entry.horseName, status: entry.status, assessment: content ? { content: { change: content.change, paddockComment: content.paddockComment } } : null };
+        }),
+        prediction: state.prediction ? { id: state.prediction.id, draft: this.currentDraft(state.prediction.draft), revision: state.prediction.revision } : null,
+        versions,
+        correctionPolicy: settings.predictionCorrectionPolicy
+      });
     });
   }
   @Post('expert/races/:raceId/prediction/draft') async save(@Req() req: AppRequest, @Param('raceId') raceId: string, @Body() body: unknown) {
