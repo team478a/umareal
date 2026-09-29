@@ -1,12 +1,12 @@
 import { Controller, ForbiddenException, Get, Inject, Query, Req } from '@nestjs/common';
-import { buildRaceSocialShare, buildWin5SocialShare, canManage, requiresMfa } from '@keiba/domain';
+import { adminSocialSharesResponseSchema, buildRaceSocialShare, buildWin5SocialShare, canManage, predictionEvaluationStatuses, requiresMfa, win5EvaluationStatuses } from '@keiba/domain';
 import type { PredictionEvaluationStatus, Role, Win5EvaluationStatus } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
 
-const predictionStatus = z.enum(['PRIMARY_WIN', 'PRIMARY_TOP2', 'PRIMARY_TOP3', 'WINNER_IN_RECOMMENDED', 'WINNER_NOT_RECOMMENDED', 'SKIPPED', 'EXCLUDED', 'CANCELED', 'REVIEW_REQUIRED']);
-const win5Status = z.enum(['WIN5_ALL_WINNERS_RECOMMENDED', 'WIN5_PARTIAL', 'WIN5_MISSED', 'REVIEW_REQUIRED']);
+const predictionStatus = z.enum(predictionEvaluationStatuses);
+const win5Status = z.enum(win5EvaluationStatuses);
 
 @Controller()
 export class SocialSharesController {
@@ -84,6 +84,6 @@ export class SocialSharesController {
       };
     });
     const items = [...raceItems, ...win5Items].sort((a, b) => b.confirmedAt.getTime() - a.confirmedAt.getTime()).slice(0, limit);
-    return { items };
+    return adminSocialSharesResponseSchema.parse({ items });
   }
 }

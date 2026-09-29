@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { Check, Copy, Download, Share2 } from 'lucide-react';
+import type { AdminSocialShareItem, AdminSocialSharesResponse } from '@keiba/domain';
 
 async function api<T>(path: string): Promise<T> {
   const response = await fetch(`/api/v1/${path}`, { cache: 'no-store' });
@@ -9,23 +10,7 @@ async function api<T>(path: string): Promise<T> {
   return value;
 }
 
-type ShareItem = {
-  id: string;
-  kind: 'PADDOCK' | 'WIN5';
-  targetDate: string;
-  title: string;
-  status: string;
-  resultVersion: number;
-  predictionVersion: number;
-  publishedAt: string;
-  confirmedAt: string;
-  path: string;
-  shareable: boolean;
-  headline: string;
-  text: string | null;
-  resultLines: string[];
-  blockedReason: string | null;
-};
+type ShareItem = AdminSocialShareItem;
 
 const jst = (value: string) => new Date(value).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
 
@@ -35,7 +20,7 @@ export function SocialShareManager() {
   const [message, setMessage] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
 
-  useEffect(() => { api<{ items: ShareItem[] }>('admin/social-shares?limit=50').then(value => setItems(value.items)).catch(reason => setError(reason.message)); }, []);
+  useEffect(() => { api<AdminSocialSharesResponse>('admin/social-shares?limit=50').then(value => setItems(value.items)).catch(reason => setError(reason.message)); }, []);
 
   function content(item: ShareItem) {
     if (!item.text) return '';
