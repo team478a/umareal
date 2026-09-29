@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
 import { account, Client, db } from './helpers';
-import { entryHeaders, raceHeaders } from '../packages/domain/src/races';
+import { entryHeaders, expertRaceListResponseSchema, raceHeaders } from '../packages/domain/src/races';
 const admin = new Client(); let expert: Awaited<ReturnType<typeof account>>; let expertClient: Client;
 let day = `2098-${String(Math.floor(Math.random() * 12) + 1).padStart(2, '0')}-${String(Math.floor(Math.random() * 28) + 1).padStart(2, '0')}`;
 const raceInput = (number: number) => ({ raceDate: day, venue: '東京', number, name: `CSV試験-${randomUUID().slice(0, 6)}`, raceClass: '未勝利', distance: 1600, surface: 'TURF', direction: 'LEFT', startsAt: `${day}T10:00:00+09:00`, going: 'GOOD', weather: '晴', status: 'SCHEDULED', expertId: expert.user.id });
@@ -45,7 +45,12 @@ describe('race management and transactional CSV imports', () => {
     expect(result.status).toBe(201); raceId = result.body.id;
     expect((await admin.call('admin/races', 'POST', body, undefined, key)).body.id).toBe(raceId);
     expect((await admin.call('admin/races', 'POST', body, undefined, headers())).status).toBe(409);
-    expect((await expertClient.call('expert/races')).body.items.map((r: { id: string }) => r.id)).toContain(raceId);
+    const assigned = await expertClient.call('expert/races');
+    expect(expertRaceListResponseSchema.parse(assigned.body)).toEqual(assigned.body);
+    expect(assigned.body.items.map((r: { id: string }) => r.id)).toContain(raceId);
+    const assignedRace = assigned.body.items.find((race: { id: string }) => race.id === raceId);
+    expect(Object.keys(assignedRace).sort()).toEqual(['id', 'name', 'number', 'raceDate', 'startsAt', 'status', 'venue']);
+    expect(JSON.stringify(assigned.body)).not.toMatch(/assignments|raceDayId|revision|expertId|updatedBy|passwordHash|authSubject|token|secret/i);
     expect((await expertClient.call('admin/races', 'POST', body, undefined, headers())).status).toBe(403);
     expect((await new Client().call('admin/races')).status).toBe(401);
     expect(result.body.raceDayId).toBeTruthy();

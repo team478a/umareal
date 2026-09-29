@@ -72,6 +72,20 @@ export const publicRaceListResponseSchema = z.object({
 
 export type PublicRaceListResponse = z.infer<typeof publicRaceListResponseSchema>;
 
+export const expertRaceListResponseSchema = z.object({
+  items: z.array(z.object({
+    id: z.string().uuid(),
+    raceDate: dateSchema,
+    venue: z.string().min(1),
+    number: z.number().int().min(1).max(12),
+    name: z.string().min(1),
+    startsAt: raceDiscoveryDateTimeSchema,
+    status: z.enum(raceStatuses)
+  }).strict()).max(50)
+}).strict();
+
+export type ExpertRaceListResponse = z.infer<typeof expertRaceListResponseSchema>;
+
 export const publicRaceAnnouncementsResponseSchema = z.object({
   items: z.array(z.object({
     id: z.string().uuid(),

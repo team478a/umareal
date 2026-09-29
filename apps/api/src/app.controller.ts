@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAccountClosuresResponseSchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminOperationsResponseSchema, adminReadinessResponseSchema, adminSummaryResponseSchema, adminUsersResponseSchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceAnnouncementsResponseSchema, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
+import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAccountClosuresResponseSchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminOperationsResponseSchema, adminReadinessResponseSchema, adminSummaryResponseSchema, adminUsersResponseSchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, expertRaceListResponseSchema, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceAnnouncementsResponseSchema, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -112,7 +112,13 @@ export class AppController {
   }
   @Get('expert/races') async assigned(@Req() req: AppRequest) {
     const identity = await this.staff(req, ['EXPERT', 'ADMIN']);
-    return { items: await this.auth.db.race.findMany({ where: identity.role === 'ADMIN' ? {} : { assignments: { some: { userId: identity.id } } }, take: 50, orderBy: { startsAt: 'asc' } }) };
+    const items = await this.auth.db.race.findMany({
+      where: identity.role === 'ADMIN' ? {} : { assignments: { some: { userId: identity.id } } },
+      take: 50,
+      orderBy: { startsAt: 'asc' },
+      select: { id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true, status: true }
+    });
+    return expertRaceListResponseSchema.parse({ items });
   }
   @Get('expert/races/:raceId/workspace') async workspace(@Param('raceId') raceId: string, @Req() req: AppRequest) {
     const identity = await this.auth.authenticate(req);
