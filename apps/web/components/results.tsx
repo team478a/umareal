@@ -1,13 +1,13 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { Check, ChevronRight, FileUp } from 'lucide-react';
-import type { AdminResultDataProvidersResponse, AdminResultImportHistoryResponse, AdminResultRacesResponse, PublicPredictionStatsResponse, PublicRaceResultResponse, ResultDataProviderId } from '@keiba/domain';
+import type { AdminResultDataProvidersResponse, AdminResultImportHistoryResponse, AdminResultRaceDetailResponse, AdminResultRacesResponse, PublicPredictionStatsResponse, PublicRaceResultResponse, ResultDataProviderId } from '@keiba/domain';
 
 async function api<T>(path: string, method = 'GET', body?: unknown): Promise<T> { const response = await fetch(`/api/v1/${path}`, { method, cache: 'no-store', headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined }); const value = await response.json(); if (!response.ok) throw new Error(value.message ?? '処理できませんでした。'); return value; }
 type ResultProvider = AdminResultDataProvidersResponse['items'][number];
 type RaceRow = AdminResultRacesResponse['items'][number];
-type DraftEntry = { entryId: string; status: 'FINISHED' | 'WITHDRAWN' | 'EXCLUDED' | 'DNF' | 'CANCELED'; finishPosition: number | null; popularity: number | null; finalOdds: string | null };
-type Detail = { race: RaceRow; entries: { id: string; number: number; horseName: string }[]; draft: { revision: number; raceCanceled: boolean; reason: string; entries: DraftEntry[] }; versions: { id: string; version: number; sourceRevision: number; ruleVersion: string; raceCanceled: boolean; reason: string; confirmedAt: string }[] };
+type Detail = AdminResultRaceDetailResponse;
+type DraftEntry = Detail['draft']['entries'][number];
 type ImportPreview = { batchId: string | null; expiresAt?: string; errors: { row: number; field: string; message: string }[]; changes: { key: string; action: '変更' | '変更なし'; fields: { field: string; before: unknown; after: unknown }[] }[] };
 type ResultBundleProvenance = { formatVersion: 'UMAREAL_JRA_VAN_BUNDLE_V1'; targetDate: string; manifestChecksum: string };
 type BatchImportPreview = { provider: Omit<ResultProvider, 'headers'>; sourceChecksum: string; bundle?: ResultBundleProvenance | null; sourceDisposition?: 'NEW' | 'CORRECTION'; previousImport?: { batchId: string; confirmedAt: string; sourceChecksum: string } | null; duplicateOf?: { batchId: string; confirmedAt: string }; batchId: string | null; expiresAt?: string; errors: { row: number; field: string; message: string }[]; races: { raceId: string; key: string; targetRevision: number; changes: ImportPreview['changes'] }[] };
@@ -18,7 +18,7 @@ export function AdminResults() {
   const [races, setRaces] = useState<RaceRow[]>([]), [selected, setSelected] = useState<string | null>(null), [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState(''), [message, setMessage] = useState(''), [busy, setBusy] = useState(false);
   async function loadList() { try { setRaces((await api<AdminResultRacesResponse>('admin/results/races')).items); } catch (e) { setError((e as Error).message); } }
-  async function load(id: string) { setSelected(id); setError(''); try { setDetail(await api<Detail>(`admin/results/races/${id}`)); } catch (e) { setError((e as Error).message); } }
+  async function load(id: string) { setSelected(id); setError(''); try { setDetail(await api<AdminResultRaceDetailResponse>(`admin/results/races/${id}`)); } catch (e) { setError((e as Error).message); } }
   useEffect(() => { void loadList(); }, []);
   function entry(id: string, patch: Partial<DraftEntry>) { if (!detail) return; setDetail({ ...detail, draft: { ...detail.draft, entries: detail.draft.entries.map(item => item.entryId === id ? { ...item, ...patch } : item) } }); }
   async function save() { if (!detail) return; setBusy(true); setError(''); setMessage(''); try { const value = await api<{ revision: number }>(`admin/results/races/${detail.race.id}`, 'PATCH', detail.draft); await load(detail.race.id); setMessage(`結果下書き版${value.revision}を保存しました。`); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }

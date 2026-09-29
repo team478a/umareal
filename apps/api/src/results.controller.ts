@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Req } from '@nestjs/common';
-import { adminResultDataProvidersResponseSchema, adminResultImportHistoryResponseSchema, adminResultRacesResponseSchema, aggregatePredictionEvaluations, canManage, dateSchema, evaluatePrediction, getResultDataProvider, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, raceResultInputSchema, requiresMfa, resultDataProviderCatalog, resultDataProviderIdSchema, resultEntrySchema, verifyJraVanResultBundle } from '@keiba/domain';
+import { adminResultDataProvidersResponseSchema, adminResultImportHistoryResponseSchema, adminResultRaceDetailResponseSchema, adminResultRacesResponseSchema, aggregatePredictionEvaluations, canManage, dateSchema, evaluatePrediction, getResultDataProvider, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, raceResultInputSchema, requiresMfa, resultDataProviderCatalog, resultDataProviderIdSchema, resultEntrySchema, verifyJraVanResultBundle } from '@keiba/domain';
 import type { BatchResultCsvRow, RaceResultInput, ResultEntry, Role } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -101,7 +101,7 @@ export class ResultsController {
       include: {
         entries: { orderBy: { number: 'asc' } },
         resultDraft: true,
-        resultVersions: { orderBy: { version: 'desc' }, select: { id: true, version: true, sourceRevision: true, ruleVersion: true, raceCanceled: true, reason: true, confirmedAt: true, confirmedBy: true } }
+        resultVersions: { orderBy: { version: 'desc' }, select: { id: true, version: true, sourceRevision: true, ruleVersion: true, raceCanceled: true, reason: true, confirmedAt: true } }
       }
     });
     if (!race) throw new NotFoundException({ code: 'RACE_NOT_FOUND', message: 'レースが見つかりません。' });
@@ -292,12 +292,12 @@ export class ResultsController {
   async get(@Param('raceId') raceId: string, @Req() req: AppRequest) {
     await this.staff(req);
     const race = await this.race(raceId);
-    return {
+    return adminResultRaceDetailResponseSchema.parse({
       race: { id: race.id, raceDate: race.raceDate, venue: race.venue, number: race.number, name: race.name, startsAt: race.startsAt, status: race.status },
       entries: race.entries.map(entry => ({ id: entry.id, number: entry.number, horseName: entry.horseName })),
       draft: this.currentDraft(race.resultDraft?.content, race.resultDraft?.revision ?? 0, race.entries),
       versions: race.resultVersions
-    };
+    });
   }
 
   @Post('admin/results/races/:raceId/import/preview')
