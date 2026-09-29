@@ -77,7 +77,12 @@ export const resultCsvRowSchema = z.object({
   if (value.status !== 'FINISHED' && value.finishPosition !== null) context.addIssue({ code: 'custom', path: ['finishPosition'], message: '完走以外には着順を設定できません。' });
 });
 export type ResultCsvRow = z.infer<typeof resultCsvRowSchema>;
-export type ResultCsvIssue = { row: number; field: string; message: string };
+export const resultCsvIssueSchema = z.object({
+  row: z.number().int().nonnegative(),
+  field: z.string(),
+  message: z.string().min(1)
+}).strict();
+export type ResultCsvIssue = z.infer<typeof resultCsvIssueSchema>;
 export const batchResultCsvHeaders = ['raceDate', 'venue', 'raceNumber', 'horseNumber', 'status', 'finishPosition', 'popularity', 'finalOdds'] as const;
 export const batchResultCsvRowSchema = z.object({
   raceDate: dateSchema, venue: z.enum(venues), raceNumber: z.number().int().min(1).max(12), horseNumber: z.number().int().min(1).max(18),
@@ -98,6 +103,85 @@ export const adminResultDataProviderSchema = z.object({
   formatVersion: z.string().min(1),
   headers: z.array(z.string().min(1)).min(1)
 }).strict();
+const adminResultImportProviderSchema = adminResultDataProviderSchema.omit({ headers: true });
+const adminResultBundleProvenanceSchema = z.object({
+  formatVersion: z.literal('UMAREAL_JRA_VAN_BUNDLE_V1'),
+  targetDate: dateSchema,
+  manifestChecksum: z.string().regex(/^[a-f0-9]{64}$/)
+}).strict();
+const adminResultImportChangeSchema = z.object({
+  key: z.string().min(1),
+  action: z.enum(['変更', '変更なし']),
+  fields: z.array(z.object({
+    field: z.enum(['raceCanceled', 'status', 'finishPosition', 'popularity', 'finalOdds']),
+    before: z.union([z.string(), z.number(), z.boolean(), z.null()]),
+    after: z.union([z.string(), z.number(), z.boolean(), z.null()])
+  }).strict())
+}).strict();
+export const adminResultRaceImportPreviewResponseSchema = z.union([
+  z.object({
+    batchId: z.null(),
+    errors: z.array(resultCsvIssueSchema).min(1),
+    changes: z.array(adminResultImportChangeSchema).length(0)
+  }).strict(),
+  z.object({
+    batchId: z.string().uuid(),
+    expiresAt: publicResultDateTimeSchema,
+    errors: z.array(resultCsvIssueSchema).length(0),
+    changes: z.array(adminResultImportChangeSchema).min(1).max(19)
+  }).strict()
+]);
+export type AdminResultRaceImportPreviewResponse = z.infer<typeof adminResultRaceImportPreviewResponseSchema>;
+const adminResultBatchImportPreviewBaseSchema = z.object({
+  provider: adminResultImportProviderSchema,
+  sourceChecksum: z.string().regex(/^[a-f0-9]{64}$/),
+  bundle: adminResultBundleProvenanceSchema.nullable()
+});
+export const adminResultBatchImportPreviewResponseSchema = z.union([
+  adminResultBatchImportPreviewBaseSchema.extend({
+    duplicateOf: z.object({ batchId: z.string().uuid(), confirmedAt: publicResultDateTimeSchema }).strict().optional(),
+    errors: z.array(resultCsvIssueSchema).min(1),
+    races: z.array(z.never()).length(0),
+    batchId: z.null()
+  }).strict(),
+  adminResultBatchImportPreviewBaseSchema.extend({
+    sourceDisposition: z.enum(['NEW', 'CORRECTION']),
+    previousImport: z.object({
+      batchId: z.string().uuid(),
+      confirmedAt: publicResultDateTimeSchema,
+      sourceChecksum: z.string().regex(/^[a-f0-9]{64}$/)
+    }).strict().nullable(),
+    batchId: z.string().uuid(),
+    expiresAt: publicResultDateTimeSchema,
+    errors: z.array(resultCsvIssueSchema).length(0),
+    races: z.array(z.object({
+      raceId: z.string().uuid(),
+      key: z.string().min(1),
+      targetRevision: z.number().int().positive(),
+      changes: z.array(adminResultImportChangeSchema).min(1).max(19)
+    }).strict()).min(1).max(100)
+  }).strict()
+]);
+export type AdminResultBatchImportPreviewResponse = z.infer<typeof adminResultBatchImportPreviewResponseSchema>;
+export const adminResultRaceImportConfirmResponseSchema = z.object({
+  imported: z.literal(true),
+  revision: z.number().int().positive(),
+  batchId: z.string().uuid(),
+  alreadyConfirmed: z.boolean()
+}).strict();
+export type AdminResultRaceImportConfirmResponse = z.infer<typeof adminResultRaceImportConfirmResponseSchema>;
+export const adminResultBatchImportConfirmResponseSchema = z.object({
+  imported: z.literal(true),
+  count: z.number().int().min(1).max(100),
+  races: z.array(z.object({ raceId: z.string().uuid(), revision: z.number().int().positive() }).strict()).min(1).max(100),
+  batchId: z.string().uuid(),
+  providerId: resultDataProviderIdSchema,
+  sourceChecksum: z.string().regex(/^[a-f0-9]{64}$/),
+  alreadyConfirmed: z.boolean()
+}).strict().superRefine((value, context) => {
+  if (value.count !== value.races.length) context.addIssue({ code: 'custom', path: ['count'], message: '取込件数と対象レース数が一致しません。' });
+});
+export type AdminResultBatchImportConfirmResponse = z.infer<typeof adminResultBatchImportConfirmResponseSchema>;
 export const adminResultDataProvidersResponseSchema = z.object({
   items: z.array(adminResultDataProviderSchema).length(resultDataProviderIds.length)
 }).strict().superRefine((value, context) => {
@@ -110,15 +194,11 @@ export const adminResultDataProvidersResponseSchema = z.object({
 export type AdminResultDataProvidersResponse = z.infer<typeof adminResultDataProvidersResponseSchema>;
 const adminResultImportHistoryItemSchema = z.object({
   batchId: z.string().uuid(),
-  provider: adminResultDataProviderSchema.omit({ headers: true }),
+  provider: adminResultImportProviderSchema,
   sourceChecksum: z.string().regex(/^[a-f0-9]{64}$/),
   sourceDisposition: z.enum(['NEW', 'CORRECTION']),
   previousImportBatchId: z.string().uuid().nullable(),
-  bundle: z.object({
-    formatVersion: z.literal('UMAREAL_JRA_VAN_BUNDLE_V1'),
-    targetDate: dateSchema,
-    manifestChecksum: z.string().regex(/^[a-f0-9]{64}$/)
-  }).strict().nullable(),
+  bundle: adminResultBundleProvenanceSchema.nullable(),
   actorDisplayName: z.string().min(1).max(60),
   confirmedAt: publicResultDateTimeSchema,
   races: z.array(z.object({

@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
-import { adminResultConfirmResponseSchema, adminResultDataProvidersResponseSchema, adminResultDraftSaveResponseSchema, adminResultImportHistoryResponseSchema, adminResultRaceDetailResponseSchema, adminResultRacesResponseSchema, adminSocialSharesResponseSchema, emptyPredictionDraft, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema } from '../packages/domain/src';
+import { adminResultBatchImportConfirmResponseSchema, adminResultBatchImportPreviewResponseSchema, adminResultConfirmResponseSchema, adminResultDataProvidersResponseSchema, adminResultDraftSaveResponseSchema, adminResultImportHistoryResponseSchema, adminResultRaceDetailResponseSchema, adminResultRaceImportConfirmResponseSchema, adminResultRaceImportPreviewResponseSchema, adminResultRacesResponseSchema, adminSocialSharesResponseSchema, emptyPredictionDraft, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema } from '../packages/domain/src';
 import { assessmentFixture } from './assessment-fixtures';
 import { account, Client, db } from './helpers';
 
@@ -100,9 +100,11 @@ describe('immutable results and horse-evaluation performance', () => {
 
     const incomplete = await operator.call(`admin/results/races/${fixture.race.id}/import/preview`, 'POST', { csv: `${header}\n${fixture.entries[0].number},FINISHED,1,1,2.5`, raceCanceled: false });
     expect(incomplete.status).toBe(201); expect(incomplete.body.batchId).toBeNull(); expect(incomplete.body.errors[0].message).toContain('結果がありません');
+    expect(adminResultRaceImportPreviewResponseSchema.parse(incomplete.body)).toMatchObject({ batchId: null, changes: [] });
 
     const firstPreview = await operator.call(`admin/results/races/${fixture.race.id}/import/preview`, 'POST', { csv, raceCanceled: false });
     expect(firstPreview.status).toBe(201); expect(firstPreview.body.errors).toEqual([]); expect(firstPreview.body.changes.some((change: { action: string }) => change.action === '変更')).toBe(true);
+    expect(adminResultRaceImportPreviewResponseSchema.parse(firstPreview.body)).toMatchObject({ batchId: expect.any(String), errors: [] });
     await operator.call(`admin/results/races/${fixture.race.id}`, 'PATCH', resultBody(fixture.entries));
     const stale = await operator.call(`admin/results/races/${fixture.race.id}/import/${firstPreview.body.batchId}/confirm`, 'POST', { reason: '公式結果CSVを照合' });
     expect(stale.status).toBe(409); expect(stale.body.code).toBe('STALE_PREVIEW');
@@ -111,8 +113,12 @@ describe('immutable results and horse-evaluation performance', () => {
     const preview = await operator.call(`admin/results/races/${fixture.race.id}/import/preview`, 'POST', { csv: revisedCsv, raceCanceled: false });
     const imported = await operator.call(`admin/results/races/${fixture.race.id}/import/${preview.body.batchId}/confirm`, 'POST', { reason: '公式結果CSVを再照合' });
     expect(imported.status).toBe(201); expect(imported.body).toMatchObject({ imported: true, revision: 2, alreadyConfirmed: false });
+    expect(adminResultRaceImportConfirmResponseSchema.parse(imported.body)).toEqual(imported.body);
+    expect(Object.keys(imported.body).sort()).toEqual(['alreadyConfirmed', 'batchId', 'imported', 'revision']);
     const repeated = await operator.call(`admin/results/races/${fixture.race.id}/import/${preview.body.batchId}/confirm`, 'POST', { reason: '通信再送' });
     expect(repeated.body).toMatchObject({ imported: true, revision: 2, alreadyConfirmed: true });
+    expect(adminResultRaceImportConfirmResponseSchema.parse(repeated.body)).toEqual(repeated.body);
+    expect(JSON.stringify({ preview: preview.body, imported: imported.body, repeated: repeated.body })).not.toMatch(/actorId|updatedBy|auditId|email|token|secret/i);
     const draft = await db.raceResultDraft.findUniqueOrThrow({ where: { raceId: fixture.race.id } });
     expect(draft).toMatchObject({ revision: 2, updatedBy: expect.any(String) });
     expect(JSON.stringify(draft.content)).not.toMatch(/payout|betType|purchase|returnRate/i);
@@ -143,10 +149,12 @@ describe('immutable results and horse-evaluation performance', () => {
     const mixedCanceled = `${header}\n${first.race.raceDate},${first.race.venue},${first.race.number},${first.entries[0].number},CANCELED,,,\n${row(first, 1)}\n${row(second, 0)}\n${row(second, 1)}`;
     const rejected = await operator.call('admin/results/import/preview', 'POST', { csv: mixedCanceled });
     expect(rejected.status).toBe(201); expect(rejected.body.batchId).toBeNull(); expect(rejected.body.errors.some((issue: { message: string }) => issue.message.includes('混在'))).toBe(true);
+    expect(adminResultBatchImportPreviewResponseSchema.parse(rejected.body)).toMatchObject({ batchId: null, races: [] });
 
     const csv = `${header}\n${row(first, 0)}\n${row(second, 0)}\n${row(first, 1)}\n${row(second, 1)}`;
     const stalePreview = await operator.call('admin/results/import/preview', 'POST', { csv });
     expect(stalePreview.body).toMatchObject({ errors: [], races: expect.arrayContaining([expect.objectContaining({ raceId: first.race.id }), expect.objectContaining({ raceId: second.race.id })]) });
+    expect(adminResultBatchImportPreviewResponseSchema.parse(stalePreview.body)).toMatchObject({ sourceDisposition: 'NEW', errors: [] });
     await operator.call(`admin/results/races/${first.race.id}`, 'PATCH', resultBody(first.entries));
     const stale = await operator.call(`admin/results/import/${stalePreview.body.batchId}/confirm`, 'POST', { reason: '一括結果を照合' });
     expect(stale.status).toBe(409); expect(stale.body.code).toBe('STALE_PREVIEW');
@@ -158,23 +166,31 @@ describe('immutable results and horse-evaluation performance', () => {
     const revisedCsv = `${bridgeHeader}\n${bridgeRow(first, 0)}\n${bridgeRow(second, 0)}\n${bridgeRow(first, 1)}\n${bridgeRow(second, 1)}`;
     const preview = await operator.call('admin/results/import/preview', 'POST', { csv: revisedCsv, providerId: 'JRA_VAN_BRIDGE_V1' });
     expect(preview.body.races).toHaveLength(2); expect(preview.body).toMatchObject({ provider: { id: 'JRA_VAN_BRIDGE_V1', formatVersion: 'UMAREAL_JRA_VAN_BRIDGE_V1' }, sourceChecksum: expect.stringMatching(/^[a-f0-9]{64}$/), sourceDisposition: 'NEW', previousImport: null });
+    expect(adminResultBatchImportPreviewResponseSchema.parse(preview.body)).toEqual(preview.body);
     const concurrentPreview = await operator.call('admin/results/import/preview', 'POST', { csv: revisedCsv, providerId: 'JRA_VAN_BRIDGE_V1' });
     expect(concurrentPreview.body.batchId).not.toBe(preview.body.batchId);
     const imported = await operator.call(`admin/results/import/${preview.body.batchId}/confirm`, 'POST', { reason: '開催日の公式結果を一括照合' });
     expect(imported.status).toBe(201); expect(imported.body).toMatchObject({ imported: true, count: 2, alreadyConfirmed: false });
+    expect(adminResultBatchImportConfirmResponseSchema.parse(imported.body)).toEqual(imported.body);
+    expect(Object.keys(imported.body).sort()).toEqual(['alreadyConfirmed', 'batchId', 'count', 'imported', 'providerId', 'races', 'sourceChecksum']);
     const repeated = await operator.call(`admin/results/import/${preview.body.batchId}/confirm`, 'POST', { reason: '通信再送' });
     expect(repeated.body).toMatchObject({ imported: true, count: 2, alreadyConfirmed: true });
+    expect(adminResultBatchImportConfirmResponseSchema.parse(repeated.body)).toEqual(repeated.body);
     const concurrentRejected = await operator.call(`admin/results/import/${concurrentPreview.body.batchId}/confirm`, 'POST', { reason: '別プレビューからの重複確定' });
     expect(concurrentRejected.status).toBe(409); expect(concurrentRejected.body.code).toBe('DUPLICATE_RESULT_IMPORT');
     await expect(db.importBatch.update({ where: { id: concurrentPreview.body.batchId }, data: { confirmedAt: new Date() } })).rejects.toThrow();
     const duplicatePreview = await operator.call('admin/results/import/preview', 'POST', { csv: revisedCsv, providerId: 'JRA_VAN_BRIDGE_V1' });
     expect(duplicatePreview.body.batchId).toBeNull(); expect(duplicatePreview.body.duplicateOf.batchId).toBe(preview.body.batchId); expect(duplicatePreview.body.errors[0].field).toBe('sourceChecksum');
+    expect(adminResultBatchImportPreviewResponseSchema.parse(duplicatePreview.body)).toMatchObject({ batchId: null, duplicateOf: { batchId: preview.body.batchId } });
 
     const correctedCsv = `${bridgeHeader}\n${bridgeRow(first, 0, 1)}\n${bridgeRow(second, 0, 1)}\n${bridgeRow(first, 1, 1)}\n${bridgeRow(second, 1, 1)}`;
     const correctionPreview = await operator.call('admin/results/import/preview', 'POST', { csv: correctedCsv, providerId: 'JRA_VAN_BRIDGE_V1' });
     expect(correctionPreview.body).toMatchObject({ sourceDisposition: 'CORRECTION', previousImport: { batchId: preview.body.batchId, sourceChecksum: preview.body.sourceChecksum } });
+    expect(adminResultBatchImportPreviewResponseSchema.parse(correctionPreview.body)).toEqual(correctionPreview.body);
     const correction = await operator.call(`admin/results/import/${correctionPreview.body.batchId}/confirm`, 'POST', { reason: '公式訂正データを照合' });
     expect(correction.status).toBe(201); expect(correction.body).toMatchObject({ imported: true, count: 2 });
+    expect(adminResultBatchImportConfirmResponseSchema.parse(correction.body)).toEqual(correction.body);
+    expect(JSON.stringify({ preview: preview.body, imported: imported.body, repeated: repeated.body, correctionPreview: correctionPreview.body })).not.toMatch(/actorId|rows|updatedBy|auditId|email|token|secret/i);
     const firstDraft = await db.raceResultDraft.findUniqueOrThrow({ where: { raceId: first.race.id } });
     expect(firstDraft).toMatchObject({ revision: 3 }); expect(firstDraft.content).toMatchObject({ source: 'CSV_BATCH', sourceProvider: 'JRA_VAN_BRIDGE_V1', sourceFormatVersion: 'UMAREAL_JRA_VAN_BRIDGE_V1', sourceChecksum: correctionPreview.body.sourceChecksum, sourceDisposition: 'CORRECTION', sourceImportBatchId: correctionPreview.body.batchId, previousImportBatchId: preview.body.batchId });
     expect(await db.raceResultDraft.findUniqueOrThrow({ where: { raceId: second.race.id } })).toMatchObject({ revision: 2 });
