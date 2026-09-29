@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAccountClosuresResponseSchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminReadinessResponseSchema, adminUsersResponseSchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
+import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAccountClosuresResponseSchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminReadinessResponseSchema, adminSummaryResponseSchema, adminUsersResponseSchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -137,9 +137,9 @@ export class AppController {
       this.acquisitionBreakdown(cohortStartsAt),
       this.auth.db.user.count({ where: { role: 'MEMBER', acquisition: null } })
     ]);
-    return { members, entitled, races, auditCount, queuedNotifications, racesNeedingPrediction, resultsPending, operations: settings,
+    return adminSummaryResponseSchema.parse({ members, entitled, races, auditCount, queuedNotifications, racesNeedingPrediction, resultsPending, operations: settings,
       funnel: { all: funnelAll, last30Days: { ...funnel30Days, cohortStartsAt }, trackingStartsAt: tracking?.occurredAt ?? null },
-      acquisition: { last30Days: acquisition30Days.slice(0, 20), cohortStartsAt, legacyMembers } };
+      acquisition: { last30Days: acquisition30Days.slice(0, 20), cohortStartsAt, legacyMembers } });
   }
   @Get('admin/operations') async operations(@Req() req: AppRequest, @Query() query: unknown) {
     await this.staff(req, ['ADMIN', 'OPERATOR']);

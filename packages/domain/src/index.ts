@@ -6,6 +6,7 @@ export * from './races';
 export * from './assessments';
 export * from './predictions';
 export * from './admin-settings';
+export * from './admin-summary';
 export * from './notifications';
 export * from './line';
 export * from './acquisition';

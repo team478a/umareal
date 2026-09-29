@@ -13,7 +13,7 @@ const adminSettingsDateTimeSchema = z.preprocess(
   z.string().datetime({ offset: true })
 );
 
-const adminSettingsOperationsSchema = z.object({
+export const adminSettingsOperationsSchema = z.object({
   newRegistrationsEnabled: z.boolean(),
   emailNotificationsEnabled: z.boolean(),
   predictionPublicationEnabled: z.boolean(),

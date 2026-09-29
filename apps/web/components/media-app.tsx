@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ArrowRight, BarChart3, BellRing, BookOpenCheck, CalendarDays, Check, ChevronRight, ClipboardCheck, ClipboardList, Clock3, CreditCard, DatabaseBackup, Gift, Home, LayoutDashboard, LogOut, MailCheck, Menu, MessageCircle, RefreshCw, Settings2, Share2, ShieldAlert, ShieldCheck, UserCog, UserRoundX, Users, X } from 'lucide-react';
-import { consentVersions, legalDocuments, type AdminUsersResponse, type CurrentAccountResponse, type LegalDocument, type MemberJourneyResponse, type NotificationPreferencesResponse, type PublicAuthConfigResponse } from '@keiba/domain';
+import { consentVersions, legalDocuments, type AdminSummaryResponse, type AdminUsersResponse, type CurrentAccountResponse, type LegalDocument, type MemberJourneyResponse, type NotificationPreferencesResponse, type PublicAuthConfigResponse } from '@keiba/domain';
 import { RaceManager } from './race-manager';
 import { AssessmentEditor } from './assessment-editor';
 import { PublishedPrediction } from './prediction-editor';
@@ -38,9 +38,9 @@ type PublicConfig = PublicAuthConfigResponse;
 type Me = CurrentAccountResponse;
 type Race = { id: string; name: string; venue: string; number: number; raceDate: string; startsAt: string; status: string };
 type Announcement = { id: string; version: number; publishedAt: string; race: Race };
-type FunnelCounts = { registered: number; identityReady: number; lineReady: number; planViewed: number; checkoutReviewed: number; paid: number };
-type AcquisitionRow = { source: string; medium: string | null; campaign: string | null; registered: number; paid: number };
-type Summary = { members: number; entitled: number; races: number; auditCount: number; queuedNotifications: number; racesNeedingPrediction: number; resultsPending: number; operations: { newRegistrationsEnabled: boolean; emailNotificationsEnabled: boolean; predictionPublicationEnabled: boolean; csvImportEnabled: boolean; lineNotificationsEnabled: boolean; lineLoginEnabled: boolean; newPurchasesEnabled: boolean }; funnel: { all: FunnelCounts; last30Days: FunnelCounts & { cohortStartsAt: string }; trackingStartsAt: string | null }; acquisition: { last30Days: AcquisitionRow[]; cohortStartsAt: string; legacyMembers: number } };
+type Summary = AdminSummaryResponse;
+type FunnelCounts = Summary['funnel']['all'];
+type AcquisitionRow = Summary['acquisition']['last30Days'][number];
 const roleLabels: Record<string, string> = { MEMBER: '会員', EXPERT: '専門家', EDITOR: '編集担当', OPERATOR: '運営担当', ADMIN: '管理者' };
 type StaffWorkspace = { href: '/admin' | '/expert'; title: string; description: string };
 function staffWorkspaceFor(role: string): StaffWorkspace | null {

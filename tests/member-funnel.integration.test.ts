@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
+import { adminSummaryResponseSchema } from '../packages/domain/src';
 import { account, Client, db } from './helpers';
 
 afterAll(() => db.$disconnect());
@@ -8,6 +9,9 @@ describe('member conversion funnel', () => {
   it('records first-time member milestones and exposes aggregate counts to AAL2 staff', async () => {
     const admin = new Client(); await admin.login(await account('ADMIN')); await admin.mfa();
     const before = await admin.call('admin/summary'); expect(before.status).toBe(200);
+    const beforeSummary = adminSummaryResponseSchema.parse(before.body);
+    expect(Object.keys(before.body).sort()).toEqual(['acquisition', 'auditCount', 'entitled', 'funnel', 'members', 'operations', 'queuedNotifications', 'races', 'racesNeedingPrediction', 'resultsPending']);
+    expect(JSON.stringify(before.body)).not.toMatch(/passwordHash|authSubject|stripeCustomerId|providerPaymentId|databaseUrl/);
 
     const fixture = await account();
     const source = `integration-${randomUUID()}`;
@@ -34,11 +38,13 @@ describe('member conversion funnel', () => {
       await tx.paymentTransaction.create({ data: { userId: fixture.user.id, provider: 'LOCAL_TEST', providerPaymentId: `funnel-pay-${randomUUID()}`, kind: 'SUBSCRIPTION', status: 'SUCCEEDED', amountYen: 2980, subscriptionId: subscription.id } });
     });
     const after = await admin.call('admin/summary'); expect(after.status).toBe(200);
+    const afterSummary = adminSummaryResponseSchema.parse(after.body);
     for (const stage of ['registered', 'identityReady', 'lineReady', 'planViewed', 'checkoutReviewed', 'paid']) {
-      expect(after.body.funnel.all[stage] - before.body.funnel.all[stage], stage).toBe(1);
-      expect(after.body.funnel.last30Days[stage] - before.body.funnel.last30Days[stage], stage).toBe(1);
+      const key = stage as keyof typeof afterSummary.funnel.all;
+      expect(afterSummary.funnel.all[key] - beforeSummary.funnel.all[key], stage).toBe(1);
+      expect(afterSummary.funnel.last30Days[key] - beforeSummary.funnel.last30Days[key], stage).toBe(1);
     }
-    expect(after.body.funnel.trackingStartsAt).toBeTruthy();
+    expect(afterSummary.funnel.trackingStartsAt).toBeTruthy();
     const acquisition = await admin.call('admin/acquisition?days=30');
     expect(acquisition.body.breakdown).toContainEqual({ source, medium: 'test', campaign: 'funnel', registered: 1, paid: 1 });
 
