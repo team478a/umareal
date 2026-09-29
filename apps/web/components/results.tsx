@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { Check, ChevronRight, FileUp } from 'lucide-react';
-import type { AdminResultDataProvidersResponse, PublicPredictionStatsResponse, PublicRaceResultResponse, ResultDataProviderId } from '@keiba/domain';
+import type { AdminResultDataProvidersResponse, AdminResultImportHistoryResponse, PublicPredictionStatsResponse, PublicRaceResultResponse, ResultDataProviderId } from '@keiba/domain';
 
 async function api<T>(path: string, method = 'GET', body?: unknown): Promise<T> { const response = await fetch(`/api/v1/${path}`, { method, cache: 'no-store', headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined }); const value = await response.json(); if (!response.ok) throw new Error(value.message ?? '処理できませんでした。'); return value; }
 type ResultProvider = AdminResultDataProvidersResponse['items'][number];
@@ -11,7 +11,6 @@ type Detail = { race: RaceRow; entries: { id: string; number: number; horseName:
 type ImportPreview = { batchId: string | null; expiresAt?: string; errors: { row: number; field: string; message: string }[]; changes: { key: string; action: '変更' | '変更なし'; fields: { field: string; before: unknown; after: unknown }[] }[] };
 type ResultBundleProvenance = { formatVersion: 'UMAREAL_JRA_VAN_BUNDLE_V1'; targetDate: string; manifestChecksum: string };
 type BatchImportPreview = { provider: Omit<ResultProvider, 'headers'>; sourceChecksum: string; bundle?: ResultBundleProvenance | null; sourceDisposition?: 'NEW' | 'CORRECTION'; previousImport?: { batchId: string; confirmedAt: string; sourceChecksum: string } | null; duplicateOf?: { batchId: string; confirmedAt: string }; batchId: string | null; expiresAt?: string; errors: { row: number; field: string; message: string }[]; races: { raceId: string; key: string; targetRevision: number; changes: ImportPreview['changes'] }[] };
-type ResultImportHistory = { batchId: string; provider: Omit<ResultProvider, 'headers'>; sourceChecksum: string; bundle: ResultBundleProvenance | null; sourceDisposition: 'NEW' | 'CORRECTION'; previousImportBatchId: string | null; actorDisplayName: string; confirmedAt: string; races: { raceId: string; label: string; revision: number }[] };
 const resultFieldLabels: Record<string, string> = { raceCanceled: 'レース中止', status: '状態', finishPosition: '着順', popularity: '人気', finalOdds: '確定単勝', number: '馬番', horseNumber: '馬番', raceNumber: 'レース番号', raceDate: '開催日', venue: '競馬場', venueCode: '競馬場コード', abnormalCode: '異常区分コード', recordType: 'レコード種別', csv: 'CSV', header: '見出し' };
 const resultProviderLabels: Record<ResultDataProviderId, string> = { CANONICAL_CSV: '内部標準CSV', JRA_VAN_BRIDGE_V1: 'JRA-VAN連携ブリッジ' };
 
@@ -33,8 +32,8 @@ function BatchResultCsvImport({ onImported }: { onImported: () => Promise<void> 
   const [bundleManifest, setBundleManifest] = useState('');
   const [error, setError] = useState(''), [message, setMessage] = useState(''), [busy, setBusy] = useState(false);
   const [providers, setProviders] = useState<ResultProvider[]>([]), [providerId, setProviderId] = useState<ResultDataProviderId>('CANONICAL_CSV');
-  const [history, setHistory] = useState<ResultImportHistory[]>([]);
-  async function loadHistory() { setHistory((await api<{ items: ResultImportHistory[] }>('admin/results/import/history')).items); }
+  const [history, setHistory] = useState<AdminResultImportHistoryResponse['items']>([]);
+  async function loadHistory() { setHistory((await api<AdminResultImportHistoryResponse>('admin/results/import/history')).items); }
   useEffect(() => { api<AdminResultDataProvidersResponse>('admin/results/import/providers').then(value => setProviders(value.items)).catch(e => setError(e.message)); loadHistory().catch(e => setError(e.message)); }, []);
   const provider = providers.find(item => item.id === providerId);
   async function fileChanged(file?: File) {

@@ -108,6 +108,36 @@ export const adminResultDataProvidersResponseSchema = z.object({
   if (ids.size !== value.items.length) context.addIssue({ code: 'custom', path: ['items'], message: '取込元IDが重複しています。' });
 });
 export type AdminResultDataProvidersResponse = z.infer<typeof adminResultDataProvidersResponseSchema>;
+const adminResultImportHistoryItemSchema = z.object({
+  batchId: z.string().uuid(),
+  provider: adminResultDataProviderSchema.omit({ headers: true }),
+  sourceChecksum: z.string().regex(/^[a-f0-9]{64}$/),
+  sourceDisposition: z.enum(['NEW', 'CORRECTION']),
+  previousImportBatchId: z.string().uuid().nullable(),
+  bundle: z.object({
+    formatVersion: z.literal('UMAREAL_JRA_VAN_BUNDLE_V1'),
+    targetDate: dateSchema,
+    manifestChecksum: z.string().regex(/^[a-f0-9]{64}$/)
+  }).strict().nullable(),
+  actorDisplayName: z.string().min(1).max(60),
+  confirmedAt: publicResultDateTimeSchema,
+  races: z.array(z.object({
+    raceId: z.string().uuid(),
+    label: z.string().min(1),
+    revision: z.number().int().positive()
+  }).strict()).max(100)
+}).strict().superRefine((value, context) => {
+  if (value.sourceDisposition === 'NEW' && value.previousImportBatchId !== null) {
+    context.addIssue({ code: 'custom', path: ['previousImportBatchId'], message: '初回取込に以前の取込IDは指定できません。' });
+  }
+  if (value.sourceDisposition === 'CORRECTION' && value.previousImportBatchId === null) {
+    context.addIssue({ code: 'custom', path: ['previousImportBatchId'], message: '公式訂正には以前の取込IDが必要です。' });
+  }
+});
+export const adminResultImportHistoryResponseSchema = z.object({
+  items: z.array(adminResultImportHistoryItemSchema).max(30)
+}).strict();
+export type AdminResultImportHistoryResponse = z.infer<typeof adminResultImportHistoryResponseSchema>;
 export type ResultDataProviderInfo = { id: ResultDataProviderId; label: string; formatVersion: string; headers: readonly string[] };
 export type ResultDataProviderParseResult = { provider: ResultDataProviderInfo; rows: BatchResultCsvRow[]; errors: ResultCsvIssue[] };
 export interface ResultDataProvider { info: ResultDataProviderInfo; parse(source: string): ResultDataProviderParseResult }

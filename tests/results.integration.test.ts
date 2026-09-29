@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
-import { adminResultDataProvidersResponseSchema, adminSocialSharesResponseSchema, emptyPredictionDraft, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema } from '../packages/domain/src';
+import { adminResultDataProvidersResponseSchema, adminResultImportHistoryResponseSchema, adminSocialSharesResponseSchema, emptyPredictionDraft, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema } from '../packages/domain/src';
 import { assessmentFixture } from './assessment-fixtures';
 import { account, Client, db } from './helpers';
 
@@ -171,8 +171,14 @@ describe('immutable results and horse-evaluation performance', () => {
     expect(await db.raceResultVersion.count({ where: { raceId: { in: [first.race.id, second.race.id] } } })).toBe(0);
     const audits = await db.auditLog.findMany({ where: { targetId: { in: [first.race.id, second.race.id] }, action: 'RACE_RESULT_BATCH_CSV_IMPORT_CONFIRMED' } });
     expect(audits).toHaveLength(4); expect(audits.some(audit => JSON.stringify(audit.details).includes(correctionPreview.body.sourceChecksum))).toBe(true);
+    expect((await member.call('admin/results/import/history')).status).toBe(403);
+    expect((await adminWithoutMfa.call('admin/results/import/history')).body.code).toBe('MFA_REQUIRED');
     const history = await operator.call('admin/results/import/history');
-    expect(history.status).toBe(200); expect(history.body.items).toEqual(expect.arrayContaining([expect.objectContaining({ batchId: preview.body.batchId, sourceDisposition: 'NEW' }), expect.objectContaining({ batchId: correctionPreview.body.batchId, sourceDisposition: 'CORRECTION', previousImportBatchId: preview.body.batchId })]));
+    expect(history.status).toBe(200);
+    const historyValue = adminResultImportHistoryResponseSchema.parse(history.body);
+    expect(historyValue.items).toEqual(expect.arrayContaining([expect.objectContaining({ batchId: preview.body.batchId, sourceDisposition: 'NEW' }), expect.objectContaining({ batchId: correctionPreview.body.batchId, sourceDisposition: 'CORRECTION', previousImportBatchId: preview.body.batchId })]));
+    expect(Object.keys(history.body)).toEqual(['items']);
+    expect(JSON.stringify(history.body)).not.toMatch(/actorId|email|password|authSubject|lineSubject|token|secret|databaseUrl|providerConfig|rows/i);
     const list = await operator.call('admin/results/races');
     expect(list.body.items.filter((item: { id: string }) => [first.race.id, second.race.id].includes(item.id)).every((item: { draftSource: string; draftProvider: string }) => item.draftSource === 'CSV_BATCH' && item.draftProvider === 'JRA_VAN_BRIDGE_V1')).toBe(true);
   });
