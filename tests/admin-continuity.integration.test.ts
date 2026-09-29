@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
+import { adminContinuityResponseSchema } from '../packages/domain/src';
 import { account, Client, db } from './helpers';
 
 afterAll(() => db.$disconnect());
@@ -13,9 +14,11 @@ describe('administrator continuity', () => {
     const candidateFixture = await account('MEMBER'); const candidate = new Client(); await candidate.login(candidateFixture);
     const before = await actor.call('admin/continuity');
     expect(before.status).toBe(200);
+    adminContinuityResponseSchema.parse(before.body);
+    expect(Object.keys(before.body).sort()).toEqual(['administrators', 'candidates', 'counts', 'policy', 'provider', 'ready', 'suspendedAdministrators']);
     expect(before.body.policy).toMatchObject({ minimumAdministrators: 2, backupFactorPerAdministrator: true, customRecoveryCodes: false });
     expect(before.body.candidates.some((item: { id: string }) => item.id === candidateFixture.user.id)).toBe(true);
-    expect(JSON.stringify(before.body)).not.toMatch(/passwordHash|mfaSecret|pendingMfa|tokenHash/);
+    expect(JSON.stringify(before.body)).not.toMatch(/passwordHash|authSubject|mfaSecret|externalMfaFactorId|externalBackupMfaFactorId|pendingMfa|tokenHash|auditLog/i);
 
     const mismatch = await actor.call(`admin/continuity/administrators/${candidateFixture.user.id}/promote`, 'POST', { confirmationEmail: 'different@example.test', reason: '予備管理者の準備' });
     expect(mismatch.status).toBe(409);
@@ -59,6 +62,7 @@ describe('administrator continuity', () => {
     expect((await db.user.findUniqueOrThrow({ where: { id: targetFixture.user.id } })).role).toBe('ADMIN');
 
     const duringSuspension = await actor.call('admin/continuity');
+    adminContinuityResponseSchema.parse(duringSuspension.body);
     expect(duringSuspension.body.administrators.some((item: { id: string }) => item.id === targetFixture.user.id)).toBe(false);
     expect(duringSuspension.body.suspendedAdministrators.some((item: { id: string }) => item.id === targetFixture.user.id)).toBe(true);
 

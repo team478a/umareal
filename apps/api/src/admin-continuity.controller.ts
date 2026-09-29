@@ -1,5 +1,5 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Req } from '@nestjs/common';
-import { administratorContinuitySatisfied, administratorDemotionSchema, administratorStatusSchema, canManage, requiresMfa } from '@keiba/domain';
+import { adminContinuityResponseSchema, administratorContinuitySatisfied, administratorDemotionSchema, administratorStatusSchema, canManage, requiresMfa } from '@keiba/domain';
 import type { ManagedStaffRole, Role } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -91,7 +91,7 @@ export class AdminContinuityController {
     const suspendedAdministrators = items.filter(item => !!item.disabledAt);
     const primaryReady = administrators.filter(item => item.primaryMfaReady).length;
     const backupReady = administrators.filter(item => item.backupMfaReady).length;
-    return {
+    return adminContinuityResponseSchema.parse({
       provider,
       counts: { administrators: administrators.length, suspendedAdministrators: suspendedAdministrators.length, primaryReady, backupReady },
       ready: administratorContinuitySatisfied({ provider, remaining: administrators }),
@@ -99,7 +99,7 @@ export class AdminContinuityController {
       suspendedAdministrators,
       candidates,
       policy: { minimumAdministrators: 2, backupFactorPerAdministrator: true, customRecoveryCodes: false }
-    };
+    });
   }
 
   @Post('administrators/:userId/promote')
