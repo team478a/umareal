@@ -1,11 +1,12 @@
 'use client';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { MessageCircle, RefreshCw } from 'lucide-react';
+import type { MemberSupportHistoryResponse, MemberSupportItem } from '@keiba/domain';
 
-type Status = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED';
-type Category = 'ACCOUNT' | 'NOTIFICATION' | 'CONTENT' | 'TECHNICAL' | 'SERVICE' | 'OTHER';
+type Status = MemberSupportItem['status'];
+type Category = MemberSupportItem['category'];
 type Priority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
-type MemberItem = { id: string; category: Category; subject: string; message: string; status: Status; createdAt: string; updatedAt: string; events: { id: string; eventType: string; actorRole: string; publicMessage: string; occurredAt: string }[] };
+type MemberItem = MemberSupportItem;
 type Assignee = { id: string; displayName: string; role: 'ADMIN' | 'OPERATOR' };
 type AdminItem = Omit<MemberItem, 'events'> & { priority: Priority; assignedToId: string | null; dueAt: string | null; assignee: (Assignee & { disabledAt?: string | null }) | null; user: { id: string; displayName: string; email: string | null }; events: { id: string; eventType: string; actorRole: string; reason: string; publicMessage: string | null; occurredAt: string; actor: { displayName: string } }[] };
 
@@ -47,7 +48,7 @@ export function MemberSupport() {
   const [items, setItems] = useState<MemberItem[]>([]); const [category, setCategory] = useState<Category>('SERVICE');
   const [subject, setSubject] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(''); const [error, setError] = useState('');
-  const load = useCallback(async () => { try { setItems((await request<{ items: MemberItem[] }>('support/me')).items); setError(''); } catch (e) { setError((e as Error).message); } }, []);
+  const load = useCallback(async () => { try { setItems((await request<MemberSupportHistoryResponse>('support/me')).items); setError(''); } catch (e) { setError((e as Error).message); } }, []);
   useEffect(() => { void load(); }, [load]);
   async function submit(event: FormEvent) {
     event.preventDefault(); setBusy(true); setNotice(''); setError('');

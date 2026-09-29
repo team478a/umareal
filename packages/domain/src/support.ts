@@ -4,6 +4,35 @@ export const supportCategories = ['ACCOUNT', 'NOTIFICATION', 'CONTENT', 'TECHNIC
 export const supportStatuses = ['OPEN', 'IN_PROGRESS', 'RESOLVED'] as const;
 export const supportPriorities = ['LOW', 'NORMAL', 'HIGH', 'URGENT'] as const;
 
+const supportDateTimeSchema = z.preprocess(
+  value => value instanceof Date ? value.toISOString() : value,
+  z.string().datetime({ offset: true })
+);
+
+export const memberSupportItemSchema = z.object({
+  id: z.string().uuid(),
+  category: z.enum(supportCategories),
+  subject: z.string(),
+  message: z.string(),
+  status: z.enum(supportStatuses),
+  createdAt: supportDateTimeSchema,
+  updatedAt: supportDateTimeSchema,
+  events: z.array(z.object({
+    id: z.string().uuid(),
+    eventType: z.string().min(1),
+    actorRole: z.string().min(1),
+    publicMessage: z.string(),
+    occurredAt: supportDateTimeSchema
+  }).strict())
+}).strict();
+
+export const memberSupportHistoryResponseSchema = z.object({
+  items: z.array(memberSupportItemSchema)
+}).strict();
+
+export type MemberSupportItem = z.infer<typeof memberSupportItemSchema>;
+export type MemberSupportHistoryResponse = z.infer<typeof memberSupportHistoryResponseSchema>;
+
 export const supportRequestSchema = z.object({
   category: z.enum(supportCategories),
   subject: z.string().trim().min(5).max(120),

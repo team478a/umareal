@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { supportEventType, supportMessageSchema, supportRequestSchema, supportStatusSchema, supportTriageSchema } from './support';
+import { memberSupportHistoryResponseSchema, supportEventType, supportMessageSchema, supportRequestSchema, supportStatusSchema, supportTriageSchema } from './support';
 
 describe('general support', () => {
   it('validates a member inquiry without billing information', () => {
@@ -29,5 +29,27 @@ describe('general support', () => {
     expect(supportEventType('IN_PROGRESS', 'RESOLVED')).toBe('RESOLVED');
     expect(supportEventType('RESOLVED', 'OPEN')).toBe('REOPENED');
     expect(supportEventType('IN_PROGRESS', 'OPEN')).toBeNull();
+  });
+
+  it('keeps member support history public and normalizes database dates', () => {
+    const id = '10000000-0000-4000-8000-000000000001';
+    expect(memberSupportHistoryResponseSchema.parse({ items: [{
+      id, category: 'SERVICE', subject: 'サービスについて確認したいです', message: '利用方法について詳しく教えてください。', status: 'OPEN',
+      createdAt: new Date('2026-09-29T00:00:00Z'), updatedAt: new Date('2026-09-29T01:00:00Z'),
+      events: [{ id, eventType: 'MEMBER_MESSAGE', actorRole: 'MEMBER', publicMessage: '追加で確認したい内容です。', occurredAt: new Date('2026-09-29T00:30:00Z') }]
+    }] })).toMatchObject({ items: [{ createdAt: '2026-09-29T00:00:00.000Z', events: [{ occurredAt: '2026-09-29T00:30:00.000Z' }] }] });
+  });
+
+  it('rejects staff triage, identity and internal reasons from member history', () => {
+    const id = '10000000-0000-4000-8000-000000000001';
+    const item = {
+      id, category: 'SERVICE', subject: 'サービスについて確認したいです', message: '利用方法について詳しく教えてください。', status: 'OPEN',
+      createdAt: '2026-09-29T00:00:00.000Z', updatedAt: '2026-09-29T01:00:00.000Z', events: []
+    };
+    for (const privateField of [
+      { priority: 'URGENT' }, { assignedToId: id }, { dueAt: '2026-09-30T00:00:00.000Z' },
+      { user: { id, email: 'member@example.test' } }
+    ]) expect(memberSupportHistoryResponseSchema.safeParse({ items: [{ ...item, ...privateField }] }).success).toBe(false);
+    expect(memberSupportHistoryResponseSchema.safeParse({ items: [{ ...item, events: [{ id, eventType: 'RESOLVED', actorRole: 'OPERATOR', publicMessage: '回答です。', occurredAt: '2026-09-29T00:30:00.000Z', reason: '内部調査内容' }] }] }).success).toBe(false);
   });
 });

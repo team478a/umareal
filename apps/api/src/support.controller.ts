@@ -1,5 +1,5 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req } from '@nestjs/common';
-import { canManage, requiresMfa, supportEventType, supportMessageSchema, supportRequestSchema, supportStatuses, supportStatusSchema, supportTriageSchema } from '@keiba/domain';
+import { canManage, memberSupportHistoryResponseSchema, requiresMfa, supportEventType, supportMessageSchema, supportRequestSchema, supportStatuses, supportStatusSchema, supportTriageSchema } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -32,7 +32,7 @@ export class SupportController {
       select: { id: true, category: true, subject: true, message: true, status: true, createdAt: true, updatedAt: true, events: { where: { publicMessage: { not: null } }, select: { id: true, eventType: true, actorRole: true, publicMessage: true, occurredAt: true }, orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }] } },
       orderBy: { createdAt: 'desc' }, take: 100
     });
-    return { items };
+    return memberSupportHistoryResponseSchema.parse({ items });
   }
 
   @Post('support/requests/:id/messages')
