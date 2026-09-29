@@ -1,16 +1,13 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { Check, ChevronRight, FileUp } from 'lucide-react';
-import type { AdminResultConfirmResponse, AdminResultDataProvidersResponse, AdminResultDraftSaveResponse, AdminResultImportHistoryResponse, AdminResultRaceDetailResponse, AdminResultRacesResponse, PublicPredictionStatsResponse, PublicRaceResultResponse, ResultDataProviderId } from '@keiba/domain';
+import type { AdminResultBatchImportConfirmResponse, AdminResultBatchImportPreviewResponse, AdminResultConfirmResponse, AdminResultDataProvidersResponse, AdminResultDraftSaveResponse, AdminResultImportHistoryResponse, AdminResultRaceDetailResponse, AdminResultRaceImportConfirmResponse, AdminResultRaceImportPreviewResponse, AdminResultRacesResponse, PublicPredictionStatsResponse, PublicRaceResultResponse, ResultDataProviderId } from '@keiba/domain';
 
 async function api<T>(path: string, method = 'GET', body?: unknown): Promise<T> { const response = await fetch(`/api/v1/${path}`, { method, cache: 'no-store', headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined }); const value = await response.json(); if (!response.ok) throw new Error(value.message ?? '処理できませんでした。'); return value; }
 type ResultProvider = AdminResultDataProvidersResponse['items'][number];
 type RaceRow = AdminResultRacesResponse['items'][number];
 type Detail = AdminResultRaceDetailResponse;
 type DraftEntry = Detail['draft']['entries'][number];
-type ImportPreview = { batchId: string | null; expiresAt?: string; errors: { row: number; field: string; message: string }[]; changes: { key: string; action: '変更' | '変更なし'; fields: { field: string; before: unknown; after: unknown }[] }[] };
-type ResultBundleProvenance = { formatVersion: 'UMAREAL_JRA_VAN_BUNDLE_V1'; targetDate: string; manifestChecksum: string };
-type BatchImportPreview = { provider: Omit<ResultProvider, 'headers'>; sourceChecksum: string; bundle?: ResultBundleProvenance | null; sourceDisposition?: 'NEW' | 'CORRECTION'; previousImport?: { batchId: string; confirmedAt: string; sourceChecksum: string } | null; duplicateOf?: { batchId: string; confirmedAt: string }; batchId: string | null; expiresAt?: string; errors: { row: number; field: string; message: string }[]; races: { raceId: string; key: string; targetRevision: number; changes: ImportPreview['changes'] }[] };
 const resultFieldLabels: Record<string, string> = { raceCanceled: 'レース中止', status: '状態', finishPosition: '着順', popularity: '人気', finalOdds: '確定単勝', number: '馬番', horseNumber: '馬番', raceNumber: 'レース番号', raceDate: '開催日', venue: '競馬場', venueCode: '競馬場コード', abnormalCode: '異常区分コード', recordType: 'レコード種別', csv: 'CSV', header: '見出し' };
 const resultProviderLabels: Record<ResultDataProviderId, string> = { CANONICAL_CSV: '内部標準CSV', JRA_VAN_BRIDGE_V1: 'JRA-VAN連携ブリッジ' };
 
@@ -28,7 +25,7 @@ export function AdminResults() {
 }
 
 function BatchResultCsvImport({ onImported }: { onImported: () => Promise<void> }) {
-  const [csv, setCsv] = useState(''), [reason, setReason] = useState(''), [preview, setPreview] = useState<BatchImportPreview | null>(null);
+  const [csv, setCsv] = useState(''), [reason, setReason] = useState(''), [preview, setPreview] = useState<AdminResultBatchImportPreviewResponse | null>(null);
   const [bundleManifest, setBundleManifest] = useState('');
   const [error, setError] = useState(''), [message, setMessage] = useState(''), [busy, setBusy] = useState(false);
   const [providers, setProviders] = useState<ResultProvider[]>([]), [providerId, setProviderId] = useState<ResultDataProviderId>('CANONICAL_CSV');
@@ -51,13 +48,13 @@ function BatchResultCsvImport({ onImported }: { onImported: () => Promise<void> 
   }
   async function check() {
     setBusy(true); setError(''); setMessage(''); setPreview(null);
-    try { setPreview(await api<BatchImportPreview>('admin/results/import/preview', 'POST', { csv, providerId, ...(bundleManifest ? { bundleManifest } : {}) })); }
+    try { setPreview(await api<AdminResultBatchImportPreviewResponse>('admin/results/import/preview', 'POST', { csv, providerId, ...(bundleManifest ? { bundleManifest } : {}) })); }
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   async function confirmImport() {
     if (!preview?.batchId) return; setBusy(true); setError(''); setMessage('');
     try {
-      const value = await api<{ count: number }>(`admin/results/import/${preview.batchId}/confirm`, 'POST', { reason });
+      const value = await api<AdminResultBatchImportConfirmResponse>(`admin/results/import/${preview.batchId}/confirm`, 'POST', { reason });
       setPreview(null); setCsv(''); setBundleManifest(''); setReason(''); setMessage(`${value.count}レースの結果下書きを反映しました。レース別に内容を確認して確定してください。`); await Promise.all([onImported(), loadHistory()]);
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
@@ -79,7 +76,7 @@ function BatchResultCsvImport({ onImported }: { onImported: () => Promise<void> 
         <h3>一括反映前の確認</h3>
         <p className="muted form-note">取込元：{preview.provider.label}（{preview.provider.formatVersion}） · ファイル指紋：{preview.sourceChecksum.slice(0, 12)}…</p>
         {preview.bundle && <div className="notice">JRA-VAN一括出力を検証済み · 対象日 {preview.bundle.targetDate} · manifest指紋 {preview.bundle.manifestChecksum.slice(0, 12)}…</div>}
-        {preview.sourceDisposition === 'CORRECTION' && preview.previousImport && <div className="notice">同じ対象レースの以前の取込があります。公式訂正として新しい下書き版を作成します。前回：{new Date(preview.previousImport.confirmedAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })} JST</div>}
+        {preview.batchId !== null && preview.sourceDisposition === 'CORRECTION' && preview.previousImport && <div className="notice">同じ対象レースの以前の取込があります。公式訂正として新しい下書き版を作成します。前回：{new Date(preview.previousImport.confirmedAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })} JST</div>}
         {preview.errors.length ? <div role="alert"><ul>{preview.errors.map((issue, index) => <li key={index}>{issue.row ? `${issue.row}行目 · ` : ''}{resultFieldLabels[issue.field] ?? issue.field}：{issue.message}</li>)}</ul></div> : <>
           <p className="muted form-note">対象 {preview.races.length}レース。反映後も結果は未確定です。</p>
           {preview.races.map(race => <details key={race.raceId} open><summary><span className="status-tag">下書き版{race.targetRevision}</span> {race.key}</summary>{race.changes.filter(change => change.action === '変更').map(change => <div key={change.key}><strong>{change.key}</strong><ul>{change.fields.map(field => <li key={field.field}>{resultFieldLabels[field.field] ?? field.field}：{String(field.before ?? '—')} → {String(field.after ?? '—')}</li>)}</ul></div>)}</details>)}
@@ -98,7 +95,7 @@ function BatchResultCsvImport({ onImported }: { onImported: () => Promise<void> 
 
 function ResultCsvImport({ detail, onImported }: { detail: Detail; onImported: (revision: number) => Promise<void> }) {
   const [csv, setCsv] = useState(''), [raceCanceled, setRaceCanceled] = useState(detail.draft.raceCanceled), [reason, setReason] = useState('');
-  const [preview, setPreview] = useState<ImportPreview | null>(null), [error, setError] = useState(''), [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState<AdminResultRaceImportPreviewResponse | null>(null), [error, setError] = useState(''), [busy, setBusy] = useState(false);
   async function fileChanged(file?: File) {
     setPreview(null); setError(''); if (!file) return;
     if (file.size > 65536) { setError('CSVは64KB以内にしてください。'); return; }
@@ -107,13 +104,13 @@ function ResultCsvImport({ detail, onImported }: { detail: Detail; onImported: (
   }
   async function check() {
     setBusy(true); setError(''); setPreview(null);
-    try { setPreview(await api<ImportPreview>(`admin/results/races/${detail.race.id}/import/preview`, 'POST', { csv, raceCanceled })); }
+    try { setPreview(await api<AdminResultRaceImportPreviewResponse>(`admin/results/races/${detail.race.id}/import/preview`, 'POST', { csv, raceCanceled })); }
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   async function confirmImport() {
     if (!preview?.batchId) return; setBusy(true); setError('');
     try {
-      const value = await api<{ revision: number }>(`admin/results/races/${detail.race.id}/import/${preview.batchId}/confirm`, 'POST', { reason });
+      const value = await api<AdminResultRaceImportConfirmResponse>(`admin/results/races/${detail.race.id}/import/${preview.batchId}/confirm`, 'POST', { reason });
       setPreview(null); setCsv(''); setReason(''); await onImported(value.revision);
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }

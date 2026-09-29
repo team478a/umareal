@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Req } from '@nestjs/common';
-import { adminResultConfirmResponseSchema, adminResultDataProvidersResponseSchema, adminResultDraftSaveResponseSchema, adminResultImportHistoryResponseSchema, adminResultRaceDetailResponseSchema, adminResultRacesResponseSchema, aggregatePredictionEvaluations, canManage, dateSchema, evaluatePrediction, getResultDataProvider, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, raceResultInputSchema, requiresMfa, resultDataProviderCatalog, resultDataProviderIdSchema, resultEntrySchema, verifyJraVanResultBundle } from '@keiba/domain';
+import { adminResultBatchImportConfirmResponseSchema, adminResultBatchImportPreviewResponseSchema, adminResultConfirmResponseSchema, adminResultDataProvidersResponseSchema, adminResultDraftSaveResponseSchema, adminResultImportHistoryResponseSchema, adminResultRaceDetailResponseSchema, adminResultRaceImportConfirmResponseSchema, adminResultRaceImportPreviewResponseSchema, adminResultRacesResponseSchema, aggregatePredictionEvaluations, canManage, dateSchema, evaluatePrediction, getResultDataProvider, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, raceResultInputSchema, requiresMfa, resultDataProviderCatalog, resultDataProviderIdSchema, resultEntrySchema, verifyJraVanResultBundle } from '@keiba/domain';
 import type { BatchResultCsvRow, RaceResultInput, ResultEntry, Role } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -157,7 +157,7 @@ export class ResultsController {
         };
       }
     }
-    if (parsed.errors.length) return { provider, sourceChecksum, bundle, errors: parsed.errors, races: [], batchId: null };
+    if (parsed.errors.length) return adminResultBatchImportPreviewResponseSchema.parse({ provider, sourceChecksum, bundle, errors: parsed.errors, races: [], batchId: null });
     return this.auth.db.$transaction(async tx => {
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(7262026)::text`;
       await this.ensureCsvEnabled(tx);
@@ -193,19 +193,19 @@ export class ResultsController {
         const before = this.currentDraft(race.resultDraft?.content, revision, race.entries);
         prepared.push({ race, raceCanceled, entries, targetRevision: revision + 1, changes: this.resultImportChanges(before, raceCanceled, entries, race.entries) });
       }
-      if (errors.length) return { provider, sourceChecksum, bundle, errors, races: [], batchId: null };
+      if (errors.length) return adminResultBatchImportPreviewResponseSchema.parse({ provider, sourceChecksum, bundle, errors, races: [], batchId: null });
       const confirmedImports = await this.confirmedResultImports(tx);
       const duplicate = await this.confirmedResultImportBySource(tx, providerId, sourceChecksum);
-      if (duplicate) return {
+      if (duplicate) return adminResultBatchImportPreviewResponseSchema.parse({
         provider, sourceChecksum, bundle, duplicateOf: { batchId: duplicate.batch.id, confirmedAt: duplicate.batch.confirmedAt },
         errors: [{ row: 0, field: 'sourceChecksum', message: '同じ取込元・同じ内容のCSVは反映済みです。取込履歴を確認してください。' }], races: [], batchId: null
-      };
+      });
       const raceIds = prepared.map(item => item.race.id);
       const previous = confirmedImports.find(item => item.stored.providerId === providerId && this.sameRaceIds(item.stored.races.map(race => race.raceId), raceIds));
       const sourceDisposition = previous ? 'CORRECTION' as const : 'NEW' as const;
       const stored = { providerId, providerFormatVersion: parsed.provider.formatVersion, sourceChecksum, sourceDisposition, previousImportBatchId: previous?.batch.id ?? null, bundle, races: prepared.map(item => ({ raceId: item.race.id, targetRevision: item.targetRevision, raceCanceled: item.raceCanceled, entries: item.entries })) };
       const batch = await tx.importBatch.create({ data: { actorId: actor.id, kind: 'results-batch', rows: json(stored), baselineHash: this.batchResultImportBaseline(prepared.map(item => item.race)), expiresAt: new Date(Date.now() + 15 * 60000) } });
-      return { provider, sourceChecksum, bundle, sourceDisposition, previousImport: previous ? { batchId: previous.batch.id, confirmedAt: previous.batch.confirmedAt, sourceChecksum: previous.stored.sourceChecksum } : null, batchId: batch.id, expiresAt: batch.expiresAt, errors: [], races: prepared.map(item => ({ raceId: item.race.id, key: `${item.race.raceDate} ${item.race.venue} ${item.race.number}R ${item.race.name}`, targetRevision: item.targetRevision, changes: item.changes })) };
+      return adminResultBatchImportPreviewResponseSchema.parse({ provider, sourceChecksum, bundle, sourceDisposition, previousImport: previous ? { batchId: previous.batch.id, confirmedAt: previous.batch.confirmedAt, sourceChecksum: previous.stored.sourceChecksum } : null, batchId: batch.id, expiresAt: batch.expiresAt, errors: [], races: prepared.map(item => ({ raceId: item.race.id, key: `${item.race.raceDate} ${item.race.venue} ${item.race.number}R ${item.race.name}`, targetRevision: item.targetRevision, changes: item.changes })) });
     }, { timeout: 20000, maxWait: 10000 });
   }
 
@@ -247,7 +247,7 @@ export class ResultsController {
       if (!batch || batch.actorId !== actor.id || batch.kind !== 'results-batch' || batch.raceId !== null) throw new NotFoundException();
       const stored = batchImportRowsSchema.parse(batch.rows);
       const revisions = stored.races.map(race => ({ raceId: race.raceId, revision: race.targetRevision }));
-      if (batch.confirmedAt) return { imported: true, count: revisions.length, races: revisions, batchId, providerId: stored.providerId, sourceChecksum: stored.sourceChecksum, alreadyConfirmed: true };
+      if (batch.confirmedAt) return adminResultBatchImportConfirmResponseSchema.parse({ imported: true, count: revisions.length, races: revisions, batchId, providerId: stored.providerId, sourceChecksum: stored.sourceChecksum, alreadyConfirmed: true });
       if (batch.expiresAt <= new Date()) throw new ConflictException({ code: 'PREVIEW_EXPIRED', message: 'プレビューの有効期限が切れました。再確認してください。' });
       const duplicate = await this.confirmedResultImportBySource(tx, stored.providerId, stored.sourceChecksum);
       if (duplicate) throw new ConflictException({ code: 'DUPLICATE_RESULT_IMPORT', message: '同じ取込元・同じ内容のCSVが反映済みです。取込履歴を確認してください。', previousBatchId: duplicate.batch.id, confirmedAt: duplicate.batch.confirmedAt });
@@ -284,7 +284,7 @@ export class ResultsController {
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException({ code: 'DUPLICATE_RESULT_IMPORT', message: '同じ取込元・同じ内容のCSVが反映済みです。取込履歴を確認してください。' });
         throw error;
       }
-      return { imported: true, count: revisions.length, races: revisions, batchId, providerId: stored.providerId, sourceChecksum: stored.sourceChecksum, alreadyConfirmed: false };
+      return adminResultBatchImportConfirmResponseSchema.parse({ imported: true, count: revisions.length, races: revisions, batchId, providerId: stored.providerId, sourceChecksum: stored.sourceChecksum, alreadyConfirmed: false });
     }, { timeout: 20000, maxWait: 10000 });
   }
 
@@ -306,7 +306,7 @@ export class ResultsController {
     z.string().uuid().parse(raceId);
     const input = z.object({ csv: z.string().max(90000), raceCanceled: z.boolean() }).strict().parse(body);
     const parsed = parseResultCsv(input.csv);
-    if (parsed.errors.length) return { errors: parsed.errors, changes: [], batchId: null };
+    if (parsed.errors.length) return adminResultRaceImportPreviewResponseSchema.parse({ errors: parsed.errors, changes: [], batchId: null });
     return this.auth.db.$transaction(async tx => {
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(7262026)::text`;
       await this.ensureCsvEnabled(tx);
@@ -317,19 +317,19 @@ export class ResultsController {
       const errors = parsed.rows.flatMap((row, index) => registered.has(row.number) ? [] : [{ row: index + 2, field: 'number', message: `${row.number}番は対象レースに登録されていません。` }]);
       const imported = new Set(parsed.rows.map(row => row.number));
       for (const entry of race.entries) if (!imported.has(entry.number)) errors.push({ row: 0, field: 'number', message: `${entry.number}番 ${entry.horseName}の結果がありません。` });
-      if (errors.length) return { errors, changes: [], batchId: null };
+      if (errors.length) return adminResultRaceImportPreviewResponseSchema.parse({ errors, changes: [], batchId: null });
       const rowsByNumber = new Map(parsed.rows.map(row => [row.number, row]));
       const entries = race.entries.map(entry => { const row = rowsByNumber.get(entry.number)!; return { entryId: entry.id, status: row.status, finishPosition: row.finishPosition, popularity: row.popularity, finalOdds: row.finalOdds }; });
       const revision = race.resultDraft?.revision ?? 0;
       const validated = raceResultInputSchema.safeParse({ revision, raceCanceled: input.raceCanceled, entries, reason: 'CSV取込内容の確認' });
-      if (!validated.success) return { errors: validated.error.issues.map(issue => ({ row: 0, field: issue.path.join('.'), message: issue.message })), changes: [], batchId: null };
+      if (!validated.success) return adminResultRaceImportPreviewResponseSchema.parse({ errors: validated.error.issues.map(issue => ({ row: 0, field: issue.path.join('.'), message: issue.message })), changes: [], batchId: null });
       const before = this.currentDraft(race.resultDraft?.content, revision, race.entries);
       const changes = this.resultImportChanges(before, input.raceCanceled, entries, race.entries);
       const batch = await tx.importBatch.create({ data: {
         actorId: actor.id, kind: 'results', raceId, rows: json({ targetRevision: revision + 1, raceCanceled: input.raceCanceled, entries }),
         baselineHash: this.resultImportBaseline(race), expiresAt: new Date(Date.now() + 15 * 60000)
       } });
-      return { batchId: batch.id, expiresAt: batch.expiresAt, changes, errors: [] };
+      return adminResultRaceImportPreviewResponseSchema.parse({ batchId: batch.id, expiresAt: batch.expiresAt, changes, errors: [] });
     }, { timeout: 20000, maxWait: 10000 });
   }
 
@@ -344,7 +344,7 @@ export class ResultsController {
       const batch = await tx.importBatch.findUnique({ where: { id: batchId } });
       if (!batch || batch.actorId !== actor.id || batch.kind !== 'results' || batch.raceId !== raceId) throw new NotFoundException();
       const stored = importBatchRowsSchema.parse(batch.rows);
-      if (batch.confirmedAt) return { imported: true, revision: stored.targetRevision, batchId, alreadyConfirmed: true };
+      if (batch.confirmedAt) return adminResultRaceImportConfirmResponseSchema.parse({ imported: true, revision: stored.targetRevision, batchId, alreadyConfirmed: true });
       if (batch.expiresAt <= new Date()) throw new ConflictException({ code: 'PREVIEW_EXPIRED', message: 'プレビューの有効期限が切れました。再確認してください。' });
       const race = await tx.race.findUnique({ where: { id: raceId }, include: { entries: { orderBy: { number: 'asc' } }, resultDraft: true } });
       if (!race) throw new NotFoundException({ code: 'RACE_NOT_FOUND', message: 'レースが見つかりません。' });
@@ -366,7 +366,7 @@ export class ResultsController {
       }
       await tx.importBatch.update({ where: { id: batchId }, data: { confirmedAt: new Date() } });
       await this.auth.audit(tx, req, 'RACE_RESULT_CSV_IMPORT_CONFIRMED', raceId, reason, { batchId, revision: stored.targetRevision, entries: stored.entries.length, raceCanceled: stored.raceCanceled });
-      return { imported: true, revision: stored.targetRevision, batchId, alreadyConfirmed: false };
+      return adminResultRaceImportConfirmResponseSchema.parse({ imported: true, revision: stored.targetRevision, batchId, alreadyConfirmed: false });
     }, { timeout: 20000, maxWait: 10000 });
   }
 

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { adminResultConfirmResponseSchema, adminResultDataProvidersResponseSchema, adminResultDraftSaveResponseSchema, adminResultImportHistoryResponseSchema, adminResultRaceDetailResponseSchema, adminResultRacesResponseSchema, aggregatePerformances, getResultDataProvider, legacyRaceResultInputSchema, parseBatchResultCsv, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, resultDataProviderCatalog, settlePrediction, verifyJraVanResultBundle } from './results';
+import { adminResultBatchImportConfirmResponseSchema, adminResultBatchImportPreviewResponseSchema, adminResultConfirmResponseSchema, adminResultDataProvidersResponseSchema, adminResultDraftSaveResponseSchema, adminResultImportHistoryResponseSchema, adminResultRaceDetailResponseSchema, adminResultRaceImportConfirmResponseSchema, adminResultRaceImportPreviewResponseSchema, adminResultRacesResponseSchema, aggregatePerformances, getResultDataProvider, legacyRaceResultInputSchema, parseBatchResultCsv, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, resultDataProviderCatalog, settlePrediction, verifyJraVanResultBundle } from './results';
 
 const entry = (entryId: string, finishPosition: number) => ({ entryId, status: 'FINISHED' as const, finishPosition, popularity: finishPosition, finalOdds: '2.5' });
 
@@ -206,6 +206,43 @@ describe('admin result mutation response contracts', () => {
     expect(adminResultConfirmResponseSchema.parse({ versionId, version: 2, alreadyConfirmed: false })).toEqual({ versionId, version: 2, alreadyConfirmed: false });
     expect(adminResultConfirmResponseSchema.parse({ versionId, version: 2, alreadyConfirmed: true })).toEqual({ versionId, version: 2, alreadyConfirmed: true });
     expect(adminResultConfirmResponseSchema.safeParse({ versionId, version: 2, alreadyConfirmed: false, confirmedBy: crypto.randomUUID() }).success).toBe(false);
+  });
+});
+
+describe('admin result CSV import response contracts', () => {
+  const issue = { row: 2, field: 'finishPosition', message: '着順を確認してください。' };
+  const change = {
+    key: '1番 テストホース', action: '変更' as const,
+    fields: [{ field: 'finishPosition' as const, before: null, after: 1 }]
+  };
+
+  it('distinguishes rejected and accepted single-race previews', () => {
+    expect(adminResultRaceImportPreviewResponseSchema.parse({ batchId: null, errors: [issue], changes: [] })).toEqual({ batchId: null, errors: [issue], changes: [] });
+    const batchId = crypto.randomUUID();
+    expect(adminResultRaceImportPreviewResponseSchema.parse({ batchId, expiresAt: new Date('2026-09-27T03:15:00.000Z'), errors: [], changes: [change] })).toMatchObject({ batchId, expiresAt: '2026-09-27T03:15:00.000Z' });
+    expect(adminResultRaceImportPreviewResponseSchema.safeParse({ batchId, expiresAt: new Date(), errors: [], changes: [change], actorId: crypto.randomUUID() }).success).toBe(false);
+  });
+
+  it('preserves batch provenance without exposing stored rows or credentials', () => {
+    const response = {
+      provider: { id: 'JRA_VAN_BRIDGE_V1' as const, label: 'JRA-VAN連携ブリッジ', formatVersion: 'UMAREAL_JRA_VAN_BRIDGE_V1' },
+      sourceChecksum: 'a'.repeat(64), bundle: null, sourceDisposition: 'NEW' as const, previousImport: null,
+      batchId: crypto.randomUUID(), expiresAt: new Date('2026-09-27T03:15:00.000Z'), errors: [],
+      races: [{ raceId: crypto.randomUUID(), key: '2026-09-27 東京 10R テストレース', targetRevision: 1, changes: [change] }]
+    };
+    expect(adminResultBatchImportPreviewResponseSchema.parse(response)).toMatchObject({ expiresAt: '2026-09-27T03:15:00.000Z', sourceDisposition: 'NEW' });
+    expect(adminResultBatchImportPreviewResponseSchema.safeParse({ ...response, rows: [{ private: true }] }).success).toBe(false);
+    expect(adminResultBatchImportPreviewResponseSchema.safeParse({ ...response, provider: { ...response.provider, accessToken: 'secret' } }).success).toBe(false);
+  });
+
+  it('preserves first confirmation and idempotent replay for both import scopes', () => {
+    const batchId = crypto.randomUUID(), raceId = crypto.randomUUID();
+    expect(adminResultRaceImportConfirmResponseSchema.parse({ imported: true, revision: 2, batchId, alreadyConfirmed: false })).toMatchObject({ revision: 2, alreadyConfirmed: false });
+    expect(adminResultRaceImportConfirmResponseSchema.parse({ imported: true, revision: 2, batchId, alreadyConfirmed: true })).toMatchObject({ revision: 2, alreadyConfirmed: true });
+    const batch = { imported: true as const, count: 1, races: [{ raceId, revision: 2 }], batchId, providerId: 'CANONICAL_CSV' as const, sourceChecksum: 'b'.repeat(64), alreadyConfirmed: false };
+    expect(adminResultBatchImportConfirmResponseSchema.parse(batch)).toEqual(batch);
+    expect(adminResultBatchImportConfirmResponseSchema.safeParse({ ...batch, count: 2 }).success).toBe(false);
+    expect(adminResultBatchImportConfirmResponseSchema.safeParse({ ...batch, actorId: crypto.randomUUID() }).success).toBe(false);
   });
 });
 
