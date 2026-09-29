@@ -1,42 +1,8 @@
 'use client';
+import type { AdminSettingsResponse } from '@keiba/domain';
 import { useEffect, useState, type FormEvent } from 'react';
 
-type Settings = {
-  revision: number;
-  operations: { newRegistrationsEnabled: boolean; emailNotificationsEnabled: boolean; predictionPublicationEnabled: boolean; csvImportEnabled: boolean; lineNotificationsEnabled: boolean; lineLoginEnabled: boolean; newPurchasesEnabled: boolean };
-  registrationPauseMessage: string;
-  captcha: {
-    enabled: boolean; siteKey: string | null; secretConfigured: boolean;
-    connectionStatus: 'DISABLED' | 'INCOMPLETE' | 'CONFIGURED_NOT_VERIFIED';
-    readiness: { siteKeyStored: boolean; secretStored: boolean; secretReadable: boolean; serverValidationReady: boolean; transport: 'TEST_ONLY' | 'TURNSTILE'; externalConnectionTested: boolean };
-  };
-  maintenanceMessage: string;
-  notificationPolicy: { maxAttempts: number; baseDelaySeconds: number };
-  publicationPolicy: { correction: 'ADMIN_ONLY' | 'EXPERT_OR_ADMIN'; delayedRace: 'CLOSED' | 'LATEST_STARTS_AT' };
-  environment: {
-    launchMode: string; authProvider: 'SUPABASE' | 'LOCAL_DEVELOPMENT'; applicationUrl: string | null; adminUrlConfigured: boolean; supabaseConfigured: boolean; sentryConfigured: boolean;
-    transports: { captcha: string; mail: string; lineNotifications: string; lineLogin: string; billing: string };
-  };
-  billing: { founderSalesEnabled: boolean; standardSalesEnabled: boolean; dayPassSalesEnabled: boolean; founderPriceYen: number; standardPriceYen: number; dayPassPriceYen: number; founderSalesLimit: number; billingGraceDays: number };
-  stripe: {
-    source: 'ADMIN' | 'ENVIRONMENT'; liveMode: boolean; secretKeyConfigured: boolean; webhookSecretConfigured: boolean;
-    priceFounder: string | null; priceStandard: string | null; priceDayPass: string | null;
-    connectionStatus: 'NOT_CONFIGURED' | 'INCOMPLETE' | 'CONFIGURED_NOT_VERIFIED';
-    readiness: { credentialsStored: boolean; secretsReadable: boolean; pricesConfigured: boolean; modeConsistent: boolean; billingTransport: 'TEST_ONLY' | 'STRIPE'; externalConnectionTested: boolean };
-  };
-  mail: {
-    source: 'ADMIN' | 'ENVIRONMENT'; apiKeyConfigured: boolean; webhookSecretConfigured: boolean; from: string | null;
-    connectionStatus: 'NOT_CONFIGURED' | 'INCOMPLETE' | 'CONFIGURED_NOT_VERIFIED';
-    readiness: { credentialsStored: boolean; secretReadable: boolean; webhookSecretStored: boolean; webhookSecretReadable: boolean; senderConfigured: boolean; webhookReceiverReady: boolean; mailTransport: 'TEST_ONLY' | 'RESEND'; externalConnectionTested: boolean };
-  };
-  line: {
-    channelId: string | null; channelSecretConfigured: boolean; channelAccessTokenConfigured: boolean; connectionStatus: 'NOT_CONFIGURED' | 'CONFIGURED_NOT_VERIFIED';
-    messagingReadiness: { credentialsStored: boolean; secretsReadable: boolean; applicationUrlReady: boolean; notificationWorkerReady: boolean; webhookSignatureVerifierReady: boolean; outboundTransport: 'TEST_ONLY' | 'LINE'; externalConnectionTested: boolean };
-    loginChannelId: string | null; loginChannelSecretConfigured: boolean; loginCallbackUrl: string | null; loginConnectionStatus: 'NOT_CONFIGURED' | 'CONFIGURED_NOT_VERIFIED';
-        loginReadiness: { credentialsStored: boolean; secretReadable: boolean; callbackUrlConfigured: boolean; oauthCallbackHandlerReady: boolean; oauthTransport: 'TEST_ONLY' | 'LINE'; externalConnectionTested: boolean };
-  };
-  updatedAt: string;
-};
+type Settings = AdminSettingsResponse;
 
 async function request<T>(method = 'GET', body?: unknown): Promise<T> {
   const response = await fetch('/api/v1/admin/settings', { method, cache: 'no-store', headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });

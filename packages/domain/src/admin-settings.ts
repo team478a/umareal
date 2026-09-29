@@ -8,18 +8,30 @@ const mailFromSchema = z.string().trim().min(3).max(320).refine(value => {
   return !/[<>]/.test(value) && z.string().email().safeParse(value).success;
 }, '送信元はメールアドレス、または「表示名 <メールアドレス>」で入力してください。');
 
+const adminSettingsDateTimeSchema = z.preprocess(
+  value => value instanceof Date ? value.toISOString() : value,
+  z.string().datetime({ offset: true })
+);
+
+const adminSettingsOperationsSchema = z.object({
+  newRegistrationsEnabled: z.boolean(),
+  emailNotificationsEnabled: z.boolean(),
+  predictionPublicationEnabled: z.boolean(),
+  csvImportEnabled: z.boolean(),
+  lineNotificationsEnabled: z.boolean(),
+  lineLoginEnabled: z.boolean(),
+  newPurchasesEnabled: z.boolean()
+}).strict();
+
+const adminSettingsPublicationPolicySchema = z.object({
+  correction: z.enum(['ADMIN_ONLY', 'EXPERT_OR_ADMIN']),
+  delayedRace: z.enum(['CLOSED', 'LATEST_STARTS_AT'])
+}).strict();
+
 export const adminSettingsUpdateSchema = z.object({
   revision: z.number().int().positive(),
   reason: z.string().trim().min(1).max(500),
-  operations: z.object({
-    newRegistrationsEnabled: z.boolean(),
-    emailNotificationsEnabled: z.boolean(),
-    predictionPublicationEnabled: z.boolean(),
-    csvImportEnabled: z.boolean(),
-    lineNotificationsEnabled: z.boolean(),
-    lineLoginEnabled: z.boolean(),
-    newPurchasesEnabled: z.boolean()
-  }).strict(),
+  operations: adminSettingsOperationsSchema,
   registrationPauseMessage: z.string().trim().max(500),
   captcha: z.object({
     enabled: z.boolean(),
@@ -34,10 +46,7 @@ export const adminSettingsUpdateSchema = z.object({
     maxAttempts: z.number().int().min(1).max(10),
     baseDelaySeconds: z.number().int().min(10).max(3600)
   }).strict(),
-  publicationPolicy: z.object({
-    correction: z.enum(['ADMIN_ONLY', 'EXPERT_OR_ADMIN']),
-    delayedRace: z.enum(['CLOSED', 'LATEST_STARTS_AT'])
-  }).strict().optional(),
+  publicationPolicy: adminSettingsPublicationPolicySchema.optional(),
   billing: billingSettingsSchema,
   stripe: z.object({
     liveMode: z.boolean(),
@@ -80,3 +89,53 @@ export const adminSettingsUpdateSchema = z.object({
 });
 
 export type AdminSettingsUpdate = z.infer<typeof adminSettingsUpdateSchema>;
+
+export const adminSettingsResponseSchema = z.object({
+  revision: z.number().int().positive(),
+  operations: adminSettingsOperationsSchema,
+  registrationPauseMessage: z.string(),
+  captcha: z.object({
+    enabled: z.boolean(),
+    siteKey: z.string().nullable(),
+    secretConfigured: z.boolean(),
+    connectionStatus: z.enum(['DISABLED', 'INCOMPLETE', 'CONFIGURED_NOT_VERIFIED']),
+    readiness: z.object({
+      siteKeyStored: z.boolean(), secretStored: z.boolean(), secretReadable: z.boolean(), serverValidationReady: z.boolean(),
+      transport: z.enum(['TEST_ONLY', 'TURNSTILE']), externalConnectionTested: z.boolean()
+    }).strict()
+  }).strict(),
+  maintenanceMessage: z.string(),
+  notificationPolicy: z.object({ maxAttempts: z.number().int().min(1).max(10), baseDelaySeconds: z.number().int().min(10).max(3600) }).strict(),
+  publicationPolicy: adminSettingsPublicationPolicySchema,
+  environment: z.object({
+    launchMode: z.string().min(1),
+    authProvider: z.enum(['SUPABASE', 'LOCAL_DEVELOPMENT']),
+    applicationUrl: z.string().nullable(),
+    adminUrlConfigured: z.boolean(), supabaseConfigured: z.boolean(), sentryConfigured: z.boolean(),
+    transports: z.object({ captcha: z.string().min(1), mail: z.string().min(1), lineNotifications: z.string().min(1), lineLogin: z.string().min(1), billing: z.string().min(1) }).strict()
+  }).strict(),
+  billing: billingSettingsSchema,
+  stripe: z.object({
+    source: z.enum(['ADMIN', 'ENVIRONMENT']), liveMode: z.boolean(), secretKeyConfigured: z.boolean(), webhookSecretConfigured: z.boolean(),
+    priceFounder: z.string().nullable(), priceStandard: z.string().nullable(), priceDayPass: z.string().nullable(),
+    connectionStatus: z.enum(['NOT_CONFIGURED', 'INCOMPLETE', 'CONFIGURED_NOT_VERIFIED']),
+    readiness: z.object({ credentialsStored: z.boolean(), secretsReadable: z.boolean(), pricesConfigured: z.boolean(), modeConsistent: z.boolean(), billingTransport: z.enum(['TEST_ONLY', 'STRIPE']), externalConnectionTested: z.boolean() }).strict()
+  }).strict(),
+  mail: z.object({
+    source: z.enum(['ADMIN', 'ENVIRONMENT']), apiKeyConfigured: z.boolean(), webhookSecretConfigured: z.boolean(), from: z.string().nullable(),
+    connectionStatus: z.enum(['NOT_CONFIGURED', 'INCOMPLETE', 'CONFIGURED_NOT_VERIFIED']),
+    readiness: z.object({ credentialsStored: z.boolean(), secretReadable: z.boolean(), webhookSecretStored: z.boolean(), webhookSecretReadable: z.boolean(), senderConfigured: z.boolean(), webhookReceiverReady: z.boolean(), mailTransport: z.enum(['TEST_ONLY', 'RESEND']), externalConnectionTested: z.boolean() }).strict()
+  }).strict(),
+  line: z.object({
+    channelId: z.string().nullable(), channelSecretConfigured: z.boolean(), channelAccessTokenConfigured: z.boolean(),
+    connectionStatus: z.enum(['NOT_CONFIGURED', 'CONFIGURED_NOT_VERIFIED']),
+    messagingReadiness: z.object({ credentialsStored: z.boolean(), secretsReadable: z.boolean(), applicationUrlReady: z.boolean(), notificationWorkerReady: z.boolean(), webhookSignatureVerifierReady: z.boolean(), outboundTransport: z.enum(['TEST_ONLY', 'LINE']), externalConnectionTested: z.boolean() }).strict(),
+    loginChannelId: z.string().nullable(), loginChannelSecretConfigured: z.boolean(), loginCallbackUrl: z.string().nullable(),
+    loginConnectionStatus: z.enum(['NOT_CONFIGURED', 'CONFIGURED_NOT_VERIFIED']),
+    loginReadiness: z.object({ credentialsStored: z.boolean(), secretReadable: z.boolean(), callbackUrlConfigured: z.boolean(), oauthCallbackHandlerReady: z.boolean(), oauthTransport: z.enum(['TEST_ONLY', 'LINE']), externalConnectionTested: z.boolean() }).strict()
+  }).strict(),
+  updatedAt: adminSettingsDateTimeSchema,
+  updatedBy: z.string().uuid().nullable()
+}).strict();
+
+export type AdminSettingsResponse = z.infer<typeof adminSettingsResponseSchema>;
