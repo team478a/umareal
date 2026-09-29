@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
-import { adminResultDataProvidersResponseSchema, adminResultImportHistoryResponseSchema, adminResultRaceDetailResponseSchema, adminResultRacesResponseSchema, adminSocialSharesResponseSchema, emptyPredictionDraft, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema } from '../packages/domain/src';
+import { adminResultConfirmResponseSchema, adminResultDataProvidersResponseSchema, adminResultDraftSaveResponseSchema, adminResultImportHistoryResponseSchema, adminResultRaceDetailResponseSchema, adminResultRacesResponseSchema, adminSocialSharesResponseSchema, emptyPredictionDraft, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema } from '../packages/domain/src';
 import { assessmentFixture } from './assessment-fixtures';
 import { account, Client, db } from './helpers';
 
@@ -32,13 +32,17 @@ describe('immutable results and horse-evaluation performance', () => {
     expect((await operator.call(`admin/results/races/${fixture.race.id}`, 'PATCH', { ...resultBody(fixture.entries), entries: resultBody(fixture.entries).entries.slice(0, 1) })).status).toBe(400);
     expect((await operator.call(`admin/results/races/${fixture.race.id}`, 'PATCH', { ...resultBody(fixture.entries), payouts: [] })).status).toBe(400);
     const saved = await operator.call(`admin/results/races/${fixture.race.id}`, 'PATCH', resultBody(fixture.entries));
-    expect(saved.status).toBe(200); expect(saved.body.revision).toBe(1);
+    expect(saved.status).toBe(200); expect(adminResultDraftSaveResponseSchema.parse(saved.body)).toEqual({ revision: 1 });
+    expect(Object.keys(saved.body)).toEqual(['revision']);
     const conflict = await Promise.all([operator.call(`admin/results/races/${fixture.race.id}`, 'PATCH', resultBody(fixture.entries, 1)), operator.call(`admin/results/races/${fixture.race.id}`, 'PATCH', { ...resultBody(fixture.entries, 1), reason: '別担当者の保存' })]);
     expect(conflict.map(item => item.status).sort()).toEqual([200, 409]);
     const current = await db.raceResultDraft.findUniqueOrThrow({ where: { raceId: fixture.race.id } });
     const confirmed = await operator.call(`admin/results/races/${fixture.race.id}/confirm`, 'POST', { revision: current.revision, reason: '確定結果の初回確認' });
-    expect(confirmed.status).toBe(201); expect(confirmed.body).toMatchObject({ version: 1, alreadyConfirmed: false });
-    expect((await operator.call(`admin/results/races/${fixture.race.id}/confirm`, 'POST', { revision: current.revision, reason: '再送' })).body).toMatchObject({ version: 1, alreadyConfirmed: true });
+    expect(confirmed.status).toBe(201); expect(adminResultConfirmResponseSchema.parse(confirmed.body)).toMatchObject({ version: 1, alreadyConfirmed: false });
+    expect(Object.keys(confirmed.body).sort()).toEqual(['alreadyConfirmed', 'version', 'versionId']);
+    const repeatedConfirmation = await operator.call(`admin/results/races/${fixture.race.id}/confirm`, 'POST', { revision: current.revision, reason: '再送' });
+    expect(adminResultConfirmResponseSchema.parse(repeatedConfirmation.body)).toMatchObject({ versionId: confirmed.body.versionId, version: 1, alreadyConfirmed: true });
+    expect(JSON.stringify(repeatedConfirmation.body)).not.toMatch(/confirmedBy|actorId|auditId|userId|email|token|secret/i);
     const evaluation = await db.predictionEvaluation.findFirstOrThrow({ where: { resultVersion: { raceId: fixture.race.id, version: 1 }, predictionVersionId } });
     expect(evaluation).toMatchObject({ status: 'PRIMARY_WIN', primaryFinishedFirst: true, primaryFinishedTop2: true, primaryFinishedTop3: true, winnerInRecommended: true, calculationRuleVersion: 'HORSE_EVALUATION_V1' });
     const resultEvent = await db.notificationEvent.findUniqueOrThrow({ where: { raceResultVersionId: confirmed.body.versionId } });

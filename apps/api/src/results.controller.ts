@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Req } from '@nestjs/common';
-import { adminResultDataProvidersResponseSchema, adminResultImportHistoryResponseSchema, adminResultRaceDetailResponseSchema, adminResultRacesResponseSchema, aggregatePredictionEvaluations, canManage, dateSchema, evaluatePrediction, getResultDataProvider, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, raceResultInputSchema, requiresMfa, resultDataProviderCatalog, resultDataProviderIdSchema, resultEntrySchema, verifyJraVanResultBundle } from '@keiba/domain';
+import { adminResultConfirmResponseSchema, adminResultDataProvidersResponseSchema, adminResultDraftSaveResponseSchema, adminResultImportHistoryResponseSchema, adminResultRaceDetailResponseSchema, adminResultRacesResponseSchema, aggregatePredictionEvaluations, canManage, dateSchema, evaluatePrediction, getResultDataProvider, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, raceResultInputSchema, requiresMfa, resultDataProviderCatalog, resultDataProviderIdSchema, resultEntrySchema, verifyJraVanResultBundle } from '@keiba/domain';
 import type { BatchResultCsvRow, RaceResultInput, ResultEntry, Role } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -383,7 +383,7 @@ export class ResultsController {
         try {
           const created = await tx.raceResultDraft.create({ data: { raceId, revision: 1, content, updatedBy: actor.id } });
           await this.auth.audit(tx, req, 'RACE_RESULT_DRAFT_SAVE', raceId, input.reason, { revision: 1, ruleVersion: evaluationRuleVersion });
-          return { revision: created.revision };
+          return adminResultDraftSaveResponseSchema.parse({ revision: created.revision });
         } catch (error) {
           if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException({ code: 'RESULT_REVISION_CONFLICT', message: '別の担当者が結果を保存しました。再読み込みしてください。' });
           throw error;
@@ -392,7 +392,7 @@ export class ResultsController {
       const changed = await tx.raceResultDraft.updateMany({ where: { raceId, revision: input.revision }, data: { content, revision: { increment: 1 }, updatedBy: actor.id, updatedAt: new Date() } });
       if (changed.count !== 1) throw new ConflictException({ code: 'RESULT_REVISION_CONFLICT', message: '別の担当者が結果を保存しました。再読み込みしてください。' });
       await this.auth.audit(tx, req, 'RACE_RESULT_DRAFT_SAVE', raceId, input.reason, { revision: input.revision + 1, ruleVersion: evaluationRuleVersion });
-      return { revision: input.revision + 1 };
+      return adminResultDraftSaveResponseSchema.parse({ revision: input.revision + 1 });
     });
   }
 
@@ -403,11 +403,11 @@ export class ResultsController {
     const { revision, reason } = z.object({ revision: z.number().int().positive(), reason: z.string().trim().min(1).max(500) }).strict().parse(body);
     return this.auth.db.$transaction(async tx => {
       const already = await tx.raceResultVersion.findUnique({ where: { raceId_sourceRevision: { raceId, sourceRevision: revision } }, select: { id: true, version: true } });
-      if (already) return { versionId: already.id, version: already.version, alreadyConfirmed: true };
+      if (already) return adminResultConfirmResponseSchema.parse({ versionId: already.id, version: already.version, alreadyConfirmed: true });
       const locked = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM race_result_drafts WHERE "raceId" = ${raceId}::uuid AND revision = ${revision} FOR UPDATE`;
       if (!locked.length) {
         const existing = await tx.raceResultVersion.findUnique({ where: { raceId_sourceRevision: { raceId, sourceRevision: revision } }, select: { id: true, version: true } });
-        if (existing) return { versionId: existing.id, version: existing.version, alreadyConfirmed: true };
+        if (existing) return adminResultConfirmResponseSchema.parse({ versionId: existing.id, version: existing.version, alreadyConfirmed: true });
         throw new ConflictException({ code: 'RESULT_REVISION_CONFLICT', message: '結果を再読み込みしてください。' });
       }
       const draft = await tx.raceResultDraft.findUniqueOrThrow({ where: { raceId } });
@@ -446,7 +446,7 @@ export class ResultsController {
       if (latestEvaluation && latestEvaluation.status !== 'REVIEW_REQUIRED') await tx.notificationEvent.create({ data: { raceResultVersionId: result.id, eventType: 'RACE_EVALUATION_CONFIRMED', status: 'QUEUED', payload: { raceResultVersionId: result.id, raceId } } });
       await tx.race.update({ where: { id: raceId }, data: { status: input.raceCanceled ? 'CANCELED' : 'FINISHED', revision: { increment: 1 } } });
       await this.auth.audit(tx, req, 'RACE_RESULT_CONFIRM', raceId, reason, { resultVersionId: result.id, version: result.version, sourceRevision: revision, ruleVersion: evaluationRuleVersion, predictionVersions: evaluations.length });
-      return { versionId: result.id, version: result.version, alreadyConfirmed: false };
+      return adminResultConfirmResponseSchema.parse({ versionId: result.id, version: result.version, alreadyConfirmed: false });
     }, { timeout: 20000, maxWait: 10000 });
   }
 
