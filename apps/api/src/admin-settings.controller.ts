@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, Patch, Req } from '@nestjs/common';
-import { adminSettingsUpdateSchema, canManage, requiresMfa } from '@keiba/domain';
+import { adminSettingsResponseSchema, adminSettingsUpdateSchema, canManage, requiresMfa } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { resolveMailConfig, type SystemSetting } from '@keiba/db';
 import { AuthService } from './auth.service';
@@ -38,7 +38,7 @@ export class AdminSettingsController {
     const baseUrl = process.env.APP_BASE_URL ?? '';
     let secureApplicationUrl = false;
     try { const parsed = new URL(baseUrl); secureApplicationUrl = parsed.protocol === 'https:' || (parsed.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(parsed.hostname)); } catch { secureApplicationUrl = false; }
-    return {
+    return adminSettingsResponseSchema.parse({
       revision: value.revision,
       operations: {
         newRegistrationsEnabled: value.newRegistrationsEnabled,
@@ -117,7 +117,7 @@ export class AdminSettingsController {
       },
       updatedAt: value.updatedAt,
       updatedBy: value.updatedBy
-    };
+    });
   }
 
   @Get()

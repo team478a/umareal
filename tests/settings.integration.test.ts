@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { emptyPredictionDraft, raceHeaders } from '../packages/domain/src';
+import { adminSettingsResponseSchema, emptyPredictionDraft, raceHeaders } from '../packages/domain/src';
 import { assessmentFixture } from './assessment-fixtures';
 import { account, Client, db } from './helpers';
 
@@ -14,7 +14,8 @@ describe('audited administration settings', () => {
     const admin = new Client(); await admin.login(await account('ADMIN'));
     expect((await admin.call('admin/settings')).body.code).toBe('MFA_REQUIRED');
     await admin.mfa();
-    const initial = await admin.call('admin/settings'); expect(initial.status).toBe(200);
+    const initial = await admin.call('admin/settings'); expect(initial.status).toBe(200); adminSettingsResponseSchema.parse(initial.body);
+    expect(Object.keys(initial.body).sort()).toEqual(['billing', 'captcha', 'environment', 'line', 'mail', 'maintenanceMessage', 'notificationPolicy', 'operations', 'publicationPolicy', 'registrationPauseMessage', 'revision', 'stripe', 'updatedAt', 'updatedBy']);
 
     const fixture = await assessmentFixture();
     await db.prediction.create({ data: { raceId: fixture.race.id, revision: 1, updatedBy: fixture.owner.user.id, draft: { ...emptyPredictionDraft, visibility: 'FREE', confidence: 'A', stance: 'SKIP', summary: '停止確認', marks: [], bets: [] } } });
@@ -35,7 +36,7 @@ describe('audited administration settings', () => {
       mail: { apiKey: mailApiKey, webhookSecret: mailWebhookSecret, from: '競馬会員メディア <notice@example.test>', clearApiKey: false, clearWebhookSecret: false },
       line: { channelId: '1234567890', channelSecret, channelAccessToken, clearChannelSecret: false, clearChannelAccessToken: false, loginChannelId: '9876543210', loginChannelSecret, loginCallbackUrl: 'https://example.test/api/v1/auth/line/callback', clearLoginChannelSecret: false }
     };
-    const stopped = await admin.call('admin/settings', 'PATCH', stoppedBody); expect(stopped.status, JSON.stringify(stopped.body)).toBe(200);
+    const stopped = await admin.call('admin/settings', 'PATCH', stoppedBody); expect(stopped.status, JSON.stringify(stopped.body)).toBe(200); adminSettingsResponseSchema.parse(stopped.body);
     expect(stopped.body.line).toMatchObject({ channelSecretConfigured: true, channelAccessTokenConfigured: true, connectionStatus: 'CONFIGURED_NOT_VERIFIED' });
     expect(stopped.body.line).toMatchObject({ loginChannelSecretConfigured: true, loginConnectionStatus: 'CONFIGURED_NOT_VERIFIED' });
     expect(stopped.body.line.messagingReadiness).toMatchObject({ credentialsStored: true, secretsReadable: true, applicationUrlReady: true, notificationWorkerReady: true, webhookSignatureVerifierReady: true, outboundTransport: 'TEST_ONLY', externalConnectionTested: false });
@@ -83,6 +84,7 @@ describe('audited administration settings', () => {
       publicationPolicy: initial.body.publicationPolicy,
       maintenanceMessage: '', stripe: { liveMode: false, clearSecretKey: true, clearWebhookSecret: true, priceFounder: null, priceStandard: null, priceDayPass: null }, mail: { from: null, clearApiKey: true, clearWebhookSecret: true }, line: { channelId: null, clearChannelSecret: true, clearChannelAccessToken: true, loginChannelId: null, loginCallbackUrl: null, clearLoginChannelSecret: true }
     });
+    adminSettingsResponseSchema.parse(restored.body);
     expect(restored.status).toBe(200); expect(restored.body.line.connectionStatus).toBe('NOT_CONFIGURED');
     expect(restored.body.stripe.connectionStatus).toBe('NOT_CONFIGURED');
     expect(restored.body.mail.connectionStatus).toBe('NOT_CONFIGURED');
@@ -92,7 +94,7 @@ describe('audited administration settings', () => {
     expect((await new Client().call('auth/register', 'POST', resumedBody)).body.code).toBe('CAPTCHA_REQUIRED');
     expect((await new Client().call('auth/register', 'POST', { ...resumedBody, captchaToken: 'wrong' })).body.code).toBe('CAPTCHA_INVALID');
     expect((await new Client().call('auth/register', 'POST', { ...resumedBody, captchaToken: 'test-registration-captcha' })).status).toBe(201);
-    const cleaned = await admin.call('admin/settings', 'PATCH', { ...stoppedBody, revision: restored.body.revision, reason: 'Bot対策の結合試験を終了', operations: { ...restored.body.operations }, registrationPauseMessage: '', maintenanceMessage: '', publicationPolicy: initial.body.publicationPolicy, captcha: { enabled: false, siteKey: null, clearSecret: true }, stripe: { liveMode: false, clearSecretKey: true, clearWebhookSecret: true, priceFounder: null, priceStandard: null, priceDayPass: null }, mail: { from: null, clearApiKey: true, clearWebhookSecret: true }, line: { channelId: null, clearChannelSecret: true, clearChannelAccessToken: true, loginChannelId: null, loginCallbackUrl: null, clearLoginChannelSecret: true } });
+    const cleaned = await admin.call('admin/settings', 'PATCH', { ...stoppedBody, revision: restored.body.revision, reason: 'Bot対策の結合試験を終了', operations: { ...restored.body.operations }, registrationPauseMessage: '', maintenanceMessage: '', publicationPolicy: initial.body.publicationPolicy, captcha: { enabled: false, siteKey: null, clearSecret: true }, stripe: { liveMode: false, clearSecretKey: true, clearWebhookSecret: true, priceFounder: null, priceStandard: null, priceDayPass: null }, mail: { from: null, clearApiKey: true, clearWebhookSecret: true }, line: { channelId: null, clearChannelSecret: true, clearChannelAccessToken: true, loginChannelId: null, loginCallbackUrl: null, clearLoginChannelSecret: true } }); adminSettingsResponseSchema.parse(cleaned.body);
     expect(cleaned.status).toBe(200); expect(cleaned.body.captcha.connectionStatus).toBe('DISABLED');
     await expect(db.systemSetting.update({ where: { id: 'global' }, data: { newRegistrationsEnabled: false, registrationPauseMessage: '' } })).rejects.toThrow();
     await expect(db.systemSetting.update({ where: { id: 'global' }, data: { lineNotificationsEnabled: true } })).rejects.toThrow();
