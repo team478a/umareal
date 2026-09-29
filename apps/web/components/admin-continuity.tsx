@@ -1,15 +1,8 @@
 'use client';
+import type { AdminContinuityAdministrator, AdminContinuityResponse } from '@keiba/domain';
 import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, RefreshCw, ShieldAlert, ShieldCheck, ShieldX, UserCog, UserPlus, Users } from 'lucide-react';
-
-type Administrator = { id: string; displayName: string; email: string | null; primaryMfaReady: boolean; backupMfaReady: boolean; disabledAt: string | null; createdAt: string };
-type Candidate = { id: string; displayName: string; email: string; role: string; createdAt: string };
-type Continuity = {
-  provider: 'SUPABASE' | 'LOCAL_DEVELOPMENT'; ready: boolean;
-  counts: { administrators: number; suspendedAdministrators: number; primaryReady: number; backupReady: number };
-  administrators: Administrator[]; suspendedAdministrators: Administrator[]; candidates: Candidate[];
-};
 
 async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const response = await fetch(`/api/v1/${path}`, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' });
@@ -19,7 +12,7 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
 }
 
 export function AdminContinuity({ currentUserId }: { currentUserId: string }) {
-  const [data, setData] = useState<Continuity | null>(null);
+  const [data, setData] = useState<AdminContinuityResponse | null>(null);
   const [selectedId, setSelectedId] = useState('');
   const [confirmationEmail, setConfirmationEmail] = useState('');
   const [reason, setReason] = useState('');
@@ -29,7 +22,7 @@ export function AdminContinuity({ currentUserId }: { currentUserId: string }) {
   const [adminConfirmationEmail, setAdminConfirmationEmail] = useState('');
   const [adminReason, setAdminReason] = useState('');
   const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false);
-  const load = useCallback(async () => { setLoading(true); setError(''); try { setData(await request<Continuity>('admin/continuity')); } catch (e) { setError((e as Error).message); } finally { setLoading(false); } }, []);
+  const load = useCallback(async () => { setLoading(true); setError(''); try { setData(await request<AdminContinuityResponse>('admin/continuity')); } catch (e) { setError((e as Error).message); } finally { setLoading(false); } }, []);
   useEffect(() => { void load(); }, [load]);
   const candidate = useMemo(() => data?.candidates.find(item => item.id === selectedId), [data, selectedId]);
   const managedAdmin = useMemo(() => [...(data?.administrators ?? []), ...(data?.suspendedAdministrators ?? [])].find(item => item.id === managedAdminId), [data, managedAdminId]);
@@ -41,7 +34,7 @@ export function AdminContinuity({ currentUserId }: { currentUserId: string }) {
       setSelectedId(''); setConfirmationEmail(''); setReason(''); await load();
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
-  function beginAdminAction(admin: Administrator, action: 'SUSPEND' | 'RESTORE' | 'DEMOTE') {
+  function beginAdminAction(admin: AdminContinuityAdministrator, action: 'SUSPEND' | 'RESTORE' | 'DEMOTE') {
     setManagedAdminId(admin.id); setAdminAction(action); setAdminConfirmationEmail(''); setAdminReason(''); setError(''); setMessage('');
   }
   async function manageAdministrator(event: FormEvent<HTMLFormElement>) {
