@@ -1,5 +1,5 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Req } from '@nestjs/common';
-import { canManage, jstDate, managedStaffRoles, requiresMfa, staffAccountStatusSchema, staffResponsibilityTransferSchema, staffRoleChangeSchema } from '@keiba/domain';
+import { adminStaffListResponseSchema, canManage, jstDate, managedStaffRoles, requiresMfa, staffAccountStatusSchema, staffResponsibilityTransferSchema, staffRoleChangeSchema } from '@keiba/domain';
 import type { ManagedStaffRole, Role } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -45,11 +45,11 @@ export class StaffController {
       take: 200
     });
     const accounts = await Promise.all(users.map(async user => ({ ...user, dependencies: ['EXPERT', 'OPERATOR'].includes(user.role) ? await this.dependencies(this.auth.db, user.id) : { upcomingRaceAssignments: 0, activeWin5Products: 0, pendingPublicationSchedules: 0 } })));
-    return {
+    return adminStaffListResponseSchema.parse({
       accounts,
       roles: managedStaffRoles.map(role => ({ role, mfaRequired: requiresMfa(role as Role), win5MfaRequired: role === 'OPERATOR', reserved: role === 'EDITOR' })),
       policy: { administratorChangesManagedSeparately: true, verifiedEmailRequired: true, reasonRequired: true, sessionsRevoked: true, expertDependenciesProtected: true }
-    };
+    });
   }
 
   @Patch(':userId/role')

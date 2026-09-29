@@ -3,6 +3,46 @@ import { z } from 'zod';
 export const managedStaffRoles = ['MEMBER', 'EXPERT', 'EDITOR', 'OPERATOR'] as const;
 export type ManagedStaffRole = typeof managedStaffRoles[number];
 
+const staffResponseDateTimeSchema = z.preprocess(
+  value => value instanceof Date ? value.toISOString() : value,
+  z.string().datetime({ offset: true })
+);
+
+export const adminStaffAccountSchema = z.object({
+  id: z.string().uuid(),
+  displayName: z.string().min(1),
+  email: z.string().email(),
+  role: z.enum(managedStaffRoles),
+  registrationMethod: z.string().min(1),
+  disabledAt: staffResponseDateTimeSchema.nullable(),
+  createdAt: staffResponseDateTimeSchema,
+  dependencies: z.object({
+    upcomingRaceAssignments: z.number().int().nonnegative(),
+    activeWin5Products: z.number().int().nonnegative(),
+    pendingPublicationSchedules: z.number().int().nonnegative()
+  }).strict()
+}).strict();
+
+export const adminStaffListResponseSchema = z.object({
+  accounts: z.array(adminStaffAccountSchema),
+  roles: z.array(z.object({
+    role: z.enum(managedStaffRoles),
+    mfaRequired: z.boolean(),
+    win5MfaRequired: z.boolean(),
+    reserved: z.boolean()
+  }).strict()),
+  policy: z.object({
+    administratorChangesManagedSeparately: z.literal(true),
+    verifiedEmailRequired: z.literal(true),
+    reasonRequired: z.literal(true),
+    sessionsRevoked: z.literal(true),
+    expertDependenciesProtected: z.literal(true)
+  }).strict()
+}).strict();
+
+export type AdminStaffAccount = z.infer<typeof adminStaffAccountSchema>;
+export type AdminStaffListResponse = z.infer<typeof adminStaffListResponseSchema>;
+
 export const staffRoleChangeSchema = z.object({
   expectedRole: z.enum(managedStaffRoles),
   nextRole: z.enum(managedStaffRoles),

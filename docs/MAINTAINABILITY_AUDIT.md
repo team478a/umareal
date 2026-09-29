@@ -160,6 +160,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 会員問い合わせ履歴pilot: `GET /support/me`の問い合わせ種別、件名、本文、状態、作成・更新時刻と、会員へ公開された追記・回答だけを共有Contractへ接続し、会員画面の手書き応答型を置き換える。MEMBER本人認可、最大100件と並び順、問い合わせ受付・追記・状態遷移、画面表示、DB schemaは変更しない。優先度、担当者、対応期限、会員識別情報、内部対応理由、監査情報の追加を厳格なContractとcharacterization testで拒否する。
 - 問い合わせ対応管理一覧pilot: `GET /admin/support`の会員表示情報、問い合わせ内容、状態、優先度、担当者、対応期限、内部対応履歴と有効な担当候補を共有Contractへ接続し、管理画面の手書き応答型を置き換える。ADMIN+AAL2またはOPERATOR認可、最大200件、絞り込み、期限超過・優先度・期限・更新時刻による並び順、対応操作、画面表示、DB schemaは変更しない。認証subject、password hash、MFA秘密、決済識別子、監査情報、イベント担当者の連絡先の追加を厳格なContractとcharacterization testで拒否する。
 - 問い合わせ操作応答pilot: 会員の問い合わせ受付・追記と、管理者または運営担当による振り分け・状態更新の既存成功応答を共有Contractへ接続し、会員・管理画面も同じ型を参照する。冪等再送を含む応答項目、受付条件、状態遷移、担当者制約、回答通知、認可、監査、API URL、画面表示、DB schemaは変更しない。会員ID、操作担当者ID、監査ID、決済識別子など既存応答にない内部項目の追加を厳格なContractとcharacterization testで拒否する。
+- スタッフ権限管理一覧pilot: `GET /admin/staff`の確認済みアカウント、担当件数、管理対象ロール、固定ポリシーの既存応答を共有Contractへ接続し、スタッフ権限管理画面の手書き応答型を置き換える。ADMIN+AAL2認可、最大200件、一覧順序、担当件数の算出、権限変更・担当移管・停止処理、画面表示、DB schemaは変更しない。認証subject、password hash、MFA秘密、決済識別子、監査情報の追加を厳格なContractとcharacterization testで拒否する。
 
 ### MA-007 CIジョブ構成
 
