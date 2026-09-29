@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { blankAssessment } from '../packages/domain/src';
+import { blankAssessment, expertAssessmentHistoryResponseSchema, expertAssessmentSaveResponseSchema, expertAssessmentWorkspaceResponseSchema } from '../packages/domain/src';
 import { assessmentFixture } from './assessment-fixtures';
 import { db } from './helpers';
 let fixture: Awaited<ReturnType<typeof assessmentFixture>>;
@@ -13,14 +13,28 @@ describe('assessment drafts with server-owned access and append-only history', (
     const other = await assessmentFixture(); const member = await assessmentFixture('MEMBER'); const low = await assessmentFixture('EXPERT', 1);
     for (const c of [other.client, member.client, low.client]) {
       expect((await c.call(`expert/races/${fixture.race.id}/assessments`)).status).toBe(403);
+      expect((await c.call(`expert/races/${fixture.race.id}/entries/${fixture.entries[0].id}/history`)).status).toBe(403);
       expect((await c.call(path(), 'POST', input())).status).toBe(403);
     }
     expect((await low.client.call(`expert/races/${low.race.id}/assessments`)).status).toBe(403);
     expect((await fixture.client.call(path(), 'POST', { ...input(), role: 'ADMIN' })).status).toBe(400);
   });
+  it('returns the shared workspace contract without unused database fields', async () => {
+    const result = await fixture.client.call(`expert/races/${fixture.race.id}/assessments`);
+    expect(result.status).toBe(200);
+    expect(expertAssessmentWorkspaceResponseSchema.parse(result.body)).toEqual(result.body);
+    expect(Object.keys(result.body.entries[0]).sort()).toEqual(['assessment', 'horseId', 'horseName', 'id', 'number', 'status']);
+    expect(JSON.stringify(result.body)).not.toMatch(/updatedBy|entrySnapshot|actorId|passwordHash|authSubject|token|secret/i);
+  });
   it('saves partial inputs, retries once and rejects concurrent stale writes', async () => {
     const first = input(); const result = await fixture.client.call(path(), 'POST', first); expect(result.status).toBe(201);
-    expect((await fixture.client.call(path(), 'POST', first)).body.revision).toBe(1);
+    expect(expertAssessmentSaveResponseSchema.parse(result.body)).toEqual(result.body);
+    expect(Object.keys(result.body).sort()).toEqual(['content', 'revision']);
+    const fullSavedRow = await db.assessment.findUniqueOrThrow({ where: { entryId: fixture.entries[0].id } });
+    await db.idempotencyKey.update({ where: { key: `assessment:${fixture.owner.user.id}:${fixture.entries[0].id}:${first.mutationId}` }, data: { response: JSON.parse(JSON.stringify(fullSavedRow)) } });
+    const replay = await fixture.client.call(path(), 'POST', first);
+    expect(replay.body.revision).toBe(1);
+    expect(Object.keys(replay.body).sort()).toEqual(['content', 'revision']);
     expect((await fixture.client.call(path(), 'POST', { ...first, content: blankAssessment })).status).toBe(409);
     const outcomes = await Promise.all([fixture.client.call(path(), 'POST', { ...input(), revision: 1, content: { ...blankAssessment, body: 4 } }), fixture.client.call(path(), 'POST', { ...input(), revision: 1, content: { ...blankAssessment, body: 5 } })]);
     expect(outcomes.map(r => r.status).sort()).toEqual([201, 409]);
@@ -39,6 +53,9 @@ describe('assessment drafts with server-owned access and append-only history', (
     const admin = await assessmentFixture('ADMIN');
     const history = await admin.client.call(`expert/races/${fixture.race.id}/entries/${fixture.entries[0].id}/history`);
     expect(history.status).toBe(200); expect(history.body.total).toBe(2);
+    expect(expertAssessmentHistoryResponseSchema.parse(history.body)).toEqual(history.body);
+    expect(Object.keys(history.body.items[0]).sort()).toEqual(['content', 'createdAt', 'reason', 'revision']);
+    expect(JSON.stringify(history.body)).not.toMatch(/entrySnapshot|actorId|assessmentId|passwordHash|authSubject|token|secret/i);
     expect((await admin.client.call(path(), 'POST', { ...input(), revision: 2, raceRevision: 2 })).status).toBe(201);
   });
 });
