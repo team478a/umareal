@@ -28,6 +28,8 @@ describe('staff role management', () => {
 
     const changed = await actor.call(`admin/staff/${candidateFixture.user.id}/role`, 'PATCH', { expectedRole: 'MEMBER', nextRole: 'EXPERT', confirmationEmail: candidateFixture.user.email, reason: '専門家として業務開始' });
     expect(changed).toMatchObject({ status: 200, body: { previousRole: 'MEMBER', nextRole: 'EXPERT', mfaEnrollmentRequired: true } });
+    expect(Object.keys(changed.body).sort()).toEqual(['localSessionsRevoked', 'mfaEnrollmentRequired', 'nextRole', 'previousRole', 'userId', 'win5MfaRequired']);
+    expect(JSON.stringify(changed.body)).not.toMatch(/email|authSubject|passwordHash|mfaSecret|audit/);
     expect((await candidate.call('me')).status).toBe(401);
     await candidate.login(candidateFixture);
     expect((await candidate.call('me')).body).toMatchObject({ role: 'EXPERT', aal: 1, mfaRequired: true });
@@ -72,6 +74,8 @@ describe('staff role management', () => {
     expect(staleTransfer).toMatchObject({ status: 409, body: { code: 'STAFF_DEPENDENCIES_CHANGED' } });
     const transfer = await actor.call(`admin/staff/${expertFixture.user.id}/responsibilities`, 'PATCH', { nextExpertId: nextExpertFixture.user.id, expectedUpcomingRaceAssignments: 1, expectedActiveWin5Products: 1, confirmationEmail: expertFixture.user.email, reason: '次回開催から担当交代' });
     expect(transfer).toMatchObject({ status: 200, body: { sourceExpertId: expertFixture.user.id, nextExpert: { id: nextExpertFixture.user.id }, upcomingRaceAssignments: 1, activeWin5Products: 1 } });
+    expect(Object.keys(transfer.body).sort()).toEqual(['activeWin5Products', 'nextExpert', 'sourceExpertId', 'upcomingRaceAssignments']);
+    expect(Object.keys(transfer.body.nextExpert).sort()).toEqual(['displayName', 'id']);
     expect(await db.expertAssignment.findUnique({ where: { raceId_userId: { raceId: race.id, userId: expertFixture.user.id } } })).toBeNull();
     expect(await db.expertAssignment.findUnique({ where: { raceId_userId: { raceId: race.id, userId: nextExpertFixture.user.id } } })).not.toBeNull();
     expect(await db.predictionProduct.findUniqueOrThrow({ where: { id: product.id } })).toMatchObject({ expertId: nextExpertFixture.user.id, revision: 2 });
@@ -86,6 +90,7 @@ describe('staff role management', () => {
     const beforePreferences = await db.notificationPreference.findUniqueOrThrow({ where: { userId: operatorFixture.user.id } });
     const suspended = await actor.call(`admin/staff/${operatorFixture.user.id}/status`, 'PATCH', { action: 'SUSPEND', expectedRole: 'OPERATOR', confirmationEmail: operatorFixture.user.email, reason: '運営業務から一時離任' });
     expect(suspended).toMatchObject({ status: 200, body: { userId: operatorFixture.user.id, role: 'OPERATOR', status: 'SUSPENDED' } });
+    expect(Object.keys(suspended.body).sort()).toEqual(['localSessionsRevoked', 'role', 'status', 'suspendedAt', 'userId']);
     expect((await operator.call('me')).status).toBe(401);
     expect((await operator.login(operatorFixture).catch(() => null))).toBeNull();
     expect(await db.user.findUniqueOrThrow({ where: { id: operatorFixture.user.id } })).toMatchObject({ role: 'OPERATOR', disabledAt: expect.any(Date) });
@@ -95,6 +100,7 @@ describe('staff role management', () => {
     expect(listed.body.accounts.find((item: { id: string }) => item.id === operatorFixture.user.id)).toMatchObject({ role: 'OPERATOR', disabledAt: expect.any(String) });
     const restored = await actor.call(`admin/staff/${operatorFixture.user.id}/status`, 'PATCH', { action: 'RESTORE', expectedRole: 'OPERATOR', confirmationEmail: operatorFixture.user.email, reason: '運営業務へ復帰' });
     expect(restored).toMatchObject({ status: 200, body: { role: 'OPERATOR', status: 'ACTIVE' } });
+    expect(Object.keys(restored.body).sort()).toEqual(['localSessionsRevoked', 'role', 'status', 'userId']);
     await operator.login(operatorFixture);
     expect((await operator.call('me')).body).toMatchObject({ role: 'OPERATOR' });
     expect(await operator.call('billing/checkout', 'POST', { planCode: 'STANDARD' })).toMatchObject({ status: 403, body: { code: 'MEMBER_REQUIRED' } });

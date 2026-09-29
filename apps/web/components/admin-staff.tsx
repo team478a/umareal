@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshCw, ShieldAlert, ShieldCheck, UserCog, Users } from 'lucide-react';
-import type { AdminStaffAccount, AdminStaffListResponse } from '@keiba/domain';
+import type { AdminStaffAccount, AdminStaffListResponse, StaffAccountStatusResponse, StaffResponsibilityTransferResponse, StaffRoleChangeResponse } from '@keiba/domain';
 
 type StaffRole = AdminStaffAccount['role'];
 const labels: Record<StaffRole, string> = { MEMBER: '会員', EXPERT: '専門家', EDITOR: '編集担当（予約）', OPERATOR: '運営担当' };
@@ -35,7 +35,7 @@ export function AdminStaff() {
   async function changeRole(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!account || !nextRole) return; setBusy(true); setError(''); setMessage('');
     try {
-      const result = await request<{ nextRole: StaffRole; mfaEnrollmentRequired: boolean; win5MfaRequired: boolean }>(`admin/staff/${account.id}/role`, 'PATCH', { expectedRole: account.role, nextRole, confirmationEmail, reason });
+      const result = await request<StaffRoleChangeResponse>(`admin/staff/${account.id}/role`, 'PATCH', { expectedRole: account.role, nextRole, confirmationEmail, reason });
       const authNote = result.mfaEnrollmentRequired ? '次回ログイン後、認証アプリの設定が必要です。' : result.win5MfaRequired ? 'WIN5操作前に認証アプリを設定してください。' : '';
       setMessage(`${account.displayName}さんを「${labels[result.nextRole]}」へ変更しました。現在のローカルセッションは失効しました。${authNote}`);
       setSelectedId(''); setNextRole(''); setConfirmationEmail(''); setReason(''); await load();
@@ -44,7 +44,7 @@ export function AdminStaff() {
   async function transfer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!account || !nextExpertId) return; setBusy(true); setError(''); setMessage('');
     try {
-      const result = await request<{ nextExpert: { displayName: string }; upcomingRaceAssignments: number; activeWin5Products: number }>(`admin/staff/${account.id}/responsibilities`, 'PATCH', {
+      const result = await request<StaffResponsibilityTransferResponse>(`admin/staff/${account.id}/responsibilities`, 'PATCH', {
         nextExpertId, expectedUpcomingRaceAssignments: account.dependencies.upcomingRaceAssignments, expectedActiveWin5Products: account.dependencies.activeWin5Products,
         confirmationEmail: transferEmail, reason: transferReason
       });
@@ -56,7 +56,7 @@ export function AdminStaff() {
     event.preventDefault(); if (!account || account.role === 'MEMBER') return; setBusy(true); setError(''); setMessage('');
     const action = account.disabledAt ? 'RESTORE' : 'SUSPEND';
     try {
-      const result = await request<{ status: 'ACTIVE' | 'SUSPENDED' }>(`admin/staff/${account.id}/status`, 'PATCH', { action, expectedRole: account.role, confirmationEmail: statusEmail, reason: statusReason });
+      const result = await request<StaffAccountStatusResponse>(`admin/staff/${account.id}/status`, 'PATCH', { action, expectedRole: account.role, confirmationEmail: statusEmail, reason: statusReason });
       setMessage(`${account.displayName}さんのスタッフアカウントを${result.status === 'ACTIVE' ? '再開' : '停止'}しました。`);
       setStatusEmail(''); setStatusReason(''); await load();
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
