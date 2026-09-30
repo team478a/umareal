@@ -8,7 +8,7 @@ describe('authorization boundaries', () => {
     expect(canManage({ id: 'a', role: 'MEMBER', aal: 2 }, ['ADMIN'])).toBe(false);
   });
   it('requires consent and rejects caller-supplied roles', () => {
-    const valid = { email: 'A@example.com', password: 'long-password-123', displayName: '会員', adult: true, terms: true, privacy: true, termsVersion: 'draft-v1', privacyVersion: 'draft-v1' };
+    const valid = { email: 'A@example.com', password: 'long-password-123', displayName: '会員', adult: true, terms: true, privacy: true, termsVersion: '2026-10-01-v1', privacyVersion: '2026-10-01-v1' };
     expect(registrationSchema.parse(valid).email).toBe('a@example.com');
     expect(registrationSchema.parse({ ...valid, captchaToken: 'verified-token' }).captchaToken).toBe('verified-token');
     expect(registrationSchema.safeParse({ ...valid, captchaToken: 'x'.repeat(2049) }).success).toBe(false);

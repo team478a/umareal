@@ -16,8 +16,8 @@ const input = registrationSchema.parse({
   adult: true,
   terms: true,
   privacy: true,
-  termsVersion: 'draft-v1',
-  privacyVersion: 'draft-v1',
+  termsVersion: '2026-10-01-v1',
+  privacyVersion: '2026-10-01-v1',
   captchaToken: 'captcha-token'
 });
 

@@ -11,7 +11,7 @@ describe('acquisition input', () => {
   });
 
   it('keeps acquisition optional for direct registration', () => {
-    const base = { email: 'member@example.test', password: 'long-password-123', displayName: '会員', adult: true, terms: true, privacy: true, termsVersion: 'draft-v1', privacyVersion: 'draft-v1' };
+    const base = { email: 'member@example.test', password: 'long-password-123', displayName: '会員', adult: true, terms: true, privacy: true, termsVersion: '2026-10-01-v1', privacyVersion: '2026-10-01-v1' };
     expect(registrationSchema.safeParse(base).success).toBe(true);
   });
   it('validates and normalizes campaign creation', () => {

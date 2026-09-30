@@ -1,5 +1,8 @@
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
+const require = createRequire(import.meta.url);
+const { legalDocumentReleaseErrors } = require('../packages/domain/dist/legal.js');
 const productionBase = { APP_BASE_URL: 'https://example.test', ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'), SUPABASE_URL: 'https://project.supabase.co', SUPABASE_ANON_KEY: 'test-anon-key', LAUNCH_MODE: 'FULL', CAPTCHA_TRANSPORT: 'turnstile' };
 const launchMode = spawnSync(process.execPath, ['dist/main.js'], {
   cwd: resolve('apps/api'), env: { ...process.env, ...productionBase, LAUNCH_MODE: '', NODE_ENV: 'production', AUTH_PROVIDER: 'supabase' },
@@ -73,17 +76,14 @@ const captcha = spawnSync(process.execPath, ['dist/main.js'], {
 });
 if (captcha.status === 0 || !captcha.stderr.includes('Production requires the Turnstile CAPTCHA transport')) throw new Error('Production CAPTCHA guard did not reject test mode');
 console.info('PASS: compiled API refuses the local CAPTCHA test transport in production.');
-const legalDocuments = spawnSync(process.execPath, ['dist/main.js'], {
-  cwd: resolve('apps/api'), env: { ...process.env, ...productionBase, NODE_ENV: 'production', AUTH_PROVIDER: 'supabase', NOTIFICATION_TRANSPORT: 'line', LINE_OAUTH_TRANSPORT: 'line', BILLING_TRANSPORT: 'stripe', STRIPE_LIVE_MODE: 'true', MAIL_TRANSPORT: 'resend' },
-  encoding: 'utf8', timeout: 20000, windowsHide: true
-});
-if (legalDocuments.status === 0 || !legalDocuments.stderr.includes('Production requires published legal documents')) throw new Error('Production legal-document guard did not reject draft documents');
-console.info('PASS: compiled API refuses draft legal documents in production.');
+const legalErrors = legalDocumentReleaseErrors();
+if (legalErrors.length) throw new Error(`Production legal documents are not ready: ${legalErrors.join('; ')}`);
+console.info('PASS: current legal documents contain published versions and effective dates.');
 const freeRegistration = spawnSync(process.execPath, ['dist/main.js'], {
   cwd: resolve('apps/api'), env: { ...process.env, ...productionBase, LAUNCH_MODE: 'FREE_REGISTRATION', NODE_ENV: 'production', AUTH_PROVIDER: 'supabase', NOTIFICATION_TRANSPORT: 'disabled', LINE_OAUTH_TRANSPORT: 'disabled', BILLING_TRANSPORT: 'disabled', STRIPE_LIVE_MODE: 'false', MAIL_TRANSPORT: 'resend' },
   encoding: 'utf8', timeout: 20000, windowsHide: true
 });
-if (freeRegistration.status === 0 || !freeRegistration.stderr.includes('Production requires published legal documents') || freeRegistration.stderr.includes('requires the LINE') || freeRegistration.stderr.includes('requires an external billing')) throw new Error('Free registration launch did not bypass disabled LINE and billing dependencies safely');
+if (freeRegistration.status === 0 || freeRegistration.stderr.includes('Production requires published legal documents') || freeRegistration.stderr.includes('requires the LINE') || freeRegistration.stderr.includes('requires an external billing')) throw new Error('Free registration launch did not accept published legal documents and bypass disabled LINE and billing dependencies safely');
 console.info('PASS: free registration production mode accepts disabled LINE and billing transports.');
 const backup = spawnSync(process.execPath, ['scripts/backup-verify.mjs'], {
   cwd: resolve('.'), env: { ...process.env, NODE_ENV: 'production', AUTH_PROVIDER: 'local' },

@@ -5,13 +5,13 @@ describe('referral input boundaries', () => {
   it('normalizes safe member referral codes without changing acquisition referral input', () => {
     expect(memberReferralCodeSchema.parse('ab12cd34ef')).toBe('AB12CD34EF');
     expect(memberReferralCodeSchema.safeParse('https://example.test/invite').success).toBe(false);
-    const registration = registrationSchema.parse({ email: 'member@example.test', password: 'long-enough-password', displayName: '会員', adult: true, terms: true, privacy: true, termsVersion: 'draft-v1', privacyVersion: 'draft-v1', memberReferralCode: 'friend1234', acquisition: { source: 'lp', referralCode: 'marketing_01' } });
+    const registration = registrationSchema.parse({ email: 'member@example.test', password: 'long-enough-password', displayName: '会員', adult: true, terms: true, privacy: true, termsVersion: '2026-10-01-v1', privacyVersion: '2026-10-01-v1', memberReferralCode: 'friend1234', acquisition: { source: 'lp', referralCode: 'marketing_01' } });
     expect(registration.memberReferralCode).toBe('FRIEND1234');
     expect(registration.acquisition?.referralCode).toBe('marketing_01');
   });
 
   it('treats malformed invite context as ordinary registration', () => {
-    const base = { email: 'ordinary@example.test', password: 'long-enough-password', displayName: '会員', adult: true as const, terms: true as const, privacy: true as const, termsVersion: 'draft-v1' as const, privacyVersion: 'draft-v1' as const };
+    const base = { email: 'ordinary@example.test', password: 'long-enough-password', displayName: '会員', adult: true as const, terms: true as const, privacy: true as const, termsVersion: '2026-10-01-v1' as const, privacyVersion: '2026-10-01-v1' as const };
     expect(registrationSchema.parse({ ...base, memberReferralCode: 'tampered code!' }).memberReferralCode).toBeUndefined();
     expect(lineOAuthStartSchema.parse({ purpose: 'REGISTER', memberReferralCode: 'not/a/code' }).memberReferralCode).toBeUndefined();
     expect(registrationSchema.safeParse({ ...base, memberReferralCode: 'x'.repeat(257) }).success).toBe(false);

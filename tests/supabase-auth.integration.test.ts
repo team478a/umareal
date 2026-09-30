@@ -174,8 +174,8 @@ describe('Supabase free-member registration boundary', () => {
         adult: true,
         terms: true,
         privacy: true,
-        termsVersion: 'draft-v1',
-        privacyVersion: 'draft-v1',
+        termsVersion: '2026-10-01-v1',
+        privacyVersion: '2026-10-01-v1',
         memberReferralCode: referrer.referralCode,
         acquisition: { source: 'LP', medium: 'Owned', campaign: 'supabase-integration' }
       })
@@ -301,7 +301,7 @@ describe('Supabase free-member registration boundary', () => {
     const response = await fetch(`${apiBase}/api/v1/auth/register`, {
       method: 'POST',
       headers: { Origin: 'http://localhost:3000', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, displayName: '既存メール', password: 'integration-password-123', adult: true, terms: true, privacy: true, termsVersion: 'draft-v1', privacyVersion: 'draft-v1' })
+      body: JSON.stringify({ email, displayName: '既存メール', password: 'integration-password-123', adult: true, terms: true, privacy: true, termsVersion: '2026-10-01-v1', privacyVersion: '2026-10-01-v1' })
     });
     expect(response.status).toBe(201);
     expect(await response.json()).toMatchObject({ user: null, requiresEmailVerification: true });
