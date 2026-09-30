@@ -15,11 +15,17 @@ export const publicFreeMemberBenefitResponseSchema = z.discriminatedUnion('confi
     configured: z.literal(true),
     title: z.string().min(1).max(120),
     description: z.string().min(1).max(1000),
-    videoUrl: httpsUrl,
-    updatedAt: publicFreeReportDateTimeSchema
+    updatedAt: publicFreeReportDateTimeSchema,
+    viewedAt: publicFreeReportDateTimeSchema.nullable()
   }).strict()
 ]);
 export type PublicFreeMemberBenefitResponse = z.infer<typeof publicFreeMemberBenefitResponseSchema>;
+
+export const publicFreeMemberBenefitViewResponseSchema = z.object({
+  videoUrl: httpsUrl,
+  viewedAt: publicFreeReportDateTimeSchema
+}).strict();
+export type PublicFreeMemberBenefitViewResponse = z.infer<typeof publicFreeMemberBenefitViewResponseSchema>;
 
 const publicFreeReportVersionMetadataSchema = z.object({
   id: z.string().uuid(),
@@ -117,7 +123,8 @@ export const adminFreeMemberBenefitResponseSchema = z.union([
     description: z.literal(''),
     videoUrl: z.literal(''),
     revision: z.literal(0),
-    updatedAt: z.null()
+    updatedAt: z.null(),
+    audience: z.object({ eligibleMembers: z.number().int().nonnegative(), viewedMembers: z.number().int().nonnegative() }).strict()
   }).strict(),
   z.object({
     id: z.literal('global'),
@@ -126,7 +133,8 @@ export const adminFreeMemberBenefitResponseSchema = z.union([
     videoUrl: httpsUrl,
     revision: z.number().int().positive(),
     updatedBy: z.string().uuid().nullable(),
-    updatedAt: publicFreeReportDateTimeSchema
+    updatedAt: publicFreeReportDateTimeSchema,
+    audience: z.object({ eligibleMembers: z.number().int().nonnegative(), viewedMembers: z.number().int().nonnegative() }).strict()
   }).strict()
 ]);
 export type AdminFreeMemberBenefitResponse = z.infer<typeof adminFreeMemberBenefitResponseSchema>;
