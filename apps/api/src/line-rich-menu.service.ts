@@ -11,6 +11,7 @@ const WIDTH = 2500;
 const HEIGHT = 1686;
 const CHAT_BAR_TEXT = 'メニューを開く';
 const STALE_AFTER_MS = 5 * 60_000;
+const PUBLISH_LOCK = 'line-rich-menu-publish';
 
 type ProviderMenu = {
   size: { width: number; height: number };
@@ -118,6 +119,7 @@ export class LineRichMenuService {
     const image = await renderLineRichMenuPng();
     const now = new Date();
     const publication = await this.auth.db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${PUBLISH_LOCK}))::text`;
       const stale = await tx.lineRichMenuPublication.findMany({ where: { status: 'PUBLISHING', createdAt: { lt: new Date(now.getTime() - STALE_AFTER_MS) } }, select: { id: true } });
       for (const item of stale) {
         await tx.lineRichMenuPublication.update({ where: { id: item.id }, data: { status: 'FAILED', completedAt: now, errorCode: 'STALE_ATTEMPT' } });
@@ -145,6 +147,7 @@ export class LineRichMenuService {
       }
       const completedAt = new Date();
       const completed = await this.auth.db.$transaction(async tx => {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${PUBLISH_LOCK}))::text`;
         const row = await tx.lineRichMenuPublication.update({ where: { id: publication.id }, data: { status: 'PUBLISHED', providerRichMenuId, completedAt } });
         await this.auth.audit(tx, req, 'LINE_RICH_MENU_PUBLISHED', row.id, input.reason, { transport, providerRichMenuId, imageSha256: row.imageSha256 }, 'LINE_RICH_MENU');
         return row;
@@ -153,6 +156,7 @@ export class LineRichMenuService {
     } catch (error) {
       const errorCode = error instanceof LineProviderError ? error.code : 'LINE_RICH_MENU_PUBLISH_FAILED';
       await this.auth.db.$transaction(async tx => {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${PUBLISH_LOCK}))::text`;
         await tx.lineRichMenuPublication.update({ where: { id: publication.id }, data: { status: 'FAILED', completedAt: new Date(), errorCode } });
         await this.auth.audit(tx, req, 'LINE_RICH_MENU_PUBLISH_FAILED', publication.id, input.reason, { transport, errorCode }, 'LINE_RICH_MENU');
       });
