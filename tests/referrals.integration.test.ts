@@ -21,7 +21,7 @@ async function emailRegistration(memberReferralCode?: string, acquisitionReferra
   const email = `referral-${randomBytes(8).toString('hex')}@example.test`;
   const registered = await client.call('auth/register', 'POST', {
     email, password, displayName: '紹介登録テスト', adult: true, terms: true, privacy: true,
-    termsVersion: 'draft-v1', privacyVersion: 'draft-v1',
+    termsVersion: '2026-10-01-v1', privacyVersion: '2026-10-01-v1',
     ...(memberReferralCode ? { memberReferralCode } : {}),
     ...(acquisitionReferralCode ? { acquisition: { source: 'lp', referralCode: acquisitionReferralCode, landingPath: '/register' } } : {})
   });
@@ -165,7 +165,7 @@ describe('friend referral V1', () => {
     const authorization = new URL(started.body.authorizationUrl); const subject = `U-referral-${randomUUID()}`;
     const completed = await lineCallback(client, authorization.searchParams.get('state')!, subject);
     const token = new URL(completed.headers.get('location')!, origin).searchParams.get('token');
-    const registered = await client.call('auth/line/register', 'POST', { token, displayName: 'LINE紹介登録', adult: true, terms: true, privacy: true, termsVersion: 'draft-v1', privacyVersion: 'draft-v1' });
+    const registered = await client.call('auth/line/register', 'POST', { token, displayName: 'LINE紹介登録', adult: true, terms: true, privacy: true, termsVersion: '2026-10-01-v1', privacyVersion: '2026-10-01-v1' });
     expect(registered.status).toBe(201);
     expect(await db.referral.findUnique({ where: { referredUserId: registered.body.user.id } })).toMatchObject({ referrerUserId: lineReferrer.user.id, status: 'QUALIFIED' });
     await db.systemSetting.update({ where: { id: 'global' }, data: { lineLoginEnabled: false, lineLoginChannelId: null, lineLoginChannelSecretEncrypted: null, lineLoginCallbackUrl: null } });

@@ -13,7 +13,7 @@ afterAll(() => db.$disconnect());
 describe('registration, account and session lifecycle', () => {
   it('requires all consent, fixes role to MEMBER, saves preferences and invalidates logout', async () => {
     const client = new Client();
-    const input = { email: `registered-${randomBytes(5).toString('hex')}@example.test`, displayName: '登録テスト', password: 'integration-password-123', adult: true, terms: true, privacy: true, termsVersion: 'draft-v1', privacyVersion: 'draft-v1', acquisition: { source: ' LP ', medium: ' Owned ', campaign: 'integration-email', content: 'hero', landingPath: '/register', referralCode: 'staff_01' } };
+    const input = { email: `registered-${randomBytes(5).toString('hex')}@example.test`, displayName: '登録テスト', password: 'integration-password-123', adult: true, terms: true, privacy: true, termsVersion: '2026-10-01-v1', privacyVersion: '2026-10-01-v1', acquisition: { source: ' LP ', medium: ' Owned ', campaign: 'integration-email', content: 'hero', landingPath: '/register', referralCode: 'staff_01' } };
     expect((await client.call('auth/register', 'POST', { ...input, adult: false })).status).toBe(400);
     expect((await client.call('auth/register', 'POST', { ...input, role: 'ADMIN' })).status).toBe(400);
     const registered = await client.call('auth/register', 'POST', input);
@@ -65,7 +65,7 @@ describe('registration, account and session lifecycle', () => {
     expect((await db.auditLog.count({ where: { targetId: registered.body.user.id } }))).toBeGreaterThanOrEqual(3);
   });
   it('rejects unbounded or URL-shaped acquisition data', async () => {
-    const client = new Client(); const baseInput = { email: `invalid-acquisition-${randomBytes(5).toString('hex')}@example.test`, displayName: '流入検証', password: 'integration-password-123', adult: true, terms: true, privacy: true, termsVersion: 'draft-v1', privacyVersion: 'draft-v1' };
+    const client = new Client(); const baseInput = { email: `invalid-acquisition-${randomBytes(5).toString('hex')}@example.test`, displayName: '流入検証', password: 'integration-password-123', adult: true, terms: true, privacy: true, termsVersion: '2026-10-01-v1', privacyVersion: '2026-10-01-v1' };
     expect((await client.call('auth/register', 'POST', { ...baseInput, acquisition: { source: 'lp', landingPath: 'https://tracker.example/register?secret=1' } })).status).toBe(400);
     expect((await client.call('auth/register', 'POST', { ...baseInput, acquisition: { source: 'x'.repeat(101) } })).status).toBe(400);
   });

@@ -67,7 +67,7 @@ describe('audited administration settings', () => {
     expect(publicConfig.body.captcha).toEqual({ enabled: true, siteKey: '0x4AAAA-test-site-key', mode: 'TEST_ONLY' });
     expect(publicConfig.body.emailNotificationsEnabled).toBe(false);
     const pausedEmail = `paused-${randomUUID()}@example.test`;
-    const paused = await new Client().call('auth/register', 'POST', { email: pausedEmail, displayName: '停止中登録', password: 'integration-password-123', adult: true, terms: true, privacy: true, termsVersion: 'draft-v1', privacyVersion: 'draft-v1' });
+    const paused = await new Client().call('auth/register', 'POST', { email: pausedEmail, displayName: '停止中登録', password: 'integration-password-123', adult: true, terms: true, privacy: true, termsVersion: '2026-10-01-v1', privacyVersion: '2026-10-01-v1' });
     expect(paused.status).toBe(503); expect(paused.body).toMatchObject({ code: 'REGISTRATION_PAUSED', message: stoppedBody.registrationPauseMessage });
     expect(await db.user.findUnique({ where: { email: pausedEmail } })).toBeNull();
     expect((await new Client().call('auth/line/start', 'POST', { purpose: 'REGISTER' })).body.code).toBe('REGISTRATION_PAUSED');
@@ -93,7 +93,7 @@ describe('audited administration settings', () => {
     expect(restored.body.mail.connectionStatus).toBe('NOT_CONFIGURED');
     expect((await new Client().call('auth/config')).body.registration).toEqual({ enabled: true, message: '' });
     const resumedEmail = `resumed-${randomUUID()}@example.test`;
-    const resumedBody = { email: resumedEmail, displayName: '再開後登録', password: 'integration-password-123', adult: true, terms: true, privacy: true, termsVersion: 'draft-v1', privacyVersion: 'draft-v1' };
+    const resumedBody = { email: resumedEmail, displayName: '再開後登録', password: 'integration-password-123', adult: true, terms: true, privacy: true, termsVersion: '2026-10-01-v1', privacyVersion: '2026-10-01-v1' };
     expect((await new Client().call('auth/register', 'POST', resumedBody)).body.code).toBe('CAPTCHA_REQUIRED');
     expect((await new Client().call('auth/register', 'POST', { ...resumedBody, captchaToken: 'wrong' })).body.code).toBe('CAPTCHA_INVALID');
     expect((await new Client().call('auth/register', 'POST', { ...resumedBody, captchaToken: 'test-registration-captcha' })).status).toBe(201);

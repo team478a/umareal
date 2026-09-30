@@ -29,10 +29,10 @@ describe('LINE Login account lifecycle', () => {
     const completed = await callback(client, authorization.searchParams.get('state')!, subject);
     expect(completed.status).toBe(303);
     const token = new URL(completed.headers.get('location')!, origin).searchParams.get('token');
-    const registered = await client.call('auth/line/register', 'POST', { token, displayName: 'LINE登録会員', adult: true, terms: true, privacy: true, termsVersion: 'draft-v1', privacyVersion: 'draft-v1' });
+    const registered = await client.call('auth/line/register', 'POST', { token, displayName: 'LINE登録会員', adult: true, terms: true, privacy: true, termsVersion: '2026-10-01-v1', privacyVersion: '2026-10-01-v1' });
     expect(registered.status).toBe(201);
     expect(await db.memberAcquisition.findUnique({ where: { userId: registered.body.user.id } })).toMatchObject({ source: 'line_ad', medium: 'social', campaign: 'integration-line', landingPath: '/register' });
-    expect((await client.call('auth/line/register', 'POST', { token, displayName: '再利用', adult: true, terms: true, privacy: true, termsVersion: 'draft-v1', privacyVersion: 'draft-v1' })).status).toBe(400);
+    expect((await client.call('auth/line/register', 'POST', { token, displayName: '再利用', adult: true, terms: true, privacy: true, termsVersion: '2026-10-01-v1', privacyVersion: '2026-10-01-v1' })).status).toBe(400);
     const me = await client.call('me');
     expect(me.body).toMatchObject({ email: null, emailVerified: false, hasPassword: false, registrationMethod: 'LINE', lineLinked: true, lineNotificationReady: true, lineNotificationState: 'READY' });
     await client.call('me/preferences', 'PATCH', { predictions: false, changes: true, articles: false, billing: true });

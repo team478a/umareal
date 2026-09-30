@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { acquisitionSchema } from './acquisition';
+import { consentVersions } from './legal';
 import { memberReferralCodeInputSchema } from './referrals';
 import { lineLoginReturnPathSchema } from './line-rich-menu';
 
@@ -13,7 +14,7 @@ export type LineOAuthPurpose = z.infer<typeof lineOAuthStartSchema>['purpose'];
 export const lineRegistrationSchema = z.object({
   token: z.string().min(32).max(128), displayName: z.string().trim().min(1).max(60),
   adult: z.literal(true), terms: z.literal(true), privacy: z.literal(true),
-  termsVersion: z.literal('draft-v1'), privacyVersion: z.literal('draft-v1')
+  termsVersion: z.literal(consentVersions.terms), privacyVersion: z.literal(consentVersions.privacy)
 }).strict();
 
 export const fallbackEmailSchema = z.object({
