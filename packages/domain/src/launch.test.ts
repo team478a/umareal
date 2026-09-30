@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { launchCapabilities, requiresPublishedLegalDocuments, resolveLaunchMode, stripeRuntimeModeAllowed } from './launch';
 
 describe('launch capabilities', () => {
-  it('keeps only the free registration experience enabled during the initial launch', () => {
+  it('allows email and LINE registration while paid and push features remain disabled during the initial launch', () => {
     expect(launchCapabilities(resolveLaunchMode('FREE_REGISTRATION'))).toEqual({
       emailRegistration: true,
       freeContent: true,
-      lineLogin: false,
+      lineLogin: true,
       lineNotifications: false,
       billing: false
     });

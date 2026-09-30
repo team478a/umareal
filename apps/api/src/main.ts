@@ -111,9 +111,9 @@ async function main() {
   if (process.env.LINE_RICH_MENU_TRANSPORT && !['test', 'line', 'disabled'].includes(process.env.LINE_RICH_MENU_TRANSPORT)) throw new Error('LINE_RICH_MENU_TRANSPORT must be test, line or disabled');
   if (process.env.NODE_ENV === 'production' && ['CLOUD_STAGING', 'STRIPE_SANDBOX'].includes(launchMode) && process.env.LINE_RICH_MENU_TRANSPORT === 'line') throw new Error('Cloud test modes forbid live LINE rich-menu publishing');
   if (process.env.NODE_ENV === 'production' && capabilities.lineNotifications && process.env.NOTIFICATION_TRANSPORT !== 'line') throw new Error('Full production launch requires the LINE notification transport');
-  if (process.env.NODE_ENV === 'production' && capabilities.lineLogin && process.env.LINE_OAUTH_TRANSPORT !== 'line') throw new Error('Full production launch requires the LINE OAuth transport');
+  if (process.env.NODE_ENV === 'production' && capabilities.lineLogin && process.env.LINE_OAUTH_TRANSPORT !== 'line') throw new Error('The selected production launch mode requires the LINE OAuth transport');
   if (process.env.NODE_ENV === 'production' && !capabilities.lineNotifications && process.env.NOTIFICATION_TRANSPORT !== 'disabled') throw new Error('Free registration launch requires LINE notifications to be disabled');
-  if (process.env.NODE_ENV === 'production' && !capabilities.lineLogin && process.env.LINE_OAUTH_TRANSPORT !== 'disabled') throw new Error('Free registration launch requires LINE OAuth to be disabled');
+  if (process.env.NODE_ENV === 'production' && !capabilities.lineLogin && process.env.LINE_OAUTH_TRANSPORT !== 'disabled') throw new Error('The selected launch mode requires LINE OAuth to be disabled');
   if (!['test', 'stripe', 'disabled'].includes(process.env.BILLING_TRANSPORT ?? '')) throw new Error('Set BILLING_TRANSPORT explicitly');
   if (process.env.NODE_ENV === 'production' && launchMode === 'FULL' && process.env.BILLING_TRANSPORT !== 'stripe') throw new Error('Full production launch requires an external billing transport');
   if (process.env.NODE_ENV === 'production' && launchMode === 'FULL' && process.env.STRIPE_LIVE_MODE !== 'true') throw new Error('Full production launch requires Stripe live mode');

@@ -95,7 +95,7 @@ node --env-file=.env.production.worker.local scripts/deployment-preflight.mjs wo
 | `JOB_SECRET` | API | 32byte以上のランダム値 |
 | `SENTRY_DSN` | API | 本番プロジェクトの監視先 |
 
-初回公開は `LAUNCH_MODE=FREE_REGISTRATION` とし、LINEとStripeのtransportを `disabled`、メールtransportを`resend`にする。初回起動時だけAPIとworkerへ同じResend設定を登録し、初回管理者を本番認証へ結合した後、AAL2で `/admin/settings` からAPI keyと送信元を暗号化保存できる。LINEとStripeの秘密値も`FULL`への拡張前に同画面から保存する。APIとworkerには同じ `ENCRYPTION_KEY` が必要である。キーを失うと保存済みメール・LINE・Stripe秘密値を復号できない。
+初回公開は `LAUNCH_MODE=FREE_REGISTRATION` とし、APIの`LINE_OAUTH_TRANSPORT=line`、LINE通知とStripeのtransportを`disabled`、メールtransportを`resend`にする。初回起動時だけAPIとworkerへ同じResend設定を登録し、初回管理者を本番認証へ結合した後、AAL2で `/admin/settings` からAPI keyと送信元を暗号化保存できる。LINE LoginのChannel ID、Channel secret、Callback URLは無料募集前に同画面へ保存し、実アカウントで疎通を確認する。LINE通知とStripeの秘密値は`FULL`への拡張前に同画面から保存する。APIとworkerには同じ `ENCRYPTION_KEY` が必要である。キーを失うと保存済みメール・LINE・Stripe秘密値を復号できない。
 
 Supabaseのservice-role keyは現行アプリでは使用しない。管理APIが必要になるまでRenderへ登録せず、anon keyだけで登録・ログイン・更新・JWT検証を行う。
 
@@ -145,7 +145,7 @@ MFA端末紛失時のfactor解除・本人確認・再登録は、復旧責任�
 5. Renderが表示するA/CNAMEと所有確認用DNSレコードをドメイン管理会社へ登録する。固定値を推測して入力しない。
 6. Renderでドメイン検証とTLS証明書発行を確認する。
 7. `APP_BASE_URL` と `ADMIN_BASE_URL` を独自ドメインへ更新して再配備する。
-8. Resend送信ドメインを独自ドメインへ揃える。LINE Login Callback、LINE Messaging Webhook、Stripe Webhookは`FULL`への拡張時に設定する。
+8. Resend送信ドメインを独自ドメインへ揃え、LINE Login Callbackを`https://{独自ドメイン}/api/v1/auth/line/callback`に設定する。LINE Messaging WebhookとStripe Webhookは`FULL`への拡張時に設定する。
 9. Turnstileを設定・有効化し、`/admin/readiness` の自動判定と人による確認を完了して、無料登録・ログイン・確認メール・再設定・無料情報閲覧を少人数でリハーサルする。
 10. 独自ドメインを公開導線へ載せる。Renderの一時サブドメインを無効にする場合は、独自ドメインでの復旧確認後に行う。
 
@@ -159,4 +159,4 @@ MFA端末紛失時のfactor解除・本人確認・再登録は、復旧責任�
 4. 無料募集に必要なSupabase SMTP、Turnstile、監視のライブ資格情報と実環境試験が未実施である。LINEとStripeは`FULL`への拡張前に実施する。
 5. APIのレート制限はプロセス内保存である。初期はAPIを1インスタンスに固定し、複数インスタンス化の前に共有ストアへ移す。
 
-次の公開準備ゴールは、`2026-10-01-v1` の本文を運営者がPull Request上で確認してマージし、`FREE_REGISTRATION`で独自ドメインの登録・確認メール・ログインを実環境確認することとする。有料販売は通信販売表示とStripe liveの確認を別工程で行う。
+次の公開準備ゴールは、`2026-10-01-v1` の本文を運営者がPull Request上で確認してマージし、`FREE_REGISTRATION`で独自ドメインのLINE登録・ログインとメール登録・確認・ログインを実環境確認することとする。有料販売は通信販売表示とStripe liveの確認を別工程で行う。

@@ -32,7 +32,7 @@ services:
       - key: NOTIFICATION_TRANSPORT
         value: disabled
       - key: LINE_OAUTH_TRANSPORT
-        value: disabled
+        value: line
       - key: LINE_RICH_MENU_TRANSPORT
         value: disabled
       - key: BILLING_TRANSPORT

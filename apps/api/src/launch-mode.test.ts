@@ -47,10 +47,12 @@ describe('free registration launch API boundaries', () => {
     expect(authenticate).toHaveBeenCalledOnce();
   });
 
-  it('rejects LINE Login before creating an OAuth flow', async () => {
+  it('permits LINE Login in free registration mode without enabling LINE notifications', async () => {
     process.env.LAUNCH_MODE = 'FREE_REGISTRATION';
-    const controller = new LineLoginController({} as AuthService, {} as LineLoginService);
-    await expect(controller.start({}, {} as never)).rejects.toMatchObject({ response: { code: 'LINE_LOGIN_NOT_IN_LAUNCH' } });
+    const start = vi.fn().mockResolvedValue({ authorizationUrl: 'https://access.line.me/example', expiresAt: new Date() });
+    const controller = new LineLoginController({} as AuthService, { start } as unknown as LineLoginService, {} as never, {} as never);
+    await expect(controller.start({ purpose: 'LOGIN' }, {} as never)).resolves.toMatchObject({ authorizationUrl: 'https://access.line.me/example' });
+    expect(start).toHaveBeenCalledOnce();
   });
 
   it('rejects LINE webhooks before reading credentials or request bodies', async () => {
