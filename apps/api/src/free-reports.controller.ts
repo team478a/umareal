@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
-import { adminFreeMemberBenefitResponseSchema, adminFreeReportAudioUploadResponseSchema, adminFreeReportDraftResponseSchema, adminFreeReportPublishResponseSchema, adminFreeReportRaceDetailResponseSchema, adminFreeReportRaceListResponseSchema, canManage, dateSchema, freeMemberBenefitSchema, freeReportAudioContentTypes, freeReportDraftSchema, freeReportPublishSchema, jstDate, publicFreeMemberBenefitResponseSchema, publicFreeReportMetadataResponseSchema, requiresMfa } from '@keiba/domain';
+import { adminFreeMemberBenefitResponseSchema, adminFreeReportAudioUploadResponseSchema, adminFreeReportDraftResponseSchema, adminFreeReportPublishResponseSchema, adminFreeReportRaceDetailResponseSchema, adminFreeReportRaceListResponseSchema, canManage, dateSchema, freeMemberBenefitSchema, freeReportAudioContentTypes, freeReportDraftSchema, freeReportPublishSchema, jstDate, publicFreeMemberBenefitResponseSchema, publicFreeMemberBenefitViewResponseSchema, publicFreeReportMetadataResponseSchema, requiresMfa } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import type { Response } from 'express';
 import { z } from 'zod';
@@ -29,6 +29,15 @@ export class AdminFreeReportsController {
     const actor = await this.auth.authenticate(req);
     if (!canManage(actor, ['ADMIN', 'OPERATOR'])) throw new ForbiddenException({ code: requiresMfa(actor.role) && actor.aal !== 2 ? 'MFA_REQUIRED' : 'FORBIDDEN', message: '無料速報を管理する権限と二段階認証を確認してください。' });
     return actor;
+  }
+
+  private async benefitAudience(db: Prisma.TransactionClient | AuthService['db']) {
+    const eligible = { role: 'MEMBER' as const, registrationMethod: 'LINE', disabledAt: null };
+    const [eligibleMembers, viewedMembers] = await Promise.all([
+      db.user.count({ where: eligible }),
+      db.memberJourneyEvent.count({ where: { eventType: 'REGISTRATION_BENEFIT_VIEWED', user: eligible } })
+    ]);
+    return { eligibleMembers, viewedMembers };
   }
 
   @Get('races')
@@ -143,8 +152,11 @@ export class AdminFreeReportsController {
   @Get('benefit')
   async benefit(@Req() req: AppRequest) {
     await this.staff(req);
-    const benefit = (await this.auth.db.freeMemberBenefit.findUnique({ where: { id: 'global' }, select: freeMemberBenefitSelect })) ?? { id: 'global' as const, title: '' as const, description: '' as const, videoUrl: '' as const, revision: 0 as const, updatedAt: null };
-    return adminFreeMemberBenefitResponseSchema.parse(benefit);
+    const [benefit, audience] = await Promise.all([
+      this.auth.db.freeMemberBenefit.findUnique({ where: { id: 'global' }, select: freeMemberBenefitSelect }),
+      this.benefitAudience(this.auth.db)
+    ]);
+    return adminFreeMemberBenefitResponseSchema.parse({ ...(benefit ?? { id: 'global' as const, title: '' as const, description: '' as const, videoUrl: '' as const, revision: 0 as const, updatedAt: null }), audience });
   }
 
   @Patch('benefit')
@@ -158,7 +170,8 @@ export class AdminFreeReportsController {
         ? await tx.freeMemberBenefit.update({ where: { id: 'global' }, data: { title: input.title, description: input.description, videoUrl: input.videoUrl, updatedBy: actor.id, updatedAt: new Date(), revision: { increment: 1 } }, select: freeMemberBenefitSelect })
         : await tx.freeMemberBenefit.create({ data: { id: 'global', title: input.title, description: input.description, videoUrl: input.videoUrl, updatedBy: actor.id }, select: freeMemberBenefitSelect });
       await this.auth.audit(tx, req, 'FREE_MEMBER_BENEFIT_UPDATE', benefit.id, input.reason, { revision: benefit.revision, videoConfigured: true });
-      return adminFreeMemberBenefitResponseSchema.parse(benefit);
+      const audience = await this.benefitAudience(tx);
+      return adminFreeMemberBenefitResponseSchema.parse({ ...benefit, audience });
     }, { timeout: 20000, maxWait: 10000 });
   }
 }
@@ -169,9 +182,25 @@ export class MemberFreeReportsController {
 
   @Get('me/free-benefit')
   async benefit(@Req() req: AppRequest) {
-    await this.auth.authenticate(req);
-    const value = await this.auth.db.freeMemberBenefit.findUnique({ where: { id: 'global' }, select: { title: true, description: true, videoUrl: true, updatedAt: true } });
-    return publicFreeMemberBenefitResponseSchema.parse(value ? { configured: true, ...value } : { configured: false });
+    const actor = await this.auth.authenticate(req);
+    if (actor.role !== 'MEMBER' || actor.user.registrationMethod !== 'LINE') return publicFreeMemberBenefitResponseSchema.parse({ configured: false });
+    const [value, viewed] = await Promise.all([
+      this.auth.db.freeMemberBenefit.findUnique({ where: { id: 'global' }, select: { title: true, description: true, updatedAt: true } }),
+      this.auth.db.memberJourneyEvent.findUnique({ where: { userId_eventType: { userId: actor.id, eventType: 'REGISTRATION_BENEFIT_VIEWED' } }, select: { occurredAt: true } })
+    ]);
+    return publicFreeMemberBenefitResponseSchema.parse(value ? { configured: true, ...value, viewedAt: viewed?.occurredAt ?? null } : { configured: false });
+  }
+
+  @Post('me/free-benefit/view')
+  async viewBenefit(@Req() req: AppRequest) {
+    const actor = await this.auth.authenticate(req);
+    if (actor.role !== 'MEMBER' || actor.user.registrationMethod !== 'LINE') throw new NotFoundException({ code: 'FREE_BENEFIT_NOT_FOUND', message: '登録特典が見つかりません。' });
+    return this.auth.db.$transaction(async tx => {
+      const value = await tx.freeMemberBenefit.findUnique({ where: { id: 'global' }, select: { videoUrl: true } });
+      if (!value) throw new NotFoundException({ code: 'FREE_BENEFIT_NOT_FOUND', message: '登録特典が見つかりません。' });
+      const event = await this.auth.journey(tx, actor.id, 'REGISTRATION_BENEFIT_VIEWED');
+      return publicFreeMemberBenefitViewResponseSchema.parse({ videoUrl: value.videoUrl, viewedAt: event.occurredAt });
+    });
   }
 
   @Get('races/:raceId/free-report')

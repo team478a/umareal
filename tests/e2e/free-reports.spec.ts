@@ -39,3 +39,34 @@ test('staff publishes the legacy free report and a member receives metadata only
   await page.screenshot({ path: testInfo.outputPath('free-report.png'), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
+
+test('a LINE registrant receives, opens and can revisit the registration benefit', async ({ page }, testInfo) => {
+  const admin = await account('ADMIN'); const member = await account();
+  await db.user.update({ where: { id: member.user.id }, data: { registrationMethod: 'LINE' } });
+  const adminClient = new Client(); await adminClient.login(admin); await adminClient.mfa();
+  const current = await adminClient.call('admin/free-reports/benefit');
+  expect(current.status).toBe(200);
+  const videoUrl = `https://video.example.test/line-benefit-${randomUUID()}`;
+  const saved = await adminClient.call('admin/free-reports/benefit', 'PATCH', { revision: current.body.revision, title: 'LINE登録特典動画', description: '登録ありがとうございます。こちらの動画をご覧ください。', videoUrl, reason: 'LINE登録特典E2E' });
+  expect(saved.status).toBe(200);
+
+  const memberClient = new Client(); await memberClient.login(member);
+  await page.context().addCookies([{ name: 'keiba_session', value: memberClient.cookie.split('=')[1], domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
+  await page.goto('/account?line=registered');
+  await expect(page.getByText('LINE無料登録が完了しました。登録特典を受け取れます。')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '登録特典を受け取れます' })).toBeVisible();
+  await page.getByRole('link', { name: '特典動画を見る' }).click();
+  await expect(page).toHaveURL(/\/benefit$/);
+  await expect(page.getByRole('heading', { name: 'LINE登録特典動画' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  await page.route(videoUrl, route => route.fulfill({ status: 200, contentType: 'text/html', body: '<title>登録特典動画</title><h1>動画配信ページ</h1>' }));
+  await page.getByRole('button', { name: '動画を見る' }).click();
+  await expect(page).toHaveURL(videoUrl);
+  expect(await db.memberJourneyEvent.count({ where: { userId: member.user.id, eventType: 'REGISTRATION_BENEFIT_VIEWED' } })).toBe(1);
+
+  await page.goto('/account');
+  await expect(page.getByRole('link', { name: '特典動画をもう一度見る' })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('line-registration-benefit.png'), fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});

@@ -58,7 +58,7 @@ export class AuthService {
     await this.journey(tx, userId, 'FIRST_LOGIN');
     return token;
   }
-  async journey(tx: Prisma.TransactionClient, userId: string, eventType: 'FIRST_LOGIN' | 'LINE_GUIDANCE_VIEWED' | 'PLAN_VIEWED' | 'CHECKOUT_REVIEWED') {
+  async journey(tx: Prisma.TransactionClient, userId: string, eventType: 'FIRST_LOGIN' | 'LINE_GUIDANCE_VIEWED' | 'PLAN_VIEWED' | 'CHECKOUT_REVIEWED' | 'REGISTRATION_BENEFIT_VIEWED') {
     await tx.memberJourneyEvent.createMany({ data: [{ userId, eventType }], skipDuplicates: true });
     return tx.memberJourneyEvent.findUniqueOrThrow({
       where: { userId_eventType: { userId, eventType } },
