@@ -11,6 +11,7 @@ import { ReadinessService } from './readiness.service';
 import { AuthSessionService } from './auth-session.service';
 import { MemberAccountQueryService } from './member-account-query.service';
 import { AccountClosureService } from './account-closure.service';
+import { lineIncidentState } from './incident-policy';
 
 const pagination = z.object({ page: z.coerce.number().int().min(1).max(10000).default(1), limit: z.coerce.number().int().min(1).max(50).default(20) });
 const onboardingFunnelQuerySchema = z.object({ days: z.coerce.number().int().min(1).max(365).default(30), source: z.string().trim().min(1).max(100).optional() }).strict();
@@ -293,13 +294,14 @@ export class AppController {
       this.auth.db.emailWebhookEvent.count({ where: { receivedAt: { gte: since }, eventType: 'email.failed' } })
     ]);
     const lineConfigured = !!settings.lineChannelId && !!settings.lineChannelSecretEncrypted && !!settings.lineAccessTokenEncrypted;
+    const lineState = lineIncidentState({ available: launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).lineNotifications, enabled: settings.lineNotificationsEnabled, configured: lineConfigured });
     const mailConfigured = resolveMailConfig(settings).complete;
     const issues: { code: string; severity: 'CRITICAL' | 'WARNING' | 'INFO'; title: string; detail: string; action: string; href: string }[] = [];
     if (!settings.predictionPublicationEnabled) issues.push({ code: 'PREDICTION_PAUSED', severity: 'CRITICAL', title: '予想公開が停止中', detail: '新しいプレビュー確認と公開確定が拒否されます。', action: '停止理由を確認し、復旧条件が揃った後に管理者が再開します。', href: '/admin/settings' });
     if (!settings.emailNotificationsEnabled) issues.push({ code: 'EMAIL_PAUSED', severity: 'CRITICAL', title: 'メール通知が停止中', detail: '確認済みメール会員へのレース告知と公開通知は送信されません。', action: 'メール配信基盤とキューを確認してから管理者が再開します。', href: '/admin/settings' });
     if (settings.emailNotificationsEnabled && process.env.MAIL_TRANSPORT === 'resend' && !mailConfigured) issues.push({ code: 'EMAIL_CONFIGURATION_MISSING', severity: 'CRITICAL', title: 'メール送信設定が不足', detail: 'Resend API key、送信元、Webhook signing secretのいずれかが未設定・読取不能です。', action: '管理者が資格情報を再設定し、外部疎通は別途確認します。', href: '/admin/settings' });
-    if (!settings.lineNotificationsEnabled) issues.push({ code: 'LINE_PAUSED', severity: 'CRITICAL', title: 'LINE通知が停止中', detail: '公開情報はWebへ残りますが、通知キューは処理されません。', action: 'LINE側とキューを確認してから管理者が通知を再開します。', href: '/admin/settings' });
-    if (settings.lineNotificationsEnabled && !lineConfigured) issues.push({ code: 'LINE_CONFIGURATION_MISSING', severity: 'CRITICAL', title: 'LINE通知設定が不足', detail: 'Channel ID、secret、access tokenのいずれかが未設定です。', action: '管理者が資格情報を再設定し、外部疎通は別途確認します。', href: '/admin/settings' });
+    if (lineState.paused) issues.push({ code: 'LINE_PAUSED', severity: 'CRITICAL', title: 'LINE通知が停止中', detail: '公開情報はWebへ残りますが、通知キューは処理されません。', action: 'LINE側とキューを確認してから管理者が通知を再開します。', href: '/admin/settings' });
+    if (lineState.configurationMissing) issues.push({ code: 'LINE_CONFIGURATION_MISSING', severity: 'CRITICAL', title: 'LINE通知設定が不足', detail: 'Channel ID、secret、access tokenのいずれかが未設定です。', action: '管理者が資格情報を再設定し、外部疎通は別途確認します。', href: '/admin/settings' });
     if (stuck) issues.push({ code: 'DELIVERY_STUCK', severity: 'CRITICAL', title: '送信中の通知が停滞', detail: `5分以上送信中の配送が${stuck}件あります。`, action: 'ワーカー状態を確認します。再起動後は期限切れleaseが自動回収されます。', href: '/admin/notifications' });
     if (failed) issues.push({ code: 'DELIVERY_FAILED', severity: 'WARNING', title: '未解決の通知失敗', detail: `失敗状態の配送が${failed}件あります。`, action: '失敗理由を確認し、原因解消後に理由付きで再送します。', href: '/admin/notifications' });
     if (delayed) issues.push({ code: 'DELIVERY_DELAYED', severity: 'WARNING', title: '通知開始が60秒を超過', detail: `初回処理待ちの配送が${delayed}件あります。`, action: 'ワーカー稼働と通知停止設定を確認します。', href: '/admin/notifications' });
@@ -310,7 +312,7 @@ export class AppController {
     if (settings.maintenanceMessage.trim()) issues.push({ code: 'MAINTENANCE_MESSAGE_ACTIVE', severity: 'INFO', title: 'メンテナンス案内を設定中', detail: settings.maintenanceMessage, action: '案内内容と現在の障害状態が一致しているか確認します。', href: '/admin/settings' });
     const critical = issues.filter(issue => issue.severity === 'CRITICAL').length; const warning = issues.filter(issue => issue.severity === 'WARNING').length;
     const status = critical ? 'INCIDENT' : warning ? 'DEGRADED' : 'NORMAL';
-    const publicMessage = !settings.predictionPublicationEnabled ? '現在、予想情報の公開準備を確認しています。公開が通常より遅れる可能性があります。状況が確定次第、Web会員ページでご案内します。' : !settings.emailNotificationsEnabled || !settings.lineNotificationsEnabled || !lineConfigured || stuck || failed || delayed || emailProviderFailures ? '現在、通知の配信に遅れが発生しています。公開済みの情報はWeb会員ページでご確認いただけます。復旧後に改めてご案内します。' : '現在、確認されている公開・通知障害はありません。';
+    const publicMessage = !settings.predictionPublicationEnabled ? '現在、予想情報の公開準備を確認しています。公開が通常より遅れる可能性があります。状況が確定次第、Web会員ページでご案内します。' : !settings.emailNotificationsEnabled || lineState.affectsPublicMessage || stuck || failed || delayed || emailProviderFailures ? '現在、通知の配信に遅れが発生しています。公開済みの情報はWeb会員ページでご確認いただけます。復旧後に改めてご案内します。' : '現在、確認されている公開・通知障害はありません。';
     return adminIncidentResponseSchema.parse({ generatedAt: now, status, counts: { critical, warning, total: issues.length }, issues, publicMessage, monitoring: { failedDeliveries: failed, delayedDeliveries: delayed, stuckDeliveries: stuck, unmatchedWebhooks24h: unmatchedWebhooks, emailRecipientFailures24h: emailFailures, emailProviderFailures24h: emailProviderFailures, lastWebhookAt: lastWebhook?.receivedAt ?? null, lastWebhookOutcome: lastWebhook?.outcome ?? null, settingsUpdatedAt: settings.updatedAt, newPurchasesEnabled: settings.newPurchasesEnabled } });
   }
   @Get('admin/backups/status') async backupStatus(@Req() req: AppRequest) {
