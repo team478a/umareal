@@ -32,7 +32,7 @@
 | GET | /admin/acquisition | ADMIN+AAL2。集計日数、発行済みキャンペーンURL、流入別登録・有料化集計 |
 | POST | /admin/acquisition/campaigns | ADMIN+AAL2。理由付きで一意コードの登録URLを発行し監査 |
 | GET | /admin/acquisition/export.csv | ADMIN+AAL2。`days=1..365`の個人情報を含まない流入別集計CSV |
-| GET | /admin/operations?date=YYYY-MM-DD | ADMIN+AAL2またはOPERATOR。JST運用日のレース進捗・期限・警告、6段階のリハーサル判定、運用機能の事前確認を返す |
+| GET | /admin/operations?date=YYYY-MM-DD | ADMIN+AAL2またはOPERATOR。JST運用日のレース進捗・期限・警告、6段階のリハーサル判定、運用機能の事前確認を返す。LINEの利用可否は公開モードから判定し、対象外モードではLINE停止・設定不足でリハーサルをブロックしない |
 | GET | /admin/incidents | ADMIN+AAL2またはOPERATOR。機能停止、通知遅延・失敗・停滞、未照合Webhook、案内文案を返す。秘密値は返さない |
 | GET | /admin/operational-alerts | ADMIN+AAL2またはOPERATOR。配信・予約公開・公開期限・問い合わせ期限の運用アラート、外部配送結果、状態別件数を返す |
 | GET/PATCH | /admin/operational-alerts/settings | 読取はADMIN+AAL2またはOPERATOR、変更はADMIN+AAL2。最低重大度と最大10件の運営メール通知先を管理する |

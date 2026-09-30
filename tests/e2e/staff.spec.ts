@@ -60,8 +60,11 @@ test('administrator must complete MFA before viewing member management', async (
   await expect(page.getByRole('heading', { name: '管理ダッシュボード', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '開催日運用ボード', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '開催日リハーサル', exact: true })).toBeVisible();
-  await expect(page.getByLabel('運用機能の事前確認')).toContainText('予想公開');
-  await expect(page.getByLabel('運用機能の事前確認')).toContainText('LINE設定');
+  const preflight = page.getByLabel('運用機能の事前確認');
+  await expect(preflight).toContainText('予想公開');
+  await expect(preflight).toContainText(/LINE設定|LINE連携（対象外）/);
+  const linePreflight = preflight.locator('span').filter({ hasText: 'LINE' });
+  if ((await linePreflight.allTextContents()).some(value => value.includes('対象外'))) await expect(linePreflight).toHaveClass(/not-applicable/);
   await expect(page.getByText('自動更新中', { exact: true })).toBeVisible();
   await expect(page.getByText(/最終更新 .* JST/)).toBeVisible();
   const operationCard = page.locator('.operation-race').filter({ hasText: operationsRace.name });

@@ -11,7 +11,7 @@ import { ReadinessService } from './readiness.service';
 import { AuthSessionService } from './auth-session.service';
 import { MemberAccountQueryService } from './member-account-query.service';
 import { AccountClosureService } from './account-closure.service';
-import { lineIncidentState } from './incident-policy';
+import { lineNotificationState } from './line-notification-policy';
 
 const pagination = z.object({ page: z.coerce.number().int().min(1).max(10000).default(1), limit: z.coerce.number().int().min(1).max(50).default(20) });
 const onboardingFunnelQuerySchema = z.object({ days: z.coerce.number().int().min(1).max(365).default(30), source: z.string().trim().min(1).max(100).optional() }).strict();
@@ -162,6 +162,9 @@ export class AppController {
       } }),
       this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { csvImportEnabled: true, predictionPublicationEnabled: true, lineNotificationsEnabled: true, lineChannelId: true, lineChannelSecretEncrypted: true, lineAccessTokenEncrypted: true } })
     ]);
+    const lineAvailable = launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).lineNotifications;
+    const lineConfigured = !!settings.lineChannelId && !!settings.lineChannelSecretEncrypted && !!settings.lineAccessTokenEncrypted;
+    const lineState = lineNotificationState({ available: lineAvailable, enabled: settings.lineNotificationsEnabled, configured: lineConfigured });
     const items = races.map(race => {
       const completed = race.entries.filter(entry => { const parsed = assessmentSchema.safeParse(entry.assessment?.content); return parsed.success && paddockComplete(parsed.data); }).length;
       const announcement = race.announcements[0] ?? null; const prediction = race.prediction?.versions[0] ?? null;
@@ -184,13 +187,12 @@ export class AppController {
       const predictionQueued = predictionDeliveries.some(item => ['QUEUED', 'SENDING', 'RETRIED'].includes(item.status));
       const notificationFailed = notification.failed > 0;
       const predictionSent = predictionDeliveries.some(item => item.status === 'SENT');
-      const notificationsConfigured = !!settings.lineChannelId && !!settings.lineChannelSecretEncrypted && !!settings.lineAccessTokenEncrypted;
       const steps: { key: string; label: string; state: 'DONE' | 'CURRENT' | 'WAITING' | 'BLOCKED' | 'NOT_DUE'; detail: string }[] = [
         { key: 'SETUP', label: 'レース準備', state: setupDone ? 'DONE' : 'CURRENT', detail: !activeAssignment ? '有効な担当者を設定してください' : !race.entries.length ? '出走馬を登録してください' : `${race.entries.length}頭・担当者設定済み` },
         { key: 'ANNOUNCEMENT', label: '対象レース告知', state: announcement ? 'DONE' : setupDone ? 'CURRENT' : 'WAITING', detail: announcement ? `公開済み v${announcement.version}` : '無料会員へ対象レースを告知します' },
         { key: 'PADDOCK', label: 'パドック評価', state: paddockDone ? 'DONE' : !setupDone || !announcement ? 'WAITING' : 'CURRENT', detail: `${completed}/${race.entries.length}頭完了` },
         { key: 'PUBLICATION', label: '最終予想公開', state: prediction ? 'DONE' : !settings.predictionPublicationEnabled || secondsRemaining <= 0 ? 'BLOCKED' : !paddockDone ? 'WAITING' : 'CURRENT', detail: prediction ? `公開済み v${prediction.version}` : !settings.predictionPublicationEnabled ? '予想公開が緊急停止中です' : secondsRemaining <= 0 ? '公開締切を経過しています' : 'プレビュー確認後に公開します' },
-        { key: 'DELIVERY', label: '通知確認', state: notificationFailed ? 'BLOCKED' : predictionQueued ? 'CURRENT' : predictionSent || prediction?.notificationEvent?.status === 'SKIPPED' ? 'DONE' : prediction && (!settings.lineNotificationsEnabled || !notificationsConfigured) ? 'BLOCKED' : prediction ? 'CURRENT' : 'WAITING', detail: notificationFailed ? '失敗した告知・予想配送を確認してください' : predictionQueued ? '通知処理を待っています' : predictionSent ? '送信済みです' : prediction?.notificationEvent?.status === 'SKIPPED' ? '通知対象なしとして処理済みです' : !settings.lineNotificationsEnabled ? 'LINE通知が緊急停止中です' : !notificationsConfigured ? 'LINE通知設定が未完了です' : '通知イベントを確認します' },
+        { key: 'DELIVERY', label: '通知確認', state: notificationFailed ? 'BLOCKED' : predictionQueued ? 'CURRENT' : predictionSent || prediction?.notificationEvent?.status === 'SKIPPED' ? 'DONE' : prediction && (lineState.paused || lineState.configurationMissing) ? 'BLOCKED' : prediction ? 'CURRENT' : 'WAITING', detail: notificationFailed ? '失敗した告知・予想配送を確認してください' : predictionQueued ? '通知処理を待っています' : predictionSent ? '送信済みです' : prediction?.notificationEvent?.status === 'SKIPPED' ? '通知対象なしとして処理済みです' : !lineAvailable ? 'LINE通知はこの公開モードでは対象外です。Web掲載とメール通知を確認します' : lineState.paused ? 'LINE通知が緊急停止中です' : lineState.configurationMissing ? 'LINE通知設定が未完了です' : '通知イベントを確認します' },
         { key: 'RESULT', label: '結果確定', state: race.resultVersions.length ? 'DONE' : secondsRemaining > 0 ? 'NOT_DUE' : prediction ? 'CURRENT' : 'WAITING', detail: race.resultVersions.length ? `確定済み v${race.resultVersions[0].version}` : secondsRemaining > 0 ? '発走後に確認します' : '着順を確認して評価結果を確定します' }
       ];
       const blocking = steps.filter(step => step.state === 'BLOCKED').length;
@@ -210,7 +212,7 @@ export class AppController {
       ready: items.filter(item => ['READY', 'COMPLETE'].includes(item.rehearsal.status)).length,
       blocked: items.filter(item => item.rehearsal.status === 'BLOCKED').length,
       total: items.length,
-      preflight: { csvImportEnabled: settings.csvImportEnabled, predictionPublicationEnabled: settings.predictionPublicationEnabled, lineNotificationsEnabled: settings.lineNotificationsEnabled, lineConfigured: !!settings.lineChannelId && !!settings.lineChannelSecretEncrypted && !!settings.lineAccessTokenEncrypted }
+      preflight: { csvImportEnabled: settings.csvImportEnabled, predictionPublicationEnabled: settings.predictionPublicationEnabled, lineAvailable, lineNotificationsEnabled: settings.lineNotificationsEnabled, lineConfigured }
     } });
   }
   @Get('admin/acquisition') async acquisition(@Req() req: AppRequest, @Query() query: unknown) {
@@ -294,7 +296,7 @@ export class AppController {
       this.auth.db.emailWebhookEvent.count({ where: { receivedAt: { gte: since }, eventType: 'email.failed' } })
     ]);
     const lineConfigured = !!settings.lineChannelId && !!settings.lineChannelSecretEncrypted && !!settings.lineAccessTokenEncrypted;
-    const lineState = lineIncidentState({ available: launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).lineNotifications, enabled: settings.lineNotificationsEnabled, configured: lineConfigured });
+    const lineState = lineNotificationState({ available: launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).lineNotifications, enabled: settings.lineNotificationsEnabled, configured: lineConfigured });
     const mailConfigured = resolveMailConfig(settings).complete;
     const issues: { code: string; severity: 'CRITICAL' | 'WARNING' | 'INFO'; title: string; detail: string; action: string; href: string }[] = [];
     if (!settings.predictionPublicationEnabled) issues.push({ code: 'PREDICTION_PAUSED', severity: 'CRITICAL', title: '予想公開が停止中', detail: '新しいプレビュー確認と公開確定が拒否されます。', action: '停止理由を確認し、復旧条件が揃った後に管理者が再開します。', href: '/admin/settings' });

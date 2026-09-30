@@ -321,6 +321,7 @@ td { padding:17px 24px; border-top:1px solid var(--line); }
 .preflight-list { grid-column:1/-1; display:flex; flex-wrap:wrap; gap:8px; }
 .preflight-list span { display:inline-flex; align-items:center; gap:5px; padding:6px 10px; border:1px solid #d7e4de; border-radius:999px; background:white; color:var(--green); font-size:11px; font-weight:700; }
 .preflight-list span.blocked { border-color:#ecd2cd; background:#fff4f1; color:var(--red); }
+.preflight-list span.not-applicable { border-color:#d9dfdc; background:#f4f7f5; color:#62706a; }
 .rehearsal-checklist { margin-top:18px; padding:16px; border:1px solid #dfe8e3; border-radius:10px; background:#fafcfb; }
 .rehearsal-checklist-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
 .rehearsal-checklist-head>strong { font-size:13px; }
