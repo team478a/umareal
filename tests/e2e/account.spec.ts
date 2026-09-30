@@ -16,8 +16,8 @@ test('register, save preferences, sign out and sign in on desktop/mobile', async
   await page.getByLabel('メールアドレス', { exact: true }).fill(email);
   await page.getByLabel('パスワード', { exact: true }).fill(password);
   await page.getByLabel('20歳以上です。').check();
-  await page.getByLabel('利用規約（開発用）に同意します。').check();
-  await page.getByLabel('プライバシーポリシー（開発用）に同意します。').check();
+  await page.getByLabel('利用規約に同意します。').check();
+  await page.getByLabel('プライバシーポリシーに同意します。').check();
   await page.getByRole('button', { name: '同意して登録する' }).click();
   await expect(page.getByRole('heading', { name: 'メールアドレスを確認' })).toBeVisible();
   const user = await db.user.findUniqueOrThrow({ where: { email } });

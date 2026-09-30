@@ -15,8 +15,8 @@ test('email registration requires the configured local CAPTCHA answer on desktop
     await page.getByLabel('メールアドレス', { exact: true }).fill(email);
     await page.getByLabel('パスワード', { exact: true }).fill('registration-captcha-password');
     await page.getByLabel('20歳以上です。').check();
-    await page.getByLabel('利用規約（開発用）に同意します。').check();
-    await page.getByLabel('プライバシーポリシー（開発用）に同意します。').check();
+    await page.getByLabel('利用規約に同意します。').check();
+    await page.getByLabel('プライバシーポリシーに同意します。').check();
     await page.getByRole('checkbox', { name: /自動送信ではありません/ }).check();
     await page.getByRole('button', { name: '同意して登録する' }).click();
     await expect(page.getByRole('heading', { name: 'メールアドレスを確認' })).toBeVisible();
