@@ -62,6 +62,8 @@ import { BillingCouponService } from './billing-coupon.service';
 import { BillingQueryService } from './billing-query.service';
 import { MemberAccountQueryService } from './member-account-query.service';
 import { AccountClosureService } from './account-closure.service';
+import { LineRichMenuController } from './line-rich-menu.controller';
+import { LineRichMenuService } from './line-rich-menu.service';
 config({ path: resolve(process.cwd(), '../../.env'), quiet: true });
 
 @Catch()
@@ -84,7 +86,7 @@ class ErrorFilter implements ExceptionFilter {
     res.status(status).json({ code, message, requestId: req.requestId, details });
   }
 }
-@Module({ controllers: [AuthController, AppController, RacesController, AssessmentsController, PredictionsController, Win5Controller, Win5ResultsController, SocialSharesController, AdminSettingsController, AdminContinuityController, StaffController, SupportController, OperationalAlertsController, NotificationsController, MemberNotificationsController, AdminFreeReportsController, MemberFreeReportsController, PublicationSchedulesController, LineWebhookController, ResendWebhookController, RegistrationFollowupsController, LineLoginController, ResultsController, BillingController, ReferralsController], providers: [DbService, AuthService, AuthSessionService, AuthRegistrationService, AuthCredentialService, AuthMfaService, AuthLoginService, AuthSessionLifecycleService, StripeCustomerGatewayService, StripeWebhookService, StripeCheckoutService, BillingSubscriptionLifecycleService, BillingAdminResolutionService, BillingSupportService, BillingLocalSimulationService, BillingCouponService, BillingLocalCheckoutService, BillingQueryService, MemberAccountQueryService, AccountClosureService, SupabaseAuthService, LineLoginService, MailService, RegistrationCaptchaService, ReferralsService, ReadinessService] })
+@Module({ controllers: [AuthController, AppController, RacesController, AssessmentsController, PredictionsController, Win5Controller, Win5ResultsController, SocialSharesController, AdminSettingsController, AdminContinuityController, StaffController, SupportController, OperationalAlertsController, NotificationsController, MemberNotificationsController, AdminFreeReportsController, MemberFreeReportsController, PublicationSchedulesController, LineWebhookController, LineRichMenuController, ResendWebhookController, RegistrationFollowupsController, LineLoginController, ResultsController, BillingController, ReferralsController], providers: [DbService, AuthService, AuthSessionService, AuthRegistrationService, AuthCredentialService, AuthMfaService, AuthLoginService, AuthSessionLifecycleService, StripeCustomerGatewayService, StripeWebhookService, StripeCheckoutService, BillingSubscriptionLifecycleService, BillingAdminResolutionService, BillingSupportService, BillingLocalSimulationService, BillingCouponService, BillingLocalCheckoutService, BillingQueryService, MemberAccountQueryService, AccountClosureService, SupabaseAuthService, LineLoginService, LineRichMenuService, MailService, RegistrationCaptchaService, ReferralsService, ReadinessService] })
 class AppModule {}
 
 async function main() {
@@ -106,6 +108,8 @@ async function main() {
   if (Buffer.from(process.env.ENCRYPTION_KEY ?? '', 'base64').length !== 32) throw new Error('Configure ENCRYPTION_KEY');
   if (!['test', 'line', 'disabled'].includes(process.env.NOTIFICATION_TRANSPORT ?? '')) throw new Error('Set NOTIFICATION_TRANSPORT explicitly');
   if (!['test', 'line', 'disabled'].includes(process.env.LINE_OAUTH_TRANSPORT ?? '')) throw new Error('Set LINE_OAUTH_TRANSPORT explicitly');
+  if (process.env.LINE_RICH_MENU_TRANSPORT && !['test', 'line', 'disabled'].includes(process.env.LINE_RICH_MENU_TRANSPORT)) throw new Error('LINE_RICH_MENU_TRANSPORT must be test, line or disabled');
+  if (process.env.NODE_ENV === 'production' && ['CLOUD_STAGING', 'STRIPE_SANDBOX'].includes(launchMode) && process.env.LINE_RICH_MENU_TRANSPORT === 'line') throw new Error('Cloud test modes forbid live LINE rich-menu publishing');
   if (process.env.NODE_ENV === 'production' && capabilities.lineNotifications && process.env.NOTIFICATION_TRANSPORT !== 'line') throw new Error('Full production launch requires the LINE notification transport');
   if (process.env.NODE_ENV === 'production' && capabilities.lineLogin && process.env.LINE_OAUTH_TRANSPORT !== 'line') throw new Error('Full production launch requires the LINE OAuth transport');
   if (process.env.NODE_ENV === 'production' && !capabilities.lineNotifications && process.env.NOTIFICATION_TRANSPORT !== 'disabled') throw new Error('Free registration launch requires LINE notifications to be disabled');

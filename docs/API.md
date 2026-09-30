@@ -313,3 +313,11 @@ ADMINまたはOPERATORのAAL2が操作する。レース結果は手入力せず
 | POST | /admin/win5/:productId/results/confirm | `{revision,reason}`。取込元を再検証し、結果版と5脚を同一トランザクションで追記する |
 
 取込後にWIN5公開版またはレース結果版が増えた場合は `WIN5_EVALUATION_SOURCE_CHANGED` で確定を拒否し、再取込を求める。中止や1着馬不明など判定できない状態は `REVIEW_REQUIRED` として下書きだけを保存する。確定版は公開版ID、各レース結果版ID、勝ち馬、各対象レースの本命着順・候補内選出、候補内選出レース数、5レース全選出状態、確認者・時刻・ルール版を保持し、DBで更新・削除を拒否する。
+
+## LINEリッチメニュー管理
+
+- `GET /api/v1/admin/line-rich-menu` — ADMIN+AAL2。固定6項目、公開transport、資格情報の設定有無、現在の公開記録、直近10件の試行を返す。秘密値は返さない。
+- `GET /api/v1/admin/line-rich-menu/preview` — ADMIN+AAL2。LINEへ登録する2500×1686 PNGを`no-store`で返す。
+- `POST /api/v1/admin/line-rich-menu/publish` — ADMIN+AAL2。`currentPublicationId`と理由を受け、模擬または実LINE公開を行う。最新公開IDの不一致と並行公開は409、transport・資格情報・LINE接続の不備は503。
+
+LINEログイン開始`POST /api/v1/auth/line/start`の`purpose=LOGIN`では、任意で`returnTo`を受ける。値は`/account`、`/benefit`、`/win5`、`/races`、`/notifications`、`/plans`のいずれかだけとし、callback後に同じ相対パスへ戻す。

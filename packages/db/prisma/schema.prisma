@@ -78,6 +78,7 @@ model User {
   referralReceived               Referral?                  @relation("ReferralReferred")
   referralRewards                ReferralReward[]
   referralsInvalidated           Referral[]                 @relation("ReferralInvalidator")
+  richMenusPublished             LineRichMenuPublication[]  @relation("LineRichMenuPublisher")
 
   @@map("users")
 }
@@ -248,9 +249,29 @@ model LineOAuthFlow {
   createdAt             DateTime  @default(now()) @db.Timestamptz(3)
   acquisition           Json?
   memberReferralCode    String?
+  returnPath            String?
 
   @@index([expiresAt])
   @@map("line_oauth_flows")
+}
+
+model LineRichMenuPublication {
+  id                 String    @id @default(uuid()) @db.Uuid
+  status             String    @default("PUBLISHING")
+  providerRichMenuId String?   @unique
+  menuSnapshot       Json
+  imageSha256        String
+  imageBytes         Int
+  reason             String
+  createdBy          String    @db.Uuid
+  creator            User      @relation("LineRichMenuPublisher", fields: [createdBy], references: [id])
+  createdAt          DateTime  @default(now()) @db.Timestamptz(3)
+  completedAt        DateTime? @db.Timestamptz(3)
+  errorCode          String?
+
+  @@index([status, createdAt])
+  @@index([createdAt])
+  @@map("line_rich_menu_publications")
 }
 
 model LineWebhookEvent {

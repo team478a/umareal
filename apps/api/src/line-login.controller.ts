@@ -1,6 +1,6 @@
 import { BadRequestException, Body, ConflictException, Controller, Get, Inject, Post, Query, Req, Res, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { acquisitionSchema, launchCapabilities, lineOAuthStartSchema, lineRegistrationSchema, resolveLaunchMode } from '@keiba/domain';
+import { acquisitionSchema, launchCapabilities, lineLoginReturnPathSchema, lineOAuthStartSchema, lineRegistrationSchema, resolveLaunchMode } from '@keiba/domain';
 import type { AppRequest } from './context';
 import { AuthService } from './auth.service';
 import { LineLoginService } from './line-login.service';
@@ -19,10 +19,10 @@ export class LineLoginController {
   @Post('start')
   async start(@Body() body: unknown, @Req() req: AppRequest) {
     this.enabled();
-    const { purpose, acquisition, memberReferralCode } = lineOAuthStartSchema.parse(body);
+    const { purpose, acquisition, memberReferralCode, returnTo } = lineOAuthStartSchema.parse(body);
     if (purpose === 'REGISTER') await this.auth.requireNewRegistration();
     const identity = purpose === 'LINK' ? await this.auth.authenticate(req) : undefined;
-    return this.line.start(purpose, identity?.id, acquisition, memberReferralCode);
+    return this.line.start(purpose, identity?.id, acquisition, memberReferralCode, returnTo);
   }
 
   @Get('callback')
@@ -66,7 +66,8 @@ export class LineLoginController {
       return this.auth.session(tx, account.user.id, 1);
     });
     this.sessions.setLocalSession(res, token);
-    return res.redirect(303, `${process.env.APP_BASE_URL}/account?line=login`);
+    const returnPath = lineLoginReturnPathSchema.safeParse(flow.returnPath);
+    return res.redirect(303, new URL(returnPath.success ? returnPath.data : '/account?line=login', process.env.APP_BASE_URL).toString());
   }
 
   @Post('register')

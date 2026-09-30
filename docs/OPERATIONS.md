@@ -193,3 +193,14 @@ Webhookには `checkout.session.completed`、`invoice.paid`、`invoice.payment_f
 Stripe接続で価格を変更するときは、Stripe側で対応する新しいJPY Priceを作成し、`/admin/settings`の管理価格とPrice IDを同じ変更理由で更新する。金額または月額/単発種別が一致しない間はCheckoutを安全停止する。クーポンは通常Priceを変更せず、Checkoutごとに固定冪等キーでStripe Couponを作成する。初回のみ月額割引は初回請求だけ、継続割引は契約中の請求へ適用する。本番投入前にStripeテスト環境で両方のInvoice金額を確認する。
 
 環境変数から管理画面へ移行するときは、Secret key、Webhook secret、3つのPrice IDを同じ保存操作で入力する。一部だけ保存するとDB設定が優先され、外部決済は設定不足として停止する。`STRIPE_SANDBOX`では本番モードをOFF、`FULL`ではONにし、それぞれ`sk_test_`、`sk_live_`と一致させる。本番配備では環境変数`STRIPE_LIVE_MODE=true`も必要とする。
+
+## LINEリッチメニューの公開
+
+1. 管理画面の「サービス・連携設定」でMessaging API設定が保存済みか確認する。
+2. `/admin/line-rich-menu`をADMIN+AAL2で開く。
+3. 画像と6つの移動先を確認する。
+4. 公開理由を入力し、確認チェック後に公開する。
+5. 公開履歴が「公開済み」になったことを確認する。
+6. 実LINE接続時はLINE公式アカウントを開き、表示と全タップ領域を実機確認する。
+
+`LINE_RICH_MENU_TRANSPORT`の`test`は模擬公開、`line`は実公開、`disabled`は公開停止である。通知配送のtransportとは分離する。失敗時は従来の標準メニューを維持する。同じ画面を複数人が開いていた場合、古い画面からの公開は409になるため再読み込みして再確認する。公開中が5分以上残った場合は、次の公開操作で失敗履歴として閉じる。本番資格情報を使った試験と本番公開には、そのフェーズの明示承認を得る。

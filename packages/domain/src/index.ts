@@ -12,6 +12,7 @@ export * from './notifications';
 export * from './line';
 export * from './acquisition';
 export * from './line-login';
+export * from './line-rich-menu';
 export * from './results';
 export * from './billing';
 export * from './billing-support';
