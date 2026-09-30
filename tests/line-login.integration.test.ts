@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { encryptSecret } from '../packages/db/src';
@@ -78,13 +78,16 @@ describe('LINE Login account lifecycle', () => {
     expect((await callback(member, state, subject)).status).toBe(400);
 
     const loginClient = new Client();
-    const loginStart = await loginClient.call('auth/line/start', 'POST', { purpose: 'LOGIN' });
+    const loginStart = await loginClient.call('auth/line/start', 'POST', { purpose: 'LOGIN', returnTo: '/benefit' });
     const loginState = new URL(loginStart.body.authorizationUrl).searchParams.get('state')!;
+    expect(await db.lineOAuthFlow.findUniqueOrThrow({ where: { stateHash: createHash('sha256').update(loginState).digest('hex') } })).toMatchObject({ returnPath: '/benefit' });
     const loggedIn = await callback(loginClient, loginState, saved.subject);
     expect(loggedIn.status).toBe(303);
+    expect(new URL(loggedIn.headers.get('location')!).pathname).toBe('/benefit');
     const setCookie = loggedIn.headers.get('set-cookie'); expect(setCookie).toContain('HttpOnly');
     loginClient.cookie = setCookie!.split(';')[0];
     expect((await loginClient.call('me')).body.id).toBe(fixture.user.id);
+    expect((await new Client().call('auth/line/start', 'POST', { purpose: 'LOGIN', returnTo: 'https://evil.example/' })).status).toBe(400);
 
     expect((await member.call('auth/line/unlink', 'POST')).body).toEqual({ linked: false });
     expect((await member.call('me')).body.lineLinked).toBe(false);

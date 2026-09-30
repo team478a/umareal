@@ -1,10 +1,12 @@
 import { z } from 'zod';
 import { acquisitionSchema } from './acquisition';
 import { memberReferralCodeInputSchema } from './referrals';
+import { lineLoginReturnPathSchema } from './line-rich-menu';
 
-export const lineOAuthStartSchema = z.object({ purpose: z.enum(['LOGIN', 'LINK', 'REGISTER']), acquisition: acquisitionSchema.optional(), memberReferralCode: memberReferralCodeInputSchema }).strict().superRefine((value, context) => {
+export const lineOAuthStartSchema = z.object({ purpose: z.enum(['LOGIN', 'LINK', 'REGISTER']), acquisition: acquisitionSchema.optional(), memberReferralCode: memberReferralCodeInputSchema, returnTo: lineLoginReturnPathSchema.optional() }).strict().superRefine((value, context) => {
   if (value.purpose !== 'REGISTER' && value.acquisition) context.addIssue({ code: 'custom', path: ['acquisition'], message: '流入情報は新規登録でのみ指定できます。' });
   if (value.purpose !== 'REGISTER' && value.memberReferralCode) context.addIssue({ code: 'custom', path: ['memberReferralCode'], message: '会員紹介コードは新規登録でのみ指定できます。' });
+  if (value.purpose !== 'LOGIN' && value.returnTo) context.addIssue({ code: 'custom', path: ['returnTo'], message: 'ログイン後の移動先はLINEログインでのみ指定できます。' });
 });
 export type LineOAuthPurpose = z.infer<typeof lineOAuthStartSchema>['purpose'];
 

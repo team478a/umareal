@@ -168,3 +168,9 @@ WIN5 Phase 2で`prediction_products`、`prediction_product_races`、`prediction_
 `notification_events`は公開元に加えて通常レース結果版またはWIN5評価結果版を参照でき、常にいずれか1種類だけを参照するXOR制約を持つ。評価結果版と通知イベントは同じ確定トランザクションで作成すること、最新評価が`REVIEW_REQUIRED`でないことをDBトリガーで強制する。結果通知は確認済みの評価事実だけを表示し、通常レースとWIN5を結合した状態は作らない。
 
 期限切れ公開待ち一日券の全額返金、Stripe領収書導線、課金状態の会員向け通知、定率・定額クーポンは実装済み。月額・利用開始後・一部返金、プラン変更、試用、実Supabase・メール・LINE・Stripe本番資格情報を使う接続、正式価格、正式返金条件、CMSは未確定・未実施。
+
+## LINEリッチメニュー
+
+`User (ADMIN) 1 --- N LineRichMenuPublication`
+
+`line_rich_menu_publications`は公開試行の状態、LINE側ID、公開時の領域定義JSON、画像SHA-256・サイズ、理由、実行管理者、UTC時刻、失敗コードを保持する。`PUBLISHING`は部分一意索引で1件だけとし、完了した`PUBLISHED / FAILED`行はトリガーで更新・削除を拒否する。`line_oauth_flows.returnPath`はLINEログイン中だけ使用するnullableな許可済み相対パスである。
