@@ -1,12 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { adminFreeMemberBenefitResponseSchema, adminFreeReportAudioUploadResponseSchema, adminFreeReportDraftResponseSchema, adminFreeReportPublishResponseSchema, adminFreeReportRaceDetailResponseSchema, adminFreeReportRaceListResponseSchema, freeReportNotificationPreviewResponseSchema, publicFreeMemberBenefitResponseSchema, publicFreeMemberBenefitViewResponseSchema, publicFreeReportMetadataResponseSchema } from '../packages/domain/src';
+import { adminFreeMemberBenefitListResponseSchema, adminFreeMemberBenefitResponseSchema, adminFreeReportAudioUploadResponseSchema, adminFreeReportDraftResponseSchema, adminFreeReportPublishResponseSchema, adminFreeReportRaceDetailResponseSchema, adminFreeReportRaceListResponseSchema, freeReportNotificationPreviewResponseSchema, publicFreeMemberBenefitListResponseSchema, publicFreeMemberBenefitResponseSchema, publicFreeMemberBenefitViewResponseSchema, publicFreeReportMetadataResponseSchema } from '../packages/domain/src';
 import { runNotificationBatch } from '../apps/worker/src/notification-runner';
 import type { NotificationTransport } from '../apps/worker/src/notification-runner';
 import { account, base, Client, db, origin } from './helpers';
 
 let lineSettingsBefore: { lineNotificationsEnabled: boolean; lineChannelId: string | null; lineChannelSecretEncrypted: string | null; lineAccessTokenEncrypted: string | null };
 let benefitBefore: Awaited<ReturnType<typeof db.freeMemberBenefit.findUnique>>;
+const createdBenefitIds: string[] = [];
 beforeAll(async () => {
   const url = new URL(process.env.DATABASE_URL ?? '');
   if (!['localhost', '127.0.0.1'].includes(url.hostname) || process.env.AUTH_PROVIDER !== 'local') throw new Error('Integration suite is limited to a local development database');
@@ -16,6 +17,10 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   await db.systemSetting.update({ where: { id: 'global' }, data: lineSettingsBefore });
+  if (createdBenefitIds.length) {
+    await db.freeMemberBenefitView.deleteMany({ where: { benefitId: { in: createdBenefitIds } } });
+    await db.freeMemberBenefit.deleteMany({ where: { id: { in: createdBenefitIds } } });
+  }
   if (benefitBefore) await db.freeMemberBenefit.upsert({ where: { id: 'global' }, create: benefitBefore, update: benefitBefore });
   else await db.freeMemberBenefit.deleteMany({ where: { id: 'global' } });
   await db.$disconnect();
@@ -137,6 +142,50 @@ describe('LP free member offer', () => {
     expect(viewedBenefit).toMatchObject({ configured: true, viewedAt: firstView.viewedAt });
     const after = adminFreeMemberBenefitResponseSchema.parse((await target.adminClient.call('admin/free-reports/benefit')).body);
     expect(after.audience.viewedMembers).toBeGreaterThanOrEqual(saved.audience.viewedMembers + 1);
+  });
+
+  it('adds, lists, edits and tracks multiple LINE registration benefits independently', async () => {
+    const target = await fixture(); const suffix = randomUUID().slice(0, 8);
+    const lineMember = await account(); await db.user.update({ where: { id: lineMember.user.id }, data: { registrationMethod: 'LINE' } });
+    const lineClient = new Client(); await lineClient.login(lineMember);
+    expect((await new Client().call('admin/free-reports/benefits')).status).toBe(401);
+    expect((await target.memberClient.call('admin/free-reports/benefits')).status).toBe(403);
+    expect((await target.memberClient.call('admin/free-reports/benefits', 'POST', { title: '拒否', description: '拒否', videoUrl: 'https://video.example.test/rejected', reason: '権限確認' })).status).toBe(403);
+    const firstResponse = await target.adminClient.call('admin/free-reports/benefits', 'POST', { title: `登録特典A${suffix}`, description: '最初に追加する特典です。', videoUrl: `https://video.example.test/benefit-a-${suffix}`, reason: '複数特典の追加確認' });
+    expect(firstResponse.status).toBe(201); createdBenefitIds.push(firstResponse.body.id);
+    const secondResponse = await target.adminClient.call('admin/free-reports/benefits', 'POST', { title: `登録特典B${suffix}`, description: '次に追加する特典です。', videoUrl: `https://video.example.test/benefit-b-${suffix}`, reason: '複数特典の追加確認' });
+    expect(secondResponse.status).toBe(201); createdBenefitIds.push(secondResponse.body.id);
+    const adminList = adminFreeMemberBenefitListResponseSchema.parse((await target.adminClient.call('admin/free-reports/benefits')).body);
+    const first = adminList.items.find(item => item.id === firstResponse.body.id); const second = adminList.items.find(item => item.id === secondResponse.body.id);
+    expect(first).toMatchObject({ title: `登録特典A${suffix}`, revision: 1, viewedMembers: 0 });
+    expect(second).toMatchObject({ title: `登録特典B${suffix}`, revision: 1, viewedMembers: 0 });
+    expect(adminList.items.findIndex(item => item.id === secondResponse.body.id)).toBeLessThan(adminList.items.findIndex(item => item.id === firstResponse.body.id));
+    expect(JSON.stringify(adminList)).not.toMatch(/email|password|token|authSubject|lineSubject/i);
+    const editedResponse = await target.adminClient.call(`admin/free-reports/benefits/${firstResponse.body.id}`, 'PATCH', { revision: 1, title: `登録特典A改${suffix}`, description: '最初の特典だけを修正しました。', videoUrl: `https://video.example.test/benefit-a-edited-${suffix}`, reason: '特典単位の編集確認' });
+    expect(editedResponse.status).toBe(200); expect(editedResponse.body).toMatchObject({ id: firstResponse.body.id, revision: 2, title: `登録特典A改${suffix}` });
+    const staleEdit = await target.adminClient.call(`admin/free-reports/benefits/${firstResponse.body.id}`, 'PATCH', { revision: 1, title: '競合', description: '競合', videoUrl: 'https://video.example.test/conflict', reason: '競合確認' });
+    expect(staleEdit.status).toBe(409); expect(staleEdit.body.code).toBe('FREE_BENEFIT_CONFLICT');
+    expect((await new Client().call('me/free-benefits')).status).toBe(401);
+    expect(publicFreeMemberBenefitListResponseSchema.parse((await target.memberClient.call('me/free-benefits')).body)).toEqual({ items: [] });
+    const publicList = publicFreeMemberBenefitListResponseSchema.parse((await lineClient.call('me/free-benefits')).body);
+    expect(publicList.items.find(item => item.id === firstResponse.body.id)).toMatchObject({ title: `登録特典A改${suffix}`, viewedAt: null });
+    expect(publicList.items.find(item => item.id === secondResponse.body.id)).toMatchObject({ title: `登録特典B${suffix}`, viewedAt: null });
+    expect(JSON.stringify(publicList)).not.toMatch(/videoUrl|revision|updatedBy|userId|email|password|token/i);
+    const firstViewResponse = await lineClient.call(`me/free-benefits/${firstResponse.body.id}/view`, 'POST');
+    expect(firstViewResponse.status).toBe(201); const firstView = publicFreeMemberBenefitViewResponseSchema.parse(firstViewResponse.body);
+    expect(firstView).toMatchObject({ videoUrl: `https://video.example.test/benefit-a-edited-${suffix}`, viewedAt: expect.any(String) });
+    const repeatedView = publicFreeMemberBenefitViewResponseSchema.parse((await lineClient.call(`me/free-benefits/${firstResponse.body.id}/view`, 'POST')).body);
+    expect(repeatedView.viewedAt).toBe(firstView.viewedAt);
+    const afterFirstView = publicFreeMemberBenefitListResponseSchema.parse((await lineClient.call('me/free-benefits')).body);
+    expect(afterFirstView.items.find(item => item.id === firstResponse.body.id)?.viewedAt).toBe(firstView.viewedAt);
+    expect(afterFirstView.items.find(item => item.id === secondResponse.body.id)?.viewedAt).toBeNull();
+    expect(await db.freeMemberBenefitView.count({ where: { userId: lineMember.user.id, benefitId: firstResponse.body.id } })).toBe(1);
+    expect(await db.freeMemberBenefitView.count({ where: { userId: lineMember.user.id, benefitId: secondResponse.body.id } })).toBe(0);
+    const afterAdmin = adminFreeMemberBenefitListResponseSchema.parse((await target.adminClient.call('admin/free-reports/benefits')).body);
+    expect(afterAdmin.items.find(item => item.id === firstResponse.body.id)?.viewedMembers).toBe(1);
+    expect(afterAdmin.items.find(item => item.id === secondResponse.body.id)?.viewedMembers).toBe(0);
+    expect(await db.auditLog.count({ where: { targetId: { in: [firstResponse.body.id, secondResponse.body.id] }, action: 'FREE_MEMBER_BENEFIT_CREATE', targetType: 'FREE_MEMBER_BENEFIT' } })).toBe(2);
+    expect(await db.auditLog.count({ where: { targetId: firstResponse.body.id, action: 'FREE_MEMBER_BENEFIT_UPDATE', targetType: 'FREE_MEMBER_BENEFIT' } })).toBe(1);
   });
 
   it('publishes the post-race review only after a confirmed result', async () => {

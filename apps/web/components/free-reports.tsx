@@ -2,13 +2,15 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import Link from 'next/link';
 import { ArrowRight, Eye, Mic, PlayCircle, Square, Upload } from 'lucide-react';
-import type { AdminFreeMemberBenefitResponse, AdminFreeReportAudioUploadResponse, AdminFreeReportDraftResponse, AdminFreeReportPublishResponse, AdminFreeReportRaceDetailResponse, AdminFreeReportRaceListResponse, FreeReportNotificationPreviewResponse, NotificationTestSendResponse, PublicFreeMemberBenefitResponse, PublicFreeMemberBenefitViewResponse } from '@keiba/domain';
+import type { AdminFreeMemberBenefitListResponse, AdminFreeReportAudioUploadResponse, AdminFreeReportDraftResponse, AdminFreeReportPublishResponse, AdminFreeReportRaceDetailResponse, AdminFreeReportRaceListResponse, FreeReportNotificationPreviewResponse, NotificationTestSendResponse, PublicFreeMemberBenefitListResponse, PublicFreeMemberBenefitViewResponse } from '@keiba/domain';
 import { NotificationPreview } from './notification-preview';
 
 type Draft = Pick<AdminFreeReportDraftResponse, 'revision' | 'upEntryId' | 'upReason' | 'downEntryId' | 'downReason' | 'audioUrl' | 'reviewText'>;
 const draftForm = (value: Draft): Draft => ({ revision: value.revision, upEntryId: value.upEntryId, upReason: value.upReason, downEntryId: value.downEntryId, downReason: value.downReason, audioUrl: value.audioUrl, reviewText: value.reviewText });
-type BenefitForm = Pick<AdminFreeMemberBenefitResponse, 'revision' | 'title' | 'description' | 'videoUrl'>;
-const benefitForm = (value: AdminFreeMemberBenefitResponse): BenefitForm => ({ revision: value.revision, title: value.title, description: value.description, videoUrl: value.videoUrl });
+type AdminBenefit = AdminFreeMemberBenefitListResponse['items'][number];
+type BenefitForm = Pick<AdminBenefit, 'revision' | 'title' | 'description' | 'videoUrl'>;
+const emptyBenefitForm = (): BenefitForm => ({ revision: 0, title: '', description: '', videoUrl: '' });
+const benefitForm = (value: AdminBenefit): BenefitForm => ({ revision: value.revision, title: value.title, description: value.description, videoUrl: value.videoUrl });
 
 async function api<T>(path: string, method = 'GET', body?: unknown, idempotent = false): Promise<T> {
   const response = await fetch(`/api/v1/${path}`, { method, cache: 'no-store', headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(idempotent ? { 'Idempotency-Key': crypto.randomUUID() } : {}) }, body: body ? JSON.stringify(body) : undefined });
@@ -73,43 +75,56 @@ export function FreeReportManager({ canTest = false }: { canTest?: boolean }) {
 }
 
 export function RegistrationBenefitManager() {
-  const [current, setCurrent] = useState<AdminFreeMemberBenefitResponse | null>(null);
-  const [form, setForm] = useState<BenefitForm>({ revision: 0, title: '', description: '', videoUrl: '' });
+  const [data, setData] = useState<AdminFreeMemberBenefitListResponse | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<BenefitForm>(emptyBenefitForm());
   const [reason, setReason] = useState(''); const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
   async function load() {
     setError('');
-    try { const value = await api<AdminFreeMemberBenefitResponse>('admin/free-reports/benefit'); setCurrent(value); setForm(benefitForm(value)); }
+    try { setData(await api<AdminFreeMemberBenefitListResponse>('admin/free-reports/benefits')); }
     catch (e) { setError((e as Error).message); }
   }
   useEffect(() => { void load(); }, []);
+  function startCreate() {
+    setEditingId(null); setForm(emptyBenefitForm()); setReason(''); setError(''); setMessage('');
+    document.getElementById('benefit-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  function startEdit(value: AdminBenefit) {
+    setEditingId(value.id); setForm(benefitForm(value)); setReason(''); setError(''); setMessage('');
+    document.getElementById('benefit-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
   async function save(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError(''); setMessage('');
     try {
-      const value = await api<AdminFreeMemberBenefitResponse>('admin/free-reports/benefit', 'PATCH', { ...form, reason });
-      setCurrent(value); setForm(benefitForm(value)); setReason(''); setMessage('登録特典を保存し、現在の一覧へ反映しました。');
+      if (editingId) await api<AdminBenefit>(`admin/free-reports/benefits/${encodeURIComponent(editingId)}`, 'PATCH', { ...form, reason });
+      else await api<AdminBenefit>('admin/free-reports/benefits', 'POST', { title: form.title, description: form.description, videoUrl: form.videoUrl, reason });
+      const edited = !!editingId;
+      await load(); setEditingId(null); setForm(emptyBenefitForm()); setReason('');
+      setMessage(edited ? '登録特典を更新しました。' : '登録特典を追加し、一覧へ反映しました。');
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
-  const configured = !!current && current.revision > 0;
-  return <><div className="page-heading"><span className="eyebrow">REGISTRATION BENEFIT</span><h1>登録特典を管理</h1><p>LINEから無料登録した会員へ表示する特典動画を確認・更新します。</p></div>{error && <div className="notice error" role="alert">{error}</div>}{message && <div className="notice" role="status">{message}</div>}
-    <section className="panel" aria-labelledby="current-benefit-title"><div className="panel-heading"><div><span className="eyebrow">CURRENT BENEFIT</span><h2 id="current-benefit-title">登録特典一覧</h2></div><span className={`count-tag ${configured ? '' : 'warning'}`}>{configured ? '1件' : '0件'}</span></div>{current === null && !error ? <div className="empty" role="status">登録特典を確認中…</div> : configured && current ? <><div className="admin-benefit-current"><div className="admin-benefit-current-heading"><div><span className="status-tag">公開中</span><h3>{current.title}</h3></div><PlayCircle size={28} /></div><p>{current.description}</p><dl className="admin-benefit-meta"><div><dt>動画URL</dt><dd><a href={current.videoUrl} target="_blank" rel="noreferrer">{current.videoUrl}</a></dd></div><div><dt>現在の版</dt><dd>第{current.revision}版</dd></div><div><dt>最終更新</dt><dd>{current.updatedAt ? `${jstDateTime(current.updatedAt)} JST` : '未更新'}</dd></div></dl></div><div className="benefit-audience" aria-label="登録特典の利用状況"><div><span>対象会員</span><strong>{current.audience.eligibleMembers}<small>人</small></strong></div><div><span>視聴開始済み</span><strong>{current.audience.viewedMembers}<small>人</small></strong></div></div><p className="admin-benefit-slot-note">現在の登録特典は1件です。下のフォームを保存すると、この内容が新しい版へ更新されます。</p></> : !error && <div className="empty"><PlayCircle size={32} /><h3>登録特典はまだありません</h3><p>下のフォームから最初の特典動画を設定してください。</p></div>}</section>
-    <section className="panel" aria-labelledby="benefit-editor-title"><div className="panel-heading"><div><span className="eyebrow">EDIT BENEFIT</span><h2 id="benefit-editor-title">{configured ? '登録特典を更新' : '登録特典を設定'}</h2></div><PlayCircle size={22} /></div><form className="panel-body" onSubmit={save}><p className="form-note">LINEから新規登録した一般会員だけに表示します。メール登録後にLINEを連携した会員は対象外です。</p><label className="field">タイトル<input value={form.title} maxLength={120} required onChange={e => setForm({ ...form, title: e.target.value })} /></label><label className="field">説明<textarea rows={3} value={form.description} maxLength={1000} required onChange={e => setForm({ ...form, description: e.target.value })} /></label><label className="field">動画URL（HTTPS）<input type="url" value={form.videoUrl} maxLength={1000} required placeholder="https://..." onChange={e => setForm({ ...form, videoUrl: e.target.value })} /></label><label className="field">変更理由<input value={reason} maxLength={500} required placeholder="例：特典動画を最新版へ差し替えるため" onChange={e => setReason(e.target.value)} /></label><button className="button" disabled={busy || current === null}>{busy ? '保存中…' : configured ? '現在の登録特典を更新' : '登録特典を設定'}</button></form></section>
+  const items = data?.items ?? [];
+  return <><div className="page-heading"><span className="eyebrow">REGISTRATION BENEFITS</span><h1>登録特典を管理</h1><p>LINEから無料登録した会員へ渡す特典を追加し、追加済みの内容と視聴状況を確認できます。</p></div>{error && <div className="notice error" role="alert">{error}</div>}{message && <div className="notice" role="status">{message}</div>}
+    <section className="panel" aria-labelledby="current-benefit-title"><div className="panel-heading"><div><span className="eyebrow">BENEFIT LIST</span><h2 id="current-benefit-title">登録特典一覧</h2></div><div className="panel-heading-actions"><span className={`count-tag ${items.length ? '' : 'warning'}`}>{items.length}件</span><button type="button" className="button small" onClick={startCreate}>新しい特典を追加</button></div></div>{data === null && !error ? <div className="empty" role="status">登録特典を確認中…</div> : items.length ? <><div className="benefit-audience benefit-audience-summary" aria-label="登録特典の対象会員数"><div><span>対象会員</span><strong>{data?.eligibleMembers ?? 0}<small>人</small></strong></div><div><span>登録特典</span><strong>{items.length}<small>件</small></strong></div></div><div className="admin-benefit-list">{items.map(item => <article className="admin-benefit-item" key={item.id}><div className="admin-benefit-current"><div className="admin-benefit-current-heading"><div><span className="status-tag">公開中</span><h3>{item.title}</h3></div><PlayCircle size={28} /></div><p>{item.description}</p><dl className="admin-benefit-meta"><div><dt>動画URL</dt><dd><a href={item.videoUrl} target="_blank" rel="noreferrer">{item.videoUrl}</a></dd></div><div><dt>追加日時</dt><dd>{jstDateTime(item.createdAt)} JST</dd></div><div><dt>現在の版</dt><dd>第{item.revision}版</dd></div><div><dt>最終更新</dt><dd>{jstDateTime(item.updatedAt)} JST</dd></div><div><dt>視聴開始済み</dt><dd>{item.viewedMembers}人</dd></div></dl></div><div className="admin-benefit-item-actions"><button type="button" className="button secondary small" onClick={() => startEdit(item)}>この特典を編集</button></div></article>)}</div><p className="admin-benefit-slot-note">追加した特典は削除されず一覧へ残り、LINEから登録した対象会員に新しい順で表示されます。</p></> : !error && <div className="empty"><PlayCircle size={32} /><h3>登録特典はまだありません</h3><p>「新しい特典を追加」から最初の特典を登録してください。</p><button type="button" className="button" onClick={startCreate}>新しい特典を追加</button></div>}</section>
+    <section className="panel" id="benefit-editor" aria-labelledby="benefit-editor-title"><div className="panel-heading"><div><span className="eyebrow">{editingId ? 'EDIT BENEFIT' : 'ADD BENEFIT'}</span><h2 id="benefit-editor-title">{editingId ? '登録特典を編集' : '新しい登録特典を追加'}</h2></div><PlayCircle size={22} /></div><form className="panel-body" onSubmit={save}><p className="form-note">LINEから新規登録した一般会員だけに表示します。メール登録後にLINEを連携した会員は対象外です。</p><label className="field">タイトル<input value={form.title} maxLength={120} required onChange={e => setForm({ ...form, title: e.target.value })} /></label><label className="field">説明<textarea rows={3} value={form.description} maxLength={1000} required onChange={e => setForm({ ...form, description: e.target.value })} /></label><label className="field">動画URL（HTTPS）<input type="url" value={form.videoUrl} maxLength={1000} required placeholder="https://..." onChange={e => setForm({ ...form, videoUrl: e.target.value })} /></label><label className="field">{editingId ? '変更理由' : '追加理由'}<input value={reason} maxLength={500} required placeholder={editingId ? '例：動画の説明を修正するため' : '例：LINE登録者向けの特典動画を追加するため'} onChange={e => setReason(e.target.value)} /></label><div className="panel-actions"><button className="button" disabled={busy || data === null}>{busy ? '保存中…' : editingId ? '登録特典を更新' : '登録特典を追加'}</button>{editingId && <button type="button" className="button secondary" disabled={busy} onClick={startCreate}>編集をやめて新規追加</button>}</div></form></section>
   </>;
 }
 
 export function RegistrationBenefit({ highlight = false }: { highlight?: boolean }) {
-  const [value, setValue] = useState<PublicFreeMemberBenefitResponse | null>(null);
-  useEffect(() => { api<PublicFreeMemberBenefitResponse>('me/free-benefit').then(setValue).catch(() => setValue({ configured: false })); }, []);
-  if (!value?.configured) return null;
-  return <section className={`panel registration-benefit ${highlight ? 'highlight' : ''}`} aria-labelledby="registration-benefit-title"><div className="panel-heading"><div><span className="eyebrow">LINE REGISTRATION BONUS</span><h2 id="registration-benefit-title">{highlight ? '登録特典を受け取れます' : value.title}</h2></div><PlayCircle size={24} /></div><div className="panel-body">{highlight && <strong className="benefit-title">{value.title}</strong>}<p>{value.description}</p><Link className="button" href="/benefit">{value.viewedAt ? '特典動画をもう一度見る' : '特典動画を見る'} <ArrowRight size={17} /></Link>{value.viewedAt && <small className="benefit-viewed">視聴開始済み。マイページからいつでも確認できます。</small>}</div></section>;
+  const [value, setValue] = useState<PublicFreeMemberBenefitListResponse | null>(null);
+  useEffect(() => { api<PublicFreeMemberBenefitListResponse>('me/free-benefits').then(setValue).catch(() => setValue({ items: [] })); }, []);
+  if (!value?.items.length) return null;
+  const unseen = value.items.filter(item => !item.viewedAt).length; const newest = value.items[0];
+  return <section className={`panel registration-benefit ${highlight || unseen ? 'highlight' : ''}`} aria-labelledby="registration-benefit-title"><div className="panel-heading"><div><span className="eyebrow">LINE REGISTRATION BONUS</span><h2 id="registration-benefit-title">{highlight || unseen ? '登録特典を受け取れます' : '登録特典があります'}</h2></div><PlayCircle size={24} /></div><div className="panel-body"><strong className="benefit-title">{newest.title}</strong><p>{value.items.length}件の特典を確認できます。{unseen ? `未視聴の特典は${unseen}件です。` : 'すべて視聴開始済みです。'}</p><Link className="button" href="/benefit">特典一覧を見る <ArrowRight size={17} /></Link></div></section>;
 }
 
 export function RegistrationBenefitPage() {
-  const [value, setValue] = useState<PublicFreeMemberBenefitResponse | null>(null); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
-  useEffect(() => { api<PublicFreeMemberBenefitResponse>('me/free-benefit').then(setValue).catch(e => setError((e as Error).message)); }, []);
-  async function watch() {
-    setBusy(true); setError('');
-    try { const result = await api<PublicFreeMemberBenefitViewResponse>('me/free-benefit/view', 'POST'); window.location.assign(result.videoUrl); }
-    catch (e) { setError((e as Error).message); setBusy(false); }
+  const [value, setValue] = useState<PublicFreeMemberBenefitListResponse | null>(null); const [busyId, setBusyId] = useState<string | null>(null); const [error, setError] = useState('');
+  useEffect(() => { api<PublicFreeMemberBenefitListResponse>('me/free-benefits').then(setValue).catch(e => setError((e as Error).message)); }, []);
+  async function watch(id: string) {
+    setBusyId(id); setError('');
+    try { const result = await api<PublicFreeMemberBenefitViewResponse>(`me/free-benefits/${encodeURIComponent(id)}/view`, 'POST'); window.location.assign(result.videoUrl); }
+    catch (e) { setError((e as Error).message); setBusyId(null); }
   }
-  return <><div className="page-heading"><span className="eyebrow">LINE REGISTRATION BONUS</span><h1>登録特典</h1><p>LINE無料登録を完了した方へお渡しする動画です。</p></div>{error && <div className="notice error" role="alert">{error}</div>}{value === null && !error ? <div className="loading" role="status">登録特典を確認中…</div> : value?.configured ? <section className="panel benefit-page"><div className="benefit-page-icon"><PlayCircle size={42} /></div><div><span className="eyebrow">SPECIAL MOVIE</span><h2>{value.title}</h2><p>{value.description}</p><button type="button" className="button" disabled={busy} onClick={() => void watch()}>{busy ? '動画を開いています…' : value.viewedAt ? 'もう一度見る' : '動画を見る'}<ArrowRight size={17} /></button><small>動画は管理された外部配信ページで開きます。URLの共有はお控えください。</small></div></section> : <section className="panel"><div className="empty"><PlayCircle size={32} /><h3>表示できる登録特典はありません</h3><p>この動画は、LINEから無料登録を完了した会員向けです。</p><Link className="button secondary" href="/account">マイページへ戻る</Link></div></section>}</>;
+  return <><div className="page-heading"><span className="eyebrow">LINE REGISTRATION BONUS</span><h1>登録特典</h1><p>LINE無料登録を完了した方へお渡しする特典です。追加された特典を新しい順で確認できます。</p></div>{error && <div className="notice error" role="alert">{error}</div>}{value === null && !error ? <div className="loading" role="status">登録特典を確認中…</div> : value?.items.length ? <div className="benefit-list">{value.items.map(item => <section className="panel benefit-page" key={item.id}><div className="benefit-page-icon"><PlayCircle size={42} /></div><div><div className="benefit-card-heading"><span className="eyebrow">SPECIAL MOVIE</span><span className={`status-tag ${item.viewedAt ? 'neutral' : ''}`}>{item.viewedAt ? '視聴開始済み' : '未視聴'}</span></div><h2>{item.title}</h2><p>{item.description}</p><button type="button" className="button" disabled={busyId !== null} onClick={() => void watch(item.id)}>{busyId === item.id ? '動画を開いています…' : item.viewedAt ? 'もう一度見る' : '動画を見る'}<ArrowRight size={17} /></button><small>動画は管理された外部配信ページで開きます。URLの共有はお控えください。</small></div></section>)}</div> : <section className="panel"><div className="empty"><PlayCircle size={32} /><h3>表示できる登録特典はありません</h3><p>特典は、LINEから無料登録を完了した会員向けです。</p><Link className="button secondary" href="/account">マイページへ戻る</Link></div></section>}</>;
 }

@@ -21,6 +21,17 @@ export const publicFreeMemberBenefitResponseSchema = z.discriminatedUnion('confi
 ]);
 export type PublicFreeMemberBenefitResponse = z.infer<typeof publicFreeMemberBenefitResponseSchema>;
 
+export const publicFreeMemberBenefitItemSchema = z.object({
+  id: z.string().min(1).max(100),
+  title: z.string().min(1).max(120),
+  description: z.string().min(1).max(1000),
+  createdAt: publicFreeReportDateTimeSchema,
+  updatedAt: publicFreeReportDateTimeSchema,
+  viewedAt: publicFreeReportDateTimeSchema.nullable()
+}).strict();
+export const publicFreeMemberBenefitListResponseSchema = z.object({ items: z.array(publicFreeMemberBenefitItemSchema) }).strict();
+export type PublicFreeMemberBenefitListResponse = z.infer<typeof publicFreeMemberBenefitListResponseSchema>;
+
 export const publicFreeMemberBenefitViewResponseSchema = z.object({
   videoUrl: httpsUrl,
   viewedAt: publicFreeReportDateTimeSchema
@@ -139,6 +150,23 @@ export const adminFreeMemberBenefitResponseSchema = z.union([
 ]);
 export type AdminFreeMemberBenefitResponse = z.infer<typeof adminFreeMemberBenefitResponseSchema>;
 
+export const adminFreeMemberBenefitItemSchema = z.object({
+  id: z.string().min(1).max(100),
+  title: z.string().min(1).max(120),
+  description: z.string().min(1).max(1000),
+  videoUrl: httpsUrl,
+  revision: z.number().int().positive(),
+  createdAt: publicFreeReportDateTimeSchema,
+  updatedBy: z.string().uuid().nullable(),
+  updatedAt: publicFreeReportDateTimeSchema,
+  viewedMembers: z.number().int().nonnegative()
+}).strict();
+export const adminFreeMemberBenefitListResponseSchema = z.object({
+  eligibleMembers: z.number().int().nonnegative(),
+  items: z.array(adminFreeMemberBenefitItemSchema)
+}).strict();
+export type AdminFreeMemberBenefitListResponse = z.infer<typeof adminFreeMemberBenefitListResponseSchema>;
+
 export const adminFreeReportAudioUploadResponseSchema = z.object({
   id: z.string().uuid(),
   url: z.string(),
@@ -194,3 +222,5 @@ export const freeMemberBenefitSchema = z.object({
   videoUrl: httpsUrl,
   reason: z.string().trim().min(1).max(500)
 }).strict();
+
+export const freeMemberBenefitCreateSchema = freeMemberBenefitSchema.omit({ revision: true });

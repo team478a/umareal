@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adminFreeMemberBenefitResponseSchema, adminFreeReportAudioUploadResponseSchema, adminFreeReportDraftResponseSchema, adminFreeReportPublishResponseSchema, adminFreeReportRaceDetailResponseSchema, adminFreeReportRaceListResponseSchema, publicFreeMemberBenefitResponseSchema, publicFreeMemberBenefitViewResponseSchema, publicFreeReportMetadataResponseSchema } from './free-report';
+import { adminFreeMemberBenefitListResponseSchema, adminFreeMemberBenefitResponseSchema, adminFreeReportAudioUploadResponseSchema, adminFreeReportDraftResponseSchema, adminFreeReportPublishResponseSchema, adminFreeReportRaceDetailResponseSchema, adminFreeReportRaceListResponseSchema, publicFreeMemberBenefitListResponseSchema, publicFreeMemberBenefitResponseSchema, publicFreeMemberBenefitViewResponseSchema, publicFreeReportMetadataResponseSchema } from './free-report';
 
 describe('public free-member benefit contract', () => {
   it('keeps configured and unconfigured responses explicit', () => {
@@ -38,6 +38,17 @@ describe('public free-member benefit contract', () => {
     expect(publicFreeMemberBenefitViewResponseSchema.parse({ videoUrl: 'https://video.example.test/bonus', viewedAt: new Date('2026-09-28T00:01:00.000Z') })).toEqual({ videoUrl: 'https://video.example.test/bonus', viewedAt: '2026-09-28T00:01:00.000Z' });
     expect(publicFreeMemberBenefitViewResponseSchema.safeParse({ videoUrl: 'http://video.example.test/bonus', viewedAt: '2026-09-28T00:01:00.000Z' }).success).toBe(false);
   });
+
+  it('returns multiple benefit summaries without exposing playback destinations', () => {
+    const parsed = publicFreeMemberBenefitListResponseSchema.parse({ items: [
+      { id: 'new-benefit', title: '新しい特典', description: '新しい説明', createdAt: new Date('2026-10-01T01:00:00.000Z'), updatedAt: new Date('2026-10-01T01:00:00.000Z'), viewedAt: null },
+      { id: 'global', title: '最初の特典', description: '最初の説明', createdAt: new Date('2026-09-28T00:00:00.000Z'), updatedAt: new Date('2026-09-28T00:00:00.000Z'), viewedAt: new Date('2026-09-28T00:01:00.000Z') }
+    ] });
+    expect(parsed.items).toHaveLength(2);
+    expect(parsed.items[0]).toMatchObject({ id: 'new-benefit', viewedAt: null, createdAt: '2026-10-01T01:00:00.000Z' });
+    expect(publicFreeMemberBenefitListResponseSchema.safeParse({ items: [{ ...parsed.items[0], videoUrl: 'https://video.example.test/secret' }] }).success).toBe(false);
+    expect(publicFreeMemberBenefitListResponseSchema.safeParse({ items: [{ ...parsed.items[0], email: 'member@example.test' }] }).success).toBe(false);
+  });
 });
 
 describe('admin free-member benefit contract', () => {
@@ -71,6 +82,16 @@ describe('admin free-member benefit contract', () => {
     expect(adminFreeMemberBenefitResponseSchema.safeParse({ ...configured, passwordHash: 'secret' }).success).toBe(false);
     expect(adminFreeMemberBenefitResponseSchema.safeParse({ ...configured, user: { email: 'admin@example.test' } }).success).toBe(false);
     expect(adminFreeMemberBenefitResponseSchema.safeParse({ id: 'global', title: '', description: '', videoUrl: '', revision: 0, updatedAt: null, updatedBy: null, audience: { eligibleMembers: 0, viewedMembers: 0 } }).success).toBe(false);
+  });
+
+  it('lists independently editable benefits and their view counts', () => {
+    const parsed = adminFreeMemberBenefitListResponseSchema.parse({ eligibleMembers: 5, items: [
+      { id: 'new-benefit', title: '追加特典', description: '追加説明', videoUrl: 'https://video.example.test/second', revision: 1, createdAt: new Date('2026-10-01T01:00:00.000Z'), updatedBy: null, updatedAt: new Date('2026-10-01T01:00:00.000Z'), viewedMembers: 2 },
+      { id: 'global', title: '既存特典', description: '既存説明', videoUrl: 'https://video.example.test/first', revision: 3, createdAt: new Date('2026-09-28T00:00:00.000Z'), updatedBy: null, updatedAt: new Date('2026-09-28T00:00:00.000Z'), viewedMembers: 4 }
+    ] });
+    expect(parsed).toMatchObject({ eligibleMembers: 5, items: [{ id: 'new-benefit', viewedMembers: 2 }, { id: 'global', viewedMembers: 4 }] });
+    expect(adminFreeMemberBenefitListResponseSchema.safeParse({ ...parsed, token: 'secret' }).success).toBe(false);
+    expect(adminFreeMemberBenefitListResponseSchema.safeParse({ eligibleMembers: 5, items: [{ ...parsed.items[0], user: { email: 'admin@example.test' } }] }).success).toBe(false);
   });
 });
 

@@ -246,9 +246,12 @@ StripeもSecret keyとWebhook secretは同じ暗号化方式で保存し、設�
 | GET/PATCH | /admin/free-reports/races/:raceId[/draft] | ADMIN+AAL2またはOPERATOR。出走馬・下書き・公開履歴の取得／revision付き下書き保存 |
 | POST | /admin/free-reports/races/:raceId/publish | ADMIN+AAL2またはOPERATOR。発走前速報または結果確定後の検証を追記公開し通知eventを作成 |
 | POST | /admin/free-reports/audio | ADMIN+AAL2またはOPERATOR。8MB以下の検証済み音声バイナリを追記保存 |
-| GET/PATCH | /admin/free-reports/benefit | ADMIN+AAL2またはOPERATOR。LINE無料登録特典動画の固定1枠と対象・視聴開始済み集計を取得／更新 |
-| GET | /me/free-benefit | LINEから新規登録したMEMBER本人。タイトル・説明・初回視聴日時を返し、動画URLは返さない。対象外・未設定は`configured=false` |
-| POST | /me/free-benefit/view | LINEから新規登録したMEMBER本人。対象を再確認して初回視聴を冪等記録し、HTTPS動画URLを返す |
+| GET / POST | /admin/free-reports/benefits | ADMIN+AAL2またはOPERATOR。登録特典一覧・対象会員数・特典別視聴開始数を取得／新しい特典を追加 |
+| PATCH | /admin/free-reports/benefits/:benefitId | ADMIN+AAL2またはOPERATOR。revisionと理由を必須にして指定した特典だけを更新 |
+| GET | /me/free-benefits | LINEから新規登録したMEMBER本人。追加済み特典を新しい順で返す。動画URLは返さず、対象外は空配列 |
+| POST | /me/free-benefits/:benefitId/view | LINEから新規登録したMEMBER本人。対象と特典を再確認して特典別の初回視聴を冪等記録し、HTTPS動画URLを返す |
+| GET / PATCH | /admin/free-reports/benefit | 旧画面との段階的配備互換用。既存`id=global`特典の取得／更新 |
+| GET / POST | /me/free-benefit[/view] | 旧画面との段階的配備互換用。既存`id=global`特典の概要取得／視聴開始 |
 | GET | /races/:raceId/free-report | ログイン会員。旧無料速報の版番号・種別・公開時刻のみを返す。馬名、馬番、理由、音声、検証本文は返さない |
 | GET | /free-report-audio/:audioId | 管理担当だけが既存音声を確認できる。会員への音声提供は休止 |
 | GET/POST | /admin/publication-schedules | ADMIN+AAL2またはOPERATOR。開催日別の予約・警告・公開版別配信結果取得／告知または無料速報の予約作成 |

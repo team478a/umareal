@@ -210,6 +210,8 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 
 無料登録特典管理APIのpilotとして、`GET /admin/free-reports/benefit`と`PATCH /admin/free-reports/benefit`の既存レスポンスを`packages/domain`の共有Contractで固定した。未設定時と設定済み時の形を明示し、APIは取得列を限定してContractを検証し、Webは共有型から必要な編集項目だけをフォーム状態へ写す。認可、改訂番号、監査ログ、UI、DB schema、レスポンス内容は変更していない。これは無料速報領域の継続的な小規模導入であり、全APIのContract化完了を意味しない。
 
+複数登録特典への拡張では、`GET/POST /admin/free-reports/benefits`、`PATCH /admin/free-reports/benefits/:benefitId`、`GET /me/free-benefits`の一覧Contractも同じ`packages/domain`へ追加し、APIとWebで共有した。旧単数Contractは段階的配備の互換境界として残している。Prisma Modelは公開Contractとして共有せず、会員向け一覧から動画URL、管理情報、個人情報を除外している。これは登録特典領域内の追加であり、全APIのContract化完了を意味しない。
+
 ## 本番外の確認手順
 
 コードの品質確認が完了しても、公開判定では次を別に実施する。
