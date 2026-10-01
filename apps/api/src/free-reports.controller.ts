@@ -1,6 +1,7 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
-import { adminFreeMemberBenefitResponseSchema, adminFreeReportAudioUploadResponseSchema, adminFreeReportDraftResponseSchema, adminFreeReportPublishResponseSchema, adminFreeReportRaceDetailResponseSchema, adminFreeReportRaceListResponseSchema, canManage, dateSchema, freeMemberBenefitSchema, freeReportAudioContentTypes, freeReportDraftSchema, freeReportPublishSchema, jstDate, publicFreeMemberBenefitResponseSchema, publicFreeMemberBenefitViewResponseSchema, publicFreeReportMetadataResponseSchema, requiresMfa } from '@keiba/domain';
+import { adminFreeMemberBenefitItemSchema, adminFreeMemberBenefitListResponseSchema, adminFreeMemberBenefitResponseSchema, adminFreeReportAudioUploadResponseSchema, adminFreeReportDraftResponseSchema, adminFreeReportPublishResponseSchema, adminFreeReportRaceDetailResponseSchema, adminFreeReportRaceListResponseSchema, canManage, dateSchema, freeMemberBenefitCreateSchema, freeMemberBenefitSchema, freeReportAudioContentTypes, freeReportDraftSchema, freeReportPublishSchema, jstDate, publicFreeMemberBenefitListResponseSchema, publicFreeMemberBenefitResponseSchema, publicFreeMemberBenefitViewResponseSchema, publicFreeReportMetadataResponseSchema, requiresMfa } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
+import { randomUUID } from 'node:crypto';
 import type { Response } from 'express';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -9,6 +10,7 @@ import { hashToken } from './security';
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const freeMemberBenefitSelect = { id: true, title: true, description: true, videoUrl: true, revision: true, updatedBy: true, updatedAt: true } satisfies Prisma.FreeMemberBenefitSelect;
+const freeMemberBenefitListSelect = { id: true, title: true, description: true, videoUrl: true, revision: true, createdAt: true, updatedBy: true, updatedAt: true } satisfies Prisma.FreeMemberBenefitSelect;
 const freeReportDraftSelect = { id: true, raceId: true, upEntryId: true, upReason: true, downEntryId: true, downReason: true, audioUrl: true, reviewText: true, revision: true, updatedBy: true, updatedAt: true } satisfies Prisma.FreeReportDraftSelect;
 const maxAudioBytes = 8 * 1024 * 1024;
 const audioTypes = new Set<string>(freeReportAudioContentTypes);
@@ -31,13 +33,23 @@ export class AdminFreeReportsController {
     return actor;
   }
 
-  private async benefitAudience(db: Prisma.TransactionClient | AuthService['db']) {
+  private async benefitAudience(db: Prisma.TransactionClient | AuthService['db'], benefitId = 'global') {
     const eligible = { role: 'MEMBER' as const, registrationMethod: 'LINE', disabledAt: null };
     const [eligibleMembers, viewedMembers] = await Promise.all([
       db.user.count({ where: eligible }),
-      db.memberJourneyEvent.count({ where: { eventType: 'REGISTRATION_BENEFIT_VIEWED', user: eligible } })
+      db.freeMemberBenefitView.count({ where: { benefitId, user: eligible } })
     ]);
     return { eligibleMembers, viewedMembers };
+  }
+
+  private async benefits(db: Prisma.TransactionClient | AuthService['db']) {
+    const eligible = { role: 'MEMBER' as const, registrationMethod: 'LINE', disabledAt: null };
+    const [eligibleMembers, benefits] = await Promise.all([
+      db.user.count({ where: eligible }),
+      db.freeMemberBenefit.findMany({ orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: freeMemberBenefitListSelect })
+    ]);
+    const viewedMembers = await Promise.all(benefits.map(benefit => db.freeMemberBenefitView.count({ where: { benefitId: benefit.id, user: eligible } })));
+    return adminFreeMemberBenefitListResponseSchema.parse({ eligibleMembers, items: benefits.map((benefit, index) => ({ ...benefit, viewedMembers: viewedMembers[index] })) });
   }
 
   @Get('races')
@@ -159,6 +171,37 @@ export class AdminFreeReportsController {
     return adminFreeMemberBenefitResponseSchema.parse({ ...(benefit ?? { id: 'global' as const, title: '' as const, description: '' as const, videoUrl: '' as const, revision: 0 as const, updatedAt: null }), audience });
   }
 
+  @Get('benefits')
+  async benefitList(@Req() req: AppRequest) {
+    await this.staff(req);
+    return this.benefits(this.auth.db);
+  }
+
+  @Post('benefits')
+  async createBenefit(@Req() req: AppRequest, @Body() body: unknown) {
+    const actor = await this.staff(req); const input = freeMemberBenefitCreateSchema.parse(body);
+    return this.auth.db.$transaction(async tx => {
+      const benefit = await tx.freeMemberBenefit.create({ data: { id: randomUUID(), title: input.title, description: input.description, videoUrl: input.videoUrl, createdBy: actor.id, updatedBy: actor.id }, select: freeMemberBenefitListSelect });
+      await this.auth.audit(tx, req, 'FREE_MEMBER_BENEFIT_CREATE', benefit.id, input.reason, { revision: benefit.revision, videoConfigured: true }, 'FREE_MEMBER_BENEFIT');
+      return adminFreeMemberBenefitItemSchema.parse({ ...benefit, viewedMembers: 0 });
+    });
+  }
+
+  @Patch('benefits/:benefitId')
+  async updateBenefit(@Req() req: AppRequest, @Param('benefitId') benefitId: string, @Body() body: unknown) {
+    const actor = await this.staff(req); z.string().trim().min(1).max(100).parse(benefitId); const input = freeMemberBenefitSchema.parse(body);
+    return this.auth.db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`free-member-benefit:${benefitId}`}))::text`;
+      const before = await tx.freeMemberBenefit.findUnique({ where: { id: benefitId } });
+      if (!before) throw new NotFoundException({ code: 'FREE_BENEFIT_NOT_FOUND', message: '登録特典が見つかりません。' });
+      if (before.revision !== input.revision) throw new ConflictException({ code: 'FREE_BENEFIT_CONFLICT', message: '登録特典が変更されています。再読み込みしてください。' });
+      const benefit = await tx.freeMemberBenefit.update({ where: { id: benefitId }, data: { title: input.title, description: input.description, videoUrl: input.videoUrl, updatedBy: actor.id, updatedAt: new Date(), revision: { increment: 1 } }, select: freeMemberBenefitListSelect });
+      await this.auth.audit(tx, req, 'FREE_MEMBER_BENEFIT_UPDATE', benefit.id, input.reason, { revision: benefit.revision, videoConfigured: true }, 'FREE_MEMBER_BENEFIT');
+      const audience = await this.benefitAudience(tx, benefit.id);
+      return adminFreeMemberBenefitItemSchema.parse({ ...benefit, viewedMembers: audience.viewedMembers });
+    }, { timeout: 20000, maxWait: 10000 });
+  }
+
   @Patch('benefit')
   async saveBenefit(@Req() req: AppRequest, @Body() body: unknown) {
     const actor = await this.staff(req); const input = freeMemberBenefitSchema.parse(body);
@@ -169,7 +212,7 @@ export class AdminFreeReportsController {
       const benefit = before
         ? await tx.freeMemberBenefit.update({ where: { id: 'global' }, data: { title: input.title, description: input.description, videoUrl: input.videoUrl, updatedBy: actor.id, updatedAt: new Date(), revision: { increment: 1 } }, select: freeMemberBenefitSelect })
         : await tx.freeMemberBenefit.create({ data: { id: 'global', title: input.title, description: input.description, videoUrl: input.videoUrl, updatedBy: actor.id }, select: freeMemberBenefitSelect });
-      await this.auth.audit(tx, req, 'FREE_MEMBER_BENEFIT_UPDATE', benefit.id, input.reason, { revision: benefit.revision, videoConfigured: true });
+      await this.auth.audit(tx, req, 'FREE_MEMBER_BENEFIT_UPDATE', benefit.id, input.reason, { revision: benefit.revision, videoConfigured: true }, 'FREE_MEMBER_BENEFIT');
       const audience = await this.benefitAudience(tx);
       return adminFreeMemberBenefitResponseSchema.parse({ ...benefit, audience });
     }, { timeout: 20000, maxWait: 10000 });
@@ -186,9 +229,20 @@ export class MemberFreeReportsController {
     if (actor.role !== 'MEMBER' || actor.user.registrationMethod !== 'LINE') return publicFreeMemberBenefitResponseSchema.parse({ configured: false });
     const [value, viewed] = await Promise.all([
       this.auth.db.freeMemberBenefit.findUnique({ where: { id: 'global' }, select: { title: true, description: true, updatedAt: true } }),
-      this.auth.db.memberJourneyEvent.findUnique({ where: { userId_eventType: { userId: actor.id, eventType: 'REGISTRATION_BENEFIT_VIEWED' } }, select: { occurredAt: true } })
+      this.auth.db.freeMemberBenefitView.findUnique({ where: { userId_benefitId: { userId: actor.id, benefitId: 'global' } }, select: { viewedAt: true } })
     ]);
-    return publicFreeMemberBenefitResponseSchema.parse(value ? { configured: true, ...value, viewedAt: viewed?.occurredAt ?? null } : { configured: false });
+    return publicFreeMemberBenefitResponseSchema.parse(value ? { configured: true, ...value, viewedAt: viewed?.viewedAt ?? null } : { configured: false });
+  }
+
+  @Get('me/free-benefits')
+  async benefits(@Req() req: AppRequest) {
+    const actor = await this.auth.authenticate(req);
+    if (actor.role !== 'MEMBER' || actor.user.registrationMethod !== 'LINE') return publicFreeMemberBenefitListResponseSchema.parse({ items: [] });
+    const values = await this.auth.db.freeMemberBenefit.findMany({
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { id: true, title: true, description: true, createdAt: true, updatedAt: true, views: { where: { userId: actor.id }, take: 1, select: { viewedAt: true } } }
+    });
+    return publicFreeMemberBenefitListResponseSchema.parse({ items: values.map(({ views, ...value }) => ({ ...value, viewedAt: views[0]?.viewedAt ?? null })) });
   }
 
   @Post('me/free-benefit/view')
@@ -196,10 +250,24 @@ export class MemberFreeReportsController {
     const actor = await this.auth.authenticate(req);
     if (actor.role !== 'MEMBER' || actor.user.registrationMethod !== 'LINE') throw new NotFoundException({ code: 'FREE_BENEFIT_NOT_FOUND', message: '登録特典が見つかりません。' });
     return this.auth.db.$transaction(async tx => {
-      const value = await tx.freeMemberBenefit.findUnique({ where: { id: 'global' }, select: { videoUrl: true } });
+      const value = await tx.freeMemberBenefit.findUnique({ where: { id: 'global' }, select: { id: true, videoUrl: true } });
       if (!value) throw new NotFoundException({ code: 'FREE_BENEFIT_NOT_FOUND', message: '登録特典が見つかりません。' });
-      const event = await this.auth.journey(tx, actor.id, 'REGISTRATION_BENEFIT_VIEWED');
-      return publicFreeMemberBenefitViewResponseSchema.parse({ videoUrl: value.videoUrl, viewedAt: event.occurredAt });
+      const view = await tx.freeMemberBenefitView.upsert({ where: { userId_benefitId: { userId: actor.id, benefitId: value.id } }, create: { userId: actor.id, benefitId: value.id }, update: {}, select: { viewedAt: true } });
+      await this.auth.journey(tx, actor.id, 'REGISTRATION_BENEFIT_VIEWED');
+      return publicFreeMemberBenefitViewResponseSchema.parse({ videoUrl: value.videoUrl, viewedAt: view.viewedAt });
+    });
+  }
+
+  @Post('me/free-benefits/:benefitId/view')
+  async viewBenefitById(@Req() req: AppRequest, @Param('benefitId') benefitId: string) {
+    const actor = await this.auth.authenticate(req); z.string().trim().min(1).max(100).parse(benefitId);
+    if (actor.role !== 'MEMBER' || actor.user.registrationMethod !== 'LINE') throw new NotFoundException({ code: 'FREE_BENEFIT_NOT_FOUND', message: '登録特典が見つかりません。' });
+    return this.auth.db.$transaction(async tx => {
+      const value = await tx.freeMemberBenefit.findUnique({ where: { id: benefitId }, select: { id: true, videoUrl: true } });
+      if (!value) throw new NotFoundException({ code: 'FREE_BENEFIT_NOT_FOUND', message: '登録特典が見つかりません。' });
+      const view = await tx.freeMemberBenefitView.upsert({ where: { userId_benefitId: { userId: actor.id, benefitId: value.id } }, create: { userId: actor.id, benefitId: value.id }, update: {}, select: { viewedAt: true } });
+      await this.auth.journey(tx, actor.id, 'REGISTRATION_BENEFIT_VIEWED');
+      return publicFreeMemberBenefitViewResponseSchema.parse({ videoUrl: value.videoUrl, viewedAt: view.viewedAt });
     });
   }
 

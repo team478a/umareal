@@ -2,6 +2,13 @@ import { test, expect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { account, Client, db } from '../helpers';
 
+const createdBenefitIds: string[] = [];
+test.afterEach(async () => {
+  if (!createdBenefitIds.length) return;
+  await db.freeMemberBenefitView.deleteMany({ where: { benefitId: { in: createdBenefitIds } } });
+  await db.freeMemberBenefit.deleteMany({ where: { id: { in: createdBenefitIds } } });
+  createdBenefitIds.splice(0);
+});
 test.afterAll(() => db.$disconnect());
 
 test('staff publishes the legacy free report and a member receives metadata only', async ({ page }, testInfo) => {
@@ -41,24 +48,32 @@ test('staff publishes the legacy free report and a member receives metadata only
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
-test('a LINE registrant receives, opens and can revisit the registration benefit', async ({ page }, testInfo) => {
-  const admin = await account('ADMIN'); const member = await account();
+test('a LINE registrant receives, opens and can revisit multiple registration benefits', async ({ page }, testInfo) => {
+  const admin = await account('ADMIN'); const member = await account(); const suffix = randomUUID().slice(0, 8);
   await db.user.update({ where: { id: member.user.id }, data: { registrationMethod: 'LINE' } });
   const adminClient = new Client(); await adminClient.login(admin); await adminClient.mfa();
-  const videoUrl = `https://video.example.test/line-benefit-${randomUUID()}`;
+  const before = await adminClient.call('admin/free-reports/benefits'); const initialCount = before.body.items.length as number;
+  const titleA = `LINE登録特典A${suffix}`; const titleB = `LINE登録特典B${suffix}`;
+  const videoUrlA = `https://video.example.test/line-benefit-a-${randomUUID()}`; const videoUrlB = `https://video.example.test/line-benefit-b-${randomUUID()}`;
   await page.context().addCookies([{ name: 'keiba_session', value: adminClient.cookie.split('=')[1], domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
   await page.goto('/admin/benefits');
   await expect(page.getByRole('heading', { name: '登録特典を管理', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '登録特典一覧', exact: true })).toBeVisible();
-  await page.getByLabel('タイトル').fill('LINE登録特典動画');
-  await page.getByLabel('説明').fill('登録ありがとうございます。こちらの動画をご覧ください。');
-  await page.getByLabel('動画URL（HTTPS）').fill(videoUrl);
-  await page.getByLabel('変更理由').fill('LINE登録特典E2E');
-  await page.getByRole('button', { name: /登録特典を(設定|更新)/ }).click();
-  await expect(page.getByRole('status')).toContainText('現在の一覧へ反映しました');
-  await expect(page.getByRole('heading', { name: 'LINE登録特典動画', exact: true })).toBeVisible();
-  await expect(page.getByRole('link', { name: videoUrl })).toBeVisible();
-  await expect(page.getByText('現在の登録特典は1件です')).toBeVisible();
+  for (const item of [{ title: titleA, url: videoUrlA }, { title: titleB, url: videoUrlB }]) {
+    await page.getByLabel('タイトル').fill(item.title);
+    await page.getByLabel('説明').fill(`${item.title}の説明です。`);
+    await page.getByLabel('動画URL（HTTPS）').fill(item.url);
+    await page.getByLabel('追加理由').fill('LINE登録特典の複数追加E2E');
+    await page.getByRole('button', { name: '登録特典を追加', exact: true }).last().click();
+    await expect(page.getByRole('status')).toContainText('登録特典を追加し、一覧へ反映しました');
+    const list = await adminClient.call('admin/free-reports/benefits');
+    const created = list.body.items.find((value: { title: string }) => value.title === item.title); expect(created).toBeTruthy(); createdBenefitIds.push(created.id);
+  }
+  await expect(page.locator('.count-tag').filter({ hasText: `${initialCount + 2}件` })).toBeVisible();
+  await expect(page.getByRole('heading', { name: titleA, exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: titleB, exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: videoUrlA })).toBeVisible();
+  await expect(page.getByRole('link', { name: videoUrlB })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('admin-benefit-management.png'), fullPage: true });
 
@@ -68,18 +83,26 @@ test('a LINE registrant receives, opens and can revisit the registration benefit
   await page.goto('/account?line=registered');
   await expect(page.getByText('LINE無料登録が完了しました。登録特典を受け取れます。')).toBeVisible();
   await expect(page.getByRole('heading', { name: '登録特典を受け取れます' })).toBeVisible();
-  await page.getByRole('link', { name: '特典動画を見る' }).click();
+  await expect(page.getByText('未視聴の特典は', { exact: false })).toBeVisible();
+  await page.getByRole('link', { name: '特典一覧を見る' }).click();
   await expect(page).toHaveURL(/\/benefit$/);
-  await expect(page.getByRole('heading', { name: 'LINE登録特典動画' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: titleA })).toBeVisible();
+  await expect(page.getByRole('heading', { name: titleB })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
-  await page.route(videoUrl, route => route.fulfill({ status: 200, contentType: 'text/html', body: '<title>登録特典動画</title><h1>動画配信ページ</h1>' }));
-  await page.getByRole('button', { name: '動画を見る' }).click();
-  await expect(page).toHaveURL(videoUrl);
+  await page.route(videoUrlB, route => route.fulfill({ status: 200, contentType: 'text/html', body: '<title>登録特典動画</title><h1>動画配信ページ</h1>' }));
+  const benefitCard = page.locator('.benefit-page').filter({ hasText: titleB });
+  await benefitCard.getByRole('button', { name: '動画を見る' }).click();
+  await expect(page).toHaveURL(videoUrlB);
   expect(await db.memberJourneyEvent.count({ where: { userId: member.user.id, eventType: 'REGISTRATION_BENEFIT_VIEWED' } })).toBe(1);
+  expect(await db.freeMemberBenefitView.count({ where: { userId: member.user.id, benefitId: createdBenefitIds[1] } })).toBe(1);
+  expect(await db.freeMemberBenefitView.count({ where: { userId: member.user.id, benefitId: createdBenefitIds[0] } })).toBe(0);
 
   await page.goto('/account');
-  await expect(page.getByRole('link', { name: '特典動画をもう一度見る' })).toBeVisible();
+  await expect(page.getByRole('link', { name: '特典一覧を見る' })).toBeVisible();
+  await page.getByRole('link', { name: '特典一覧を見る' }).click();
+  await expect(page.locator('.benefit-page').filter({ hasText: titleB }).getByText('視聴開始済み')).toBeVisible();
+  await expect(page.locator('.benefit-page').filter({ hasText: titleA }).getByText('未視聴')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('line-registration-benefit.png'), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

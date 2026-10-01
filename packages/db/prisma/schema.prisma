@@ -59,6 +59,7 @@ model User {
   assignedSupportRequests        SupportRequest[]           @relation("SupportAssignee")
   supportEvents                  SupportEvent[]             @relation("SupportActor")
   journeyEvents                  MemberJourneyEvent[]
+  freeMemberBenefitViews         FreeMemberBenefitView[]
   assignments                    ExpertAssignment[]
   resets                         PasswordReset[]
   emailVerifications             EmailVerification[]
@@ -738,15 +739,32 @@ model FreeReportVersion {
 }
 
 model FreeMemberBenefit {
-  id          String   @id @default("global")
+  id          String   @id
   title       String
   description String
   videoUrl    String
   revision    Int      @default(1)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  createdBy   String?  @db.Uuid
   updatedBy   String?  @db.Uuid
   updatedAt   DateTime @default(now()) @db.Timestamptz(3)
+  views       FreeMemberBenefitView[]
 
+  @@index([createdAt])
   @@map("free_member_benefits")
+}
+
+model FreeMemberBenefitView {
+  id        String            @id @default(uuid()) @db.Uuid
+  userId    String            @db.Uuid
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  benefitId String
+  benefit   FreeMemberBenefit @relation(fields: [benefitId], references: [id])
+  viewedAt  DateTime          @default(now()) @db.Timestamptz(3)
+
+  @@unique([userId, benefitId])
+  @@index([benefitId, viewedAt])
+  @@map("free_member_benefit_views")
 }
 
 model AudioAsset {
