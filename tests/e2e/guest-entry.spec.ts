@@ -31,7 +31,13 @@ test('guests see a minimal root entry and no member menu', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'メニューを開く' })).toHaveCount(0);
   await expect(page.getByRole('navigation', { name: 'メインメニュー' })).toHaveCount(0);
 
-  await page.goto('/register');
+  await page.goto('/login?line=not-linked&returnTo=%2Fbenefit');
+  await expect(page.getByText('このLINEではログイン登録がまだ完了していません。')).toBeVisible();
+  await expect(page.getByText('メールで登録済みの方は、メールでログイン後にマイページからLINEを連携できます。')).toBeVisible();
+  await page.getByRole('link', { name: 'LINE無料登録へ', exact: true }).click();
+  await expect(page).toHaveURL(/\/register$/);
+  await expect(page.getByRole('heading', { name: '登録方法を選ぶ', exact: true })).toBeVisible();
+
   await expect(page.getByRole('heading', { name: '無料会員登録' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'メニューを開く' })).toHaveCount(0);
   await expect(page.getByRole('navigation', { name: 'メインメニュー' })).toHaveCount(0);
