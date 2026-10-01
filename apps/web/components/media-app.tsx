@@ -61,6 +61,18 @@ function Notice({ text, error = false }: { text: string; error?: boolean }) { re
 function Heading({ eyebrow, title, description }: { eyebrow: string; title: string; description?: string }) { return <div className="page-heading"><span className="eyebrow">{eyebrow}</span><h1>{title}</h1>{description && <p>{description}</p>}</div>; }
 function Empty({ title, children }: { title: string; children: ReactNode }) { return <div className="empty"><CalendarDays size={32} strokeWidth={1.3} /><h3>{title}</h3><p>{children}</p></div>; }
 function Unavailable({ title, detail }: { title: string; detail: string }) { return <><Heading eyebrow="COMING SOON" title={title} description={detail} /><Link className="button" href="/">ホームへ <ArrowRight size={17} /></Link></>; }
+function BrandIdentity({ consoleLabel = 'MEMBER’S DESK' }: { consoleLabel?: string }) { return <><span className="brand-mark">K<span>／</span></span><span>競馬会員メディア<small>{consoleLabel}</small></span></>; }
+function GuestEntry({ ready }: { ready: boolean }) {
+  return <main id="main" className="guest-entry">
+    <section className="guest-entry-card" aria-label="競馬会員メディア">
+      <div className="brand guest-entry-brand"><BrandIdentity /></div>
+      {ready && <nav className="guest-entry-actions" aria-label="アカウント">
+        <Link className="button secondary" href="/login">ログイン</Link>
+        <Link className="button" href="/register">無料会員登録</Link>
+      </nav>}
+    </section>
+  </main>;
+}
 
 export function MediaApp() {
   const path = usePathname(); const router = useRouter();
@@ -90,18 +102,21 @@ export function MediaApp() {
   ] : [];
   const nav = adminWorkspace ? adminNavSections.flatMap(section => section.items) : memberNav;
   async function logout() { try { await api('auth/logout', 'POST'); setMe(null); setUnreadNotifications(0); router.push('/login'); } catch (e) { setError((e as Error).message); } }
+
+  if (path === '/' && !me) return <GuestEntry ready={!loading} />;
+
   return <div className="app-shell">
     <a href="#main" className="skip-link">本文へ移動</a>
-    <aside className={`sidebar ${menu ? 'open' : ''}`}>
-      <Link href={adminWorkspace ? '/admin' : '/'} className="brand" onClick={() => setMenu(false)}><span className="brand-mark">K<span>／</span></span><span>競馬会員メディア<small>{adminWorkspace ? 'ADMIN CONSOLE' : 'MEMBER’S DESK'}</small></span></Link>
+    {me && <aside className={`sidebar ${menu ? 'open' : ''}`}>
+      <Link href={adminWorkspace ? '/admin' : '/'} className="brand" onClick={() => setMenu(false)}><BrandIdentity consoleLabel={adminWorkspace ? 'ADMIN CONSOLE' : 'MEMBER’S DESK'} /></Link>
       <button className="close-menu icon-button" aria-label="メニューを閉じる" onClick={() => setMenu(false)}><X /></button>
       <div className="nav-caption">{adminWorkspace ? '管理メニュー' : 'マイメニュー'}</div>
       {adminWorkspace ? <nav className="sidebar-nav admin-nav" aria-label="管理メニュー">{adminNavSections.map(section => <div className="admin-nav-section" key={section.label}><div className="admin-nav-caption">{section.label}</div>{section.items.map(({ href, label, Icon }) => <Link key={href} href={href} className={path === href ? 'nav-link active' : 'nav-link'} aria-current={path === href ? 'page' : undefined} onClick={() => setMenu(false)}><Icon size={19} /><span>{label}</span>{path === href && <ChevronRight size={16} />}</Link>)}</div>)}</nav> : <nav className="sidebar-nav" aria-label="メインメニュー">{memberNav.map(({ href, label, Icon }) => <Link key={href} href={href} className={path === href ? 'nav-link active' : 'nav-link'} aria-current={path === href ? 'page' : undefined} onClick={() => setMenu(false)}><Icon size={19} /><span>{label}</span>{href === '/notifications' && unreadNotifications > 0 && <span className="nav-badge" aria-label={`${unreadNotifications}件の未読`}>{unreadNotifications > 99 ? '99+' : unreadNotifications}</span>}{path === href && <ChevronRight size={16} />}</Link>)}</nav>}
       {adminWorkspace ? <div className="sidebar-bottom admin-sidebar-bottom"><div className="edition">管理者専用</div><p>{config.localOnly ? '開発環境' : config.launchMode === 'STRIPE_SANDBOX' ? 'Stripeテスト環境' : config.launchMode === 'CLOUD_STAGING' ? 'クラウドテスト環境' : '運用環境'}</p></div> : <div className="sidebar-bottom"><div className="edition">{config.localOnly ? '開発環境' : config.launchMode === 'STRIPE_SANDBOX' ? 'Stripeテスト' : config.launchMode === 'CLOUD_STAGING' ? 'クラウドテスト' : config.launchMode === 'FREE_REGISTRATION' ? '先行公開' : '会員サービス'} <span>{config.registration.enabled ? '無料登録' : '受付停止中'}</span></div><p>{config.registration.enabled ? <>{config.lineEnabled ? 'LINE・メールから無料会員へ' : 'メールから無料会員へ'}<br />登録できます。</> : '既存会員のログインは利用できます。'}</p><div className="legal-links"><Link href="/terms">利用規約</Link><Link href="/privacy">プライバシー</Link></div></div>}
-    </aside>
-    {menu && <button className="menu-overlay" aria-label="メニューを閉じる" onClick={() => setMenu(false)} />}
-    <div className="workspace">
-      <header className="topbar"><div className="topbar-left"><button className="mobile-menu icon-button" aria-label="メニューを開く" onClick={() => setMenu(true)}><Menu /></button><span>{adminWorkspace ? 'ADMIN CONSOLE' : 'MEMBER’S DESK'}</span><span className="topbar-divider">/</span><span>{nav.find(n => n.href === path)?.label ?? (adminWorkspace ? '管理画面' : 'アカウント')}</span></div>
+    </aside>}
+    {me && menu && <button className="menu-overlay" aria-label="メニューを閉じる" onClick={() => setMenu(false)} />}
+    <div className={`workspace ${me ? '' : 'guest-workspace'}`}>
+      <header className={`topbar ${me ? '' : 'guest-topbar'}`}>{me ? <div className="topbar-left"><button className="mobile-menu icon-button" aria-label="メニューを開く" onClick={() => setMenu(true)}><Menu /></button><span>{adminWorkspace ? 'ADMIN CONSOLE' : 'MEMBER’S DESK'}</span><span className="topbar-divider">/</span><span>{nav.find(n => n.href === path)?.label ?? (adminWorkspace ? '管理画面' : 'アカウント')}</span></div> : <Link href="/" className="brand guest-topbar-brand"><BrandIdentity /></Link>}
         <div className={`topbar-right ${staffWorkspaceLink ? 'has-staff-workspace' : ''}`}>{me ? <>{!adminWorkspace && <Link className="icon-button notification-shortcut" href="/notifications" aria-label={unreadNotifications > 0 ? `お知らせ、未読${unreadNotifications}件` : 'お知らせ'}><BellRing size={19} />{unreadNotifications > 0 && <span>{unreadNotifications > 99 ? '99+' : unreadNotifications}</span>}</Link>}{staffWorkspaceLink && <Link className="button secondary small staff-workspace-link" href={staffWorkspaceLink.href} aria-label="管理画面へ"><LayoutDashboard size={16} /><span>管理画面へ</span></Link>}<span className="role-tag">{roleLabels[me.role]}</span><span className="user-name">{me.displayName}</span><button className="icon-button" title="ログアウト" aria-label="ログアウト" onClick={() => void logout()}><LogOut size={19} /></button></> : <><Link className="text-link" href="/login">ログイン</Link>{configLoaded && config.registration.enabled && <Link className="button small" href="/register">無料会員登録</Link>}</>}</div>
       </header>
       <main id="main" className={authPage ? 'main-content auth-content' : 'main-content'}>
