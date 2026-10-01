@@ -7,7 +7,7 @@ describe('LINE Login OAuth protocol', () => {
     const verifier = 'verifier-value';
     const url = new URL(buildLineAuthorizationUrl({ channelId: '123456', callbackUrl: 'https://example.test/api/v1/auth/line/callback', state: 'state-value', nonce: 'nonce-value', verifier }));
     expect(`${url.origin}${url.pathname}`).toBe('https://access.line.me/oauth2/v2.1/authorize');
-    expect(Object.fromEntries(url.searchParams)).toMatchObject({ response_type: 'code', client_id: '123456', state: 'state-value', nonce: 'nonce-value', scope: 'openid profile', code_challenge: pkceChallenge(verifier), code_challenge_method: 'S256' });
+    expect(Object.fromEntries(url.searchParams)).toMatchObject({ response_type: 'code', client_id: '123456', state: 'state-value', nonce: 'nonce-value', scope: 'openid profile', code_challenge: pkceChallenge(verifier), code_challenge_method: 'S256', bot_prompt: 'aggressive' });
     expect(url.toString()).not.toContain('channel-secret');
   });
 

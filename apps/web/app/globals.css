@@ -136,6 +136,18 @@ h3 { font-size:17px; font-weight:650; }
 .auth-aside strong { display:block; font-size:14px; }
 .auth-aside p { font-size:13px; color:var(--muted); margin-top:7px; }
 .auth-panel { padding:29px; }
+.registration-method-picker { display:grid; gap:14px; }
+.registration-method-heading { margin-bottom:4px; }
+.registration-method-heading .eyebrow { margin-bottom:5px; }
+.registration-method-heading h2 { font-size:21px; }
+.registration-method-heading p,.registration-method-note { color:var(--muted); font-size:13px; margin-top:7px; line-height:1.7; }
+.registration-method-option { min-height:78px; text-align:left; }
+.registration-method-option>span { display:flex; flex-direction:column; gap:4px; min-width:0; }
+.registration-method-option strong { font-size:15px; }
+.registration-method-option small { font-size:12px; font-weight:400; line-height:1.5; opacity:.9; }
+.registration-method-option.secondary small { color:var(--muted); }
+.registration-method-note { margin:0 2px; }
+.registration-method-back { margin:-8px 0 12px; }
 .field { display:block; font-size:14px; font-weight:600; margin-bottom:21px; }
 .field input:not([type=checkbox]) { display:block; width:100%; min-height:48px; padding:11px 13px; background:#fff; border:1px solid #bdcbc6; border-radius:5px; color:var(--ink); margin-top:8px; font-size:16px; font-weight:400; }
 .field input::placeholder { color:#97a59e; }
