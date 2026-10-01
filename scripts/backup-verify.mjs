@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { createServer } from 'node:net';
 import { relative, resolve, sep } from 'node:path';
 import { config } from 'dotenv';
 
@@ -40,6 +41,30 @@ function runPgCtl(data, args, timeout = 60_000) {
 
 function isRunning(data) {
   return spawnSync(resolve(bin, 'pg_ctl.exe'), ['-D', data, 'status'], { encoding: 'utf8', windowsHide: true, timeout: 10_000 }).status === 0;
+}
+
+function probeLocalPort(port) {
+  return new Promise((resolveProbe, rejectProbe) => {
+    const server = createServer();
+    server.unref();
+    server.once('error', error => {
+      if (error.code === 'EADDRINUSE' || error.code === 'EACCES') resolveProbe(null);
+      else rejectProbe(error);
+    });
+    server.listen({ host: '127.0.0.1', port, exclusive: true }, () => {
+      const address = server.address();
+      const selectedPort = typeof address === 'object' && address ? address.port : null;
+      server.close(error => error ? rejectProbe(error) : resolveProbe(selectedPort));
+    });
+  });
+}
+
+async function selectRestorePort() {
+  const preferredPort = await probeLocalPort(55433);
+  if (preferredPort) return preferredPort;
+  const fallbackPort = await probeLocalPort(0);
+  if (!fallbackPort) throw new Error('No loopback port is available for restore verification');
+  return fallbackPort;
 }
 
 function filesUnder(directory, current = directory) {
@@ -131,9 +156,10 @@ try {
   const restoredCopy = snapshotDigest(restoreData);
   if (restoredCopy.sha256 !== backup.sha256 || restoredCopy.fileCount !== backup.fileCount || restoredCopy.sizeBytes !== backup.sizeBytes) throw new Error('Restored files do not match the backup manifest');
 
-  runPgCtl(restoreData, ['-l', resolve(restoreDir, 'postgres.log'), '-o', '-p 55433 -c listen_addresses=127.0.0.1', '-w', 'start']);
+  const restorePort = await selectRestorePort();
+  runPgCtl(restoreData, ['-l', resolve(restoreDir, 'postgres.log'), '-o', `-p ${restorePort} -c listen_addresses=127.0.0.1`, '-w', 'start']);
   restoreStarted = true;
-  const restoreUrl = new URL(sourceUrl); restoreUrl.port = '55433';
+  const restoreUrl = new URL(sourceUrl); restoreUrl.port = String(restorePort);
   const restoredCounts = await inspectDatabase(restoreUrl.toString());
   if (JSON.stringify(restoredCounts) !== JSON.stringify(sourceCounts)) throw new Error('Restored database integrity values do not match the source');
   if (restoredCounts.requiredTriggers !== 12) throw new Error('Required immutable-history triggers were not restored');
