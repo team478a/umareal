@@ -48,7 +48,7 @@ test('member referral works from the account URL through email verification', as
   await page.getByLabel('20歳以上です。').check();
   await page.getByLabel('利用規約に同意します。').check();
   await page.getByLabel('プライバシーポリシーに同意します。').check();
-  await page.getByRole('button', { name: '同意して登録する' }).click();
+  await page.getByRole('button', { name: '同意してメール無料登録を完了' }).click();
   await expect(page.getByRole('heading', { name: 'メールアドレスを確認' })).toBeVisible();
 
   const friend = await db.user.findUniqueOrThrow({ where: { email: friendEmail } });

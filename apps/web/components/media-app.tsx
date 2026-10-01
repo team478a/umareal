@@ -137,6 +137,7 @@ function HomePage({ me, unreadNotifications, capabilities, registration }: { me:
 function AuthForm({ path, onSuccess, lineEnabled, localOnly, registrationEnabled, captcha }: { path: string; onSuccess: () => Promise<void>; lineEnabled: boolean; localOnly: boolean; registrationEnabled: boolean; captcha: PublicConfig['captcha'] }) {
   const router = useRouter(); const search = useSearchParams(); const registration = path === '/register'; const forgot = path === '/forgot-password'; const reset = path === '/reset-password';
   const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
+  const [registrationMethod, setRegistrationMethod] = useState<'CHOICE' | 'EMAIL'>(registration && lineEnabled ? 'CHOICE' : 'EMAIL');
   const [captchaToken, setCaptchaToken] = useState<string | null>(null); const [captchaReset, setCaptchaReset] = useState(0);
   const captchaCallback = useCallback((token: string | null) => setCaptchaToken(token), []);
   useEffect(() => { if (path === '/login' && search.get('closed') === '1') setMessage('退会手続きが完了し、すべての端末からログアウトしました。'); }, [path, search]);
@@ -159,20 +160,28 @@ function AuthForm({ path, onSuccess, lineEnabled, localOnly, registrationEnabled
     } catch (e) { setError((e as Error).message); if (registration && captcha.enabled) { setCaptchaToken(null); setCaptchaReset(value => value + 1); } } finally { setBusy(false); }
   }
   const title = registration ? '無料会員登録' : forgot ? 'パスワードをお忘れの方' : reset ? '新しいパスワードを設定' : 'おかえりなさい';
-  return <div className="auth-grid"><div className="auth-intro"><span className="eyebrow">MEMBER’S DESK</span><h1>{title}</h1><p>{registration ? 'あなたのアカウントを作成して、レース情報を確認しましょう。' : forgot ? '登録したメールアドレスを入力してください。' : reset ? '12文字以上のパスワードを設定してください。' : 'メールアドレスとパスワードでログインしてください。'}</p><div className="auth-aside"><ShieldCheck size={24} /><strong>安心して使えるアカウントに</strong><p>管理者と専門家には、認証アプリによる二段階認証が必要です。</p></div></div>
-    <section className="panel auth-panel"><form onSubmit={submit}>
+  const choosingRegistrationMethod = registration && lineEnabled && registrationMethod === 'CHOICE';
+  return <div className="auth-grid"><div className="auth-intro"><span className="eyebrow">MEMBER’S DESK</span><h1>{title}</h1><p>{choosingRegistrationMethod ? 'LINEまたはメールから、登録方法を選んでください。' : registration ? 'メールアドレスを確認して、無料会員登録を完了します。' : forgot ? '登録したメールアドレスを入力してください。' : reset ? '12文字以上のパスワードを設定してください。' : 'メールアドレスとパスワードでログインしてください。'}</p><div className="auth-aside"><ShieldCheck size={24} /><strong>安心して使えるアカウントに</strong><p>管理者と専門家には、認証アプリによる二段階認証が必要です。</p></div></div>
+    <section className="panel auth-panel">{choosingRegistrationMethod ? <div className="registration-method-picker" aria-labelledby="registration-method-title">
+      <div className="registration-method-heading"><span className="eyebrow">FREE REGISTRATION</span><h2 id="registration-method-title">登録方法を選ぶ</h2><p>どちらの方法でも無料会員として利用できます。</p></div>
+      <Notice text={error} error />
+      <button type="button" className="button line-button full registration-method-option" disabled={busy} onClick={() => void lineRegister()}><span><strong>LINEで登録</strong><small>LINE認証と公式LINEの友だち追加へ進みます</small></span><ArrowRight size={18} /></button>
+      <button type="button" className="button secondary full registration-method-option" disabled={busy} onClick={() => { setError(''); setRegistrationMethod('EMAIL'); }}><span><strong>メールで登録</strong><small>確認メールを受け取り、ウマリアルへ登録します</small></span><ArrowRight size={18} /></button>
+      <p className="registration-method-note">LINEで登録すると、登録特典とお知らせを同じアカウントで確認できます。</p>
+      <div className="auth-switch">すでに登録済みの方は <Link href="/login">ログイン</Link></div>
+    </div> : <form onSubmit={submit}>
       <Notice text={error} error /><Notice text={message} />
-      {registration && lineEnabled && <><button type="button" className="button line-button full" disabled={busy} onClick={() => void lineRegister()}>LINEで無料登録<ArrowRight size={17} /></button><div className="auth-divider"><span>またはメールで登録</span></div></>}
+      {registration && lineEnabled && <button type="button" className="text-link registration-method-back" onClick={() => { setError(''); setMessage(''); setRegistrationMethod('CHOICE'); }}>登録方法を選び直す</button>}
       {registration && <label className="field">表示名<input name="displayName" autoComplete="nickname" maxLength={60} required placeholder="例：山田 太郎" /></label>}
       {!reset && <label className="field">メールアドレス<input type="email" name="email" autoComplete="email" required maxLength={254} placeholder="name@example.com" /></label>}
       {!forgot && <label className="field"><span id="password-label">パスワード</span><input type="password" name="password" aria-labelledby="password-label" aria-describedby={registration || reset ? 'password-hint' : undefined} autoComplete={registration || reset ? 'new-password' : 'current-password'} required minLength={registration || reset ? 12 : 1} maxLength={128} />{(registration || reset) && <small id="password-hint">12文字以上で設定してください。</small>}</label>}
       {registration && <div className="consents"><label><input type="checkbox" name="adult" required /><span>20歳以上です。</span></label><label><input type="checkbox" name="terms" required /><span><Link href="/terms" target="_blank">{legalDocumentLabel(legalDocuments.terms)}</Link>に同意します。</span></label><label><input type="checkbox" name="privacy" required /><span><Link href="/privacy" target="_blank">{legalDocumentLabel(legalDocuments.privacy)}</Link>に同意します。</span></label></div>}
       {registration && captcha.enabled && <TurnstileChallenge siteKey={captcha.siteKey} mode={captcha.mode} resetKey={captchaReset} onToken={captchaCallback} />}
-      <button className="button full" disabled={busy || (registration && captcha.enabled && !captchaToken)}>{busy ? '処理中…' : registration ? captcha.enabled && !captchaToken ? '確認を完了してください' : '同意して登録する' : forgot ? '再設定の案内を送る' : reset ? 'パスワードを更新' : 'ログイン'}<ArrowRight size={17} /></button>
+      <button className="button full" disabled={busy || (registration && captcha.enabled && !captchaToken)}>{busy ? '処理中…' : registration ? captcha.enabled && !captchaToken ? '確認を完了してください' : '同意してメール無料登録を完了' : forgot ? '再設定の案内を送る' : reset ? 'パスワードを更新' : 'ログイン'}<ArrowRight size={17} /></button>
       {!registration && !forgot && !reset && lineEnabled && <button type="button" className="button secondary full" disabled={busy} onClick={() => void lineLogin()}>LINEでログイン<ArrowRight size={17} /></button>}
       {!registration && !forgot && !reset && <Link href="/forgot-password" className="form-link">パスワードをお忘れですか？</Link>}
       <div className="auth-switch">{registration ? <>すでに登録済みの方は <Link href="/login">ログイン</Link></> : forgot || reset ? <Link href="/login">ログインへ戻る</Link> : registrationEnabled ? <>アカウントをお持ちでない方は <Link href="/register">無料会員登録</Link></> : '現在、新規会員登録は受付を停止しています。'}</div>
-    </form>{localOnly && <p className="development-note">開発用の環境です。実際の個人情報や、他のサービスで使用しているパスワードは入力しないでください。</p>}</section>
+    </form>}{localOnly && <p className="development-note">開発用の環境です。実際の個人情報や、他のサービスで使用しているパスワードは入力しないでください。</p>}</section>
   </div>;
 }
 
