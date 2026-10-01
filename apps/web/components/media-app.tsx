@@ -155,7 +155,13 @@ function AuthForm({ path, onSuccess, lineEnabled, localOnly, registrationEnabled
   const [registrationMethod, setRegistrationMethod] = useState<'CHOICE' | 'EMAIL'>(registration && lineEnabled ? 'CHOICE' : 'EMAIL');
   const [captchaToken, setCaptchaToken] = useState<string | null>(null); const [captchaReset, setCaptchaReset] = useState(0);
   const captchaCallback = useCallback((token: string | null) => setCaptchaToken(token), []);
-  useEffect(() => { if (path === '/login' && search.get('closed') === '1') setMessage('退会手続きが完了し、すべての端末からログアウトしました。'); }, [path, search]);
+  const lineNotLinked = path === '/login' && search.get('line') === 'not-linked';
+  useEffect(() => {
+    if (path !== '/login') return;
+    if (search.get('closed') === '1') setMessage('退会手続きが完了し、すべての端末からログアウトしました。');
+    else if (lineNotLinked) setMessage('このLINEではログイン登録がまだ完了していません。初めての方は無料会員登録へ進んでください。メールで登録済みの方は、メールでログイン後にマイページからLINEを連携できます。');
+    else setMessage('');
+  }, [lineNotLinked, path, search]);
   const acquisition = registration ? { source: search.get('utm_source') || undefined, medium: search.get('utm_medium') || undefined, campaign: search.get('utm_campaign') || undefined, content: search.get('utm_content') || undefined, term: search.get('utm_term') || undefined, referralCode: search.get('ref') || undefined, landingPath: '/register' } : undefined;
   const memberReferralCode = registration ? search.get('invite') || undefined : undefined;
   const parsedReturnTo = lineLoginReturnPathSchema.safeParse(search.get('returnTo'));
@@ -186,6 +192,7 @@ function AuthForm({ path, onSuccess, lineEnabled, localOnly, registrationEnabled
       <div className="auth-switch">すでに登録済みの方は <Link href="/login">ログイン</Link></div>
     </div> : <form onSubmit={submit}>
       <Notice text={error} error /><Notice text={message} />
+      {lineNotLinked && registrationEnabled && <Link className="button line-button full" href="/register">LINE無料登録へ<ArrowRight size={17} /></Link>}
       {registration && lineEnabled && <button type="button" className="text-link registration-method-back" onClick={() => { setError(''); setMessage(''); setRegistrationMethod('CHOICE'); }}>登録方法を選び直す</button>}
       {registration && <label className="field">表示名<input name="displayName" autoComplete="nickname" maxLength={60} required placeholder="例：山田 太郎" /></label>}
       {!reset && <label className="field">メールアドレス<input type="email" name="email" autoComplete="email" required maxLength={254} placeholder="name@example.com" /></label>}

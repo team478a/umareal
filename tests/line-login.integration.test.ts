@@ -95,9 +95,28 @@ describe('LINE Login account lifecycle', () => {
     expect(tombstone.unlinkedAt).toBeInstanceOf(Date);
     expect(tombstone.notificationDisabledAt).toBeInstanceOf(Date);
     const afterUnlink = new Client();
-    const afterStart = await afterUnlink.call('auth/line/start', 'POST', { purpose: 'LOGIN' });
+    const afterStart = await afterUnlink.call('auth/line/start', 'POST', { purpose: 'LOGIN', returnTo: '/benefit' });
     const afterState = new URL(afterStart.body.authorizationUrl).searchParams.get('state')!;
-    expect((await callback(afterUnlink, afterState, saved.subject)).status).toBe(401);
+    const afterLogin = await callback(afterUnlink, afterState, saved.subject);
+    expect(afterLogin.status).toBe(303);
+    const afterLocation = new URL(afterLogin.headers.get('location')!);
+    expect(afterLocation.pathname).toBe('/login');
+    expect(afterLocation.searchParams.get('line')).toBe('not-linked');
+    expect(afterLocation.searchParams.get('returnTo')).toBe('/benefit');
+  });
+
+  it('returns an unlinked LINE user to the login guidance instead of exposing an API error', async () => {
+    const client = new Client();
+    const started = await client.call('auth/line/start', 'POST', { purpose: 'LOGIN', returnTo: '/account' });
+    const state = new URL(started.body.authorizationUrl).searchParams.get('state')!;
+    const response = await callback(client, state, `U-unlinked-${randomUUID()}`);
+    expect(response.status).toBe(303);
+    const location = new URL(response.headers.get('location')!);
+    expect(location.origin).toBe(origin);
+    expect(location.pathname).toBe('/login');
+    expect(location.searchParams.get('line')).toBe('not-linked');
+    expect(location.searchParams.get('returnTo')).toBe('/account');
+    expect(response.headers.get('set-cookie')).toBeNull();
   });
 
   it('binds a link flow to the starting session and prevents subject reassignment', async () => {

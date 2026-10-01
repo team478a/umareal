@@ -59,7 +59,14 @@ export class LineLoginController {
       return res.redirect(303, `${process.env.APP_BASE_URL}/account?line=linked`);
     }
     const account = await this.auth.db.lineAccount.findUnique({ where: { subject: identity.subject }, include: { user: true } });
-    if (!account || account.unlinkedAt || account.user.disabledAt) throw new UnauthorizedException({ code: 'LINE_ACCOUNT_NOT_LINKED', message: 'このLINEアカウントは会員に連携されていません。' });
+    if (!account || account.unlinkedAt) {
+      const returnPath = lineLoginReturnPathSchema.safeParse(flow.returnPath);
+      const loginUrl = new URL('/login', process.env.APP_BASE_URL);
+      loginUrl.searchParams.set('line', 'not-linked');
+      if (returnPath.success) loginUrl.searchParams.set('returnTo', returnPath.data);
+      return res.redirect(303, loginUrl.toString());
+    }
+    if (account.user.disabledAt) throw new UnauthorizedException({ code: 'LINE_ACCOUNT_UNAVAILABLE', message: 'このアカウントではログインできません。' });
     req.auth = { id: account.user.id, role: account.user.role, aal: 1, user: account.user };
     const token = await this.auth.db.$transaction(async tx => {
       await this.auth.audit(tx, req, 'LINE_LOGIN', account.user.id, 'LINEログイン', { subjectHash });
