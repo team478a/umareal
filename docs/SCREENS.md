@@ -21,7 +21,8 @@
 | /races/:raceId | 旧無料速報の公開メタデータ、最新の公開予想と旧版・訂正版の切替、有料ロック時の料金確認導線 | 全員。旧無料速報はログイン会員に版番号・種別・公開時刻だけを表示し、予想本文は公開範囲・有限期間権限による |
 | /admin | 管理ダッシュボード。30秒自動更新・鮮度表示付きの日付別開催日運用ボード、6段階の開催日リハーサル、運用状況、会員転換ファネル | ADMIN+AAL2/OPERATOR |
 | /admin/races | 開催日・レース・出走馬・担当専門家・個別CSV差分確認・JRA-VAN manifest付き開催日一括差分確認・スマホ向け対象レース告知 | ADMIN+AAL2/OPERATOR |
-| /admin/free-reports | LINE無料登録特典動画と対象・視聴開始済み集計、評価UP/DOWN各1頭、本人音声、レース後検証の下書き・配信前確認・管理者テスト送信・公開履歴 | ADMIN+AAL2/OPERATOR。テスト送信はADMIN+AAL2 |
+| /admin/benefits | LINE無料登録特典の現在値、版、最終更新、対象・視聴開始済み集計と固定1枠の更新 | ADMIN+AAL2/OPERATOR |
+| /admin/free-reports | 評価UP/DOWN各1頭、本人音声、レース後検証の下書き・配信前確認・管理者テスト送信・公開履歴 | ADMIN+AAL2/OPERATOR。テスト送信はADMIN+AAL2 |
 | /admin/publication-schedules | 対象レース告知・無料速報の配信前確認、管理者テスト送信、予約、取消、公開版別のWeb・LINE・メール配信結果、各種アラート | ADMIN+AAL2/OPERATOR。テスト送信はADMIN+AAL2 |
 | /admin/settings | ADMINはTurnstile・メール・LINE・Stripe資格情報、3プランの料金と販売可否、通知再試行方針、予想の訂正・延期公開ルール、緊急停止を変更し、再配備が必要な基盤設定の状態を確認。OPERATORは秘密値と入力値を除く稼働・接続・公開ルール・配備状態だけを閲覧 | ADMIN+AAL2で変更。OPERATORは読取専用 |
 | /admin/notifications | 予想公開・評価結果の配送状態、試行履歴、状態・チャネル・レースの絞り込み、理由付き再送、Resend配信拒否履歴と停止解除 | ADMIN+AAL2/OPERATOR（停止解除はADMIN+AAL2） |
