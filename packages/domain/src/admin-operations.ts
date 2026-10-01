@@ -85,6 +85,7 @@ export const adminOperationsResponseSchema = z.object({
     preflight: z.object({
       csvImportEnabled: z.boolean(),
       predictionPublicationEnabled: z.boolean(),
+      lineAvailable: z.boolean(),
       lineNotificationsEnabled: z.boolean(),
       lineConfigured: z.boolean()
     }).strict()

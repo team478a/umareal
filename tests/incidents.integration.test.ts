@@ -21,6 +21,11 @@ describe('incident response dashboard', () => {
     expect(incident.issues).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'DELIVERY_STUCK', severity: 'CRITICAL', href: '/admin/notifications' })]));
     expect(incident.publicMessage).toContain('Web会員ページ');
     expect(JSON.stringify(response.body)).not.toMatch(/lineAccessToken|lineChannelSecretEncrypted|leaseToken|databaseUrl|password|authSubject/i);
+    const publicConfig = await new Client().call('auth/config'); expect(publicConfig.status).toBe(200);
+    if (!publicConfig.body.capabilities.lineNotifications) {
+      expect(incident.issues.map(issue => issue.code)).not.toContain('LINE_PAUSED');
+      expect(incident.issues.map(issue => issue.code)).not.toContain('LINE_CONFIGURATION_MISSING');
+    }
 
     const member = new Client(); await member.login(recipient);
     expect((await member.call('admin/incidents')).status).toBe(403);

@@ -60,8 +60,13 @@ test('administrator must complete MFA before viewing member management', async (
   await expect(page.getByRole('heading', { name: '管理ダッシュボード', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '開催日運用ボード', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '開催日リハーサル', exact: true })).toBeVisible();
+  const lineAvailable = await page.evaluate(async () => {
+    const response = await fetch('/api/v1/auth/config');
+    const config = await response.json() as { capabilities: { lineNotifications: boolean } };
+    return config.capabilities.lineNotifications;
+  });
   await expect(page.getByLabel('運用機能の事前確認')).toContainText('予想公開');
-  await expect(page.getByLabel('運用機能の事前確認')).toContainText('LINE設定');
+  await expect(page.getByLabel('運用機能の事前確認')).toContainText(lineAvailable ? 'LINE設定' : 'LINE通知（対象外）');
   await expect(page.getByText('自動更新中', { exact: true })).toBeVisible();
   await expect(page.getByText(/最終更新 .* JST/)).toBeVisible();
   const operationCard = page.locator('.operation-race').filter({ hasText: operationsRace.name });
