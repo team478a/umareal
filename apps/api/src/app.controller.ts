@@ -11,6 +11,7 @@ import { ReadinessService } from './readiness.service';
 import { AuthSessionService } from './auth-session.service';
 import { MemberAccountQueryService } from './member-account-query.service';
 import { AccountClosureService } from './account-closure.service';
+import { lineNotificationState } from './line-notification-policy';
 
 const pagination = z.object({ page: z.coerce.number().int().min(1).max(10000).default(1), limit: z.coerce.number().int().min(1).max(50).default(20) });
 const onboardingFunnelQuerySchema = z.object({ days: z.coerce.number().int().min(1).max(365).default(30), source: z.string().trim().min(1).max(100).optional() }).strict();
@@ -161,6 +162,9 @@ export class AppController {
       } }),
       this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { csvImportEnabled: true, predictionPublicationEnabled: true, lineNotificationsEnabled: true, lineChannelId: true, lineChannelSecretEncrypted: true, lineAccessTokenEncrypted: true } })
     ]);
+    const lineAvailable = launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).lineNotifications;
+    const lineConfigured = !!settings.lineChannelId && !!settings.lineChannelSecretEncrypted && !!settings.lineAccessTokenEncrypted;
+    const lineState = lineNotificationState({ available: lineAvailable, enabled: settings.lineNotificationsEnabled, configured: lineConfigured });
     const items = races.map(race => {
       const completed = race.entries.filter(entry => { const parsed = assessmentSchema.safeParse(entry.assessment?.content); return parsed.success && paddockComplete(parsed.data); }).length;
       const announcement = race.announcements[0] ?? null; const prediction = race.prediction?.versions[0] ?? null;
@@ -183,13 +187,12 @@ export class AppController {
       const predictionQueued = predictionDeliveries.some(item => ['QUEUED', 'SENDING', 'RETRIED'].includes(item.status));
       const notificationFailed = notification.failed > 0;
       const predictionSent = predictionDeliveries.some(item => item.status === 'SENT');
-      const notificationsConfigured = !!settings.lineChannelId && !!settings.lineChannelSecretEncrypted && !!settings.lineAccessTokenEncrypted;
       const steps: { key: string; label: string; state: 'DONE' | 'CURRENT' | 'WAITING' | 'BLOCKED' | 'NOT_DUE'; detail: string }[] = [
         { key: 'SETUP', label: 'レース準備', state: setupDone ? 'DONE' : 'CURRENT', detail: !activeAssignment ? '有効な担当者を設定してください' : !race.entries.length ? '出走馬を登録してください' : `${race.entries.length}頭・担当者設定済み` },
         { key: 'ANNOUNCEMENT', label: '対象レース告知', state: announcement ? 'DONE' : setupDone ? 'CURRENT' : 'WAITING', detail: announcement ? `公開済み v${announcement.version}` : '無料会員へ対象レースを告知します' },
         { key: 'PADDOCK', label: 'パドック評価', state: paddockDone ? 'DONE' : !setupDone || !announcement ? 'WAITING' : 'CURRENT', detail: `${completed}/${race.entries.length}頭完了` },
         { key: 'PUBLICATION', label: '最終予想公開', state: prediction ? 'DONE' : !settings.predictionPublicationEnabled || secondsRemaining <= 0 ? 'BLOCKED' : !paddockDone ? 'WAITING' : 'CURRENT', detail: prediction ? `公開済み v${prediction.version}` : !settings.predictionPublicationEnabled ? '予想公開が緊急停止中です' : secondsRemaining <= 0 ? '公開締切を経過しています' : 'プレビュー確認後に公開します' },
-        { key: 'DELIVERY', label: '通知確認', state: notificationFailed ? 'BLOCKED' : predictionQueued ? 'CURRENT' : predictionSent || prediction?.notificationEvent?.status === 'SKIPPED' ? 'DONE' : prediction && (!settings.lineNotificationsEnabled || !notificationsConfigured) ? 'BLOCKED' : prediction ? 'CURRENT' : 'WAITING', detail: notificationFailed ? '失敗した告知・予想配送を確認してください' : predictionQueued ? '通知処理を待っています' : predictionSent ? '送信済みです' : prediction?.notificationEvent?.status === 'SKIPPED' ? '通知対象なしとして処理済みです' : !settings.lineNotificationsEnabled ? 'LINE通知が緊急停止中です' : !notificationsConfigured ? 'LINE通知設定が未完了です' : '通知イベントを確認します' },
+        { key: 'DELIVERY', label: '通知確認', state: notificationFailed ? 'BLOCKED' : predictionQueued ? 'CURRENT' : predictionSent || prediction?.notificationEvent?.status === 'SKIPPED' ? 'DONE' : prediction && (lineState.paused || lineState.configurationMissing) ? 'BLOCKED' : prediction ? 'CURRENT' : 'WAITING', detail: notificationFailed ? '失敗した告知・予想配送を確認してください' : predictionQueued ? '通知処理を待っています' : predictionSent ? '送信済みです' : prediction?.notificationEvent?.status === 'SKIPPED' ? '通知対象なしとして処理済みです' : !lineAvailable ? 'LINE通知はこの公開モードでは対象外です。Web掲載とメール通知を確認します' : lineState.paused ? 'LINE通知が緊急停止中です' : lineState.configurationMissing ? 'LINE通知設定が未完了です' : '通知イベントを確認します' },
         { key: 'RESULT', label: '結果確定', state: race.resultVersions.length ? 'DONE' : secondsRemaining > 0 ? 'NOT_DUE' : prediction ? 'CURRENT' : 'WAITING', detail: race.resultVersions.length ? `確定済み v${race.resultVersions[0].version}` : secondsRemaining > 0 ? '発走後に確認します' : '着順を確認して評価結果を確定します' }
       ];
       const blocking = steps.filter(step => step.state === 'BLOCKED').length;
@@ -209,7 +212,7 @@ export class AppController {
       ready: items.filter(item => ['READY', 'COMPLETE'].includes(item.rehearsal.status)).length,
       blocked: items.filter(item => item.rehearsal.status === 'BLOCKED').length,
       total: items.length,
-      preflight: { csvImportEnabled: settings.csvImportEnabled, predictionPublicationEnabled: settings.predictionPublicationEnabled, lineNotificationsEnabled: settings.lineNotificationsEnabled, lineConfigured: !!settings.lineChannelId && !!settings.lineChannelSecretEncrypted && !!settings.lineAccessTokenEncrypted }
+      preflight: { csvImportEnabled: settings.csvImportEnabled, predictionPublicationEnabled: settings.predictionPublicationEnabled, lineAvailable, lineNotificationsEnabled: settings.lineNotificationsEnabled, lineConfigured }
     } });
   }
   @Get('admin/acquisition') async acquisition(@Req() req: AppRequest, @Query() query: unknown) {
@@ -293,13 +296,14 @@ export class AppController {
       this.auth.db.emailWebhookEvent.count({ where: { receivedAt: { gte: since }, eventType: 'email.failed' } })
     ]);
     const lineConfigured = !!settings.lineChannelId && !!settings.lineChannelSecretEncrypted && !!settings.lineAccessTokenEncrypted;
+    const lineState = lineNotificationState({ available: launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).lineNotifications, enabled: settings.lineNotificationsEnabled, configured: lineConfigured });
     const mailConfigured = resolveMailConfig(settings).complete;
     const issues: { code: string; severity: 'CRITICAL' | 'WARNING' | 'INFO'; title: string; detail: string; action: string; href: string }[] = [];
     if (!settings.predictionPublicationEnabled) issues.push({ code: 'PREDICTION_PAUSED', severity: 'CRITICAL', title: '予想公開が停止中', detail: '新しいプレビュー確認と公開確定が拒否されます。', action: '停止理由を確認し、復旧条件が揃った後に管理者が再開します。', href: '/admin/settings' });
     if (!settings.emailNotificationsEnabled) issues.push({ code: 'EMAIL_PAUSED', severity: 'CRITICAL', title: 'メール通知が停止中', detail: '確認済みメール会員へのレース告知と公開通知は送信されません。', action: 'メール配信基盤とキューを確認してから管理者が再開します。', href: '/admin/settings' });
     if (settings.emailNotificationsEnabled && process.env.MAIL_TRANSPORT === 'resend' && !mailConfigured) issues.push({ code: 'EMAIL_CONFIGURATION_MISSING', severity: 'CRITICAL', title: 'メール送信設定が不足', detail: 'Resend API key、送信元、Webhook signing secretのいずれかが未設定・読取不能です。', action: '管理者が資格情報を再設定し、外部疎通は別途確認します。', href: '/admin/settings' });
-    if (!settings.lineNotificationsEnabled) issues.push({ code: 'LINE_PAUSED', severity: 'CRITICAL', title: 'LINE通知が停止中', detail: '公開情報はWebへ残りますが、通知キューは処理されません。', action: 'LINE側とキューを確認してから管理者が通知を再開します。', href: '/admin/settings' });
-    if (settings.lineNotificationsEnabled && !lineConfigured) issues.push({ code: 'LINE_CONFIGURATION_MISSING', severity: 'CRITICAL', title: 'LINE通知設定が不足', detail: 'Channel ID、secret、access tokenのいずれかが未設定です。', action: '管理者が資格情報を再設定し、外部疎通は別途確認します。', href: '/admin/settings' });
+    if (lineState.paused) issues.push({ code: 'LINE_PAUSED', severity: 'CRITICAL', title: 'LINE通知が停止中', detail: '公開情報はWebへ残りますが、通知キューは処理されません。', action: 'LINE側とキューを確認してから管理者が通知を再開します。', href: '/admin/settings' });
+    if (lineState.configurationMissing) issues.push({ code: 'LINE_CONFIGURATION_MISSING', severity: 'CRITICAL', title: 'LINE通知設定が不足', detail: 'Channel ID、secret、access tokenのいずれかが未設定です。', action: '管理者が資格情報を再設定し、外部疎通は別途確認します。', href: '/admin/settings' });
     if (stuck) issues.push({ code: 'DELIVERY_STUCK', severity: 'CRITICAL', title: '送信中の通知が停滞', detail: `5分以上送信中の配送が${stuck}件あります。`, action: 'ワーカー状態を確認します。再起動後は期限切れleaseが自動回収されます。', href: '/admin/notifications' });
     if (failed) issues.push({ code: 'DELIVERY_FAILED', severity: 'WARNING', title: '未解決の通知失敗', detail: `失敗状態の配送が${failed}件あります。`, action: '失敗理由を確認し、原因解消後に理由付きで再送します。', href: '/admin/notifications' });
     if (delayed) issues.push({ code: 'DELIVERY_DELAYED', severity: 'WARNING', title: '通知開始が60秒を超過', detail: `初回処理待ちの配送が${delayed}件あります。`, action: 'ワーカー稼働と通知停止設定を確認します。', href: '/admin/notifications' });
@@ -310,7 +314,7 @@ export class AppController {
     if (settings.maintenanceMessage.trim()) issues.push({ code: 'MAINTENANCE_MESSAGE_ACTIVE', severity: 'INFO', title: 'メンテナンス案内を設定中', detail: settings.maintenanceMessage, action: '案内内容と現在の障害状態が一致しているか確認します。', href: '/admin/settings' });
     const critical = issues.filter(issue => issue.severity === 'CRITICAL').length; const warning = issues.filter(issue => issue.severity === 'WARNING').length;
     const status = critical ? 'INCIDENT' : warning ? 'DEGRADED' : 'NORMAL';
-    const publicMessage = !settings.predictionPublicationEnabled ? '現在、予想情報の公開準備を確認しています。公開が通常より遅れる可能性があります。状況が確定次第、Web会員ページでご案内します。' : !settings.emailNotificationsEnabled || !settings.lineNotificationsEnabled || !lineConfigured || stuck || failed || delayed || emailProviderFailures ? '現在、通知の配信に遅れが発生しています。公開済みの情報はWeb会員ページでご確認いただけます。復旧後に改めてご案内します。' : '現在、確認されている公開・通知障害はありません。';
+    const publicMessage = !settings.predictionPublicationEnabled ? '現在、予想情報の公開準備を確認しています。公開が通常より遅れる可能性があります。状況が確定次第、Web会員ページでご案内します。' : !settings.emailNotificationsEnabled || lineState.affectsPublicMessage || stuck || failed || delayed || emailProviderFailures ? '現在、通知の配信に遅れが発生しています。公開済みの情報はWeb会員ページでご確認いただけます。復旧後に改めてご案内します。' : '現在、確認されている公開・通知障害はありません。';
     return adminIncidentResponseSchema.parse({ generatedAt: now, status, counts: { critical, warning, total: issues.length }, issues, publicMessage, monitoring: { failedDeliveries: failed, delayedDeliveries: delayed, stuckDeliveries: stuck, unmatchedWebhooks24h: unmatchedWebhooks, emailRecipientFailures24h: emailFailures, emailProviderFailures24h: emailProviderFailures, lastWebhookAt: lastWebhook?.receivedAt ?? null, lastWebhookOutcome: lastWebhook?.outcome ?? null, settingsUpdatedAt: settings.updatedAt, newPurchasesEnabled: settings.newPurchasesEnabled } });
   }
   @Get('admin/backups/status') async backupStatus(@Req() req: AppRequest) {

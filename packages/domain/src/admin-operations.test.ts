@@ -33,7 +33,7 @@ describe('admin operations response contract', () => {
       rehearsal: { status: 'IN_PROGRESS' as const, done: 2, total: 6 as const, nextStep: 'PADDOCK' as const, steps }
     }],
     alerts: 1,
-    rehearsal: { ready: 0, blocked: 0, total: 1, preflight: { csvImportEnabled: true, predictionPublicationEnabled: true, lineNotificationsEnabled: true, lineConfigured: false } }
+    rehearsal: { ready: 0, blocked: 0, total: 1, preflight: { csvImportEnabled: true, predictionPublicationEnabled: true, lineAvailable: true, lineNotificationsEnabled: true, lineConfigured: false } }
   };
 
   it('preserves the operations board response and normalizes database dates', () => {
