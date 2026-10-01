@@ -11,9 +11,10 @@ const common = {
 
 describe('deployment environment preflight', () => {
   it('accepts the free-registration API shape while retaining manual checks', () => {
-    const result = validateDeploymentEnvironment('api', { ...common, AUTH_PROVIDER: 'supabase', ADMIN_BASE_URL: common.APP_BASE_URL, SUPABASE_URL: 'https://project.supabase.co', SUPABASE_ANON_KEY: 'configured', JOB_SECRET: 'x'.repeat(32), RESEND_WEBHOOK_SECRET: 'configured', CAPTCHA_TRANSPORT: 'turnstile', LINE_OAUTH_TRANSPORT: 'disabled', BILLING_TRANSPORT: 'disabled', STRIPE_LIVE_MODE: 'false', AUTH_RATE_LIMIT: '60' });
+    const result = validateDeploymentEnvironment('api', { ...common, AUTH_PROVIDER: 'supabase', ADMIN_BASE_URL: common.APP_BASE_URL, SUPABASE_URL: 'https://project.supabase.co', SUPABASE_ANON_KEY: 'configured', JOB_SECRET: 'x'.repeat(32), RESEND_WEBHOOK_SECRET: 'configured', CAPTCHA_TRANSPORT: 'turnstile', LINE_OAUTH_TRANSPORT: 'line', BILLING_TRANSPORT: 'disabled', STRIPE_LIVE_MODE: 'false', AUTH_RATE_LIMIT: '60' });
     assert.equal(result.ok, true); assert.equal(result.service, 'api'); assert.equal(result.launchMode, 'FREE_REGISTRATION'); assert.deepEqual(result.errors, []);
     assert.ok(result.manual.some(item => item.code === 'LEGAL_RELEASE'));
+    assert.ok(result.manual.some(item => item.code === 'PROVIDER_LIVE_TESTS' && item.message.includes('LINE Login')));
   });
 
   it('rejects development transports, owner credentials, and malformed secrets without returning values', () => {

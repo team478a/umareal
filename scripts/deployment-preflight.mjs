@@ -60,7 +60,8 @@ export function validateDeploymentEnvironment(service, env) {
   requireValue('JOB_SECRET', Buffer.byteLength(env.JOB_SECRET ?? '') >= 32, 'JOB_SECRET must contain at least 32 bytes.');
   requireValue('RESEND_WEBHOOK_SECRET', present(env.RESEND_WEBHOOK_SECRET), 'RESEND_WEBHOOK_SECRET is required.');
   requireValue('CAPTCHA_TRANSPORT', env.CAPTCHA_TRANSPORT === 'turnstile', 'CAPTCHA_TRANSPORT must be turnstile.');
-  requireValue('LINE_OAUTH_TRANSPORT', env.LINE_OAUTH_TRANSPORT === (limitedLaunch ? 'disabled' : 'line'), `LINE_OAUTH_TRANSPORT must be ${limitedLaunch ? 'disabled' : 'line'} for ${launchMode ?? 'the selected launch mode'}.`);
+  const expectedLineOAuthTransport = ['FREE_REGISTRATION', 'FULL'].includes(launchMode) ? 'line' : 'disabled';
+  requireValue('LINE_OAUTH_TRANSPORT', env.LINE_OAUTH_TRANSPORT === expectedLineOAuthTransport, `LINE_OAUTH_TRANSPORT must be ${expectedLineOAuthTransport} for ${launchMode ?? 'the selected launch mode'}.`);
   const expectedBillingTransport = ['FULL', 'STRIPE_SANDBOX'].includes(launchMode) ? 'stripe' : launchMode === 'CLOUD_STAGING' ? 'test' : 'disabled';
   requireValue('BILLING_TRANSPORT', env.BILLING_TRANSPORT === expectedBillingTransport, `BILLING_TRANSPORT must be ${expectedBillingTransport} for ${launchMode ?? 'the selected launch mode'}.`);
   requireValue('STRIPE_LIVE_MODE', env.STRIPE_LIVE_MODE === (limitedLaunch ? 'false' : 'true'), `STRIPE_LIVE_MODE must be ${limitedLaunch ? 'false' : 'true'} for ${launchMode ?? 'the selected launch mode'}.`);
@@ -74,7 +75,9 @@ export function validateDeploymentEnvironment(service, env) {
     ? 'Complete Supabase, Resend, and Turnstile live tests. Billing remains a no-charge rehearsal in this mode.'
     : launchMode === 'STRIPE_SANDBOX'
       ? 'Complete Supabase, Resend, Turnstile, and Stripe test-mode Checkout and webhook tests. Stripe live credentials are forbidden.'
-    : `Complete Supabase, Resend, and Turnstile live tests${limitedLaunch ? '.' : ', plus LINE and Stripe live tests.'}` });
+    : launchMode === 'FREE_REGISTRATION'
+      ? 'Complete Supabase, Resend, Turnstile, and LINE Login live tests. LINE notifications and Stripe remain disabled.'
+      : 'Complete Supabase, Resend, Turnstile, LINE, and Stripe live tests.' });
   return { service, launchMode, ok: errors.length === 0, errors, manual };
 }
 

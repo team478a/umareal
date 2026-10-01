@@ -18,10 +18,11 @@ export function resolveLaunchMode(value: string | undefined): LaunchMode {
 
 export function launchCapabilities(mode: LaunchMode): LaunchCapabilities {
   const full = mode === 'FULL';
+  const publicRegistration = full || mode === 'FREE_REGISTRATION';
   return {
     emailRegistration: true,
     freeContent: true,
-    lineLogin: full,
+    lineLogin: publicRegistration,
     lineNotifications: full,
     billing: full || mode === 'CLOUD_STAGING' || mode === 'STRIPE_SANDBOX'
   };

@@ -37,7 +37,7 @@ LINE・Stripeへのライブ疎通、正式結果データ取込、月額・利�
 - 本番準備チェック: `/admin/readiness` で認証、外部接続、法務・データ、運用・復旧の不足項目と対応先を確認できます。資格情報は表示せず、この判定だけで公開を承認しません。
 - 管理者の継続運用: `/admin/continuity` で有効な管理者、主・予備認証アプリの準備状況を確認し、ADMIN+AAL2が確認済みメール会員を理由付きで管理者へ昇格できます。Supabaseでは `/security` から別管理の予備TOTP要素を登録し、ログイン時に主・予備を選べます。
 - 運用異常の外部通知: `/admin/incidents` で配信失敗、予約公開失敗、公開期限超過を追記型アラートとして確認できます。管理者はResendメールの通知先と最低重大度を設定し、運営担当とともに理由付きで確認・解決・再送を記録できます。
-- 段階公開: `CLOUD_STAGING`は請求なしのクラウド試験、`STRIPE_SANDBOX`はStripeテストカードと署名付きテストWebhookを使うクラウド試験です。どちらも検索除外ヘッダーを付け、LINEとStripe live modeを停止します。`FREE_REGISTRATION`はメール無料登録と無料情報の一般公開、`FULL`はLINE・Stripe live modeを含む会員サービスです。管理機能はアプリのログイン・ロール・AAL2で保護します。
+- 段階公開: `CLOUD_STAGING`は請求なしのクラウド試験、`STRIPE_SANDBOX`はStripeテストカードと署名付きテストWebhookを使うクラウド試験です。どちらも検索除外ヘッダーを付け、LINEとStripe live modeを停止します。`FREE_REGISTRATION`はLINE・メール無料登録と無料情報の一般公開で、LINE通知とStripe購入は停止します。`FULL`はLINE通知・Stripe live modeを含む会員サービスです。管理機能はアプリのログイン・ロール・AAL2で保護します。
 - DB権限分離: `pnpm db:access:configure` でマイグレーション所有者とAPI・runtimeロールを分け、`pnpm db:access:verify` でCRUDとDDL拒否を検証します。手順は `docs/DATABASE_ACCESS.md` に記載しています。
 - Stripe接続基盤: 外部決済モードではStripe Checkoutへ移動し、署名済みWebhookで金額・会員・申込を照合した後だけ契約と閲覧権限を作成します。月額更新、支払失敗・回復、解約予約・終了、返金をWebhookから同期します。会員はCustomer Portalで支払方法を変更でき、管理者は `/admin/settings` で暗号化資格情報、動作モード、Price IDを管理し、`/admin/billing` で要確認決済を解決できます。
 - packages/config: 共通TypeScript設定。

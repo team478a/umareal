@@ -89,7 +89,7 @@ Phase 3Bは外部LINEへ接続せずtest transportで配送状態を検証する
 
 ## Messaging API transportとWebhook
 
-`NOTIFICATION_TRANSPORT=line` でワーカーは管理画面に暗号化保存したChannel access tokenを読み、固定のLINE push APIへ送信する。資格情報や送信先を標準出力へ出さない。`test` はローカル検証専用である。`LAUNCH_MODE=FREE_REGISTRATION` の本番ではLINE transportの`disabled`を必須にし、workerはLINE配送を展開せず、予約公開とメール配送を処理する。`FULL` の本番はLINE transportの`line`を必須にする。ライブ切替前に通知キューと対象会員を確認し、意図しない一斉送信がない時間帯に行う。
+`NOTIFICATION_TRANSPORT=line` でワーカーは管理画面に暗号化保存したChannel access tokenを読み、固定のLINE push APIへ送信する。資格情報や送信先を標準出力へ出さない。`test` はローカル検証専用である。`LAUNCH_MODE=FREE_REGISTRATION` の本番では`LINE_OAUTH_TRANSPORT=line`でLINE登録・ログインだけを提供し、通知用`NOTIFICATION_TRANSPORT=disabled`を必須にする。workerはLINE配送を展開せず、予約公開とメール配送を処理する。`FULL` の本番は通知transportも`line`を必須にする。ライブ切替前に通知キューと対象会員を確認し、意図しない一斉送信がない時間帯に行う。
 
 メール公開通知は `MAIL_TRANSPORT=resend` で有効にする。初回起動はAPIとworkerに同じ `RESEND_API_KEY` と `MAIL_FROM`、APIに`RESEND_WEBHOOK_SECRET`を設定し、初回管理者の準備後は `/admin/settings` から3項目を暗号化保存できる。管理設定が一項目でもあれば環境変数と混在させず、APIの認証メールとworkerの公開通知が同じ設定を使用する。workerは確認済みメール、本人のメール全体・カテゴリ設定、配信拒否状態、有料公開の権限を送信直前にも確認する。管理画面の「メール通知」は緊急停止であり、停止中に作られた新規eventは再開後に処理される。初回有効化前に `/admin/notifications?channel=EMAIL` で対象件数を確認する。既存eventはPhase 6P移行時に展開済みとなり、過去分は送信されない。
 
