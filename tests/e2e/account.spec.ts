@@ -89,9 +89,15 @@ test('register, save preferences, sign out and sign in on desktop/mobile', async
 });
 
 test('homepage navigation and mobile menu remain usable', async ({ page }, testInfo) => {
+  const fixture = await account();
   const raceDate = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' });
   const venue = `一覧画面${randomBytes(4).toString('hex')}`; const raceName = `一覧導線${randomBytes(4).toString('hex')}`;
   await db.race.create({ data: { raceDate, venue, number: 1, name: raceName, startsAt: new Date(`${raceDate}T23:00:00+09:00`) } });
+  await page.goto('/login');
+  await page.getByLabel('メールアドレス', { exact: true }).fill(fixture.user.email);
+  await page.getByLabel('パスワード', { exact: true }).fill(fixture.password);
+  await page.getByRole('button', { name: 'ログイン', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'マイページ', exact: true })).toBeVisible();
   await page.goto('/');
   await expect(page.getByRole('heading', { name: '対象レース', exact: true })).toBeVisible();
   const menu = page.getByRole('button', { name: 'メニューを開く' });
@@ -103,9 +109,12 @@ test('homepage navigation and mobile menu remain usable', async ({ page }, testI
     await expect(page.locator('.sidebar')).toBeHidden();
   }
   else await page.getByRole('navigation').getByRole('link', { name: 'マイページ' }).click();
-  await expect(page.getByRole('heading', { name: 'ログインが必要です' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'マイページ', exact: true })).toBeVisible();
   await page.goto('/');
   await page.screenshot({ path: testInfo.outputPath('home.png'), fullPage: true });
+  await page.goto('/account');
+  await page.getByRole('button', { name: 'ログアウト', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'おかえりなさい' })).toBeVisible();
   await page.goto('/races');
   await expect(page.getByRole('heading', { name: 'レース一覧', exact: true })).toBeVisible();
   await page.getByLabel('競馬場', { exact: true }).selectOption(venue);
