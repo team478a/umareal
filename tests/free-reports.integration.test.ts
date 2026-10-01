@@ -22,7 +22,10 @@ afterAll(async () => {
     await db.freeMemberBenefit.deleteMany({ where: { id: { in: createdBenefitIds } } });
   }
   if (benefitBefore) await db.freeMemberBenefit.upsert({ where: { id: 'global' }, create: benefitBefore, update: benefitBefore });
-  else await db.freeMemberBenefit.deleteMany({ where: { id: 'global' } });
+  else {
+    await db.freeMemberBenefitView.deleteMany({ where: { benefitId: 'global' } });
+    await db.freeMemberBenefit.deleteMany({ where: { id: 'global' } });
+  }
   await db.$disconnect();
 });
 
