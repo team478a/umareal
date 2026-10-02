@@ -14,7 +14,7 @@ const identity = (user: Record<string, unknown> = {}, values: Partial<AuthContex
   user: { id: 'user-id', email: 'member@example.test', ...user },
   ...values
 }) as AuthContext;
-const totp = (secret: string) => new TOTP({ issuer: '競馬会員メディア 開発用', label: 'member@example.test', algorithm: 'SHA1', digits: 6, period: 30, secret: Secret.fromBase32(secret) });
+const totp = (secret: string) => new TOTP({ issuer: 'ウマリアル', label: 'member@example.test', algorithm: 'SHA1', digits: 6, period: 30, secret: Secret.fromBase32(secret) });
 
 afterEach(() => {
   vi.unstubAllEnvs();

@@ -16,10 +16,8 @@ h3 { font-size:17px; font-weight:650; }
 .app-shell { min-height:100vh; }
 .guest-entry { min-height:100vh; min-height:100dvh; display:grid; place-items:center; padding:32px 20px; background:#fff; }
 .guest-entry-card { display:grid; justify-items:center; gap:42px; width:min(100%,420px); }
-.guest-entry-brand { justify-content:center; font-size:20px; }
-.guest-entry-brand .brand-mark { width:58px; height:60px; font-size:40px; }
-.guest-entry-brand .brand-mark span { font-size:23px; }
-.guest-entry-brand small { font-size:11px; }
+.guest-entry-brand { display:flex; justify-content:center; width:100%; }
+.guest-entry-wordmark { display:block; width:min(100%,400px); height:auto; }
 .guest-entry-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; width:100%; }
 .guest-entry-actions .button { min-width:0; }
 .skip-link { position:fixed; top:10px; left:20px; z-index:100; padding:10px 20px; background:#fff; clip-path:inset(50%); }
@@ -27,8 +25,7 @@ h3 { font-size:17px; font-weight:650; }
 .sidebar { width:258px; position:fixed; top:0; bottom:0; background:#fff; border-right:1px solid var(--line); padding:31px 22px 24px; display:flex; flex-direction:column; z-index:20; }
 .brand { display:flex; align-items:center; gap:12px; font-weight:750; font-size:16px; line-height:1.4; }
 .brand small { display:block; margin-top:6px; font-size:10px; letter-spacing:.19em; color:var(--muted); }
-.brand-mark { display:flex; align-items:center; justify-content:center; background:var(--green); color:white; width:42px; height:44px; border-radius:4px; font-family:Georgia,serif; font-size:30px; flex-shrink:0; }
-.brand-mark span { font-family:var(--font-sans); font-size:19px; margin-left:-8px; margin-top:9px; color:#b7d2b6; }
+.brand-logo { display:block; width:44px; height:44px; border-radius:8px; object-fit:cover; flex-shrink:0; }
 .nav-caption { font-size:12px; color:#82918e; margin:49px 14px 13px; }
 .sidebar-nav { min-height:0; overflow-y:auto; margin-right:-8px; padding-right:8px; scrollbar-width:thin; }
 .admin-nav-section + .admin-nav-section { margin-top:18px; padding-top:16px; border-top:1px solid var(--line); }
@@ -48,8 +45,7 @@ h3 { font-size:17px; font-weight:650; }
 .guest-workspace { margin-left:0; }
 .topbar { min-height:85px; background:rgba(255,255,255,.9); border-bottom:1px solid var(--line); padding:14px 42px; display:flex; align-items:center; justify-content:space-between; gap:20px; }
 .guest-topbar-brand { font-size:14px; }
-.guest-topbar-brand .brand-mark { width:36px; height:38px; font-size:25px; }
-.guest-topbar-brand .brand-mark span { font-size:16px; }
+.guest-topbar-brand .brand-logo { width:38px; height:38px; }
 .guest-topbar-brand small { margin-top:2px; font-size:8px; }
 .topbar-left,.topbar-right { display:flex; align-items:center; gap:18px; font-size:13px; }
 .topbar-left>span:first-of-type { font-size:11px; letter-spacing:.1em; color:var(--muted); }
