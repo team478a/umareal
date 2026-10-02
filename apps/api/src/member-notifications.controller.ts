@@ -27,6 +27,7 @@ export class MemberNotificationsController {
       { announcementId: { not: null } },
       { freeReportVersionId: { not: null } },
       { productVersionId: { not: null } },
+      { paperVersionId: { not: null } },
       { raceResultVersionId: { not: null } },
       { win5EvaluationVersionId: { not: null } },
       { supportEvent: { is: { request: { userId } } } },
@@ -47,6 +48,7 @@ export class MemberNotificationsController {
     const where: Prisma.NotificationEventWhereInput = unread === 'true' ? unreadWhere : visible;
     const select = {
       id: true, eventType: true, createdAt: true,
+      paperVersion: { select: { paperId: true, targetDate: true, title: true, accessScope: true, version: true, publishedAt: true } },
       memberReads: { where: { userId: actor.id }, select: { readAt: true }, take: 1 },
       announcement: { select: { version: true, publishedAt: true, race: { select: { id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true } } } },
       freeReportVersion: { select: { version: true, kind: true, publishedAt: true, race: { select: { id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true } } } },
@@ -63,6 +65,7 @@ export class MemberNotificationsController {
       this.auth.db.notificationEvent.count({ where: unreadWhere })
     ]);
     const items = events.map(event => {
+      if (event.paperVersion) return { id: event.id, eventType: event.eventType, createdAt: event.createdAt, publishedAt: event.paperVersion.publishedAt, version: event.paperVersion.version, visibility: event.paperVersion.accessScope === 'PAID' ? 'PAID' : 'FREE', readAt: event.memberReads[0]?.readAt ?? null, race: null, win5: null, paper: { id: event.paperVersion.paperId, targetDate: event.paperVersion.targetDate, title: event.paperVersion.title }, href: `/papers/${event.paperVersion.paperId}`, title: event.eventType === 'RACE_PAPER_CORRECTED' ? '通常レース紙面の訂正版を公開しました' : '通常レース紙面を公開しました' };
       if (event.billingEvent) {
         const title = {
           BILLING_PAYMENT_SUCCEEDED: 'お支払いを確認しました', BILLING_PAYMENT_FAILED: 'お支払いを確認できませんでした',

@@ -60,5 +60,5 @@ export const publishLineRichMenuResponseSchema = z.object({
 }).strict();
 export type PublishLineRichMenuResponse = z.infer<typeof publishLineRichMenuResponseSchema>;
 
-export const lineLoginReturnPathSchema = z.enum(['/account', '/benefit', '/win5', '/races', '/notifications', '/plans']);
+export const lineLoginReturnPathSchema = z.enum(['/papers', '/account', '/benefit', '/win5', '/races', '/notifications', '/plans']);
 export type LineLoginReturnPath = z.infer<typeof lineLoginReturnPathSchema>;

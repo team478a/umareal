@@ -5,6 +5,7 @@ import { memberReferralCodeInputSchema } from './referrals';
 export * from './races';
 export * from './assessments';
 export * from './predictions';
+export * from './race-paper';
 export * from './admin-settings';
 export * from './admin-summary';
 export * from './admin-operations';

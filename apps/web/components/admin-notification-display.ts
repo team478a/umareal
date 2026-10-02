@@ -9,6 +9,7 @@ export type AdminNotificationDisplay = {
 };
 
 export function adminNotificationDisplay(event: NotificationEvent): AdminNotificationDisplay {
+  if (event.paperVersion) return { title: event.paperVersion.title, detail: `通常レース紙面 第${event.paperVersion.version}版`, targetDate: event.paperVersion.targetDate };
   const billing = event.billingEvent;
   if (billing) {
     const title = billing.subscription?.planCode === 'FOUNDER'

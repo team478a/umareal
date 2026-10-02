@@ -18,6 +18,9 @@ const emptyEvent: AdminNotificationDelivery['event'] = {
 };
 
 describe('admin notification display', () => {
+  it('shows a multi-race paper without assuming a single race target', () => {
+    expect(adminNotificationDisplay({ ...emptyEvent, eventType: 'RACE_PAPER_PUBLISHED', paperVersion: { id, paperId: id, title: '前日紙面', targetDate: '2099-01-01', version: 1, accessScope: 'MEMBERS' } })).toEqual({ title: '前日紙面', detail: '通常レース紙面 第1版', targetDate: '2099-01-01' });
+  });
   it('shows a support response without assuming a race target', () => {
     expect(adminNotificationDisplay(emptyEvent)).toEqual({
       title: 'お問い合わせへの回答',

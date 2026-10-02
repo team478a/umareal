@@ -80,6 +80,9 @@ model User {
   referralRewards                ReferralReward[]
   referralsInvalidated           Referral[]                 @relation("ReferralInvalidator")
   richMenusPublished             LineRichMenuPublication[]  @relation("LineRichMenuPublisher")
+  paperDrafts                    RacePaper[]
+  paperVersionsPublished         RacePaperVersion[]
+  paperPreviews                  RacePaperPreview[]
 
   @@map("users")
 }
@@ -1090,6 +1093,8 @@ model PublicationPreview {
 
 model NotificationEvent {
   id                      String                    @id @default(uuid()) @db.Uuid
+  paperVersionId          String?                   @unique @db.Uuid
+  paperVersion            RacePaperVersion?         @relation(fields: [paperVersionId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   versionId               String?                   @unique @db.Uuid
   version                 PredictionVersion?        @relation(fields: [versionId], references: [id])
   announcementId          String?                   @unique @db.Uuid
@@ -1117,6 +1122,56 @@ model NotificationEvent {
   memberReads             MemberNotificationRead[]
 
   @@map("notification_events")
+}
+
+model RacePaper {
+  id        String   @id @default(uuid()) @db.Uuid
+  revision  Int      @default(1)
+  draft     Json
+  updatedBy String   @db.Uuid
+  updater   User     @relation(fields: [updatedBy], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @db.Timestamptz(3)
+  versions  RacePaperVersion[]
+  previews  RacePaperPreview[]
+  @@map("race_papers")
+}
+
+model RacePaperVersion {
+  id               String   @id @default(uuid()) @db.Uuid
+  paperId          String   @db.Uuid
+  paper            RacePaper @relation(fields: [paperId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  version          Int
+  targetDate       String
+  title            String
+  accessScope      String
+  snapshot         Json
+  deadlineAt       DateTime @db.Timestamptz(3)
+  publishedAt      DateTime @default(now()) @db.Timestamptz(3)
+  publishedBy      String   @db.Uuid
+  publisher        User     @relation(fields: [publishedBy], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  correctionReason String?
+  createdTxId      BigInt   @default(dbgenerated("txid_current()"))
+  notificationEvent NotificationEvent?
+  confirmedPreviews RacePaperPreview[]
+  @@unique([paperId, version])
+  @@index([targetDate, publishedAt])
+  @@map("race_paper_versions")
+}
+
+model RacePaperPreview {
+  id               String   @id @default(uuid()) @db.Uuid
+  paperId          String   @db.Uuid
+  paper            RacePaper @relation(fields: [paperId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  actorId          String   @db.Uuid
+  actor            User     @relation(fields: [actorId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  baselineHash     String
+  version          Int
+  correctionReason String
+  expiresAt        DateTime @db.Timestamptz(3)
+  confirmedVersionId String? @db.Uuid
+  confirmedVersion RacePaperVersion? @relation(fields: [confirmedVersionId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  @@map("race_paper_previews")
 }
 
 model MemberNotificationRead {

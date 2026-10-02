@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { buildBillingLineMessage, buildPredictionLineMessage, buildRaceResultLineMessage, buildSupportReplyLineMessage, buildWin5LineMessage, buildWin5ResultLineMessage, notificationIdempotencyKey, retryDelayMs } from '@keiba/domain';
+import { buildRacePaperNotice, buildBillingLineMessage, buildPredictionLineMessage, buildRaceResultLineMessage, buildSupportReplyLineMessage, buildWin5LineMessage, buildWin5ResultLineMessage, notificationIdempotencyKey, retryDelayMs } from '@keiba/domain';
 import type { LineTextMessage } from '@keiba/domain';
 import { notificationRecipientWhere, PrismaClient } from '@keiba/db';
 
@@ -59,17 +59,17 @@ async function expandEvents(db: PrismaClient, limit: number, channel: DeliveryCh
         ? await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM notification_events WHERE id = ${candidate.id}::uuid AND "expandedAt" IS NULL FOR UPDATE`
         : await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM notification_events WHERE id = ${candidate.id}::uuid AND "emailExpandedAt" IS NULL FOR UPDATE`;
       if (!locked.length) return false;
-      const event = await tx.notificationEvent.findUniqueOrThrow({ where: { id: candidate.id }, include: { version: { include: { prediction: { include: { race: true } } } }, announcement: { include: { race: true } }, freeReportVersion: { include: { race: true } }, productVersion: { include: { product: { include: { races: { orderBy: { legNumber: 'asc' }, include: { race: true } } } } } }, raceResultVersion: { include: { race: true } }, win5EvaluationVersion: { include: { product: { include: { races: { orderBy: { legNumber: 'asc' }, include: { race: true } } } } } }, supportEvent: { include: { request: true } }, billingEvent: true } });
+      const event = await tx.notificationEvent.findUniqueOrThrow({ where: { id: candidate.id }, include: { paperVersion: { select: { id: true, paperId: true, title: true, targetDate: true, version: true } }, version: { include: { prediction: { include: { race: true } } } }, announcement: { include: { race: true } }, freeReportVersion: { include: { race: true } }, productVersion: { include: { product: { include: { races: { orderBy: { legNumber: 'asc' }, include: { race: true } } } } } }, raceResultVersion: { include: { race: true } }, win5EvaluationVersion: { include: { product: { include: { races: { orderBy: { legNumber: 'asc' }, include: { race: true } } } } } }, supportEvent: { include: { request: true } }, billingEvent: true } });
       const race = event.version?.prediction.race ?? event.announcement?.race ?? event.freeReportVersion?.race ?? event.productVersion?.product.races[0]?.race ?? event.raceResultVersion?.race ?? event.win5EvaluationVersion?.product.races[0]?.race;
-      if (!race && !event.supportEvent && !event.billingEvent) throw new Error('Notification event target is missing');
+      if (!race && !event.paperVersion && !event.supportEvent && !event.billingEvent) throw new Error('Notification event target is missing');
       const now = new Date();
       const recipients = event.billingEvent
         ? [{ id: event.billingEvent.userId }]
         : event.supportEvent
         ? [{ id: event.supportEvent.request.userId }]
-        : await tx.user.findMany({ where: notificationRecipientWhere({ channel, eventType: event.eventType, visibility: event.productVersion ? 'FREE' : (event.version?.visibility ?? 'FREE') as 'FREE' | 'PAID', raceDate: event.productVersion?.product.targetDate ?? event.win5EvaluationVersion?.product.targetDate ?? race!.raceDate, now }), select: { id: true } });
-      const targetVersion = event.version?.version ?? event.announcement?.version ?? event.freeReportVersion?.version ?? event.productVersion?.version ?? event.raceResultVersion?.version ?? event.win5EvaluationVersion?.version ?? 1;
-      const targetId = event.billingEvent?.id ?? event.supportEvent?.id ?? event.productVersion?.id ?? event.raceResultVersion?.id ?? event.win5EvaluationVersion?.id ?? race!.id;
+        : await tx.user.findMany({ where: notificationRecipientWhere({ channel, eventType: event.eventType, visibility: event.productVersion ? 'FREE' : (event.version?.visibility ?? 'FREE') as 'FREE' | 'PAID', raceDate: event.paperVersion?.targetDate ?? event.productVersion?.product.targetDate ?? event.win5EvaluationVersion?.product.targetDate ?? race!.raceDate, now }), select: { id: true } });
+      const targetVersion = event.paperVersion?.version ?? event.version?.version ?? event.announcement?.version ?? event.freeReportVersion?.version ?? event.productVersion?.version ?? event.raceResultVersion?.version ?? event.win5EvaluationVersion?.version ?? 1;
+      const targetId = event.paperVersion?.id ?? event.billingEvent?.id ?? event.supportEvent?.id ?? event.productVersion?.id ?? event.raceResultVersion?.id ?? event.win5EvaluationVersion?.id ?? race!.id;
       if (recipients.length) await tx.notificationDelivery.createMany({ data: recipients.map(recipient => ({ eventId: event.id, userId: recipient.id, channel, idempotencyKey: notificationIdempotencyKey({ eventType: event.eventType, targetId, recipientId: recipient.id, version: targetVersion, channel }) })), skipDuplicates: true });
       await tx.notificationEvent.update({ where: { id: event.id }, data: { [marker]: now, updatedAt: now } });
       return true;
@@ -121,6 +121,7 @@ async function runChannelBatch(input: { db: PrismaClient; channel: DeliveryChann
         user: { include: { lineAccount: true, preferences: true, entitlements: true } },
         event: {
           include: {
+            paperVersion: { select: { id: true, paperId: true, title: true, targetDate: true, version: true } },
             version: { include: { prediction: { include: { race: true } } } },
             announcement: { include: { race: true } },
             freeReportVersion: { include: { race: true } },
@@ -142,6 +143,7 @@ async function runChannelBatch(input: { db: PrismaClient; channel: DeliveryChann
       await db.notificationDelivery.updateMany({ where: { id, leaseToken: claim.leaseToken, status: 'SENDING' }, data: { status: 'QUEUED', lockedAt: null, leaseToken: null, updatedAt: now() } });
       return;
     }
+    const paperVersion = delivery.event.paperVersion;
     const version = delivery.event.version;
     const announcement = delivery.event.announcement;
     const freeReport = delivery.event.freeReportVersion;
@@ -151,8 +153,8 @@ async function runChannelBatch(input: { db: PrismaClient; channel: DeliveryChann
     const supportEvent = delivery.event.supportEvent;
     const billingEvent = delivery.event.billingEvent;
     const race = version?.prediction.race ?? announcement?.race ?? freeReport?.race ?? productVersion?.product.races[0]?.race ?? raceResultVersion?.race ?? win5EvaluationVersion?.product.races[0]?.race;
-    if (!race && !supportEvent && !billingEvent) throw new Error('Notification event target is missing');
-    const preferenceEnabled = supportEvent ? true : billingEvent ? delivery.user.preferences?.billing !== false : ['PREDICTION_CORRECTED', 'WIN5_PREVIEW_CORRECTED'].includes(delivery.event.eventType) ? delivery.user.preferences?.changes !== false : delivery.user.preferences?.predictions !== false;
+    if (!race && !paperVersion && !supportEvent && !billingEvent) throw new Error('Notification event target is missing');
+    const preferenceEnabled = supportEvent ? true : billingEvent ? delivery.user.preferences?.billing !== false : ['PREDICTION_CORRECTED', 'WIN5_PREVIEW_CORRECTED', 'RACE_PAPER_CORRECTED'].includes(delivery.event.eventType) ? delivery.user.preferences?.changes !== false : delivery.user.preferences?.predictions !== false;
     const entitlementActive = !!supportEvent || !!billingEvent || !!productVersion || !version || version.visibility === 'FREE' || delivery.user.entitlements.some(item => !item.revokedAt && item.startsAt <= startedAt && item.endsAt > startedAt && (!item.raceDate || item.raceDate === race!.raceDate));
     const channelSkipCode = channel === 'LINE'
       ? !delivery.user.lineAccount || delivery.user.lineAccount.unlinkedAt ? 'LINE_UNLINKED' : delivery.user.lineAccount.notificationDisabledAt ? 'LINE_BLOCKED' : null
@@ -178,7 +180,9 @@ async function runChannelBatch(input: { db: PrismaClient; channel: DeliveryChann
     const appBaseUrl = process.env.APP_BASE_URL ?? 'http://127.0.0.1:3000';
     const latestRaceEvaluation = raceResultVersion?.predictionEvaluations.sort((a, b) => b.predictionVersion.version - a.predictionVersion.version)[0];
     let message: LineTextMessage;
-    if (billingEvent) {
+    if (paperVersion) {
+      message = buildRacePaperNotice({ id: paperVersion.paperId, title: paperVersion.title, targetDate: paperVersion.targetDate, version: paperVersion.version, appBaseUrl });
+    } else if (billingEvent) {
       const eventType = ({
         BILLING_PAYMENT_SUCCEEDED: 'PAYMENT_SUCCEEDED', BILLING_PAYMENT_FAILED: 'PAYMENT_FAILED', BILLING_PAYMENT_RECOVERED: 'PAYMENT_RECOVERED',
         BILLING_CANCELLATION_SCHEDULED: 'CANCELLATION_SCHEDULED', BILLING_CANCELLATION_REVERSED: 'CANCELLATION_REVERSED',
@@ -199,8 +203,8 @@ async function runChannelBatch(input: { db: PrismaClient; channel: DeliveryChann
       message = buildPredictionLineMessage({ eventType: delivery.event.eventType as 'PREDICTION_PUBLISHED' | 'PREDICTION_CORRECTED' | 'RACE_ANNOUNCED' | 'FREE_REPORT_PUBLISHED' | 'FREE_REPORT_REVIEW_PUBLISHED', raceId: race!.id, raceDate: race!.raceDate, venue: race!.venue, raceNumber: race!.number, raceName: race!.name, version: version?.version ?? announcement?.version ?? freeReport!.version, visibility: (version?.visibility ?? 'FREE') as 'FREE' | 'PAID', appBaseUrl });
     }
     const recipient = channel === 'LINE' ? delivery.user.lineAccount!.subject : delivery.user.email!;
-    const targetId = billingEvent?.id ?? supportEvent?.id ?? version?.id ?? announcement?.id ?? freeReport?.id ?? productVersion?.id ?? raceResultVersion?.id ?? win5EvaluationVersion!.id;
-    const outcome = await transport.send({ recipient, idempotencyKey: delivery.idempotencyKey, retryKey: delivery.id, eventType: delivery.event.eventType, targetId, raceId: race?.id ?? supportEvent?.requestId ?? billingEvent!.id, message });
+    const targetId = paperVersion?.id ?? billingEvent?.id ?? supportEvent?.id ?? version?.id ?? announcement?.id ?? freeReport?.id ?? productVersion?.id ?? raceResultVersion?.id ?? win5EvaluationVersion!.id;
+    const outcome = await transport.send({ recipient, idempotencyKey: delivery.idempotencyKey, retryKey: delivery.id, eventType: delivery.event.eventType, targetId, raceId: race?.id ?? paperVersion?.paperId ?? supportEvent?.requestId ?? billingEvent!.id, message });
     const finishedAt = now();
     const nextAttemptCount = delivery.attemptCount + 1;
     if (outcome.kind === 'SENT') {

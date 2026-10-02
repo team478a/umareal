@@ -1076,3 +1076,15 @@ td { padding:17px 24px; border-top:1px solid var(--line); }
 .win5-history-row small { color:var(--muted); }
 @media(max-width:850px) { .win5-product-grid { grid-template-columns:1fr; } .win5-meta-legs { grid-template-columns:1fr 1fr; } .win5-meta-legs>div { border-right:0; border-bottom:1px solid var(--line); } .win5-lock { grid-template-columns:auto minmax(0,1fr); } .win5-lock .button { grid-column:1/-1; width:100%; } }
 @media(max-width:650px) { .win5-product-grid { padding:18px; } .win5-product-grid.archive { padding:0; } .win5-product-card { padding:18px; } .win5-product-top { flex-direction:column; } .win5-meta-legs { grid-template-columns:1fr; } .win5-paper-sheet>header { padding:22px 19px; } .win5-paper-race { grid-template-columns:auto minmax(0,1fr); padding:14px 17px; gap:10px; } .win5-paper-race>span { grid-column:2; } .win5-selections { padding:16px 17px 10px; } .win5-selections>div { width:100%; } .win5-comment { grid-template-columns:1fr; gap:5px; padding:6px 17px 18px; } .win5-paper-sheet>footer { padding:20px 17px 24px; } .win5-paper-sheet dl { grid-template-columns:1fr; } .win5-paper-sheet dl>div { border-right:0; border-bottom:1px solid #d8d0bf; } .win5-paper-sheet dl>div:last-child { border-bottom:0; } .win5-history-row { align-items:start; flex-direction:column; gap:4px; } }
+/* Regular paper uses the same panels and typography as member predictions. */
+.paper-sheet { min-width: 0; overflow-wrap: anywhere; }
+.paper-race { padding: 1rem 0; border-top: 1px solid var(--border, #dae4e4); }
+.paper-marks { list-style: none; padding: 0; margin: 1rem 0; }
+.paper-marks li { display: flex; gap: .75rem; align-items: baseline; margin: .5rem 0; }
+.paper-marks li > strong { flex: 0 0 1.5rem; font-size: 1.3rem; }
+.paper-marks li > span { min-width: 0; }
+.paper-marks small { display: block; }
+.paper-notice { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.paper-archive-item { display: flex; gap: 1rem; justify-content: space-between; align-items: center; padding: 1rem 0; border-top: 1px solid #dae4e4; }
+.paper-archive-item > div { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .paper-archive-item { align-items: flex-start; flex-direction: column; } }
