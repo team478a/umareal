@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { apiBaseUrl, mergeResponseCookies, proxyRequestHeaders } from '../proxy';
+import { apiBaseUrl, mergeResponseCookies, proxyRequestHeaders, shouldRefreshSession } from '../proxy';
 export const dynamic = 'force-dynamic';
 async function forward(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const { path } = await context.params;
@@ -16,7 +16,11 @@ async function forward(request: NextRequest, context: { params: Promise<{ path: 
     });
     let response = await send(headers);
     let refreshCookies: string[] = [];
-    if (response.status === 401 && path[0] !== 'auth' && request.headers.get('cookie')?.includes('keiba_refresh_token=')) {
+    let unauthorizedBody: unknown;
+    if (response.status === 401 && path.join('/') === 'auth/mfa/verify') {
+      try { unauthorizedBody = await response.clone().json(); } catch { unauthorizedBody = undefined; }
+    }
+    if (shouldRefreshSession(path, response.status, request.headers.get('cookie'), unauthorizedBody)) {
       const refreshHeaders = new Headers(headers); refreshHeaders.set('Origin', request.nextUrl.origin); refreshHeaders.set('Content-Type', 'application/json');
       const refreshed = await fetch(`${apiBaseUrl()}/api/v1/auth/refresh`, { method: 'POST', headers: refreshHeaders, body: '{}', cache: 'no-store', signal: controller.signal });
       refreshCookies = refreshed.headers.getSetCookie();

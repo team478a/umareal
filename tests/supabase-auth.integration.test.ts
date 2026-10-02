@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { resolve } from 'node:path';
@@ -160,6 +160,19 @@ afterAll(async () => {
 });
 
 describe('Supabase free-member registration boundary', () => {
+  it('requires an external email session before Supabase MFA verification', async () => {
+    const fixture = await account('ADMIN');
+    const token = randomBytes(32).toString('base64url');
+    await db.session.create({ data: { userId: fixture.user.id, tokenHash: createHash('sha256').update(token).digest('hex'), aal: 1, expiresAt: new Date(Date.now() + 60_000) } });
+    const response = await fetch(`${apiBase}/api/v1/auth/mfa/verify`, {
+      method: 'POST',
+      headers: { Origin: 'http://localhost:3000', Cookie: `keiba_session=${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: '123456' })
+    });
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({ code: 'MFA_EMAIL_LOGIN_REQUIRED', message: '二段階認証を行うには、メールアドレスとパスワードでログインし直してください。' });
+  });
+
   it('binds the provider subject to a server-owned MEMBER with immutable consent and acquisition records', async () => {
     const suffix = randomBytes(6).toString('hex');
     const email = `supabase-${suffix}@example.test`;
