@@ -30,6 +30,20 @@ describe('deployment environment preflight', () => {
     assert.equal(validateDeploymentEnvironment('web', { NODE_ENV: 'production', API_BASE_URL: 'https://user:secret@example.test/path' }).ok, false);
   });
 
+  it('allows free-member LINE delivery without enabling billing and rejects unsafe transports', () => {
+    const api = { ...common, AUTH_PROVIDER: 'supabase', ADMIN_BASE_URL: common.APP_BASE_URL, SUPABASE_URL: 'https://project.supabase.co', SUPABASE_ANON_KEY: 'configured', JOB_SECRET: 'x'.repeat(32), RESEND_WEBHOOK_SECRET: 'configured', CAPTCHA_TRANSPORT: 'turnstile', LINE_OAUTH_TRANSPORT: 'line', BILLING_TRANSPORT: 'disabled', STRIPE_LIVE_MODE: 'false', AUTH_RATE_LIMIT: '60', NOTIFICATION_TRANSPORT: 'line' };
+    assert.equal(validateDeploymentEnvironment('api', api).ok, true);
+    assert.equal(validateDeploymentEnvironment('worker', { ...common, NOTIFICATION_TRANSPORT: 'line' }).ok, true);
+    assert.ok(validateDeploymentEnvironment('api', { ...api, BILLING_TRANSPORT: 'stripe' }).errors.some(item => item.code === 'BILLING_TRANSPORT'));
+    assert.ok(validateDeploymentEnvironment('api', { ...api, STRIPE_LIVE_MODE: 'true' }).errors.some(item => item.code === 'STRIPE_LIVE_MODE'));
+    for (const service of ['api', 'worker']) {
+      assert.ok(validateDeploymentEnvironment(service, { ...api, NOTIFICATION_TRANSPORT: 'test' }).errors.some(item => item.code === 'NOTIFICATION_TRANSPORT'));
+      for (const mode of ['CLOUD_STAGING', 'STRIPE_SANDBOX']) {
+        assert.ok(validateDeploymentEnvironment(service, { ...api, LAUNCH_MODE: mode }).errors.some(item => item.code === 'NOTIFICATION_TRANSPORT'));
+      }
+    }
+  });
+
   it('keeps staging noindex checks and permits only no-charge billing rehearsal', () => {
     const api = validateDeploymentEnvironment('api', { ...common, LAUNCH_MODE: 'CLOUD_STAGING', AUTH_PROVIDER: 'supabase', ADMIN_BASE_URL: common.APP_BASE_URL, SUPABASE_URL: 'https://project.supabase.co', SUPABASE_ANON_KEY: 'configured', JOB_SECRET: 'x'.repeat(32), RESEND_WEBHOOK_SECRET: 'configured', CAPTCHA_TRANSPORT: 'turnstile', LINE_OAUTH_TRANSPORT: 'disabled', BILLING_TRANSPORT: 'test', STRIPE_LIVE_MODE: 'false', AUTH_RATE_LIMIT: '60' });
     assert.equal(api.ok, true);

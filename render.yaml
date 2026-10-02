@@ -29,6 +29,7 @@ services:
         sync: false
       - key: SUPABASE_ANON_KEY
         sync: false
+      # FREE_REGISTRATION supports line; keep disabled until queue review and a separate live delivery test.
       - key: NOTIFICATION_TRANSPORT
         value: disabled
       - key: LINE_OAUTH_TRANSPORT
@@ -95,6 +96,7 @@ services:
         sync: false
       - key: ENCRYPTION_KEY
         sync: false
+      # Match the API transport when enabling free-member LINE notifications.
       - key: NOTIFICATION_TRANSPORT
         value: disabled
       - key: MAIL_TRANSPORT

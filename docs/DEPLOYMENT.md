@@ -95,7 +95,7 @@ node --env-file=.env.production.worker.local scripts/deployment-preflight.mjs wo
 | `JOB_SECRET` | API | 32byte以上のランダム値 |
 | `SENTRY_DSN` | API | 本番プロジェクトの監視先 |
 
-初回公開は `LAUNCH_MODE=FREE_REGISTRATION` とし、APIの`LINE_OAUTH_TRANSPORT=line`、LINE通知とStripeのtransportを`disabled`、メールtransportを`resend`にする。初回起動時だけAPIとworkerへ同じResend設定を登録し、初回管理者を本番認証へ結合した後、AAL2で `/admin/settings` からAPI keyと送信元を暗号化保存できる。LINE LoginのChannel ID、Channel secret、Callback URLは無料募集前に同画面へ保存し、実アカウントで疎通を確認する。LINE通知とStripeの秘密値は`FULL`への拡張前に同画面から保存する。APIとworkerには同じ `ENCRYPTION_KEY` が必要である。キーを失うと保存済みメール・LINE・Stripe秘密値を復号できない。
+初回公開は `LAUNCH_MODE=FREE_REGISTRATION` とし、APIの`LINE_OAUTH_TRANSPORT=line`、LINE通知とStripeのtransportを`disabled`、メールtransportを`resend`にする。初回起動時だけAPIとworkerへ同じResend設定を登録し、初回管理者を本番認証へ結合した後、AAL2で `/admin/settings` からAPI keyと送信元を暗号化保存できる。LINE LoginのChannel ID、Channel secret、Callback URLは無料募集前に同画面へ保存し、実アカウントで疎通を確認する。LINE通知は無料募集モードでも利用できる。Messaging API設定を同画面に保存し、キュー確認と別途承認した本人テストを経てAPI・workerの`NOTIFICATION_TRANSPORT=line`を有効にする。Stripe購入は停止したままとし、Stripe秘密値は`FULL`への拡張前に保存する。手順は`docs/PHASE6N_FREE_REGISTRATION_LAUNCH.md`を参照する。APIとworkerには同じ `ENCRYPTION_KEY` が必要である。キーを失うと保存済みメール・LINE・Stripe秘密値を復号できない。
 
 Supabaseのservice-role keyは現行アプリでは使用しない。管理APIが必要になるまでRenderへ登録せず、anon keyだけで登録・ログイン・更新・JWT検証を行う。
 

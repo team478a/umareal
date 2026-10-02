@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 const require = createRequire(import.meta.url);
 const { legalDocumentReleaseErrors } = require('../packages/domain/dist/legal.js');
-const productionBase = { APP_BASE_URL: 'https://example.test', ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'), SUPABASE_URL: 'https://project.supabase.co', SUPABASE_ANON_KEY: 'test-anon-key', LAUNCH_MODE: 'FULL', CAPTCHA_TRANSPORT: 'turnstile' };
+const productionBase = { APP_BASE_URL: 'https://example.test', ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'), SUPABASE_URL: 'https://project.supabase.co', SUPABASE_ANON_KEY: 'test-anon-key', LAUNCH_MODE: 'FULL', CAPTCHA_TRANSPORT: 'turnstile', AUTH_RATE_LIMIT: '60' };
 const launchMode = spawnSync(process.execPath, ['dist/main.js'], {
   cwd: resolve('apps/api'), env: { ...process.env, ...productionBase, LAUNCH_MODE: '', NODE_ENV: 'production', AUTH_PROVIDER: 'supabase' },
   encoding: 'utf8', timeout: 20000, windowsHide: true
@@ -83,8 +83,18 @@ const freeRegistration = spawnSync(process.execPath, ['dist/main.js'], {
   cwd: resolve('apps/api'), env: { ...process.env, ...productionBase, LAUNCH_MODE: 'FREE_REGISTRATION', NODE_ENV: 'production', AUTH_PROVIDER: 'supabase', NOTIFICATION_TRANSPORT: 'disabled', LINE_OAUTH_TRANSPORT: 'line', BILLING_TRANSPORT: 'disabled', STRIPE_LIVE_MODE: 'false', MAIL_TRANSPORT: 'resend' },
   encoding: 'utf8', timeout: 20000, windowsHide: true
 });
-if (freeRegistration.status === 0 || freeRegistration.stderr.includes('Production requires published legal documents') || freeRegistration.stderr.includes('requires the LINE OAuth transport') || freeRegistration.stderr.includes('requires an external billing')) throw new Error('Free registration launch did not accept published legal documents, live LINE OAuth and disabled billing safely');
+if (freeRegistration.status === 0 || !freeRegistration.stderr.includes('Production requires a restricted database runtime role')) throw new Error('Free registration launch did not accept published legal documents, live LINE OAuth and disabled billing safely');
 console.info('PASS: free registration production mode accepts live LINE OAuth with disabled LINE notifications and billing.');
+for (const service of ['api', 'worker']) {
+  const cwd = resolve(`apps/${service}`); const entry = service === 'api' ? 'dist/main.js' : 'dist/index.js';
+  const env = { ...process.env, ...productionBase, LAUNCH_MODE: 'FREE_REGISTRATION', NODE_ENV: 'production', AUTH_PROVIDER: 'supabase', NOTIFICATION_TRANSPORT: 'line', LINE_OAUTH_TRANSPORT: 'line', BILLING_TRANSPORT: 'disabled', STRIPE_LIVE_MODE: 'false', MAIL_TRANSPORT: 'resend' };
+  const allowed = spawnSync(process.execPath, [entry], { cwd, env, encoding: 'utf8', timeout: 20000, windowsHide: true });
+  // CI uses a local database owner: reach the existing DB safety guard, before credentials or real provider calls.
+  if (allowed.status === 0 || !allowed.stderr.includes('Production requires a restricted database runtime role')) throw new Error(`Free registration ${service} did not allow live LINE while enforcing database safety`);
+  const rejected = spawnSync(process.execPath, [entry], { cwd, env: { ...env, NOTIFICATION_TRANSPORT: 'test' }, encoding: 'utf8', timeout: 20000, windowsHide: true });
+  if (rejected.status === 0 || !rejected.stderr.includes('The selected launch mode forbids this LINE notification transport')) throw new Error(`Free registration ${service} accepted a production test transport`);
+  console.info(`PASS: free registration ${service} permits live LINE and rejects production simulation before provider access.`);
+}
 const backup = spawnSync(process.execPath, ['scripts/backup-verify.mjs'], {
   cwd: resolve('.'), env: { ...process.env, NODE_ENV: 'production', AUTH_PROVIDER: 'local' },
   encoding: 'utf8', timeout: 10000, windowsHide: true

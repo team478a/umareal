@@ -19,6 +19,7 @@
     "test": "vitest run && node --test scripts/deployment-preflight.test.mjs scripts/check-deployment-releases.test.mjs scripts/wait-for-deployment.test.mjs",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:integration:stripe-local": "node scripts/run-required-vitest.mjs --config vitest.integration.config.ts tests/stripe-billing.integration.test.ts",
+    "test:integration:free-line": "node -e \"if (process.env.LAUNCH_MODE !== 'FREE_REGISTRATION' || process.env.BILLING_TRANSPORT !== 'disabled') { console.error('FREE_REGISTRATION with disabled billing is required'); process.exit(1); }\" && node scripts/run-required-vitest.mjs --config vitest.integration.config.ts tests/free-member-line.integration.test.ts tests/notifications.integration.test.ts tests/race-papers.integration.test.ts tests/notification-previews.integration.test.ts tests/line-webhook.integration.test.ts tests/line-login.integration.test.ts",
     "test:e2e": "playwright test",
     "build": "pnpm -r build",
     "db:generate": "pnpm --filter @keiba/db generate",

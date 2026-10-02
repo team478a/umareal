@@ -119,9 +119,30 @@ jobs:
             sleep 0.2
           done
           (cd apps/api && exec node dist/main.js) > .local/api-e2e.log 2>&1 &
+          echo $! > .local/api.pid
           node scripts/wait-services.mjs
       - name: Browser E2E on desktop and mobile viewports
         run: pnpm test:e2e
+      - name: Restart API in free-registration mode with local LINE simulation
+        env:
+          LAUNCH_MODE: FREE_REGISTRATION
+          BILLING_TRANSPORT: disabled
+        run: |
+          api_test_pid="$(cat .local/api.pid)"
+          kill "$api_test_pid"
+          for attempt in $(seq 1 50); do
+            if ! kill -0 "$api_test_pid" 2>/dev/null; then break; fi
+            sleep 0.2
+          done
+          (cd apps/api && exec node dist/main.js) > .local/api-free-line.log 2>&1 &
+          node scripts/wait-services.mjs
+      - name: Free-member LINE integration and desktop/mobile paper publication without billing
+        env:
+          LAUNCH_MODE: FREE_REGISTRATION
+          BILLING_TRANSPORT: disabled
+        run: |
+          pnpm test:integration:free-line
+          pnpm exec playwright test tests/e2e/race-papers.spec.ts
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

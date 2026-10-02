@@ -35,7 +35,7 @@ export class AuthController {
       captcha,
       emailNotificationsEnabled: settings?.emailNotificationsEnabled === true,
       lineEnabled: capabilities.lineLogin && settings?.lineLoginEnabled === true,
-      lineNotificationsEnabled: capabilities.lineNotifications && settings?.lineNotificationsEnabled === true
+      lineNotificationsEnabled: capabilities.lineNotifications && ['line', 'test'].includes(process.env.NOTIFICATION_TRANSPORT ?? '') && settings?.lineNotificationsEnabled === true
     });
   }
   @Post('register') async register(@Body() body: unknown, @Req() req: AppRequest, @Res({ passthrough: true }) res: Response) {

@@ -23,7 +23,7 @@ export function launchCapabilities(mode: LaunchMode): LaunchCapabilities {
     emailRegistration: true,
     freeContent: true,
     lineLogin: publicRegistration,
-    lineNotifications: full,
+    lineNotifications: publicRegistration,
     billing: full || mode === 'CLOUD_STAGING' || mode === 'STRIPE_SANDBOX'
   };
 }
@@ -35,6 +35,13 @@ export function isCloudTestMode(mode: LaunchMode): boolean {
 export function stripeRuntimeModeAllowed(nodeEnv: string | undefined, mode: LaunchMode, liveMode: boolean): boolean {
   if (nodeEnv !== 'production') return true;
   return mode === 'FULL' ? liveMode : mode === 'STRIPE_SANDBOX' ? !liveMode : false;
+}
+
+export function lineNotificationRuntimeModeAllowed(nodeEnv: string | undefined, mode: LaunchMode, transport: string | undefined): boolean {
+  if (!['test', 'line', 'disabled'].includes(transport ?? '')) return false;
+  if (nodeEnv !== 'production') return true;
+  if (mode === 'FREE_REGISTRATION') return transport === 'line' || transport === 'disabled';
+  return mode === 'FULL' ? transport === 'line' : transport === 'disabled';
 }
 
 export function requiresPublishedLegalDocuments(nodeEnv: string | undefined, mode: LaunchMode): boolean {

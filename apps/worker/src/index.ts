@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import { config } from 'dotenv';
-import { launchCapabilities, resolveLaunchMode } from '@keiba/domain';
+import { lineNotificationRuntimeModeAllowed, resolveLaunchMode } from '@keiba/domain';
 import { databaseRuntimeAccessRestricted, loadMailConfig, PrismaClient } from '@keiba/db';
 import { decryptSecret } from '@keiba/db';
 import { runEmailNotificationBatch, runNotificationBatch, skipPendingNotificationEvents, TestNotificationTransport, type NotificationTransport } from './notification-runner';
@@ -18,11 +18,10 @@ async function main() {
   const transportName = process.env.NOTIFICATION_TRANSPORT ?? 'test';
   const mailTransportName = process.env.MAIL_TRANSPORT ?? 'test';
   if (process.env.NODE_ENV === 'production' && !process.env.LAUNCH_MODE) throw new Error('Set LAUNCH_MODE explicitly in production');
-  const capabilities = launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE));
+  const launchMode = resolveLaunchMode(process.env.LAUNCH_MODE);
   if (!['test', 'line', 'disabled'].includes(transportName)) throw new Error('NOTIFICATION_TRANSPORT must be test, line or disabled');
   if (!['test', 'resend'].includes(mailTransportName)) throw new Error('MAIL_TRANSPORT must be test or resend');
-  if (process.env.NODE_ENV === 'production' && capabilities.lineNotifications && transportName !== 'line') throw new Error('Full production launch requires the LINE notification transport');
-  if (process.env.NODE_ENV === 'production' && !capabilities.lineNotifications && transportName !== 'disabled') throw new Error('Free registration launch requires LINE notifications to be disabled');
+  if (!lineNotificationRuntimeModeAllowed(process.env.NODE_ENV, launchMode, transportName)) throw new Error('The selected launch mode forbids this LINE notification transport');
   if (process.env.NODE_ENV === 'production' && mailTransportName !== 'resend') throw new Error('Production requires the Resend email transport');
   const db = new PrismaClient();
   const continuous = !process.argv.includes('--once');
