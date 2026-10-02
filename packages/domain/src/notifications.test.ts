@@ -27,6 +27,8 @@ describe('notification operations rules', () => {
   it('requires the target that belongs to each operational test type', () => {
     const common = { channel: 'EMAIL', reason: '公開前の文面確認' } as const;
     const id = '11111111-1111-4111-8111-111111111111';
+    expect(notificationTestSendSchema.parse({ ...common, contentType: 'CONNECTION_CHECK' })).toMatchObject({ contentType: 'CONNECTION_CHECK' });
+    expect(() => notificationTestSendSchema.parse({ ...common, contentType: 'CONNECTION_CHECK', raceId: id })).toThrow();
     expect(notificationTestSendSchema.parse({ ...common, contentType: 'RACE_PREDICTION', raceId: id })).toMatchObject({ raceId: id });
     expect(notificationTestSendSchema.parse({ ...common, contentType: 'WIN5_PREDICTION', productId: id })).toMatchObject({ productId: id });
     expect(notificationTestSendSchema.parse({ ...common, contentType: 'BILLING_PAYMENT_FAILED', subscriptionId: id })).toMatchObject({ subscriptionId: id });

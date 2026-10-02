@@ -295,6 +295,7 @@ const notificationTestBase = {
 } as const;
 
 export const notificationTestSendSchema = z.discriminatedUnion('contentType', [
+  z.object({ ...notificationTestBase, contentType: z.literal('CONNECTION_CHECK') }).strict(),
   z.object({ ...notificationTestBase, contentType: z.literal('RACE_ANNOUNCEMENT'), raceId: z.string().uuid() }).strict(),
   z.object({ ...notificationTestBase, contentType: z.literal('FREE_REPORT_PRE_RACE'), raceId: z.string().uuid(), draftRevision: z.number().int().positive() }).strict(),
   z.object({ ...notificationTestBase, contentType: z.literal('FREE_REPORT_POST_RACE_REVIEW'), raceId: z.string().uuid(), draftRevision: z.number().int().positive() }).strict(),
@@ -303,6 +304,8 @@ export const notificationTestSendSchema = z.discriminatedUnion('contentType', [
   ...(['BILLING_PAYMENT_SUCCEEDED', 'BILLING_PAYMENT_FAILED', 'BILLING_PAYMENT_RECOVERED', 'BILLING_CANCELLATION_SCHEDULED', 'BILLING_SUBSCRIPTION_ENDED'] as const)
     .map(contentType => z.object({ ...notificationTestBase, contentType: z.literal(contentType), subscriptionId: z.string().uuid() }).strict())
 ]);
+
+export type NotificationTestSendRequest = z.infer<typeof notificationTestSendSchema>;
 
 export const notificationTestSendResponseSchema = z.object({
   status: z.enum(['SIMULATED', 'SENT']),

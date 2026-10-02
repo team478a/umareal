@@ -120,6 +120,16 @@ export class NotificationsController {
   }
 
   private async resolveTestPreview(req: AppRequest, input: z.infer<typeof notificationTestSendSchema>) {
+    if (input.contentType === 'CONNECTION_CHECK') {
+      return {
+        eventType: 'NOTIFICATION_CONNECTION_CHECK' as const,
+        contentLabel: '通知接続確認',
+        version: 1,
+        targetType: 'SYSTEM_SETTING',
+        targetId: 'global',
+        message: { type: 'text' as const, text: 'ウマリアルの通知接続確認です。\n会員への公開・一斉配信は行われていません。' }
+      };
+    }
     if (input.contentType === 'RACE_ANNOUNCEMENT') {
       const preview = await this.previewRaceAnnouncement(req, { raceId: input.raceId });
       return { ...preview, targetType: 'RACE', targetId: input.raceId };

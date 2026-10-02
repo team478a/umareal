@@ -154,6 +154,10 @@ test('administrator must complete MFA before viewing member management', async (
   await page.goto('/admin/notifications');
   await expect(page.getByRole('heading', { name: '通知運用', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '配送一覧', exact: true })).toBeVisible();
+  await expect(page.getByLabel('通知種別')).toHaveValue('CONNECTION_CHECK');
+  await expect(page.getByText('管理者本人（対象データ不要）', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('テスト理由')).toHaveAttribute('placeholder', 'LINE接続を確認するため');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.goto('/admin/incidents');
   await expect(page.getByRole('heading', { name: '障害対応チェック', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '運営向け外部通知', exact: true })).toBeVisible();
