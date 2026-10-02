@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { apiBaseUrl, mergeResponseCookies, proxyRequestHeaders } from './proxy';
+import { apiBaseUrl, mergeResponseCookies, proxyRequestHeaders, shouldRefreshSession } from './proxy';
 
 describe('same-origin API proxy', () => {
   it('forwards provider signatures and drops arbitrary request headers', () => {
@@ -40,5 +40,17 @@ describe('same-origin API proxy', () => {
       'keiba_access_token=new-token; Path=/; HttpOnly',
       'keiba_refresh_token=new-refresh; Path=/; HttpOnly'
     ])).toBe('theme=dark; keiba_access_token=new-token; keiba_refresh_token=new-refresh');
+  });
+
+  it('refreshes an expired session before retrying MFA verification', () => {
+    const cookie = 'keiba_access_token=expired; keiba_refresh_token=refresh-token';
+    expect(shouldRefreshSession(['auth', 'mfa', 'verify'], 401, cookie, { code: 'SESSION_EXPIRED', message: 'もう一度ログインしてください。' })).toBe(true);
+    expect(shouldRefreshSession(['auth', 'mfa', 'verify'], 401, cookie, { message: 'Unauthorized' })).toBe(true);
+  });
+
+  it('does not retry an invalid MFA code or a session without a refresh token', () => {
+    const cookie = 'keiba_access_token=active; keiba_refresh_token=refresh-token';
+    expect(shouldRefreshSession(['auth', 'mfa', 'verify'], 401, cookie, { code: 'MFA_INVALID', message: '認証コードを確認してください。' })).toBe(false);
+    expect(shouldRefreshSession(['auth', 'mfa', 'verify'], 401, 'keiba_access_token=expired', { code: 'SESSION_EXPIRED' })).toBe(false);
   });
 });

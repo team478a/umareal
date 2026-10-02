@@ -44,3 +44,12 @@ export function mergeResponseCookies(cookieHeader: string | null, setCookies: st
   }
   return [...values].map(([name, value]) => `${name}=${value}`).join('; ');
 }
+
+export function shouldRefreshSession(path: string[], status: number, cookieHeader: string | null, responseBody?: unknown) {
+  if (status !== 401 || !cookieHeader?.includes('keiba_refresh_token=')) return false;
+  if (path[0] !== 'auth') return true;
+  if (path.join('/') !== 'auth/mfa/verify' || !responseBody || typeof responseBody !== 'object') return false;
+  const code = 'code' in responseBody ? responseBody.code : undefined;
+  const message = 'message' in responseBody ? responseBody.message : undefined;
+  return code === 'SESSION_EXPIRED' || (code === undefined && message === 'Unauthorized');
+}

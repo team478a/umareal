@@ -167,7 +167,13 @@ export class AuthController {
   }
   @Post('mfa/verify') async verify(@Body() body: unknown, @Req() req: AppRequest, @Res({ passthrough: true }) res: Response) {
     if (process.env.AUTH_PROVIDER === 'supabase') {
-      const identity = await this.auth.authenticate(req);
+      let identity;
+      try { identity = await this.auth.authenticate(req); }
+      catch (error) {
+        if (error instanceof UnauthorizedException) throw new UnauthorizedException({ code: 'SESSION_EXPIRED', message: 'ログインの有効期限が切れました。もう一度ログインしてください。' });
+        throw error;
+      }
+      if (!this.sessions.readExternalAccessToken(req)) throw new UnauthorizedException({ code: 'MFA_EMAIL_LOGIN_REQUIRED', message: '二段階認証を行うには、メールアドレスとパスワードでログインし直してください。' });
       const input = externalMfaVerifySchema.parse(body);
       const session = await this.mfa.verifyExternal(identity, input, req);
       this.sessions.setExternalSession(res, session);
