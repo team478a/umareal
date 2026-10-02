@@ -40,7 +40,7 @@ export function OnboardingFunnel() {
     </section>
     {error && <div className="notice error" role="alert">{error}</div>}
     {loading && !data ? <p role="status">登録状況を集計中…</p> : data && <>
-      {!data.lineAvailable && <div className="notice">現在は無料会員募集モードのため、LINE案内とLINE受信準備は有効化後に計測されます。</div>}
+      {!data.lineAvailable && <div className="notice">現在の公開モードではLINE通知は対象外です。一般公開後にLINE受信準備を確認してください。</div>}
       <section className="panel onboarding-funnel-panel" aria-labelledby="onboarding-funnel-title">
         <div className="panel-heading"><div><span className="eyebrow">COHORT</span><h2 id="onboarding-funnel-title">{data.days}日以内に登録した会員</h2></div><span className="count-tag">{data.source ?? '全流入元'}</span></div>
         <div className="onboarding-funnel-list">{data.stages.map((stage, index) => <article className="onboarding-funnel-stage" key={stage.key}>

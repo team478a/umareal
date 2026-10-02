@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req, ServiceUnavailableException } from '@nestjs/common';
-import { adminNotificationListResponseSchema, adminNotificationTestOptionsResponseSchema, buildBillingLineMessage, buildPredictionLineMessage, buildWin5LineMessage, canManage, freeReportNotificationPreviewResponseSchema, notificationListQuerySchema, notificationRetrySchema, notificationTestSendResponseSchema, notificationTestSendSchema, publishablePredictionSchema, raceAnnouncementNotificationPreviewResponseSchema, requiresMfa } from '@keiba/domain';
+import { adminNotificationListResponseSchema, adminNotificationTestOptionsResponseSchema, buildBillingLineMessage, buildPredictionLineMessage, buildWin5LineMessage, canManage, freeReportNotificationPreviewResponseSchema, launchCapabilities, notificationListQuerySchema, notificationRetrySchema, notificationTestSendResponseSchema, notificationTestSendSchema, publishablePredictionSchema, raceAnnouncementNotificationPreviewResponseSchema, requiresMfa, resolveLaunchMode } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { decryptSecret, loadMailConfig, notificationRecipientWhere, Prisma } from '@keiba/db';
@@ -27,14 +27,15 @@ export class NotificationsController {
         notificationRecipientWhere({ channel: 'EMAIL', eventType, visibility: 'FREE', raceDate, now })
       ] } })
     ]);
-    const lineScheduled = settings.lineNotificationsEnabled ? lineEligible : 0;
+    const lineEnabled = launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).lineNotifications && ['line', 'test'].includes(process.env.NOTIFICATION_TRANSPORT ?? '') && settings.lineNotificationsEnabled;
+    const lineScheduled = lineEnabled ? lineEligible : 0;
     const emailScheduled = settings.emailNotificationsEnabled ? emailEligible : 0;
-    const duplicateChannelMembers = settings.lineNotificationsEnabled && settings.emailNotificationsEnabled ? bothEligible : 0;
+    const duplicateChannelMembers = lineEnabled && settings.emailNotificationsEnabled ? bothEligible : 0;
     return {
       uniqueMembers: lineScheduled + emailScheduled - duplicateChannelMembers,
       totalDeliveries: lineScheduled + emailScheduled,
       duplicateChannelMembers,
-      line: { enabled: settings.lineNotificationsEnabled, eligibleRecipients: lineEligible, scheduledDeliveries: lineScheduled },
+      line: { enabled: lineEnabled, eligibleRecipients: lineEligible, scheduledDeliveries: lineScheduled },
       email: { enabled: settings.emailNotificationsEnabled, eligibleRecipients: emailEligible, scheduledDeliveries: emailScheduled }
     };
   }

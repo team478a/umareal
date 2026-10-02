@@ -39,7 +39,11 @@ describe('LINE Login account lifecycle', () => {
     expect((await client.call('me')).body).toMatchObject({ lineNotificationReady: false, lineNotificationState: 'DISABLED' });
     await client.call('me/preferences', 'PATCH', { predictions: true, changes: true, articles: false, billing: true });
     expect((await client.call('auth/line/unlink', 'POST')).status).toBe(409);
-    expect((await client.call('billing/checkout', 'POST', { planCode: 'STANDARD' }, undefined, { 'Idempotency-Key': randomUUID() })).status).toBe(403);
+    const checkout = await client.call('billing/checkout', 'POST', { planCode: 'STANDARD' }, undefined, { 'Idempotency-Key': randomUUID() });
+    const freeLaunch = process.env.LAUNCH_MODE === 'FREE_REGISTRATION';
+    expect(checkout.status).toBe(freeLaunch ? 503 : 403);
+    expect(checkout.body.code).toBe(freeLaunch ? 'BILLING_NOT_IN_LAUNCH' : 'VERIFIED_LOGIN_REQUIRED');
+    expect(await db.billingCheckout.count({ where: { userId: registered.body.user.id } })).toBe(0);
 
     const email = `line-fallback-${randomUUID()}@example.test`; const password = 'line-fallback-password-123';
     const requested = await client.call('auth/email/fallback', 'POST', { email, password });

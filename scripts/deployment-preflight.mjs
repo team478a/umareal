@@ -45,7 +45,8 @@ export function validateDeploymentEnvironment(service, env) {
   requireValue('MAIL_FROM', emailFrom(env.MAIL_FROM), 'MAIL_FROM must contain a valid sender address.');
 
   const limitedLaunch = launchMode !== 'FULL';
-  requireValue('NOTIFICATION_TRANSPORT', env.NOTIFICATION_TRANSPORT === (limitedLaunch ? 'disabled' : 'line'), `NOTIFICATION_TRANSPORT must be ${limitedLaunch ? 'disabled' : 'line'} for ${launchMode ?? 'the selected launch mode'}.`);
+  const allowedNotificationTransports = launchMode === 'FREE_REGISTRATION' ? ['disabled', 'line'] : limitedLaunch ? ['disabled'] : ['line'];
+  requireValue('NOTIFICATION_TRANSPORT', allowedNotificationTransports.includes(env.NOTIFICATION_TRANSPORT), `NOTIFICATION_TRANSPORT must be ${allowedNotificationTransports.join(' or ')} for ${launchMode ?? 'the selected launch mode'}.`);
 
   if (service === 'worker') {
     manual.push({ code: 'DATABASE_RUNTIME_ROLE', message: 'Verify that DATABASE_URL uses the restricted runtime role.' });
@@ -76,7 +77,7 @@ export function validateDeploymentEnvironment(service, env) {
     : launchMode === 'STRIPE_SANDBOX'
       ? 'Complete Supabase, Resend, Turnstile, and Stripe test-mode Checkout and webhook tests. Stripe live credentials are forbidden.'
     : launchMode === 'FREE_REGISTRATION'
-      ? 'Complete Supabase, Resend, Turnstile, and LINE Login live tests. LINE notifications and Stripe remain disabled.'
+      ? 'Complete Supabase, Resend, Turnstile, and LINE Login live tests. When enabling LINE notifications, verify API/worker transports and a self-test delivery separately. Stripe remains disabled.'
       : 'Complete Supabase, Resend, Turnstile, LINE, and Stripe live tests.' });
   return { service, launchMode, ok: errors.length === 0, errors, manual };
 }

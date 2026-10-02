@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { launchCapabilities, requiresPublishedLegalDocuments, resolveLaunchMode, stripeRuntimeModeAllowed } from './launch';
+import { launchCapabilities, lineNotificationRuntimeModeAllowed, requiresPublishedLegalDocuments, resolveLaunchMode, stripeRuntimeModeAllowed } from './launch';
 
 describe('launch capabilities', () => {
-  it('allows email and LINE registration while paid and push features remain disabled during the initial launch', () => {
+  it('allows email and LINE registration and notifications while billing remains disabled', () => {
     expect(launchCapabilities(resolveLaunchMode('FREE_REGISTRATION'))).toEqual({
       emailRegistration: true,
       freeContent: true,
       lineLogin: true,
-      lineNotifications: false,
+      lineNotifications: true,
       billing: false
     });
   });
@@ -44,6 +44,21 @@ describe('launch capabilities', () => {
 
   it('rejects unknown launch modes', () => {
     expect(() => resolveLaunchMode('partial')).toThrow();
+  });
+
+  it.each([
+    ['FREE_REGISTRATION', 'line', true], ['FREE_REGISTRATION', 'disabled', true], ['FREE_REGISTRATION', 'test', false],
+    ['FULL', 'line', true], ['FULL', 'disabled', false], ['FULL', 'test', false],
+    ['CLOUD_STAGING', 'disabled', true], ['CLOUD_STAGING', 'line', false], ['CLOUD_STAGING', 'test', false],
+    ['STRIPE_SANDBOX', 'disabled', true], ['STRIPE_SANDBOX', 'line', false], ['STRIPE_SANDBOX', 'test', false]
+  ])('enforces production LINE transport boundaries for %s / %s', (mode, transport, allowed) => {
+    expect(lineNotificationRuntimeModeAllowed('production', resolveLaunchMode(mode), transport)).toBe(allowed);
+  });
+
+  it('permits loopback simulation without accepting unknown transports', () => {
+    expect(lineNotificationRuntimeModeAllowed('development', 'FREE_REGISTRATION', 'test')).toBe(true);
+    expect(lineNotificationRuntimeModeAllowed('production', 'FREE_REGISTRATION', undefined)).toBe(false);
+    expect(lineNotificationRuntimeModeAllowed('development', 'FREE_REGISTRATION', 'unknown')).toBe(false);
   });
 
   it('allows draft documents only in explicit cloud test modes', () => {

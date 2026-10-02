@@ -166,7 +166,7 @@ export class AppController {
       this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { csvImportEnabled: true, predictionPublicationEnabled: true, lineNotificationsEnabled: true, lineChannelId: true, lineChannelSecretEncrypted: true, lineAccessTokenEncrypted: true } })
     ]);
     const lineAvailable = launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).lineNotifications;
-    const lineConfigured = !!settings.lineChannelId && !!settings.lineChannelSecretEncrypted && !!settings.lineAccessTokenEncrypted;
+    const lineConfigured = ['line', 'test'].includes(process.env.NOTIFICATION_TRANSPORT ?? '') && !!settings.lineChannelId && !!settings.lineChannelSecretEncrypted && !!settings.lineAccessTokenEncrypted;
     const lineState = lineNotificationState({ available: lineAvailable, enabled: settings.lineNotificationsEnabled, configured: lineConfigured });
     const items = races.map(race => {
       const completed = race.entries.filter(entry => { const parsed = assessmentSchema.safeParse(entry.assessment?.content); return parsed.success && paddockComplete(parsed.data); }).length;
@@ -298,7 +298,7 @@ export class AppController {
       this.auth.db.emailWebhookEvent.count({ where: { receivedAt: { gte: since }, eventType: { in: ['email.bounced', 'email.complained', 'email.suppressed'] } } }),
       this.auth.db.emailWebhookEvent.count({ where: { receivedAt: { gte: since }, eventType: 'email.failed' } })
     ]);
-    const lineConfigured = !!settings.lineChannelId && !!settings.lineChannelSecretEncrypted && !!settings.lineAccessTokenEncrypted;
+    const lineConfigured = ['line', 'test'].includes(process.env.NOTIFICATION_TRANSPORT ?? '') && !!settings.lineChannelId && !!settings.lineChannelSecretEncrypted && !!settings.lineAccessTokenEncrypted;
     const lineState = lineNotificationState({ available: launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).lineNotifications, enabled: settings.lineNotificationsEnabled, configured: lineConfigured });
     const mailConfigured = resolveMailConfig(settings).complete;
     const issues: { code: string; severity: 'CRITICAL' | 'WARNING' | 'INFO'; title: string; detail: string; action: string; href: string }[] = [];

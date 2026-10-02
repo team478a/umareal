@@ -28,7 +28,7 @@
 
 クラウド試験は一般公開と分離する。`CLOUD_STAGING`では請求なしtransportを、`STRIPE_SANDBOX`ではStripeテストキー、テストカード、テストWebhookを使用する。両モードともBasic認証は使用せず、`no-store`と`X-Robots-Tag: noindex, nofollow`でキャッシュと検索登録を拒否し、LINE Login・LINE通知・Stripe live modeを停止する。管理機能と会員情報はアプリのログイン・ロール・AAL2で保護する。開発版法務文書はこのテスト環境だけで使用できる。`FREE_REGISTRATION`と`FULL`の本番起動では引き続き公開済み法務文書を必須とする。
 
-一般公開の`FREE_REGISTRATION`では、LINE登録・ログインとメール登録・確認・ログインを提供する。LINE通知配送とStripe購入は停止し、無料登録の入口と有料販売・一斉通知の開始を分離する。
+一般公開の`FREE_REGISTRATION`では、LINE登録・ログインとメール登録・確認・ログインを提供し、無料会員へのLINE・メール通知も有効化できる。Stripe購入は停止する。LINE通知はAPIとworkerの`NOTIFICATION_TRANSPORT=line`および管理スイッチで有効にする。初期値`disabled`を維持してコード反映だけで送信開始しない。有料本文の非公開と本人の受信設定は既存ルールを再利用する。手順は`docs/PHASE6N_FREE_REGISTRATION_LAUNCH.md`に記載する。
 
 ### 最優先の完成条件
 
