@@ -112,9 +112,12 @@ export class AppController {
     return publicRaceAnnouncementsResponseSchema.parse({ items: items.map(row => ({ id: row.id, version: row.version, publishedAt: row.publishedAt, race: { id: row.race.id, raceDate: row.race.raceDate, venue: row.race.venue, number: row.race.number, name: row.race.name, startsAt: row.race.startsAt } })) });
   }
   @Get('expert/races') async assigned(@Req() req: AppRequest) {
-    const identity = await this.staff(req, ['EXPERT', 'ADMIN']);
+    const identity = await this.auth.authenticate(req);
+    if (!['EXPERT', 'OPERATOR', 'ADMIN'].includes(identity.role) || identity.aal !== 2) {
+      throw new ForbiddenException({ code: identity.aal !== 2 && ['EXPERT', 'OPERATOR', 'ADMIN'].includes(identity.role) ? 'MFA_REQUIRED' : 'FORBIDDEN', message: '予想作業には担当権限と二段階認証が必要です。' });
+    }
     const items = await this.auth.db.race.findMany({
-      where: identity.role === 'ADMIN' ? {} : { assignments: { some: { userId: identity.id } } },
+      where: identity.role === 'EXPERT' ? { assignments: { some: { userId: identity.id } } } : {},
       take: 50,
       orderBy: { startsAt: 'asc' },
       select: { id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true, status: true }
@@ -126,7 +129,7 @@ export class AppController {
     z.string().uuid().parse(raceId);
     const race = await this.auth.db.race.findUnique({ where: { id: raceId }, include: { assignments: true } });
     if (!race) throw new NotFoundException();
-    if (!canEditRace(identity, race.assignments.map(a => a.userId))) throw new ForbiddenException({ code: 'RACE_ACCESS_DENIED', message: '担当レースと二段階認証を確認してください。' });
+    if (!canEditRace(identity, race.assignments.map(a => a.userId))) throw new ForbiddenException({ code: 'RACE_ACCESS_DENIED', message: '予想権限と二段階認証を確認してください。' });
     return { race: { id: race.id, name: race.name, startsAt: race.startsAt }, inputEnabled: true };
   }
   @Get('admin/summary') async summary(@Req() req: AppRequest) {

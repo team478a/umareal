@@ -13,7 +13,7 @@ export class AssessmentsController {
     const identity = await this.auth.authenticate(req);
     const race = await tx.race.findUnique({ where: { id: raceId }, include: { assignments: true } });
     if (!race) throw new NotFoundException();
-    if (!canEditRace(identity, race.assignments.map(a => a.userId))) throw new ForbiddenException({ code: 'RACE_ACCESS_DENIED', message: '担当レースと二段階認証を確認してください。' });
+    if (!canEditRace(identity, race.assignments.map(a => a.userId))) throw new ForbiddenException({ code: 'RACE_ACCESS_DENIED', message: '予想権限と二段階認証を確認してください。' });
     return race;
   }
   @Get(':raceId/assessments') async read(@Req() req: AppRequest, @Param('raceId') raceId: string) {

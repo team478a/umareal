@@ -105,7 +105,7 @@ export class RacesController {
     });
   }
   private async validateExpert(tx: Tx, id: string | null) {
-    if (id && !await tx.user.findFirst({ where: { id, role: 'EXPERT', disabledAt: null } })) throw new BadRequestException({ code: 'INVALID_EXPERT', message: '有効な専門家を選択してください。' });
+    if (id && !await tx.user.findFirst({ where: { id, role: 'EXPERT', disabledAt: null } })) throw new BadRequestException({ code: 'INVALID_EXPERT', message: '有効な予想担当を選択してください。' });
   }
   private async saveRace(tx: Tx, input: RaceInput, id?: string) {
     await this.validateExpert(tx, input.expertId);

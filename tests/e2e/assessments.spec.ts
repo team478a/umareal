@@ -6,7 +6,7 @@ test.afterAll(() => db.$disconnect());
 test('paddock drafts survive offline edits, synchronize, and require explicit conflict resolution', async ({ page, context }, testInfo) => {
   const fixture = await assessmentFixture();
   await context.addCookies([{ name: 'keiba_session', value: fixture.token, domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
-  await page.goto('/expert'); await page.getByRole('button', { name: '評価を入力' }).click();
+  await page.goto('/expert'); await page.getByRole('button', { name: '評価・予想を入力' }).click();
   await expect(page.getByRole('heading', { name: fixture.race.name, exact: true })).toBeVisible();
   await page.getByRole('button', { name: '事前評価', exact: true }).click();
   await page.getByLabel('事前点数', { exact: true }).fill('85');
@@ -24,7 +24,7 @@ test('paddock drafts survive offline edits, synchronize, and require explicit co
   expect(local[fixture.entries[0].id].content.paddockComment).toBe('通信切断中の評価を保持');
   await context.setOffline(false);
   await expect(page.locator('.assessment-progress [role=status]')).toHaveText('保存済み');
-  await page.reload(); await page.getByRole('button', { name: '評価を入力' }).click();
+  await page.reload(); await page.getByRole('button', { name: '評価・予想を入力' }).click();
   await expect(page.getByLabel('パドック短評', { exact: true })).toHaveValue('通信切断中の評価を保持');
   const saved = await db.assessment.findUniqueOrThrow({ where: { entryId: fixture.entries[0].id } });
   const changed = { ...(saved.content as Record<string, unknown>), body: 5, paddockComment: '別端末で変更した評価' };
@@ -46,4 +46,12 @@ test('paddock drafts survive offline edits, synchronize, and require explicit co
   expect(await page.getByRole('button', { name: '馬体の張り 4', exact: true }).evaluate(e => e.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('assessment.png'), fullPage: true });
+});
+test('race operator can open an unassigned race after AAL2 without mobile overflow', async ({ page, context }) => {
+  const target = await assessmentFixture(); const operator = await assessmentFixture('OPERATOR');
+  await context.addCookies([{ name: 'keiba_session', value: operator.token, domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
+  await page.goto(`/expert?race=${target.race.id}`);
+  await expect(page.getByRole('heading', { name: target.race.name, exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '事前評価', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

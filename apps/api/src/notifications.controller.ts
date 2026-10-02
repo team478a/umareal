@@ -61,7 +61,7 @@ export class NotificationsController {
     if (!config.sendingComplete || !config.apiKey || !config.from) throw new ServiceUnavailableException({ code: 'EMAIL_TEST_CONFIGURATION_INVALID', message: 'メール送信設定が不足しています。管理設定を確認してください。' });
     let response: Response;
     try {
-      response = await fetch('https://api.resend.com/emails', { method: 'POST', signal: AbortSignal.timeout(8000), headers: { Authorization: `Bearer ${config.apiKey}`, 'Content-Type': 'application/json', 'Idempotency-Key': input.idempotencyKey, 'User-Agent': 'umareal-api/1.0' }, body: JSON.stringify({ from: config.from, to: [input.recipient], subject: `【運営テスト】${input.contentLabel}`, text: `${input.message.text}\n\nこれは運営担当者本人へのテスト送信です。` }) });
+      response = await fetch('https://api.resend.com/emails', { method: 'POST', signal: AbortSignal.timeout(8000), headers: { Authorization: `Bearer ${config.apiKey}`, 'Content-Type': 'application/json', 'Idempotency-Key': input.idempotencyKey, 'User-Agent': 'umareal-api/1.0' }, body: JSON.stringify({ from: config.from, to: [input.recipient], subject: `【運営テスト】${input.contentLabel}`, text: `${input.message.text}\n\nこれは担当者本人へのテスト送信です。` }) });
     } catch { throw new ServiceUnavailableException({ code: 'EMAIL_TEST_CONNECTION_FAILED', message: 'メールテスト送信に接続できませんでした。' }); }
     if (!response.ok) throw new ServiceUnavailableException({ code: `EMAIL_TEST_HTTP_${response.status}`, message: 'メールテスト送信が受理されませんでした。' });
     return 'RESEND' as const;

@@ -132,15 +132,15 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 本人確認フォローpilot: `GET /admin/registration-followups`の確認待ち会員、送信履歴、再送可否、状態別件数の既存応答を共有Contractへ接続し、本人確認フォロー画面の手書き応答型を置き換える。抽出条件、ADMIN+AAL2認可、再送処理、画面表示、DB schemaは変更しない。
 - バックアップ検証状態pilot: `GET /admin/backups/status`の復元検証済み・失敗・未実施・不正ファイルの既存4応答を共有Contractへ接続し、バックアップ管理画面の手書き応答型を置き換える。ローカル状態ファイルの解釈、ADMIN+AAL2認可、復元検証処理、画面表示、DB schemaは変更しない。
 - 会員向けお知らせ履歴pilot: `GET /me/notifications`のレース、WIN5、問い合わせ回答、課金通知とページ情報の既存応答を共有Contractへ接続し、会員向け配信履歴画面の手書き応答型を置き換える。本人認証、有料履歴の閲覧判定、既読処理、画面表示、DB schemaは変更しない。
-- 公開レース一覧pilot: `GET /races`のレース基本情報、告知・最終予想の公開メタデータ、ページ情報、絞り込み状態の既存応答を共有Contractへ接続し、レース一覧画面と会員ホームの手書き応答型を置き換える。専門家用レースAPIの画面内型とは分離する。公開条件、一覧の絞り込み、有料本文の詳細認可、画面表示、DB schemaは変更しない。
+- 公開レース一覧pilot: `GET /races`のレース基本情報、告知・最終予想の公開メタデータ、ページ情報、絞り込み状態の既存応答を共有Contractへ接続し、レース一覧画面と会員ホームの手書き応答型を置き換える。予想担当用レースAPIの画面内型とは分離する。公開条件、一覧の絞り込み、有料本文の詳細認可、画面表示、DB schemaは変更しない。
 - 会員通知設定更新pilot: `PATCH /me/preferences`の既存5項目の応答を共有Contractへ接続し、マイページの保存処理も同じ型を参照する。設定項目、受信拒否時の再開制限、本人認証、監査、画面表示、DB schemaは変更しない。
 - 公開予想詳細pilot: `GET /races/:raceId/prediction`の未公開、ロック済みメタデータ、閲覧可能な公開版の応答を共有Contractへ接続し、会員向け予想画面の手書き応答型を置き換える。下書きだけ存在する場合も既存画面が必要とするレース情報を返す。公開条件、有限期間権限、無料会員への本文制限、画面表示、DB schemaは変更しない。
 - 公開確定結果pilot: `GET /races/:raceId/result`の未確定と確定済み結果・馬評価の既存応答を共有Contractへ接続し、会員向け結果表示の手書き応答型を置き換える。結果確定、訂正履歴、馬評価集計、画面表示、DB schemaは変更しない。
 - 公開成績pilot: `GET /results/stats`の全体、信頼度別、競馬場別、馬場別、月別の既存応答を共有Contractへ接続し、会員向け成績画面の手書き応答型を置き換える。最新確定結果版の選択、馬評価集計ルール、画面表示、DB schemaは変更しない。
 - 結果取込元一覧pilot: `GET /admin/results/import/providers`の取込元ID、表示名、形式版、CSV見出しの既存応答を共有Contractへ接続し、結果管理画面の手書き応答型を置き換える。取込方式、JRA-VAN連携、ADMIN+AAL2とOPERATORの既存認可、画面表示、DB schemaは変更しない。接続設定、資格情報、内部provider実装の追加を厳格なContractとcharacterization testで拒否する。
 - 結果取込履歴pilot: `GET /admin/results/import/history`の確定済み取込元、CSV指紋、初回・訂正区分、bundle検証情報、担当表示名、対象レースの既存応答を共有Contractへ接続し、結果管理画面の手書き応答型を置き換える。最大30件の表示、取込・訂正処理、ADMIN+AAL2とOPERATORの既存認可、画面表示、DB schemaは変更しない。取込行、担当者ID、会員連絡先、接続設定、資格情報の追加を厳格なContractとcharacterization testで拒否する。
-- 結果管理レース一覧pilot: `GET /admin/results/races`のレース基本情報、結果下書きの版・取込元、最新確定結果の版・確定時刻の既存応答を共有Contractへ接続し、結果管理画面の手書き応答型を置き換える。発走済み対象の抽出、並び順、最大100件、ADMIN+AAL2とOPERATORの既存認可、結果入力・確定処理、画面表示、DB schemaは変更しない。出走馬、下書き本文、担当専門家、結果確認者、会員連絡先、接続設定、資格情報の追加を厳格なContractとcharacterization testで拒否する。
-- 結果管理レース詳細pilot: `GET /admin/results/races/:raceId`のレース基本情報、出走馬の表示項目、編集可能な結果下書き、確定結果履歴の既存応答を共有Contractへ接続し、結果管理画面の手書き応答型を置き換える。未入力時の空理由・未確定着順、確定版の降順、ADMIN+AAL2とOPERATORの既存認可、下書き保存・CSV取込・結果確定、画面表示、DB schemaは変更しない。画面で不要な結果確認者IDをDB取得と応答から除外し、担当専門家、出走馬詳細、更新者、認証・配信資格情報の追加を厳格なContractとcharacterization testで拒否する。
+- 結果管理レース一覧pilot: `GET /admin/results/races`のレース基本情報、結果下書きの版・取込元、最新確定結果の版・確定時刻の既存応答を共有Contractへ接続し、結果管理画面の手書き応答型を置き換える。発走済み対象の抽出、並び順、最大100件、ADMIN+AAL2とOPERATORの既存認可、結果入力・確定処理、画面表示、DB schemaは変更しない。出走馬、下書き本文、予想担当、結果確認者、会員連絡先、接続設定、資格情報の追加を厳格なContractとcharacterization testで拒否する。
+- 結果管理レース詳細pilot: `GET /admin/results/races/:raceId`のレース基本情報、出走馬の表示項目、編集可能な結果下書き、確定結果履歴の既存応答を共有Contractへ接続し、結果管理画面の手書き応答型を置き換える。未入力時の空理由・未確定着順、確定版の降順、ADMIN+AAL2とOPERATORの既存認可、下書き保存・CSV取込・結果確定、画面表示、DB schemaは変更しない。画面で不要な結果確認者IDをDB取得と応答から除外し、予想担当、出走馬詳細、更新者、認証・配信資格情報の追加を厳格なContractとcharacterization testで拒否する。
 - 結果下書き保存・確定応答pilot: `PATCH /admin/results/races/:raceId`の新しい下書き版番号と、`POST /admin/results/races/:raceId/confirm`の結果版ID・版番号・冪等再送状態を共有Contractへ接続し、結果管理画面の手書き応答型を置き換える。楽観ロック、発走後制約、結果評価、公開済み結果の追記、監査、通知event、ADMIN+AAL2とOPERATORの既存認可、画面表示、DB schemaは変更しない。更新者、確認者、監査ID、会員情報、資格情報の追加を厳格なContractとcharacterization testで拒否する。
 - 結果CSV取込応答pilot: 複数レースとレース単体のCSV差分確認・下書き反映APIについて、入力不備、重複、初回反映、公式訂正、冪等再送を含む既存応答を共有Contractへ接続し、結果管理画面の手書き応答型を置き換える。取込検証、JRA-VAN bundle照合、楽観ロック、取込履歴、監査、ADMIN+AAL2とOPERATORの既存認可、画面表示、DB schemaは変更しない。保存済み取込行、担当者ID、監査ID、会員情報、接続設定、資格情報の追加を厳格なContractとcharacterization testで拒否する。
 - 公開WIN5成績pilot: `GET /win5/performance`の公開回数、対象レース数、勝ち馬候補内選出、中心馬の1着・連対・複勝率の既存応答を共有Contractへ接続する。集計対象の版選択、計算ルール、API URL、画面表示、DB schemaは変更しない。現在のWeb画面はこのAPIを使用していないため、未使用の画面型は追加しない。
@@ -165,7 +165,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 会員管理一覧pilot: `GET /admin/users`の表示名、メール確認状態、登録方式、LINE連携状態、ロール、登録日時、ページ情報の既存応答を共有Contractへ接続し、管理画面の手書き型を置き換える。ADMIN+AAL2認可、一覧順序、表示内容、画面表示、DB schemaは変更しない。認証subject、password hash、MFA秘密、紹介コード、決済識別子、監査情報の追加を厳格なContractとcharacterization testで拒否する。
 - 会員問い合わせ履歴pilot: `GET /support/me`の問い合わせ種別、件名、本文、状態、作成・更新時刻と、会員へ公開された追記・回答だけを共有Contractへ接続し、会員画面の手書き応答型を置き換える。MEMBER本人認可、最大100件と並び順、問い合わせ受付・追記・状態遷移、画面表示、DB schemaは変更しない。優先度、担当者、対応期限、会員識別情報、内部対応理由、監査情報の追加を厳格なContractとcharacterization testで拒否する。
 - 問い合わせ対応管理一覧pilot: `GET /admin/support`の会員表示情報、問い合わせ内容、状態、優先度、担当者、対応期限、内部対応履歴と有効な担当候補を共有Contractへ接続し、管理画面の手書き応答型を置き換える。ADMIN+AAL2またはOPERATOR認可、最大200件、絞り込み、期限超過・優先度・期限・更新時刻による並び順、対応操作、画面表示、DB schemaは変更しない。認証subject、password hash、MFA秘密、決済識別子、監査情報、イベント担当者の連絡先の追加を厳格なContractとcharacterization testで拒否する。
-- 問い合わせ操作応答pilot: 会員の問い合わせ受付・追記と、管理者または運営担当による振り分け・状態更新の既存成功応答を共有Contractへ接続し、会員・管理画面も同じ型を参照する。冪等再送を含む応答項目、受付条件、状態遷移、担当者制約、回答通知、認可、監査、API URL、画面表示、DB schemaは変更しない。会員ID、操作担当者ID、監査ID、決済識別子など既存応答にない内部項目の追加を厳格なContractとcharacterization testで拒否する。
+- 問い合わせ操作応答pilot: 会員の問い合わせ受付・追記と、管理者またはレース担当による振り分け・状態更新の既存成功応答を共有Contractへ接続し、会員・管理画面も同じ型を参照する。冪等再送を含む応答項目、受付条件、状態遷移、担当者制約、回答通知、認可、監査、API URL、画面表示、DB schemaは変更しない。会員ID、操作担当者ID、監査ID、決済識別子など既存応答にない内部項目の追加を厳格なContractとcharacterization testで拒否する。
 - スタッフ権限管理一覧pilot: `GET /admin/staff`の確認済みアカウント、担当件数、管理対象ロール、固定ポリシーの既存応答を共有Contractへ接続し、スタッフ権限管理画面の手書き応答型を置き換える。ADMIN+AAL2認可、最大200件、一覧順序、担当件数の算出、権限変更・担当移管・停止処理、画面表示、DB schemaは変更しない。認証subject、password hash、MFA秘密、決済識別子、監査情報の追加を厳格なContractとcharacterization testで拒否する。
 - スタッフ権限管理操作応答pilot: ロール変更、担当移管、スタッフ利用停止・再開の既存成功応答を共有Contractへ接続し、スタッフ権限管理画面の手書き応答型を置き換える。ADMIN+AAL2認可、確認メールと理由、対象行ロック、担当・会員アクセス保護、セッション失効、監査、状態遷移、API URL、画面表示、DB schemaは変更しない。連絡先、認証情報、MFA秘密、監査情報など既存応答にない内部項目の追加を厳格なContractとcharacterization testで拒否する。
 - 管理者継続運用状態pilot: `GET /admin/continuity`の有効・停止中管理者、昇格候補、主・予備MFA準備数、固定ポリシーの既存応答を共有Contractへ接続し、管理者継続運用画面の手書き応答型を置き換える。ADMIN+AAL2認可、管理者追加・停止・再開・降格、継続可能性判定、画面表示、DB schemaは変更しない。パスワード、認証subject、TOTP秘密、Provider factor ID、監査情報の追加を厳格なContractとcharacterization testで拒否する。
@@ -175,10 +175,10 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 開催日運用ボードpilot: `GET /admin/operations`の開催日別レース進捗、期限、警告、通知集計、6段階リハーサル、運用機能の事前確認を共有Contractへ接続し、管理ダッシュボードの手書き応答型を置き換える。ADMINとOPERATORの既存認可、進捗・期限・リハーサル判定、30秒更新、画面表示、DB schemaは変更しない。会員連絡先、LINE識別子、出走馬・評価本文、配送先、接続資格情報の追加を厳格なContractとcharacterization testで拒否する。
 - SNS共有候補一覧pilot: `GET /admin/social-shares`の通常レースとWIN5の確定評価結果、共有可否、事実に限定した共有文・画像表示行の既存応答を共有Contractへ接続し、SNS共有管理画面の手書き応答型を置き換える。ADMINとOPERATORの既存認可、最新確定版の選択、共有文生成、画面表示、DB schemaは変更しない。会員連絡先、確認者、内部版ID、金額、SNS資格情報の追加と、種別・評価状態・結果URL・共有可否の矛盾を厳格なContractとcharacterization testで拒否する。
 - 公開対象レース告知一覧pilot: `GET /announcements`の告知ID、版番号、公開日時とレース基本情報の既存応答を共有Contractへ接続し、会員ホームの手書き応答型を置き換える。公開済みかつ中止でないレースから各レースの最新版を最大10件表示する既存条件、並び順、画面表示、通知、DB schemaは変更しない。告知理由、作成者、担当者、出走馬、予想内容、会員連絡先、認証・配信資格情報の追加を厳格なContractとcharacterization testで拒否する。
-- 専門家向けパドック評価pilot: 評価作業領域、変更履歴、評価保存の3応答を共有Contractへ接続し、評価画面の手書き応答型を置き換える。DB取得列を画面に必要なレース、出走馬、評価本文、版、変更理由・時刻へ限定する。既存保存済みの冪等応答は互換読取後に同じ公開Contractへ整形する。担当レースとAAL2の認可、楽観ロック、端末下書き、競合解決、監査、変更履歴、画面表示、DB schemaは変更しない。評価ID、更新者、履歴スナップショット、操作担当者など画面で不要な内部項目の追加を厳格なContractとcharacterization testで拒否する。
-- 専門家向け担当レース一覧pilot: `GET /expert/races`の開催日、競馬場、レース番号・名称、発走時刻、状態を共有Contractへ接続し、専門家画面の手書き応答型を置き換える。EXPERTは担当レースのみ、ADMINは最大50件を発走時刻順で取得する既存条件、AAL2認可、画面表示、DB schemaは変更しない。レース管理詳細、担当者、内部revision、出走馬、予想・評価本文、認証情報の追加を厳格なContractとcharacterization testで拒否する。
-- 専門家向け通常予想編集読み取りpilot: `GET /expert/races/:raceId/prediction`のレース、評価に必要な出走馬とパドック所見、下書き、公開履歴、訂正方針を共有Contractへ接続し、専門家画面の手書き応答型を置き換える。担当レースとAAL2の認可、下書き互換読取、公開版の降順、画面表示、保存・公開処理、DB schemaは変更しない。出走馬の管理項目、評価更新者、公開者、締切、版間リンク、スナップショットなど編集画面で不要な内部情報の追加を厳格なContractとcharacterization testで拒否する。
-- 専門家向け通常予想操作応答pilot: 下書き保存、公開前確認、初版・訂正版公開と冪等再送の成功応答を共有Contractへ接続し、専門家画面の手書き応答型を置き換える。保存内容、楽観ロック、15分の確認期限、警告、締切、訂正承認、公開版・監査・通知の追記、画面表示、DB schemaは変更しない。公開前確認は画面で必要な馬番・馬名だけを返し、評価更新者、公開操作担当者、凍結snapshot、通知eventなどの内部情報の追加を厳格なContractとcharacterization testで拒否する。
+- 予想作業向けパドック評価pilot: 評価作業領域、変更履歴、評価保存の3応答を共有Contractへ接続し、評価画面の手書き応答型を置き換える。DB取得列を画面に必要なレース、出走馬、評価本文、版、変更理由・時刻へ限定する。既存保存済みの冪等応答は互換読取後に同じ公開Contractへ整形する。担当EXPERTまたは全レースを扱うOPERATOR/ADMINとAAL2の認可、楽観ロック、端末下書き、競合解決、監査、変更履歴、画面表示、DB schemaは変更しない。評価ID、更新者、履歴スナップショット、操作担当者など画面で不要な内部項目の追加を厳格なContractとcharacterization testで拒否する。
+- 予想対象レース一覧pilot: `GET /expert/races`の開催日、競馬場、レース番号・名称、発走時刻、状態を共有Contractへ接続し、予想画面の手書き応答型を置き換える。EXPERTは担当レースのみ、OPERATORとADMINは最大50件を発走時刻順で取得する。全ロールでAAL2を必須にし、画面表示とDB schemaは変更しない。レース管理詳細、担当者、内部revision、出走馬、予想・評価本文、認証情報の追加を厳格なContractとcharacterization testで拒否する。
+- 通常予想編集読み取りpilot: `GET /expert/races/:raceId/prediction`のレース、評価に必要な出走馬とパドック所見、下書き、公開履歴、訂正方針を共有Contractへ接続し、予想画面の手書き応答型を置き換える。担当EXPERTまたは全レースを扱うOPERATOR/ADMINとAAL2の認可、下書き互換読取、公開版の降順、画面表示、保存・公開処理、DB schemaは変更しない。出走馬の管理項目、評価更新者、公開者、締切、版間リンク、スナップショットなど編集画面で不要な内部情報の追加を厳格なContractとcharacterization testで拒否する。
+- 通常予想操作応答pilot: 下書き保存、公開前確認、初版・訂正版公開と冪等再送の成功応答を共有Contractへ接続し、予想画面の手書き応答型を置き換える。初版は担当EXPERT、OPERATOR、ADMINのAAL2、訂正版は既定でADMIN、設定時のみ担当EXPERTにも許可する。保存内容、楽観ロック、15分の確認期限、警告、締切、公開版・監査・通知の追記、画面表示、DB schemaは変更しない。公開前確認は画面で必要な馬番・馬名だけを返し、評価更新者、公開操作担当者、凍結snapshot、通知eventなどの内部情報の追加を厳格なContractとcharacterization testで拒否する。
 
 ### MA-007 CIジョブ構成
 
@@ -221,5 +221,5 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 3. Resendの認証済みドメインで確認メール、通知、bounce webhookを確認する。
 4. Stripe sandboxで実際のCheckout、テストカード、Stripe CLIまたはDashboard webhook、重複、不一致、返金運用を確認する。live keyはsandbox試験に使用しない。
 5. 独自ドメイン、HTTPS、Origin、Cookie、noindexを確認する。
-6. 実機iPhone Safariで会員・紹介・専門家・管理画面の主要導線を確認する。
+6. 実機iPhone Safariで会員・紹介・予想担当・管理画面の主要導線を確認する。
 7. 本番migrationはバックアップ、制限付きruntime role、実行計画、rollback判断、責任者を確認して別作業で実行する。

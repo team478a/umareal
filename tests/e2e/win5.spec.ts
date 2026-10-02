@@ -25,7 +25,7 @@ test('creates a WIN5 product from the responsive administration screen', async (
   await expect(page.getByRole('heading', { name: 'WIN5予想管理', exact: true })).toBeVisible();
   await page.getByLabel('対象日').fill(targetDate);
   await page.getByLabel('タイトル', { exact: true }).first().fill(title);
-  await page.getByLabel('担当専門家').first().selectOption(expert.user.id);
+  await page.getByLabel('予想担当').first().selectOption(expert.user.id);
   await page.getByLabel('公開予定').first().fill(`${targetDate}T09:00`);
   await page.getByLabel('作成理由').fill('スマートフォン入力画面の試験');
   await page.getByRole('button', { name: '予想枠を作成' }).click();

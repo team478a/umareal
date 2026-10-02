@@ -62,6 +62,7 @@ export function canManage(identity: Identity, accepted: readonly Role[]) {
 }
 export function canEditRace(identity: Identity, assignedUserIds: readonly string[]) {
   return (identity.role === 'ADMIN' && identity.aal === 2) ||
+    (identity.role === 'OPERATOR' && identity.aal === 2) ||
     (identity.role === 'EXPERT' && identity.aal === 2 && assignedUserIds.includes(identity.id));
 }
 export type Entitlement = { startsAt: Date; endsAt: Date; revokedAt: Date | null; raceDate: string | null };

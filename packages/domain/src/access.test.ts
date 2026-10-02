@@ -7,6 +7,11 @@ describe('authorization boundaries', () => {
     expect(canEditRace({ id: 'a', role: 'EXPERT', aal: 2 }, ['a'])).toBe(true);
     expect(canManage({ id: 'a', role: 'MEMBER', aal: 2 }, ['ADMIN'])).toBe(false);
   });
+  it('allows a race operator to edit every race only after MFA', () => {
+    expect(canEditRace({ id: 'operator', role: 'OPERATOR', aal: 1 }, [])).toBe(false);
+    expect(canEditRace({ id: 'operator', role: 'OPERATOR', aal: 2 }, [])).toBe(true);
+    expect(canEditRace({ id: 'operator', role: 'OPERATOR', aal: 2 }, ['another-user'])).toBe(true);
+  });
   it('requires consent and rejects caller-supplied roles', () => {
     const valid = { email: 'A@example.com', password: 'long-password-123', displayName: '会員', adult: true, terms: true, privacy: true, termsVersion: '2026-10-01-v1', privacyVersion: '2026-10-01-v1' };
     expect(registrationSchema.parse(valid).email).toBe('a@example.com');

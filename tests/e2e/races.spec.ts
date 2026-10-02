@@ -18,7 +18,7 @@ test('register a race, import entries with preview, and see it as the assigned e
   const name = `画面検証レース-${randomUUID().slice(0, 6)}`;
   await form.getByLabel('レース名', { exact: true }).fill(name);
   await form.getByLabel('クラス', { exact: true }).fill('3歳未勝利');
-  await form.getByLabel('担当専門家', { exact: true }).selectOption(expert.user.id);
+  await form.getByLabel('予想担当', { exact: true }).selectOption(expert.user.id);
   await form.getByLabel('レースの登録・変更理由', { exact: true }).fill('ブラウザ試験の作成');
   await form.getByRole('button', { name: 'レースを保存' }).click();
   await expect(page.getByRole('status')).toContainText('レース情報を保存しました。');

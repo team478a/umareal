@@ -51,6 +51,12 @@ describe('race management and transactional CSV imports', () => {
     const assignedRace = assigned.body.items.find((race: { id: string }) => race.id === raceId);
     expect(Object.keys(assignedRace).sort()).toEqual(['id', 'name', 'number', 'raceDate', 'startsAt', 'status', 'venue']);
     expect(JSON.stringify(assigned.body)).not.toMatch(/assignments|raceDayId|revision|expertId|updatedBy|passwordHash|authSubject|token|secret/i);
+    const operator = new Client(); await operator.login(await account('OPERATOR'));
+    expect(await operator.call('expert/races')).toMatchObject({ status: 403, body: { code: 'MFA_REQUIRED' } });
+    await operator.mfa();
+    const operatorRaces = await operator.call('expert/races');
+    expect(operatorRaces.status).toBe(200); expect(expertRaceListResponseSchema.parse(operatorRaces.body)).toEqual(operatorRaces.body);
+    expect((await operator.call(`expert/races/${raceId}/workspace`)).status).toBe(200);
     expect((await expertClient.call('admin/races', 'POST', body, undefined, headers())).status).toBe(403);
     expect((await new Client().call('admin/races')).status).toBe(401);
     expect(result.body.raceDayId).toBeTruthy();

@@ -23,8 +23,8 @@
 | GET | /races | 全員。`date`、`venue`、`publication=ALL\|ANNOUNCED\|PUBLISHED\|UNPUBLISHED`、ページネーション。予想本文を含めない |
 | GET | /races | 公開情報のみ、date（既定JST当日）、page/limit（既定1/20、最大50） |
 | GET | /announcements | 今後の対象レース告知。レースごとの最新版を最大10件返す |
-| GET | /expert/races | EXPERT+AAL2（担当のみ）またはADMIN+AAL2。最大50件の初期一覧 |
-| GET | /expert/races/:raceId/workspace | 担当EXPERT+AAL2またはADMIN+AAL2。入力は無効 |
+| GET | /expert/races | EXPERT+AAL2（担当のみ）、OPERATOR+AAL2またはADMIN+AAL2（全レース）。最大50件の初期一覧 |
+| GET | /expert/races/:raceId/workspace | 担当EXPERT+AAL2、OPERATOR+AAL2またはADMIN+AAL2。入力は無効 |
 | GET | /admin/summary | ADMIN+AAL2またはOPERATOR。会員ファネルと直近30日の流入元・媒体・キャンペーン別登録/有料化を含む |
 | GET | /admin/onboarding-funnel | ADMIN+AAL2。`days=1..365`と任意の`source`で登録コホートを絞り、本人確認、初回ログイン、LINE案内、LINE受信準備の人数・率・前段階からの未到達数を返す。個人情報は返さない |
 | GET | /admin/registration-followups | ADMIN+AAL2。メール確認待ちの有効な無料会員を`status=ALL\|RECENT\|OVERDUE`とpage/limitで取得。確認メールの送信時刻と再送可否を返し、tokenやpassword hashは返さない |
@@ -58,7 +58,7 @@
 | POST | /billing/portal | 本人の有効なStripe月額契約から、支払方法・請求情報を変更するStripe Customer Portal URLを発行 |
 | GET | /admin/users | ADMIN+AAL2。page/limit |
 | GET | /admin/audit | ADMIN+AAL2。page/limit |
-| GET | /admin/staff | ADMIN+AAL2。確認済みの会員・専門家・編集担当・運営担当と、専門家の今後の担当レース数・有効なWIN5担当数を返す。秘密情報は返さない |
+| GET | /admin/staff | ADMIN+AAL2。確認済みの会員・予想担当・編集担当・レース担当と、予想担当の今後の担当レース数・有効なWIN5担当数を返す。秘密情報は返さない |
 | PATCH | /admin/staff/:userId/role | ADMIN+AAL2。expectedRole、変更後ロール、対象メールの再入力、理由を必須とし、MEMBER/EXPERT/EDITOR/OPERATOR間で変更する。成功時はローカルセッションを失効し監査へ追記。担当中EXPERTの解除とADMIN変更は拒否 |
 | PATCH | /admin/staff/:userId/responsibilities | ADMIN+AAL2。移管先の有効なEXPERT、画面取得時のレース/WIN5担当件数、移管元メールの再入力、理由を必須とし、今後の未終了レースとJST当日以降の有効なWIN5担当を一括移管。レース・WIN5管理ロック内で件数を再検証し監査へ追記 |
 | PATCH | /admin/staff/:userId/status | ADMIN+AAL2。EXPERT/EDITOR/OPERATORの停止・再開。expectedRole、対象メール再入力、理由を必須とする。停止時は担当レース、WIN5、待機/処理中の配信予約、有効または将来の契約・1日利用・閲覧権限がないことを再検証し、ロールと会員設定を保持してログインとAPI利用を停止、ローカルセッションを失効して監査へ追記。退会済み、MEMBER、ADMINは対象外 |
@@ -133,7 +133,7 @@ HTTP 400=入力不正、401=未認証、403=権限/MFA/Origin不正、404=対象
 
 商品は`type=WIN5_PREVIEW`で対象日ごとに1件。対象レースは商品対象日と同日、対象順とraceIdはいずれも商品内で重複不可とする。公開版が存在しても下書き編集はできるが、公開済み版は変更しない。
 
-### 専門家入力・公開
+### 予想担当入力・公開
 
 | Method | Path | 権限・動作 |
 | --- | --- | --- |
@@ -256,7 +256,7 @@ StripeもSecret keyとWebhook secretは同じ暗号化方式で保存し、設�
 | GET | /free-report-audio/:audioId | 管理担当だけが既存音声を確認できる。会員への音声提供は休止 |
 | GET/POST | /admin/publication-schedules | ADMIN+AAL2またはOPERATOR。開催日別の予約・警告・公開版別配信結果取得／告知または無料速報の予約作成 |
 | POST | /admin/publication-schedules/:scheduleId/cancel | ADMIN+AAL2またはOPERATOR。待機中の予約を理由付きで取消 |
-| GET | /admin/race-experts | 有効な専門家のid/displayNameのみ |
+| GET | /admin/race-experts | 有効な予想担当のid/displayNameのみ |
 | GET | /admin/races | date（既定JST当日）、page/limit |
 | GET | /admin/races/:id | 出走馬・担当者・revisionを含む詳細 |
 | POST | /admin/races | `{race,reason}` |
@@ -273,7 +273,7 @@ StripeもSecret keyとWebhook secretは同じ暗号化方式で保存し、設�
 
 ## 評価入力
 
-担当EXPERT+AAL2またはADMIN+AAL2。EXPERTはDB上の担当レースだけを操作できる。
+担当EXPERT+AAL2、OPERATOR+AAL2またはADMIN+AAL2。EXPERTはDB上の担当レースだけ、OPERATORとADMINは全レースを操作できる。
 
 | Method | Path | 動作 |
 | --- | --- | --- |
@@ -285,7 +285,7 @@ contentは事前点数・順位・印・短評、パドック5項目、総合変
 
 ## 最終予想・公開版
 
-編集系は担当EXPERT+AAL2またはADMIN+AAL2。EXPERTはDB上の担当レースだけを操作できる。公開済みの内容は更新せず、訂正時も新しい版を追加する。
+編集系は担当EXPERT+AAL2、OPERATOR+AAL2またはADMIN+AAL2。EXPERTはDB上の担当レースだけ、OPERATORとADMINは全レースを操作できる。公開済みの内容は更新せず、訂正時も新しい版を追加する。
 
 | Method | Path | 動作 |
 | --- | --- | --- |
@@ -299,9 +299,9 @@ contentは事前点数・順位・印・短評、パドック5項目、総合変
 
 公開時は公開範囲、信頼度または見送り、最終見解が必須。見送り以外は最終本命を1頭要求し、評価馬ごとの選定理由を要求する。プレビュー後に担当、レース、出走馬、評価、下書き、公開履歴が変わった場合は409 STALE_PREVIEWとなる。
 
-発走時刻以降、またはFINISHED/CANCELLEDのレースは公開不可。APIの事前検証に加え、PostgreSQLトリガーが最新の発走時刻と状態を参照して公開版INSERTを拒否する。延期レースは管理設定の既定値 `CLOSED` では公開せず、`LATEST_STARTS_AT` の場合だけ変更後の発走時刻まで許可する。訂正は理由必須で、管理設定の既定値 `ADMIN_ONLY` では管理者だけが訂正版を公開できる。設定変更はADMIN+AAL2、revision、理由を必須とし、監査履歴へ保存する。
+発走時刻以降、またはFINISHED/CANCELLEDのレースは公開不可。APIの事前検証に加え、PostgreSQLトリガーが最新の発走時刻と状態を参照して公開版INSERTを拒否する。延期レースは管理設定の既定値 `CLOSED` では公開せず、`LATEST_STARTS_AT` の場合だけ変更後の発走時刻まで許可する。訂正は理由必須で、管理設定の既定値 `ADMIN_ONLY` では管理者だけが訂正版を公開できる。`EXPERT_OR_ADMIN`へ変更した場合も訂正できるのは担当EXPERTとADMINであり、OPERATORには拡張しない。設定変更はADMIN+AAL2、revision、理由を必須とし、監査履歴へ保存する。
 
-無料会員と未認証者には、公開範囲の設定にかかわらず版番号・公開時刻などのメタデータだけを返し、`locked=true` とする。対象JST日を含む有効期間のMEMBER権限、担当EXPERT+AAL2、またはADMIN+AAL2にだけ中心馬、相手候補、注目馬、危険馬、理由、詳細見解、パドック評価を返す。ロック中は訂正理由も返さない。
+無料会員と未認証者には、公開範囲の設定にかかわらず版番号・公開時刻などのメタデータだけを返し、`locked=true` とする。対象JST日を含む有効期間のMEMBER権限、担当EXPERT+AAL2、OPERATOR+AAL2、またはADMIN+AAL2にだけ中心馬、相手候補、注目馬、危険馬、理由、詳細見解、パドック評価を返す。ロック中は訂正理由も返さない。
 
 公開版と凍結評価はDBトリガーでUPDATE、DELETE、TRUNCATEを拒否する。凍結評価のINSERTも公開版作成と同じDBトランザクション内だけ許可する。旧買い目は履歴として同じ保護を維持するが、現行公開処理では新規作成しない。
 

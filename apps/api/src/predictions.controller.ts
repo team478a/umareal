@@ -20,7 +20,7 @@ export class PredictionsController {
     const actor = await this.auth.authenticate(req);
     const race = await tx.race.findUnique({ where: { id: raceId }, include: { assignments: true } });
     if (!race) throw new NotFoundException();
-    if (!canEditRace(actor, race.assignments.map(item => item.userId))) throw new ForbiddenException({ code: 'RACE_ACCESS_DENIED', message: '担当レースと二段階認証を確認してください。' });
+    if (!canEditRace(actor, race.assignments.map(item => item.userId))) throw new ForbiddenException({ code: 'RACE_ACCESS_DENIED', message: '予想権限と二段階認証を確認してください。' });
     return { actor, race };
   }
   private async state(tx: Tx, raceId: string) {
@@ -55,7 +55,8 @@ export class PredictionsController {
     if (settings && !settings.predictionPublicationEnabled) throw new ForbiddenException({ code: 'PREDICTION_PUBLICATION_STOPPED', message: '管理設定により予想公開を停止しています。' });
   }
   private ensureCorrectionActor(actor: AuthContext, correcting: boolean, policy: string) {
-    if (correcting && policy === 'ADMIN_ONLY' && actor.role !== 'ADMIN') throw new ForbiddenException({ code: 'CORRECTION_APPROVAL_REQUIRED', message: 'この開発設定では訂正公開に管理者の確認が必要です。' });
+    if (!correcting || actor.role === 'ADMIN' || (policy === 'EXPERT_OR_ADMIN' && actor.role === 'EXPERT')) return;
+    throw new ForbiddenException({ code: 'CORRECTION_APPROVAL_REQUIRED', message: '訂正版の公開には管理者または設定で許可された予想担当の確認が必要です。' });
   }
   @Get('expert/races/:raceId/prediction') async edit(@Req() req: AppRequest, @Param('raceId') raceId: string) {
     z.string().uuid().parse(raceId);
@@ -150,7 +151,7 @@ export class PredictionsController {
     if (!latest) return publicPredictionResponseSchema.parse({ race: raceSummary, latest: null, versions: [], total: 0, page, limit: 20, locked: false });
     let identity: AuthContext | null = null;
     try { identity = await this.auth.authenticate(req); } catch (error) { if (!(error instanceof UnauthorizedException)) throw error; }
-    const staffAccess = (identity?.role === 'ADMIN' && identity.aal === 2) || (identity?.role === 'EXPERT' && canEditRace(identity, race.assignments.map(a => a.userId)));
+    const staffAccess = !!identity && canEditRace(identity, race.assignments.map(a => a.userId));
     const entitlements = identity?.role === 'MEMBER' ? await this.auth.db.entitlement.findMany({ where: { userId: identity.id } }) : [];
     const canView = (version: typeof latest) => !!staffAccess || canReadPrediction({ now: new Date(), publishedAt: version.publishedAt, visibility: 'PAID', raceDate: race.raceDate, entitlements });
     const redact = (version: NonNullable<typeof latest>) => canView(version)
