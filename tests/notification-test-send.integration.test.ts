@@ -7,11 +7,19 @@ beforeAll(() => { const url = new URL(process.env.DATABASE_URL ?? ''); if (!['lo
 afterAll(() => db.$disconnect());
 
 describe('extended administrator notification tests', () => {
-  it('tests race, WIN5 and billing messages without publishing or creating member deliveries', async () => {
+  it('tests a target-free connection, race, WIN5 and billing messages without publishing or creating member deliveries', async () => {
     const suffix = randomUUID().slice(0, 8);
     const admin = await account('ADMIN'); const member = await account(); const client = new Client(); await client.login(admin);
     expect((await client.call('admin/notifications/test-options')).body.code).toBe('MFA_REQUIRED');
     await client.mfa();
+    await db.lineAccount.create({ data: { userId: admin.user.id, subject: `notification-test-${suffix}` } });
+    await db.systemSetting.update({ where: { id: 'global' }, data: { lineNotificationsEnabled: true, lineChannelId: 'notification-self-test', lineChannelSecretEncrypted: 'test-encrypted', lineAccessTokenEncrypted: 'test-encrypted' } });
+    const beforeConnectionEvents = await db.notificationEvent.count();
+    const connection = await client.call('admin/notifications/test-send', 'POST', { contentType: 'CONNECTION_CHECK', channel: 'LINE', reason: '初回稼働前のLINE接続を確認' }, undefined, { 'Idempotency-Key': randomUUID() });
+    expect(connection.status).toBe(201);
+    expect(notificationTestSendResponseSchema.parse(connection.body)).toMatchObject({ status: 'SIMULATED', contentLabel: '通知接続確認', channel: 'LINE', transport: 'TEST_ONLY' });
+    expect(await db.notificationEvent.count()).toBe(beforeConnectionEvents);
+    expect(await db.auditLog.count({ where: { actorId: admin.user.id, action: 'NOTIFICATION_TEST_SENT', targetType: 'SYSTEM_SETTING', targetId: 'global' } })).toBe(1);
     await db.systemSetting.update({ where: { id: 'global' }, data: { emailNotificationsEnabled: true, lineNotificationsEnabled: false } });
 
     const latestProduct = await db.predictionProduct.findFirst({ orderBy: { targetDate: 'desc' }, select: { targetDate: true } });
@@ -60,5 +68,6 @@ describe('extended administrator notification tests', () => {
     expect(await db.notificationEvent.count()).toBe(beforeEvents);
     expect(await db.notificationDelivery.count({ where: { userId: member.user.id } })).toBe(0);
     expect(await db.auditLog.count({ where: { actorId: admin.user.id, action: 'NOTIFICATION_TEST_SENT' } })).toBeGreaterThanOrEqual(cases.length);
+    expect(await db.auditLog.count({ where: { actorId: admin.user.id, action: 'NOTIFICATION_TEST_SENT', targetType: 'SYSTEM_SETTING', targetId: 'global' } })).toBe(1);
   });
 });
