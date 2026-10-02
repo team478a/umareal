@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
 import { ArrowRight, Eye, FileUp, Plus, RefreshCw } from 'lucide-react';
-import { entryHeaders, entryStatuses, jstDate, raceHeaders, raceStatuses, venues, type EntryInput, type ImportKind, type RaceAnnouncementNotificationPreviewResponse, type RaceInput } from '@keiba/domain';
+import { entryHeaders, entryStatuses, jstDate, parseQuickRaceList, raceHeaders, raceStatuses, serializeRaceCsv, venues, type EntryInput, type ImportKind, type RaceAnnouncementNotificationPreviewResponse, type RaceInput } from '@keiba/domain';
 import { NotificationPreview } from './notification-preview';
 
 type Entry = Omit<EntryInput, 'carriedWeight' | 'winOdds'> & { id: string; carriedWeight: string | number; winOdds: string | number | null };
@@ -60,6 +60,7 @@ export function RaceManager() {
   return <>
     <div className="page-heading"><span className="eyebrow">RACE OPERATIONS</span><h1>レース管理</h1><p>開催日・出走馬・担当者を登録し、CSVの差分を確認して取り込みます。</p></div>
     <ErrorMessage error={error} />{message && <div className="notice" role="status">{message}</div>}
+    <QuickRaceRegistration initialDate={date} onConfirmed={async targetDate => { setDate(targetDate); setPage(1); setEditing(false); setSelected(null); if (targetDate === date) await load(); }} />
     <section className="panel"><div className="panel-heading"><h2>開催日</h2></div><form onSubmit={saveDay} className="panel-body"><div className="race-form-grid"><Field name="raceDate" type="date" value={date} /><Field name="venue" value="東京" options={Object.fromEntries(venues.map(v => [v, v]))} /><Field name="reason" label="開催日の登録理由" /><div className="field-action"><button className="button" disabled={busy}><Plus size={16} />開催日を登録</button></div></div></form>
       <div className="day-list">{days.map(day => <button key={day.id} className={`day-chip ${day.raceDate === date ? 'selected' : ''}`} onClick={() => { setDate(day.raceDate); setPage(1); setEditing(false); setSelected(null); }}>{day.raceDate} · {day.venue}<small>{day._count.races} レース</small></button>)}</div><Pager page={dayPage} total={dayTotal} setPage={setDayPage} />
     </section>
@@ -75,6 +76,40 @@ export function RaceManager() {
     <JraVanBundleImport onConfirmed={async targetDate => { setDate(targetDate); setPage(1); setEditing(false); setSelected(null); await load(); }} />
     <CsvImport key={selected?.id ?? 'races'} race={selected} onConfirmed={async () => { await load(); if (selected) await open(selected.id); }} />
   </>;
+}
+
+function QuickRaceRegistration({ initialDate, onConfirmed }: { initialDate: string; onConfirmed: (targetDate: string) => Promise<void> }) {
+  const [raceDate, setRaceDate] = useState(initialDate); const [raceClass, setRaceClass] = useState('未設定');
+  const [source, setSource] = useState(''); const [preview, setPreview] = useState<Preview | null>(null); const [reason, setReason] = useState('');
+  const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
+  async function check() {
+    setBusy(true); setError(''); setMessage(''); setPreview(null);
+    const parsed = parseQuickRaceList({ raceDate, raceClass, text: source });
+    if (parsed.errors.length) { setPreview({ batchId: null, errors: parsed.errors, changes: [] }); setBusy(false); return; }
+    try { setPreview(await request<Preview>('races/import/preview', 'POST', { kind: 'races', csv: serializeRaceCsv(parsed.races) })); }
+    catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  }
+  async function confirm() {
+    if (!preview?.batchId) return;
+    setBusy(true); setError('');
+    const count = preview.changes.length;
+    try {
+      await request(`races/import/${preview.batchId}/confirm`, 'POST', { reason });
+      setPreview(null); setReason(''); setSource(''); setMessage(`${count}レースを登録しました。`); await onConfirmed(raceDate);
+    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  }
+  return <section className="panel quick-race-registration"><div className="panel-heading"><div><span className="eyebrow">QUICK REGISTRATION</span><h2>かんたん一括登録</h2></div><Plus size={22} /></div><div className="panel-body"><ErrorMessage error={error} />{message && <div className="notice" role="status">{message}</div>}
+    <p>開催日とクラスを1回入力し、競馬場ごとのレース一覧を貼り付けます。登録前に追加・変更内容を確認できます。</p>
+    <div className="race-form-grid"><label className="field">開催日<input aria-label="かんたん登録の開催日" type="date" value={raceDate} onChange={event => { setRaceDate(event.target.value); setPreview(null); }} /></label><label className="field">クラスの初期値<input aria-label="かんたん登録のクラス" value={raceClass} maxLength={60} onChange={event => { setRaceClass(event.target.value); setPreview(null); }} /></label></div>
+    <label className="field">レース一覧<textarea aria-label="かんたん登録のレース一覧" rows={9} value={source} onChange={event => { setSource(event.target.value); setPreview(null); }} placeholder={'東京\n9R 八ヶ岳特別 14:35 芝1800 左\n10R 白秋ステークス 15:10 芝1400 左\n\n京都\n10R 大山崎ステークス 15:00 ダート1200 右'} /></label>
+    <p className="muted form-note">1行目に競馬場名、続けて「9R レース名 14:35 芝1800 左」の順で入力します。ダートは「ダ」でも入力できます。馬場状態・天候は未確認、状態は開催予定、予想担当は未割当で登録します。クラスが異なるレースは登録後に編集してください。</p>
+    <button className="button secondary" disabled={busy || !source.trim() || !raceDate || !raceClass.trim()} onClick={() => void check()}>{busy ? '確認中…' : '内容を確認'}</button>
+    {preview && <div className="import-preview"><h3>登録前の確認</h3>{preview.errors.length ? <div role="alert"><ul>{preview.errors.map((issue, index) => <li key={index}>{issue.row ? `${issue.row}行目 · ` : ''}{labels[issue.field] ?? issue.field}：{issue.message}</li>)}</ul></div> : <>
+      <p className="muted form-note">追加 {preview.changes.filter(change => change.action === '追加').length}件 ／ 変更 {preview.changes.filter(change => change.action === '変更').length}件 ／ 変更なし {preview.changes.filter(change => change.action === '変更なし').length}件</p>
+      {preview.changes.map((change, index) => <details key={index} open={change.action === '変更'}><summary><span className="status-tag">{change.action}</span> {change.key}</summary>{change.fields.length > 0 && <div className="table-scroll"><table className="race-data-table"><thead><tr><th>項目</th><th>現在</th><th>登録後</th></tr></thead><tbody>{change.fields.map(field => <tr key={field.field}><td>{labels[field.field] ?? field.field}</td><td>{String(field.before ?? '—')}</td><td>{String(field.after ?? '—')}</td></tr>)}</tbody></table></div>}</details>)}
+      <label className="field">一括登録の理由<input aria-label="かんたん一括登録の理由" value={reason} onChange={event => setReason(event.target.value)} maxLength={500} /></label><button className="button" disabled={busy || !reason.trim() || !preview.batchId} onClick={() => void confirm()}>{busy ? '登録中…' : '確認した内容を登録'}</button><p className="muted form-note">確認内容は15分間有効です。確定時にも重複や変更を再検証します。</p>
+    </>}</div>}
+  </div></section>;
 }
 
 function RaceEditor({ race, date, experts, onSaved, onReload }: { race: Race | null; date: string; experts: Expert[]; onSaved: (race: Race) => Promise<void>; onReload: () => void }) {

@@ -64,6 +64,27 @@ test('register a race, import entries with preview, and see it as the assigned e
   expect((await page.request.get('/api/v1/admin/races')).status()).toBe(403);
 });
 
+test('pastes multiple races, previews them, and confirms once on mobile', async ({ page }) => {
+  if (process.env.AUTH_PROVIDER !== 'local' || !['localhost', '127.0.0.1'].includes(new URL(process.env.DATABASE_URL ?? '').hostname)) throw new Error('Local database required');
+  const admin = await account('ADMIN'); const client = new Client(); await client.login(admin); await client.mfa();
+  await page.context().addCookies([{ name: 'keiba_session', value: client.cookie.split('=')[1], domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
+  await page.setViewportSize({ width: 390, height: 844 });
+  let day = `2096-03-${String(Math.floor(Math.random() * 25) + 1).padStart(2, '0')}`;
+  while (await db.race.count({ where: { raceDate: day, venue: { in: ['東京', '京都'] } } })) day = new Date(new Date(`${day}T00:00:00Z`).getTime() + 86400000).toISOString().slice(0, 10);
+  await page.goto('/admin/races');
+  await page.getByLabel('かんたん登録の開催日').fill(day);
+  await page.getByLabel('かんたん登録のクラス').fill('特別競走');
+  await page.getByLabel('かんたん登録のレース一覧').fill('東京\n9R 八ヶ岳特別 14:35 芝1800 左\n10R 白秋ステークス 15:10 芝1400 左\n\n京都\n10R 大山崎ステークス 15:00 ダ1200 右');
+  await page.getByRole('button', { name: '内容を確認', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '登録前の確認', exact: true })).toBeVisible();
+  expect(await db.race.count({ where: { raceDate: day, venue: { in: ['東京', '京都'] } } })).toBe(0);
+  await page.getByLabel('かんたん一括登録の理由').fill('翌日対象レースの一括登録');
+  await page.getByRole('button', { name: '確認した内容を登録', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('3レースを登録しました。');
+  expect(await db.race.count({ where: { raceDate: day, venue: { in: ['東京', '京都'] } } })).toBe(3);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
 test('selects a verified JRA-VAN bundle and confirms the whole race day', async ({ page }) => {
   if (process.env.AUTH_PROVIDER !== 'local' || !['localhost', '127.0.0.1'].includes(new URL(process.env.DATABASE_URL ?? '').hostname)) throw new Error('Local database required');
   const admin = await account('ADMIN'); const client = new Client(); await client.login(admin); await client.mfa();
