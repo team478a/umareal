@@ -16,7 +16,8 @@ test('guests see a minimal root entry and no member menu', async ({ page }) => {
   await page.goto('/');
 
   await expect(page.locator('main')).toHaveAttribute('class', 'guest-entry');
-  await expect(page.getByRole('region', { name: '競馬会員メディア' })).toContainText('競馬会員メディア');
+  await expect(page.getByRole('region', { name: 'ウマリアル' })).toBeVisible();
+  await expect(page.getByRole('img', { name: 'ウマリアル' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'ログイン', exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: '無料会員登録', exact: true })).toBeVisible();
   await expect(page.getByRole('link')).toHaveCount(2);

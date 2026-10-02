@@ -9,7 +9,7 @@ import { SupabaseAuthService } from './supabase-auth.service';
 export type MfaFactorKind = 'PRIMARY' | 'BACKUP';
 export type ExternalMfaVerification = { code: string; factor: MfaFactorKind; factorId?: string };
 
-const otp = (secret: string, email: string) => new TOTP({ issuer: '競馬会員メディア 開発用', label: email, algorithm: 'SHA1', digits: 6, period: 30, secret: Secret.fromBase32(secret) });
+const otp = (secret: string, email: string) => new TOTP({ issuer: 'ウマリアル', label: email, algorithm: 'SHA1', digits: 6, period: 30, secret: Secret.fromBase32(secret) });
 
 @Injectable()
 export class AuthMfaService {

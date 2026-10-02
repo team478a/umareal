@@ -15,13 +15,13 @@ describe('MailService admin provider configuration', () => {
   it('uses the encrypted admin key and sender for transactional mail', async () => {
     const request = vi.fn(async () => new Response('', { status: 200 }));
     vi.stubGlobal('fetch', request);
-    const db = { systemSetting: { findUniqueOrThrow: vi.fn(async () => ({ mailApiKeyEncrypted: encryptSecret('re_admin_key'), mailWebhookSecretEncrypted: null, mailFrom: '競馬会員メディア <notice@example.test>' })) } } as unknown as DbService;
+    const db = { systemSetting: { findUniqueOrThrow: vi.fn(async () => ({ mailApiKeyEncrypted: encryptSecret('re_admin_key'), mailWebhookSecretEncrypted: null, mailFrom: 'ウマリアル <notice@example.test>' })) } } as unknown as DbService;
     const service = new MailService(db);
     await service.send({ userId: 'user-id', to: 'member@example.test', kind: 'VERIFY_EMAIL', url: 'https://example.test/verify', expiresInMinutes: 30, idempotencyKey: 'verify:user-id' });
     expect(request).toHaveBeenCalledOnce();
     const options = request.mock.calls[0]?.[1] as RequestInit;
     expect(options.headers).toMatchObject({ Authorization: 'Bearer re_admin_key', 'Idempotency-Key': 'verify:user-id' });
-    expect(JSON.parse(String(options.body))).toMatchObject({ from: '競馬会員メディア <notice@example.test>', to: ['member@example.test'] });
+    expect(JSON.parse(String(options.body))).toMatchObject({ from: 'ウマリアル <notice@example.test>', to: ['member@example.test'] });
   });
 
   it('rejects an incomplete admin override instead of mixing in environment credentials', async () => {

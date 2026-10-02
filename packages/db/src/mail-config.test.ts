@@ -9,10 +9,10 @@ describe('resolveMailConfig', () => {
     const apiKey = 're_admin_secret_key';
     const webhookSecret = 'whsec_admin_secret_key';
     const value = resolveMailConfig(
-      { mailApiKeyEncrypted: encryptSecret(apiKey), mailWebhookSecretEncrypted: encryptSecret(webhookSecret), mailFrom: '競馬会員メディア <notice@example.test>' },
+      { mailApiKeyEncrypted: encryptSecret(apiKey), mailWebhookSecretEncrypted: encryptSecret(webhookSecret), mailFrom: 'ウマリアル <notice@example.test>' },
       { RESEND_API_KEY: 're_environment_key', RESEND_WEBHOOK_SECRET: 'whsec_environment', MAIL_FROM: 'env@example.test' }
     );
-    expect(value).toMatchObject({ source: 'ADMIN', apiKey, webhookSecret, from: '競馬会員メディア <notice@example.test>', apiKeyConfigured: true, webhookSecretConfigured: true, secretReadable: true, webhookSecretReadable: true, senderConfigured: true, sendingComplete: true, webhookComplete: true, complete: true });
+    expect(value).toMatchObject({ source: 'ADMIN', apiKey, webhookSecret, from: 'ウマリアル <notice@example.test>', apiKeyConfigured: true, webhookSecretConfigured: true, secretReadable: true, webhookSecretReadable: true, senderConfigured: true, sendingComplete: true, webhookComplete: true, complete: true });
   });
 
   it('never fills an incomplete admin configuration from environment values', () => {

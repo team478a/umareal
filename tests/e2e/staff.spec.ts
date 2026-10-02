@@ -132,7 +132,7 @@ test('administrator must complete MFA before viewing member management', async (
   await page.getByLabel('Stripe 1日利用 Price ID').fill('price_DayPassE2E');
   await page.getByLabel('Resend API key', { exact: true }).fill(`re_${'m'.repeat(32)}`);
   await page.getByLabel('Resend Webhook signing secret').fill(`whsec_${'w'.repeat(32)}`);
-  await page.getByLabel('メール送信元').fill('競馬会員メディア <notice@example.test>');
+  await page.getByLabel('メール送信元').fill('ウマリアル <notice@example.test>');
   await page.getByLabel('通知の最大試行回数').fill('4');
   await page.getByLabel('管理設定の変更理由').fill('管理画面のE2E確認');
   await page.getByRole('button', { name: '管理設定を保存' }).click();

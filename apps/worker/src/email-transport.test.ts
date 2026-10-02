@@ -7,7 +7,7 @@ describe('ResendEmailTransport', () => {
   it('sends a text-only metadata notice with provider idempotency', async () => {
     let captured: RequestInit | undefined;
     const request = vi.fn(async (_url: string | URL | Request, options?: RequestInit) => { captured = options; return new Response(JSON.stringify({ id: 'email-provider-id' }), { status: 200, headers: { 'Content-Type': 'application/json' } }); });
-    const transport = new ResendEmailTransport('re_test_key', '競馬会員メディア <notice@example.test>', request as typeof fetch, 'https://resend.test/emails');
+    const transport = new ResendEmailTransport('re_test_key', 'ウマリアル <notice@example.test>', request as typeof fetch, 'https://resend.test/emails');
     await expect(transport.send({ recipient: 'member@example.test', idempotencyKey: 'EMAIL:event', retryKey: 'delivery-id', eventType: 'RACE_ANNOUNCED', targetId: 'target-id', raceId: 'race-id', message })).resolves.toEqual({ kind: 'SENT', providerMessageId: 'email-provider-id' });
     expect(captured?.headers).toMatchObject({ Authorization: 'Bearer re_test_key', 'Idempotency-Key': 'delivery-id' });
     const body = JSON.parse(String(captured?.body));
