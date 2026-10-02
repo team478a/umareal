@@ -30,6 +30,11 @@ export class Win5Controller {
     return actor;
   }
 
+  private ensureCorrectionActor(actor: AuthContext, correcting: boolean, policy: string) {
+    if (!correcting || actor.role === 'ADMIN' || (policy === 'EXPERT_OR_ADMIN' && actor.role === 'EXPERT')) return;
+    throw new ForbiddenException({ code: 'CORRECTION_APPROVAL_REQUIRED', message: 'WIN5の訂正版公開には管理者または設定で許可された予想担当の確認が必要です。' });
+  }
+
   private async state(tx: Tx, productId: string) {
     const product = await tx.predictionProduct.findUnique({
       where: { id: productId },
@@ -215,7 +220,7 @@ export class Win5Controller {
       const prior = await tx.idempotencyKey.findUnique({ where: { key } });
       if (prior) { if (prior.requestHash !== requestHash) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: '再送の内容が変わっています。' }); return prior.response; }
       const expert = await tx.user.findUnique({ where: { id: input.expertId }, select: { role: true, disabledAt: true } });
-      if (!expert || expert.role !== 'EXPERT' || expert.disabledAt) throw new BadRequestException({ code: 'INVALID_EXPERT', message: '有効な専門家を指定してください。' });
+      if (!expert || expert.role !== 'EXPERT' || expert.disabledAt) throw new BadRequestException({ code: 'INVALID_EXPERT', message: '有効な予想担当を指定してください。' });
       if (await tx.predictionProduct.findUnique({ where: { type_targetDate: { type: input.type, targetDate: input.targetDate } }, select: { id: true } })) throw new ConflictException({ code: 'WIN5_DUPLICATE_TARGET_DATE', message: '同じ対象日のWIN5予想はすでに作成されています。' });
       const product = await tx.predictionProduct.create({ data: { type: input.type, targetDate: input.targetDate, title: input.title, expertId: input.expertId, scheduledPublishAt: new Date(input.scheduledPublishAt), accessScope: input.accessScope, confidence: input.confidence, summary: input.summary, showFreeConfidence: input.showFreeConfidence, updatedBy: actor.id } });
       await tx.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: 'WIN5_PRODUCT_CREATE', targetType: 'PREDICTION_PRODUCT', targetId: product.id, reason: input.reason, details: json({ type: product.type, targetDate: product.targetDate, expertId: product.expertId }), requestId: req.requestId } });
@@ -231,7 +236,7 @@ export class Win5Controller {
       if (!before) throw new NotFoundException();
       if (before.revision !== input.revision) throw new ConflictException({ code: 'WIN5_DRAFT_CONFLICT', message: '別の端末でWIN5予想が変更されました。再読み込みしてください。' });
       const expert = await tx.user.findUnique({ where: { id: input.expertId }, select: { role: true, disabledAt: true } });
-      if (!expert || expert.role !== 'EXPERT' || expert.disabledAt) throw new BadRequestException({ code: 'INVALID_EXPERT', message: '有効な専門家を指定してください。' });
+      if (!expert || expert.role !== 'EXPERT' || expert.disabledAt) throw new BadRequestException({ code: 'INVALID_EXPERT', message: '有効な予想担当を指定してください。' });
       const product = await tx.predictionProduct.update({ where: { id: productId }, data: { title: input.title, expertId: input.expertId, scheduledPublishAt: new Date(input.scheduledPublishAt), accessScope: input.accessScope, confidence: input.confidence, summary: input.summary, showFreeConfidence: input.showFreeConfidence, revision: { increment: 1 }, updatedBy: actor.id, updatedAt: new Date() } });
       await tx.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: 'WIN5_PRODUCT_UPDATE', targetType: 'PREDICTION_PRODUCT', targetId: product.id, reason: input.reason, details: json({ fromRevision: before.revision, toRevision: product.revision }), requestId: req.requestId } });
       return product;
@@ -281,7 +286,7 @@ export class Win5Controller {
       const settings = await tx.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { predictionCorrectionPolicy: true } });
       if (product.revision !== input.productRevision) throw new ConflictException({ code: 'WIN5_DRAFT_CONFLICT', message: '保存後にWIN5予想が変更されました。再読み込みしてください。' });
       const correcting = product.versions.length > 0;
-      if (correcting && settings.predictionCorrectionPolicy === 'ADMIN_ONLY' && actor.role !== 'ADMIN') throw new ForbiddenException({ code: 'CORRECTION_APPROVAL_REQUIRED', message: 'WIN5の訂正公開には管理者の確認が必要です。' });
+      this.ensureCorrectionActor(actor, correcting, settings.predictionCorrectionPolicy);
       if (correcting && !input.correctionReason) throw new BadRequestException({ code: 'CORRECTION_REASON_REQUIRED', message: '訂正理由を入力してください。' });
       const calculated = this.publishable(product);
       const warnings = [
@@ -307,7 +312,7 @@ export class Win5Controller {
       if (preview.baselineHash !== this.fingerprint(product)) throw new ConflictException({ code: 'WIN5_STALE_PREVIEW', message: '確認後にレースまたは予想が変わりました。再確認してください。' });
       const details = previewDetailsSchema.parse(preview.snapshot); const previous = product.versions[0] ?? null; const correcting = !!previous;
       if (details.nextVersion !== (previous?.version ?? 0) + 1) throw new ConflictException({ code: 'WIN5_STALE_PREVIEW', message: '別の公開版が追加されました。再確認してください。' });
-      if (correcting && settings.predictionCorrectionPolicy === 'ADMIN_ONLY' && actor.role !== 'ADMIN') throw new ForbiddenException({ code: 'CORRECTION_APPROVAL_REQUIRED', message: 'WIN5の訂正公開には管理者の確認が必要です。' });
+      this.ensureCorrectionActor(actor, correcting, settings.predictionCorrectionPolicy);
       const calculated = this.publishable(product);
       const version = await tx.predictionProductVersion.create({ data: { productId, version: details.nextVersion, status: correcting ? 'CORRECTED' : 'PUBLISHED', accessScope: product.accessScope, confidence: product.confidence, combinationCount: null, amountPerPointYen: null, assumedPurchaseAmountYen: null, formatVersion: 'HORSE_EVALUATION_V1', contentSnapshot: json(calculated.contentSnapshot), publisherId: actor.id, deadlineAt: calculated.deadlineAt, correctionReason: correcting ? details.correctionReason : null, previousVersionId: previous?.id } });
       const notificationEvent = await tx.notificationEvent.create({ data: { productVersionId: version.id, eventType: correcting ? 'WIN5_PREVIEW_CORRECTED' : 'WIN5_PREVIEW_PUBLISHED', status: 'QUEUED', payload: json({ productVersionId: version.id, productId, targetDate: product.targetDate }) } });

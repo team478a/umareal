@@ -32,7 +32,14 @@ test('staff previews scheduled race announcements and free reports on mobile-rea
   await expect(card.locator('.delivery-preview')).toContainText('無料パドック速報 第1版'); await expect(card.locator('.delivery-message')).toContainText('無料パドック速報を公開しました'); await card.getByRole('button', { name: 'この内容で予約する' }).click();
   await expect(card.getByText('無料パドック速報').last()).toBeVisible(); await expect(card.getByText('予約中')).toBeVisible();
   await card.screenshot({ path: testInfo.outputPath('publication-schedules.png') }); expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const notificationResponse = page.waitForResponse(response => {
+    const url = new URL(response.url());
+    return response.request().method() === 'GET'
+      && url.pathname.endsWith('/api/v1/admin/notifications')
+      && url.searchParams.get('raceId') === race.id;
+  });
   await card.getByRole('link', { name: '受信者別の詳細' }).click();
+  expect((await notificationResponse).ok()).toBe(true);
   await expect(page.getByRole('heading', { name: '通知運用' })).toBeVisible();
   await expect(page.getByText('配信結果で選択したレースだけを表示しています。')).toBeVisible();
   const deliveries = page.locator('section.panel').filter({ has: page.getByRole('heading', { name: '配送一覧' }) });

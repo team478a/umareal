@@ -28,6 +28,7 @@ async function unusedWin5TargetDate() {
 describe('WIN5 product drafting and publication', () => {
   it('authorizes assigned editors, calculates five legs, appends corrections and protects versions in PostgreSQL', async () => {
     const expert = await assessmentFixture('EXPERT', 2, 2);
+    const operator = await assessmentFixture('OPERATOR', 2);
     const admin = await assessmentFixture('ADMIN', 2);
     const aal1 = await assessmentFixture('ADMIN', 1);
     const targetDate = await unusedWin5TargetDate();
@@ -119,6 +120,14 @@ describe('WIN5 product drafting and publication', () => {
     const narrowed = await admin.client.call(`admin/win5/${created.body.id}/races/1`, 'PUT', { productRevision: revision, raceId: races[0].race.id, confidence: 'S', paceView: '訂正版の展開見解', shortComment: '訂正版では中心馬のみ', evaluations: [{ entryId: races[0].entries[0].id, evaluationType: 'PRIMARY', reason: '中心馬の訂正理由', displayOrder: 1 }], reason: '訂正版の評価馬変更' });
     expect(narrowed.status, JSON.stringify(narrowed.body)).toBe(200); revision = narrowed.body.productRevision;
     expect((await expert.client.call(`expert/win5/${created.body.id}/preview`, 'POST', { productRevision: revision, correctionReason: '訂正試験' })).body.code).toBe('CORRECTION_APPROVAL_REQUIRED');
+    const correctionSetting = await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { predictionCorrectionPolicy: true } });
+    await db.systemSetting.update({ where: { id: 'global' }, data: { predictionCorrectionPolicy: 'EXPERT_OR_ADMIN' } });
+    try {
+      const operatorCorrection = await operator.client.call(`expert/win5/${created.body.id}/preview`, 'POST', { productRevision: revision, correctionReason: 'レース担当の訂正権限確認' });
+      expect(operatorCorrection).toMatchObject({ status: 403, body: { code: 'CORRECTION_APPROVAL_REQUIRED' } });
+    } finally {
+      await db.systemSetting.update({ where: { id: 'global' }, data: { predictionCorrectionPolicy: correctionSetting.predictionCorrectionPolicy } });
+    }
     const correctionPreview = await admin.client.call(`admin/win5/${created.body.id}/preview`, 'POST', { productRevision: revision, correctionReason: '全体信頼度と総評を訂正' });
     expect(correctionPreview.status).toBe(201);
     const corrected = await admin.client.call(`admin/win5/${created.body.id}/publish/${correctionPreview.body.previewId}`, 'POST');

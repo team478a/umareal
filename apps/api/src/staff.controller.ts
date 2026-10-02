@@ -78,11 +78,11 @@ export class StaffController {
           if (Object.values(access).some(Boolean)) throw new ConflictException({ code: 'STAFF_ACTIVE_MEMBER_ACCESS', message: '有効または申込中の契約、1日利用、閲覧権限があります。会員利用が終了してからスタッフロールへ変更してください。' });
         }
         const dependencies = await this.dependencies(tx, target.id);
-        if (target.role === 'OPERATOR' && input.nextRole !== 'OPERATOR' && dependencies.pendingPublicationSchedules) throw new ConflictException({ code: 'STAFF_SCHEDULES_PENDING', message: '待機中または処理中の配信予約を取消・完了してから運営担当ロールを変更してください。' });
+        if (target.role === 'OPERATOR' && input.nextRole !== 'OPERATOR' && dependencies.pendingPublicationSchedules) throw new ConflictException({ code: 'STAFF_SCHEDULES_PENDING', message: '待機中または処理中の配信予約を取消・完了してからレース担当ロールを変更してください。' });
         if (target.role === 'EXPERT' && input.nextRole !== 'EXPERT') {
           if (dependencies.upcomingRaceAssignments || dependencies.activeWin5Products) throw new ConflictException({
             code: 'STAFF_EXPERT_STILL_ASSIGNED',
-            message: '今後の担当レースまたは有効なWIN5担当を解除してから専門家ロールを変更してください。',
+            message: '今後の担当レースまたは有効なWIN5担当を解除してから予想担当ロールを変更してください。',
             details: dependencies
           });
         }
@@ -121,7 +121,7 @@ export class StaffController {
         `;
         const target = rows[0];
         if (!target) throw new NotFoundException({ code: 'USER_NOT_FOUND', message: '対象アカウントが見つかりません。' });
-        if (target.id === actor.id || target.role === 'ADMIN' || target.role === 'MEMBER') throw new ConflictException({ code: 'STAFF_STATUS_NOT_MANAGED', message: '専門家・編集担当・運営担当のアカウントだけを停止・再開できます。' });
+        if (target.id === actor.id || target.role === 'ADMIN' || target.role === 'MEMBER') throw new ConflictException({ code: 'STAFF_STATUS_NOT_MANAGED', message: '予想担当・編集担当・レース担当のアカウントだけを停止・再開できます。' });
         if (target.role !== input.expectedRole) throw new ConflictException({ code: 'STAFF_ROLE_CHANGED', message: '別の操作でロールが変更されました。最新の状態を確認してください。' });
         if (!target.email || !target.emailVerifiedAt) throw new ConflictException({ code: 'STAFF_ACCOUNT_NOT_READY', message: '確認済みメールを持つスタッフアカウントだけを変更できます。' });
         if (target.email.toLowerCase() !== input.confirmationEmail) throw new ConflictException({ code: 'STAFF_CONFIRMATION_MISMATCH', message: '確認用メールアドレスが一致しません。' });
@@ -155,7 +155,7 @@ export class StaffController {
     const actor = await this.administrator(req);
     z.string().uuid().parse(userId);
     const input = staffResponsibilityTransferSchema.parse(body);
-    if (userId === input.nextExpertId) throw new ConflictException({ code: 'STAFF_TRANSFER_SAME_EXPERT', message: '移管先には別の専門家を選択してください。' });
+    if (userId === input.nextExpertId) throw new ConflictException({ code: 'STAFF_TRANSFER_SAME_EXPERT', message: '移管先には別の予想担当を選択してください。' });
     try {
       return await this.auth.db.$transaction(async tx => {
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(7262026)::text`;
@@ -167,9 +167,9 @@ export class StaffController {
         `;
         const source = users.find(user => user.id === userId); const destination = users.find(user => user.id === input.nextExpertId);
         if (!source) throw new NotFoundException({ code: 'USER_NOT_FOUND', message: '移管元アカウントが見つかりません。' });
-        if (!destination) throw new NotFoundException({ code: 'DESTINATION_EXPERT_NOT_FOUND', message: '移管先の専門家が見つかりません。' });
-        if (source.role !== 'EXPERT' || source.disabledAt || !source.email || !source.emailVerifiedAt) throw new ConflictException({ code: 'SOURCE_EXPERT_NOT_READY', message: '有効な確認済み専門家だけを移管元にできます。' });
-        if (destination.role !== 'EXPERT' || destination.disabledAt || !destination.emailVerifiedAt) throw new ConflictException({ code: 'DESTINATION_EXPERT_NOT_READY', message: '有効な確認済み専門家だけを移管先にできます。' });
+        if (!destination) throw new NotFoundException({ code: 'DESTINATION_EXPERT_NOT_FOUND', message: '移管先の予想担当が見つかりません。' });
+        if (source.role !== 'EXPERT' || source.disabledAt || !source.email || !source.emailVerifiedAt) throw new ConflictException({ code: 'SOURCE_EXPERT_NOT_READY', message: '有効な確認済み予想担当だけを移管元にできます。' });
+        if (destination.role !== 'EXPERT' || destination.disabledAt || !destination.emailVerifiedAt) throw new ConflictException({ code: 'DESTINATION_EXPERT_NOT_READY', message: '有効な確認済み予想担当だけを移管先にできます。' });
         if (source.email.toLowerCase() !== input.confirmationEmail) throw new ConflictException({ code: 'STAFF_CONFIRMATION_MISMATCH', message: '移管元の確認用メールアドレスが一致しません。' });
         const now = new Date(); const current = await this.dependencies(tx, source.id, now);
         if (current.upcomingRaceAssignments !== input.expectedUpcomingRaceAssignments || current.activeWin5Products !== input.expectedActiveWin5Products) throw new ConflictException({ code: 'STAFF_DEPENDENCIES_CHANGED', message: '担当件数が変更されました。最新の状態を確認してください。' });

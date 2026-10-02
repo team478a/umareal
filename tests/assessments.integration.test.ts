@@ -19,6 +19,20 @@ describe('assessment drafts with server-owned access and append-only history', (
     expect((await low.client.call(`expert/races/${low.race.id}/assessments`)).status).toBe(403);
     expect((await fixture.client.call(path(), 'POST', { ...input(), role: 'ADMIN' })).status).toBe(400);
   });
+  it('allows a race operator with AAL2 to assess an unassigned race', async () => {
+    const target = await assessmentFixture(); const operator = await assessmentFixture('OPERATOR'); const low = await assessmentFixture('OPERATOR', 1);
+    const readPath = `expert/races/${target.race.id}/assessments`;
+    const savePath = `expert/races/${target.race.id}/entries/${target.entries[0].id}/assessment`;
+    expect((await low.client.call(readPath)).status).toBe(403);
+    expect((await operator.client.call(readPath)).status).toBe(200);
+    const saved = await operator.client.call(savePath, 'POST', {
+      content: { ...blankAssessment, preScore: 82, preRank: 1, preMark: 'HONMEI' }, revision: 0,
+      raceRevision: target.race.revision, horseId: target.entries[0].horseId, mutationId: randomUUID(), reason: 'レース担当の評価権限確認'
+    });
+    expect(saved.status).toBe(201);
+    const assessment = await db.assessment.findUniqueOrThrow({ where: { entryId: target.entries[0].id } });
+    expect(await db.auditLog.count({ where: { actorId: operator.owner.user.id, targetId: assessment.id, action: 'ASSESSMENT_SAVE' } })).toBe(1);
+  });
   it('returns the shared workspace contract without unused database fields', async () => {
     const result = await fixture.client.call(`expert/races/${fixture.race.id}/assessments`);
     expect(result.status).toBe(200);

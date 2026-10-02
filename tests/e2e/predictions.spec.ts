@@ -7,7 +7,7 @@ test('publishes a reviewed prediction, requires correction approval, and preserv
   const fixture = await assessmentFixture();
   await context.addCookies([{ name: 'keiba_session', value: fixture.token, domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
   await page.goto('/expert');
-  const row = page.locator('.race-row').filter({ hasText: fixture.race.name }); await row.getByRole('button', { name: '評価を入力' }).click();
+  const row = page.locator('.race-row').filter({ hasText: fixture.race.name }); await row.getByRole('button', { name: '評価・予想を入力' }).click();
   await page.getByRole('button', { name: '最終評価・公開へ' }).click();
   await page.getByLabel('公開範囲', { exact: true }).selectOption('FREE');
   await page.getByLabel('信頼度', { exact: true }).selectOption('A');
@@ -28,7 +28,7 @@ test('publishes a reviewed prediction, requires correction approval, and preserv
   await page.getByLabel('最終見解', { exact: true }).fill('訂正版の見解です。');
   await page.getByLabel('訂正理由', { exact: true }).fill('総評の表現を訂正');
   await page.getByRole('button', { name: '公開前に確認' }).click();
-  await expect(page.locator('.prediction-editor .notice.error')).toContainText('管理者の確認が必要');
+  await expect(page.locator('.prediction-editor .notice.error')).toContainText('管理者または設定で許可された予想担当の確認が必要');
   const admin = await assessmentFixture('ADMIN'); await context.clearCookies();
   await context.addCookies([{ name: 'keiba_session', value: admin.token, domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
   await page.getByRole('button', { name: '公開前に確認' }).click();
@@ -90,7 +90,7 @@ test('publishes a reviewed prediction, requires correction approval, and preserv
 test('completes all 18 paddock entries and a formal skip inside the three-minute interaction budget', async ({ page, context }) => {
   const fixture = await assessmentFixture('EXPERT', 2, 18); const startedAt = Date.now();
   await context.addCookies([{ name: 'keiba_session', value: fixture.token, domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
-  await page.goto('/expert'); const row = page.locator('.race-row').filter({ hasText: fixture.race.name }); await row.getByRole('button', { name: '評価を入力' }).click();
+  await page.goto('/expert'); const row = page.locator('.race-row').filter({ hasText: fixture.race.name }); await row.getByRole('button', { name: '評価・予想を入力' }).click();
   for (let number = 1; number <= 18; number++) {
     for (const label of ['馬体の張り', '歩様・踏み込み', '毛艶', '気合・集中力', '発汗・落ち着き']) await page.getByRole('button', { name: `${label} 3`, exact: true }).click();
     await page.getByRole('button', { name: '据え置き', exact: true }).click();

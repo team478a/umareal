@@ -8,8 +8,8 @@ test.afterAll(async () => {
 test('operator and expert see their management entry after login', async ({ page }, testInfo) => {
   if (process.env.AUTH_PROVIDER !== 'local' || !['127.0.0.1', 'localhost'].includes(new URL(process.env.DATABASE_URL ?? '').hostname)) throw new Error('Staff browser test requires local development database');
   const cases = [
-    { fixture: await account('OPERATOR'), href: '/admin', heading: '運営担当用の管理画面' },
-    { fixture: await account('EXPERT'), href: '/expert', heading: '専門家の担当管理画面' }
+    { fixture: await account('OPERATOR'), href: '/admin', heading: 'レース担当用の管理画面' },
+    { fixture: await account('EXPERT'), href: '/expert', heading: '予想担当用の管理画面' }
   ];
   for (const item of cases) {
     await page.goto('/login');
@@ -27,6 +27,14 @@ test('operator and expert see their management entry after login', async ({ page
     await expect(menuManagementLink).toBeVisible();
     if (testInfo.project.name.includes('mobile')) await page.locator('.close-menu').click();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    if (item.fixture.user.role === 'OPERATOR') {
+      await page.goto('/admin');
+      await expect(page.getByRole('heading', { name: '管理ダッシュボード', exact: true })).toBeVisible();
+      if (testInfo.project.name.includes('mobile')) await page.getByRole('button', { name: 'メニューを開く' }).click();
+      await expect(page.getByRole('navigation', { name: '管理メニュー' }).getByRole('link', { name: '馬を評価・公開', exact: true })).toHaveAttribute('href', '/expert');
+      await page.goto('/expert');
+      await expect(page.getByRole('heading', { name: '二段階認証を完了してください', exact: true })).toBeVisible();
+    }
     await page.getByRole('button', { name: 'ログアウト', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'おかえりなさい', exact: true })).toBeVisible();
   }

@@ -8,7 +8,7 @@ async function main() {
   const url = new URL(process.env.DATABASE_URL ?? '');
   if (!['localhost', '127.0.0.1'].includes(url.hostname)) throw new Error('Seed requires a loopback database');
   const credentials: { email: string; password: string; role: string }[] = [];
-  const accounts = [{ email: 'admin@example.test', displayName: '開発用 管理者', role: 'ADMIN' as const }, { email: 'expert@example.test', displayName: '開発用 専門家', role: 'EXPERT' as const }];
+  const accounts = [{ email: 'admin@example.test', displayName: '開発用 管理者', role: 'ADMIN' as const }, { email: 'expert@example.test', displayName: '開発用 予想担当', role: 'EXPERT' as const }];
   for (const account of accounts) {
     if (await db.user.findUnique({ where: { email: account.email } })) continue;
     const password = randomBytes(18).toString('base64url'); const salt = randomBytes(16).toString('hex');

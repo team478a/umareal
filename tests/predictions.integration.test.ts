@@ -14,6 +14,31 @@ async function preview(fixture: Awaited<ReturnType<typeof assessmentFixture>>, p
   return client.call(`expert/races/${fixture.race.id}/prediction/preview`, 'POST', { predictionRevision, raceRevision: fixture.race.revision, correctionReason });
 }
 describe('prediction drafts, publication and immutable versions', () => {
+  it('allows an AAL2 race operator to publish an initial prediction without gaining correction authority', async () => {
+    const target = await assessmentFixture(); const operator = await assessmentFixture('OPERATOR'); const low = await assessmentFixture('OPERATOR', 1);
+    const endpoint = `expert/races/${target.race.id}/prediction`;
+    expect((await low.client.call(endpoint)).status).toBe(403);
+    const firstDraft = draftFor(target.entries[0].id, 'PAID');
+    const saved = await operator.client.call(`${endpoint}/draft`, 'POST', { draft: firstDraft, revision: 0, raceRevision: target.race.revision, mutationId: randomUUID(), reason: 'レース担当の初回予想' });
+    expect(saved.status).toBe(201);
+    const checked = await operator.client.call(`${endpoint}/preview`, 'POST', { predictionRevision: 1, raceRevision: target.race.revision, correctionReason: '' });
+    expect(checked.status).toBe(201);
+    const published = await operator.client.call(`${endpoint}/publish/${checked.body.previewId}`, 'POST');
+    expect(published).toMatchObject({ status: 201, body: { version: 1, alreadyPublished: false } });
+    const visibleToOperator = await operator.client.call(`races/${target.race.id}/prediction`);
+    expect(visibleToOperator.body).toMatchObject({ locked: false, latest: { locked: false, summary: firstDraft.summary } });
+    const correction = await operator.client.call(`${endpoint}/draft`, 'POST', { draft: { ...firstDraft, summary: 'レース担当による訂正案' }, revision: 1, raceRevision: target.race.revision, mutationId: randomUUID(), reason: '訂正権限の確認' });
+    expect(correction.status).toBe(201);
+    const setting = await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { predictionCorrectionPolicy: true } });
+    await db.systemSetting.update({ where: { id: 'global' }, data: { predictionCorrectionPolicy: 'EXPERT_OR_ADMIN' } });
+    try {
+      const denied = await operator.client.call(`${endpoint}/preview`, 'POST', { predictionRevision: 2, raceRevision: target.race.revision, correctionReason: '公開後の訂正' });
+      expect(denied).toMatchObject({ status: 403, body: { code: 'CORRECTION_APPROVAL_REQUIRED' } });
+    } finally {
+      await db.systemSetting.update({ where: { id: 'global' }, data: { predictionCorrectionPolicy: setting.predictionCorrectionPolicy } });
+    }
+    expect(await db.predictionVersion.count({ where: { predictionId: saved.body.id } })).toBe(1);
+  });
   it('authorizes drafts, makes retries idempotent and detects concurrent edits', async () => {
     const fixture = await assessmentFixture(); const member = await assessmentFixture('MEMBER');
     expect((await member.client.call(`expert/races/${fixture.race.id}/prediction`)).status).toBe(403);
