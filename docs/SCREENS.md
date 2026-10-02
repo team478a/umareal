@@ -23,7 +23,7 @@
 | /expert | 予想対象レース一覧、事前評価、1頭ずつのパドック入力、全頭進捗・履歴、最終予想の下書き・確認・初版公開 | 担当EXPERT、全レースのOPERATOR/ADMIN。すべてAAL2 |
 | /races/:raceId | 旧無料速報の公開メタデータ、最新の公開予想と旧版・訂正版の切替、有料ロック時の料金確認導線 | 全員。旧無料速報はログイン会員に版番号・種別・公開時刻だけを表示し、予想本文は公開範囲・有限期間権限による |
 | /admin | 管理ダッシュボード。30秒自動更新・鮮度表示付きの日付別開催日運用ボード、6段階の開催日リハーサル、運用状況、会員転換ファネル | ADMIN+AAL2/OPERATOR |
-| /admin/races | 開催日・レース・出走馬・予想担当・個別CSV差分確認・JRA-VAN manifest付き開催日一括差分確認・スマホ向け対象レース告知 | ADMIN+AAL2/OPERATOR |
+| /admin/races | 日本語一覧によるレースかんたん一括登録・開催日・レース・出走馬・予想担当・個別CSV差分確認・JRA-VAN manifest付き開催日一括差分確認・スマホ向け対象レース告知 | ADMIN+AAL2/OPERATOR |
 | /admin/benefits | LINE無料登録特典の追加、追加済み一覧、版、追加・更新日時、対象会員数、特典別視聴開始数、対象特典の編集 | ADMIN+AAL2/OPERATOR |
 | /admin/free-reports | 評価UP/DOWN各1頭、本人音声、レース後検証の下書き・配信前確認・管理者テスト送信・公開履歴 | ADMIN+AAL2/OPERATOR。テスト送信はADMIN+AAL2 |
 | /admin/publication-schedules | 対象レース告知・無料速報の配信前確認、管理者テスト送信、予約、取消、公開版別のWeb・LINE・メール配信結果、各種アラート | ADMIN+AAL2/OPERATOR。テスト送信はADMIN+AAL2 |

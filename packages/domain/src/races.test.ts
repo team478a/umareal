@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
-import { CsvRaceDataProvider, dateSchema, entryHeaders, expertRaceListResponseSchema, parseCsv, parseJraVanRaceBundle, publicRaceAnnouncementsResponseSchema, publicRaceListResponseSchema, raceHeaders, raceInputSchema } from './races';
+import { CsvRaceDataProvider, dateSchema, entryHeaders, expertRaceListResponseSchema, parseCsv, parseJraVanRaceBundle, parseQuickRaceList, publicRaceAnnouncementsResponseSchema, publicRaceListResponseSchema, raceHeaders, raceInputSchema, serializeRaceCsv } from './races';
 const provider = new CsvRaceDataProvider();
 const race = '2099-01-10,東京,1,"名前,引用",未勝利,1600,TURF,LEFT,2099-01-10T10:00:00+09:00,GOOD,晴,SCHEDULED,';
 describe('CSV validation before mutations', () => {
@@ -41,6 +41,29 @@ describe('CSV validation before mutations', () => {
     expect(parsed.errors).toEqual([]); expect(parsed.entries[0].winOdds).toBeNull();
     expect(provider.parse('entries', `${entryHeaders.join(',')}\n${entry}\n${entry.replace(',1,1,', ',2,1,')}`).errors).toContainEqual(expect.objectContaining({ row: 3, field: 'horseId' }));
     expect(provider.parse('entries', `${entryHeaders.join(',')}\n${entry.replace(',57,', ',200,')}`).errors.length).toBeGreaterThan(0);
+  });
+  it('turns a readable multi-venue list into validated race CSV', () => {
+    const parsed = parseQuickRaceList({
+      raceDate: '2099-10-03', raceClass: '特別競走',
+      text: '東京\n9R　八ヶ岳特別　14：35　芝1800m　左回り\n10R 白秋ステークス 15:10 芝1400 左\n\n京都競馬場：\n10Ｒ 大山崎ステークス 15:00 ダ1200 右'
+    });
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.races).toHaveLength(3);
+    expect(parsed.races[0]).toMatchObject({ venue: '東京', number: 9, name: '八ヶ岳特別', raceClass: '特別競走', distance: 1800, surface: 'TURF', direction: 'LEFT', going: 'UNKNOWN', weather: '未確認', status: 'SCHEDULED', expertId: null });
+    expect(parsed.races[0]?.startsAt).toBe('2099-10-03T05:35:00.000Z');
+    expect(parsed.races[2]).toMatchObject({ venue: '京都', number: 10, surface: 'DIRT', direction: 'RIGHT' });
+    const reparsed = provider.parse('races', serializeRaceCsv(parsed.races));
+    expect(reparsed.errors).toEqual([]);
+    expect(reparsed.races).toEqual(parsed.races);
+  });
+  it('reports line-specific errors for malformed or duplicate quick registration rows', () => {
+    const missingVenue = parseQuickRaceList({ raceDate: '2099-10-03', raceClass: '未設定', text: '9R レース名 14:35 芝1800 左' });
+    expect(missingVenue.errors).toContainEqual(expect.objectContaining({ row: 1, field: 'venue' }));
+    const malformed = parseQuickRaceList({ raceDate: '2099-10-03', raceClass: '未設定', text: '東京\n9R 情報不足' });
+    expect(malformed.errors).toContainEqual(expect.objectContaining({ row: 2, field: 'text' }));
+    const duplicate = parseQuickRaceList({ raceDate: '2099-10-03', raceClass: '未設定', text: '東京\n9R 最初 14:35 芝1800 左\n9R 二つ目 15:00 ダ1600 左' });
+    expect(duplicate.errors).toContainEqual(expect.objectContaining({ row: 3, field: 'number' }));
+    expect(parseQuickRaceList({ raceDate: '2099-02-30', raceClass: '未設定', text: '東京\n9R レース名 14:35 芝1800 左' }).errors).toContainEqual(expect.objectContaining({ field: 'raceDate' }));
   });
   it('accepts the deterministic JRA-VAN race and entry bridge samples', () => {
     const samples = resolve(process.cwd(), 'tools/jra_van_bridge/samples');

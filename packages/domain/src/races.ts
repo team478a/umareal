@@ -108,6 +108,92 @@ export const raceHeaders = ['raceDate', 'venue', 'number', 'name', 'raceClass', 
 export const entryHeaders = ['horseId', 'number', 'gate', 'horseName', 'sex', 'age', 'carriedWeight', 'jockey', 'trainer', 'winOdds', 'popularity', 'status'];
 export type CsvIssue = { row: number; field: string; message: string };
 
+export type QuickRaceParseResult = { races: RaceInput[]; errors: CsvIssue[] };
+
+/**
+ * Parses the small, human-readable race list used by the operations screen.
+ * The result still goes through the existing CSV preview API before it can be saved.
+ */
+export function parseQuickRaceList(input: { raceDate: string; raceClass: string; text: string }): QuickRaceParseResult {
+  const result: QuickRaceParseResult = { races: [], errors: [] };
+  const checkedDate = dateSchema.safeParse(input.raceDate);
+  if (!checkedDate.success) result.errors.push({ row: 0, field: 'raceDate', message: '有効な開催日を選択してください。' });
+  const checkedClass = text(60).safeParse(input.raceClass);
+  if (!checkedClass.success) result.errors.push({ row: 0, field: 'raceClass', message: 'クラスを1〜60文字で入力してください。' });
+  if (input.text.length > 20000) result.errors.push({ row: 0, field: 'text', message: '貼り付け内容は20,000文字以内にしてください。' });
+  if (result.errors.length) return result;
+
+  let currentVenue: typeof venues[number] | null = null;
+  const keys = new Set<string>();
+  const lines = input.text.replace(/\r\n?/g, '\n').split('\n');
+  for (let index = 0; index < lines.length; index++) {
+    const row = index + 1;
+    const line = lines[index].trim().replace(/[\u3000\t]+/g, ' ').replace(/：/g, ':');
+    if (!line) continue;
+    const venueText = line.replace(/[：:]$/, '').replace(/競馬場$/, '').trim();
+    if ((venues as readonly string[]).includes(venueText)) {
+      currentVenue = venueText as typeof venues[number];
+      continue;
+    }
+    if (!currentVenue) {
+      result.errors.push({ row, field: 'venue', message: 'レースより前に競馬場名を1行で入力してください。' });
+      continue;
+    }
+    const match = /^(\d{1,2})\s*[RrＲ]\s+(.+?)\s+(\d{1,2}):(\d{2})\s+(芝|ダート|ダ)\s*(\d{3,4})\s*[mｍ]?\s+(右(?:回り)?|左(?:回り)?|直線)$/.exec(line);
+    if (!match) {
+      result.errors.push({ row, field: 'text', message: '「9R レース名 14:35 芝1800 左」の形式で入力してください。' });
+      continue;
+    }
+    const number = Number(match[1]);
+    const hour = Number(match[3]);
+    const minute = Number(match[4]);
+    if (number < 1 || number > 12 || hour > 23 || minute > 59) {
+      result.errors.push({ row, field: number < 1 || number > 12 ? 'number' : 'startsAt', message: number < 1 || number > 12 ? 'レース番号は1〜12にしてください。' : '有効な発走時刻を入力してください。' });
+      continue;
+    }
+    const key = `${input.raceDate}:${currentVenue}:${number}`;
+    if (keys.has(key)) {
+      result.errors.push({ row, field: 'number', message: '同じ競馬場のレース番号が重複しています。' });
+      continue;
+    }
+    keys.add(key);
+    const direction = match[7].startsWith('右') ? 'RIGHT' : match[7].startsWith('左') ? 'LEFT' : 'STRAIGHT';
+    const candidate: RaceInput = {
+      raceDate: input.raceDate,
+      venue: currentVenue,
+      number,
+      name: match[2].trim(),
+      raceClass: input.raceClass.trim(),
+      distance: Number(match[6]),
+      surface: match[5] === '芝' ? 'TURF' : 'DIRT',
+      direction,
+      startsAt: new Date(`${input.raceDate}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00+09:00`).toISOString(),
+      going: 'UNKNOWN',
+      weather: '未確認',
+      status: 'SCHEDULED',
+      expertId: null
+    };
+    const checked = raceInputSchema.safeParse(candidate);
+    if (!checked.success) {
+      checked.error.issues.forEach(issue => result.errors.push({ row, field: issue.path.join('.'), message: issue.message }));
+      continue;
+    }
+    result.races.push(checked.data);
+  }
+  if (!result.races.length && !result.errors.length) result.errors.push({ row: 0, field: 'text', message: '登録するレースを入力してください。' });
+  if (result.races.length > 36) result.errors.push({ row: 0, field: 'text', message: '一度に登録できるのは36レースまでです。' });
+  return result;
+}
+
+function quoteCsvField(value: unknown) {
+  const textValue = value === null || value === undefined ? '' : String(value);
+  return /[",\r\n]/.test(textValue) ? `"${textValue.replace(/"/g, '""')}"` : textValue;
+}
+
+export function serializeRaceCsv(races: readonly RaceInput[]) {
+  return [raceHeaders.join(','), ...races.map(race => raceHeaders.map(header => quoteCsvField(race[header as keyof RaceInput])).join(','))].join('\n');
+}
+
 // RFC 4180-style field quoting. Limits are deliberately small for a 3–5-race/day workflow.
 export function parseCsv(csv: string): string[][] {
   if (csv.length > 90000) throw new Error('CSVは90,000文字以内にしてください。');
