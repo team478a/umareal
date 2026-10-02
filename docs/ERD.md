@@ -174,3 +174,12 @@ WIN5 Phase 2で`prediction_products`、`prediction_product_races`、`prediction_
 `User (ADMIN) 1 --- N LineRichMenuPublication`
 
 `line_rich_menu_publications`は公開試行の状態、LINE側ID、公開時の領域定義JSON、画像SHA-256・サイズ、理由、実行管理者、UTC時刻、失敗コードを保持する。`PUBLISHING`は部分一意索引で1件だけとし、完了した`PUBLISHED / FAILED`行はトリガーで更新・削除を拒否する。`line_oauth_flows.returnPath`はLINEログイン中だけ使用するnullableな許可済み相対パスである。
+
+## 通常レース紙面
+
+- User 1:N RacePaper（updatedBy）、RacePaperVersion（publishedBy）、RacePaperPreview（actorId）。
+- RacePaper 1:N RacePaperVersion、RacePaperPreview。公開版は不変で(paperId, version)一意。
+- RacePaperPreview N:1 RacePaperVersion（confirmedVersionId、未確定はnull）。
+- RacePaperVersion 1:0..1 NotificationEvent（paperVersionId、一意・nullable）。
+- 下書き・公開JSONの対象レースと出走馬IDはサーバーで既存Race/RaceEntryと照合。DB公開ガードは対象日・レース重複・発走締切・版順序・訂正理由を確認する。
+- migrationは新しい3テーブルとnullable通知列の追加のみ。既存予想、課金、会員データを変更しない。[詳細](RACE_PAPERS.md)。

@@ -324,3 +324,9 @@ ADMINまたはOPERATORのAAL2が操作する。レース結果は手入力せず
 - `POST /api/v1/admin/line-rich-menu/publish` — ADMIN+AAL2。`currentPublicationId`と理由を受け、模擬または実LINE公開を行う。最新公開IDの不一致と並行公開は409、transport・資格情報・LINE接続の不備は503。
 
 LINEログイン開始`POST /api/v1/auth/line/start`の`purpose=LOGIN`では、任意で`returnTo`を受ける。値は`/account`、`/benefit`、`/win5`、`/races`、`/notifications`、`/plans`のいずれかだけとし、callback後に同じ相対パスへ戻す。
+
+## 通常レース紙面（2026-10-02）
+
+`GET /papers`と`GET /papers/:id`は認証会員専用。登録会員向け紙面は無料会員も全文、有料紙面は既存Entitlementまたは担当スタッフのAAL2権限を確認する。権限がない版はsnapshot・訂正理由を返さない。
+
+`/expert/papers`のimport、draft、preview、publish、作業用取得はADMIN/OPERATOR/EXPERT+AAL2と全対象レースの担当判定を行う。公開は確認ID付きで冪等、訂正は理由必須の新しい版。API一覧・Contract・通知は[通常紙面仕様](RACE_PAPERS.md)参照。LINE LOGINのreturnTo許可値へ`/papers`を追加し、紙面詳細からログインした場合も一覧へ戻す。

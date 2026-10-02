@@ -126,7 +126,7 @@ pnpm bridge:jra-van:test
 
 友達紹介制度の成立条件、DB、既存一日利用との接続、管理者無効化、APIと試験範囲は [docs/REFERRAL_SYSTEM.md](docs/REFERRAL_SYSTEM.md) を参照してください。
 
-前日WIN5紙面予想と当日パドック直前予想の2商品構成は、[docs/WIN5_PHASE1_DESIGN.md](docs/WIN5_PHASE1_DESIGN.md)に差分、論理モデル、権限、API境界、実装順を記載しています。商品設定、5レース入力、組合せ計算、公開・訂正、会員向け紙面、月額・1日利用権限、LINE・メール公開通知まで実装済みです。WIN5結果、分離成績、ダブル的中、SNS共有は未実装です。
+WIN5前日紙面とパドック直前予想の設計経緯は[docs/WIN5_PHASE1_DESIGN.md](docs/WIN5_PHASE1_DESIGN.md)、現在の馬評価方針と提供範囲は[docs/SPEC.md](docs/SPEC.md)・[docs/DECISIONS.md](docs/DECISIONS.md)を参照してください。通常レースの前日原稿を貼り付け、出走馬照合・公開前確認を経て会員へ掲載する手順は[docs/RACE_PAPERS.md](docs/RACE_PAPERS.md)にまとめています。公開範囲は登録会員向けまたは有料会員向けを選択できます。
 
 独自ドメイン公開の構成、Render Blueprint、必要な資格情報と公開判定は [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) を参照してください。`render.staging.yaml` はアクセス制限付きクラウド試験、`render.yaml` は一般公開用として、Web、非公開API、ワーカー、PostgreSQLをSingaporeリージョンへ分離します。
 
