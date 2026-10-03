@@ -98,6 +98,11 @@ async function main() {
   let applicationUrl: URL;
   try { applicationUrl = new URL(process.env.APP_BASE_URL ?? ''); } catch { throw new Error('APP_BASE_URL must be an absolute URL'); }
   if (process.env.NODE_ENV === 'production' && applicationUrl.protocol !== 'https:') throw new Error('Production requires an HTTPS application URL');
+  if (process.env.MARKETING_BASE_URL) {
+    let marketingUrl: URL;
+    try { marketingUrl = new URL(process.env.MARKETING_BASE_URL); } catch { throw new Error('MARKETING_BASE_URL must be an absolute URL'); }
+    if (process.env.NODE_ENV === 'production' && marketingUrl.protocol !== 'https:') throw new Error('Production requires an HTTPS marketing URL');
+  }
   if (!['local', 'supabase'].includes(provider ?? '')) throw new Error('Set AUTH_PROVIDER explicitly');
   if (provider === 'local' && process.env.NODE_ENV === 'production') throw new Error('Local authentication is forbidden in production');
   if (provider === 'supabase') {

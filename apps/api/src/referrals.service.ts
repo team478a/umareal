@@ -7,6 +7,15 @@ import { createDayPassAccess } from './day-pass-access';
 
 type Tx = Prisma.TransactionClient;
 
+export function buildMemberReferralUrl(referralCode: string, appBaseUrl: string, marketingBaseUrl?: string) {
+  const marketingBase = marketingBaseUrl?.trim();
+  const url = new URL(marketingBase ? '/' : '/register', marketingBase || appBaseUrl);
+  url.search = '';
+  url.hash = '';
+  url.searchParams.set('invite', referralCode);
+  return url.toString();
+}
+
 @Injectable()
 export class ReferralsService {
   constructor(@Inject(AuthService) private readonly auth: AuthService) {}
@@ -78,10 +87,9 @@ export class ReferralsService {
       this.auth.db.referralReward.findMany({ where: { userId }, include: { milestone: true, dayPass: { select: { raceDate: true, status: true } } }, orderBy: { grantedAt: 'desc' } })
     ]);
     const next = milestones.find(item => item.requiredReferralCount > qualifiedCount) ?? null;
-    const base = (process.env.APP_BASE_URL ?? '').replace(/\/$/, '');
     return {
       referralCode: user.referralCode,
-      referralUrl: `${base}/register?invite=${encodeURIComponent(user.referralCode)}`,
+      referralUrl: buildMemberReferralUrl(user.referralCode, process.env.APP_BASE_URL ?? '', process.env.MARKETING_BASE_URL),
       qualifiedCount,
       nextMilestone: next ? { requiredReferralCount: next.requiredReferralCount, remaining: next.requiredReferralCount - qualifiedCount, rewardType: next.rewardType, rewardQuantity: next.rewardQuantity } : null,
       milestones: milestones.map(item => ({ id: item.id, requiredReferralCount: item.requiredReferralCount, rewardType: item.rewardType, rewardQuantity: item.rewardQuantity, achieved: qualifiedCount >= item.requiredReferralCount })),

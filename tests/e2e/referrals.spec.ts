@@ -31,6 +31,7 @@ test('member referral works from the account URL through email verification', as
   const parsedLineUrl = new URL(lineHref!);
   expect(parsedLineUrl.origin).toBe('https://social-plugins.line.me');
   expect(parsedLineUrl.searchParams.get('url')).toBe(referralUrl);
+  expect(parsedLineUrl.searchParams.get('text')).toBe('ウマリアル無料会員登録開始！');
   expect(lineHref).not.toContain(referrer.user.email!);
   expect(lineHref).not.toContain(referrer.password);
   await expect(page.getByRole('button', { name: '紹介URLをコピー' })).toBeVisible();

@@ -19,7 +19,7 @@ export function ReferralDashboard({ onAccessChanged }: { onAccessChanged: () => 
   const [dates, setDates] = useState<Record<string, string>>({});
   const load = useCallback(async () => { try { setData(await request<MemberReferralSummary>('me/referrals')); } catch (e) { setError((e as Error).message); } }, []);
   useEffect(() => { void load(); }, [load]);
-  const shareUrl = useMemo(() => data ? `https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(data.referralUrl)}&text=${encodeURIComponent('ウマリアルを紹介します。無料登録後、競馬の注目馬やレース見解を確認できます。')}` : '#', [data]);
+  const shareUrl = useMemo(() => data ? `https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(data.referralUrl)}&text=${encodeURIComponent('ウマリアル無料会員登録開始！')}` : '#', [data]);
   async function copy() { if (!data) return; try { await navigator.clipboard.writeText(data.referralUrl); setMessage('紹介URLをコピーしました。'); setError(''); } catch { setError('URLをコピーできませんでした。長押ししてコピーしてください。'); } }
   async function redeem(event: FormEvent, reward: MemberReferralReward) {
     event.preventDefault(); const targetDate = dates[reward.id] ?? today(); setBusy(reward.id); setError(''); setMessage('');
