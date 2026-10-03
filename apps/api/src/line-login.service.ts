@@ -7,9 +7,10 @@ import { decrypt, encrypt, hashToken, newToken } from './security';
 
 const AUTHORIZE_URL = 'https://access.line.me/oauth2/v2.1/authorize';
 const TOKEN_URL = 'https://api.line.me/oauth2/v2.1/token';
+const FRIENDSHIP_STATUS_URL = 'https://api.line.me/friendship/v1/status';
 const ISSUER = 'https://access.line.me';
 type Credentials = { channelId: string; channelSecret: string; callbackUrl: string };
-export type LineIdentity = { subject: string };
+export type LineIdentity = { subject: string; friend: boolean | null };
 
 export function pkceChallenge(verifier: string) {
   return createHash('sha256').update(verifier).digest('base64url');
@@ -20,7 +21,7 @@ export function buildLineAuthorizationUrl(input: { channelId: string; callbackUr
   return url.toString();
 }
 
-export async function exchangeLineCode(input: Credentials & { code: string; verifier: string; nonce: string }, fetcher: typeof fetch = fetch): Promise<LineIdentity> {
+export async function exchangeLineCode(input: Credentials & { code: string; verifier: string; nonce: string; checkFriendship?: boolean }, fetcher: typeof fetch = fetch): Promise<LineIdentity> {
   let response: Response;
   try {
     response = await fetcher(TOKEN_URL, {
@@ -29,13 +30,24 @@ export async function exchangeLineCode(input: Credentials & { code: string; veri
     });
   } catch { throw new BadGatewayException({ code: 'LINE_TOKEN_CONNECTION_FAILED', message: 'LINE認証に接続できませんでした。もう一度お試しください。' }); }
   if (!response.ok) throw new BadGatewayException({ code: 'LINE_TOKEN_EXCHANGE_FAILED', message: 'LINE認証を完了できませんでした。もう一度お試しください。' });
-  const body = await response.json() as { id_token?: unknown };
+  const body = await response.json() as { id_token?: unknown; access_token?: unknown };
   if (typeof body.id_token !== 'string') throw new BadGatewayException({ code: 'LINE_ID_TOKEN_MISSING', message: 'LINE認証を完了できませんでした。もう一度お試しください。' });
+  let subject: string;
   try {
     const { payload } = await jwtVerify(body.id_token, new TextEncoder().encode(input.channelSecret), { issuer: ISSUER, audience: input.channelId, algorithms: ['HS256'] });
     if (typeof payload.sub !== 'string' || !payload.sub || payload.nonce !== input.nonce) throw new Error('Invalid claims');
-    return { subject: payload.sub };
+    subject = payload.sub;
   } catch { throw new BadRequestException({ code: 'LINE_ID_TOKEN_INVALID', message: 'LINE認証情報を確認できませんでした。もう一度お試しください。' }); }
+  if (!input.checkFriendship) return { subject, friend: null };
+  if (typeof body.access_token !== 'string' || !body.access_token) throw new BadGatewayException({ code: 'LINE_ACCESS_TOKEN_MISSING', message: 'LINE友だち追加を確認できませんでした。もう一度お試しください。' });
+  let friendshipResponse: Response;
+  try {
+    friendshipResponse = await fetcher(FRIENDSHIP_STATUS_URL, { method: 'GET', signal: AbortSignal.timeout(10000), headers: { Authorization: `Bearer ${body.access_token}` } });
+  } catch { throw new BadGatewayException({ code: 'LINE_FRIENDSHIP_CONNECTION_FAILED', message: 'LINE友だち追加を確認できませんでした。もう一度お試しください。' }); }
+  if (!friendshipResponse.ok) throw new BadGatewayException({ code: 'LINE_FRIENDSHIP_CHECK_FAILED', message: 'LINE友だち追加を確認できませんでした。もう一度お試しください。' });
+  const friendship = await friendshipResponse.json() as { friendFlag?: unknown };
+  if (typeof friendship.friendFlag !== 'boolean') throw new BadGatewayException({ code: 'LINE_FRIENDSHIP_RESPONSE_INVALID', message: 'LINE友だち追加を確認できませんでした。もう一度お試しください。' });
+  return { subject, friend: friendship.friendFlag };
 }
 
 @Injectable()
@@ -75,9 +87,9 @@ export class LineLoginService {
     let identity: LineIdentity;
     if ((process.env.LINE_OAUTH_TRANSPORT ?? 'test') === 'test') {
       if (process.env.NODE_ENV === 'production' || !code.startsWith('test.')) throw new BadRequestException({ code: 'LINE_TEST_TRANSPORT_REJECTED', message: 'LINE認証を完了できませんでした。' });
-      identity = { subject: code.slice(5) };
+      identity = { subject: code.slice(5), friend: true };
       if (!identity.subject || identity.subject.length > 255) throw new BadRequestException({ code: 'LINE_SUBJECT_INVALID', message: 'LINE認証情報を確認できませんでした。' });
-    } else identity = await exchangeLineCode({ ...credentials, code, verifier, nonce });
+    } else identity = await exchangeLineCode({ ...credentials, code, verifier, nonce, checkFriendship: flow.purpose === 'REGISTER' });
     return { flow, identity, subjectHash: hashToken(identity.subject) };
   }
 

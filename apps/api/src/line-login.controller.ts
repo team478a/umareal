@@ -41,6 +41,21 @@ export class LineLoginController {
         this.sessions.setLocalSession(res, session); return res.redirect(303, `${process.env.APP_BASE_URL}/account?line=login`);
       }
       if (account) throw new ConflictException({ code: 'LINE_ACCOUNT_UNAVAILABLE', message: 'このLINEアカウントは再登録できません。' });
+      if (!identity.friend) {
+        const registrationUrl = new URL('/register', process.env.APP_BASE_URL);
+        registrationUrl.searchParams.set('entry', 'line');
+        registrationUrl.searchParams.set('line', 'friend-required');
+        if (flow.memberReferralCode) registrationUrl.searchParams.set('invite', flow.memberReferralCode);
+        const parsedAcquisition = acquisitionSchema.safeParse(flow.acquisition);
+        if (parsedAcquisition.success) {
+          const queryNames = { source: 'utm_source', medium: 'utm_medium', campaign: 'utm_campaign', content: 'utm_content', term: 'utm_term', referralCode: 'ref' } as const;
+          for (const [key, queryName] of Object.entries(queryNames) as [keyof typeof queryNames, string][]) {
+            const value = parsedAcquisition.data[key];
+            if (value) registrationUrl.searchParams.set(queryName, value);
+          }
+        }
+        return res.redirect(303, registrationUrl.toString());
+      }
       await this.auth.requireNewRegistration();
       const token = newToken();
       await this.auth.db.lineRegistrationGrant.create({ data: { tokenHash: hashToken(token), subjectHash, subjectEncrypted: encrypt(identity.subject), expiresAt: new Date(Date.now() + 15 * 60000), acquisition: flow.acquisition ?? undefined, memberReferralCode: flow.memberReferralCode } });

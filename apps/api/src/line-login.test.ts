@@ -15,11 +15,30 @@ describe('LINE Login OAuth protocol', () => {
     const secret = '0123456789abcdef0123456789abcdef', now = Math.floor(Date.now() / 1000);
     const idToken = await new SignJWT({ nonce: 'nonce-value' }).setProtectedHeader({ alg: 'HS256', typ: 'JWT' }).setIssuer('https://access.line.me').setAudience('123456').setSubject('U-test-subject').setIssuedAt(now).setExpirationTime(now + 300).sign(new TextEncoder().encode(secret));
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ id_token: idToken }), { status: 200, headers: { 'Content-Type': 'application/json' } })) as unknown as typeof fetch;
-    await expect(exchangeLineCode({ channelId: '123456', channelSecret: secret, callbackUrl: 'https://example.test/callback', code: 'one-use-code', verifier: 'verifier', nonce: 'nonce-value' }, fetcher)).resolves.toEqual({ subject: 'U-test-subject' });
+    await expect(exchangeLineCode({ channelId: '123456', channelSecret: secret, callbackUrl: 'https://example.test/callback', code: 'one-use-code', verifier: 'verifier', nonce: 'nonce-value' }, fetcher)).resolves.toEqual({ subject: 'U-test-subject', friend: null });
     const request = fetcher.mock.calls[0][1] as RequestInit;
     expect(request.method).toBe('POST');
     expect(new URLSearchParams(request.body as string)).toMatchObject(expect.any(URLSearchParams));
     expect(String(request.body)).toContain('code_verifier=verifier');
     await expect(exchangeLineCode({ channelId: '123456', channelSecret: secret, callbackUrl: 'https://example.test/callback', code: 'code', verifier: 'verifier', nonce: 'wrong' }, fetcher)).rejects.toMatchObject({ response: { code: 'LINE_ID_TOKEN_INVALID' } });
+  });
+
+  it('checks the linked official account friendship before new registration', async () => {
+    const secret = '0123456789abcdef0123456789abcdef', now = Math.floor(Date.now() / 1000);
+    const idToken = await new SignJWT({ nonce: 'nonce-value' }).setProtectedHeader({ alg: 'HS256', typ: 'JWT' }).setIssuer('https://access.line.me').setAudience('123456').setSubject('U-new-member').setIssuedAt(now).setExpirationTime(now + 300).sign(new TextEncoder().encode(secret));
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id_token: idToken, access_token: 'temporary-line-access-token' }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ friendFlag: true }), { status: 200, headers: { 'Content-Type': 'application/json' } })) as unknown as typeof fetch;
+    await expect(exchangeLineCode({ channelId: '123456', channelSecret: secret, callbackUrl: 'https://example.test/callback', code: 'one-use-code', verifier: 'verifier', nonce: 'nonce-value', checkFriendship: true }, fetcher)).resolves.toEqual({ subject: 'U-new-member', friend: true });
+    expect(fetcher).toHaveBeenNthCalledWith(2, 'https://api.line.me/friendship/v1/status', expect.objectContaining({ method: 'GET', headers: { Authorization: 'Bearer temporary-line-access-token' } }));
+  });
+
+  it('reports when the new registrant has not added the linked official account', async () => {
+    const secret = '0123456789abcdef0123456789abcdef', now = Math.floor(Date.now() / 1000);
+    const idToken = await new SignJWT({ nonce: 'nonce-value' }).setProtectedHeader({ alg: 'HS256', typ: 'JWT' }).setIssuer('https://access.line.me').setAudience('123456').setSubject('U-not-friend').setIssuedAt(now).setExpirationTime(now + 300).sign(new TextEncoder().encode(secret));
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id_token: idToken, access_token: 'temporary-line-access-token' }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ friendFlag: false }), { status: 200, headers: { 'Content-Type': 'application/json' } })) as unknown as typeof fetch;
+    await expect(exchangeLineCode({ channelId: '123456', channelSecret: secret, callbackUrl: 'https://example.test/callback', code: 'one-use-code', verifier: 'verifier', nonce: 'nonce-value', checkFriendship: true }, fetcher)).resolves.toEqual({ subject: 'U-not-friend', friend: false });
   });
 });

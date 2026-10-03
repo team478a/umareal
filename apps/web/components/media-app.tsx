@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ArrowRight, BarChart3, BellRing, BookOpenCheck, CalendarDays, Check, ChevronRight, ClipboardCheck, ClipboardList, Clock3, CreditCard, DatabaseBackup, Gift, Home, LayoutDashboard, LogOut, MailCheck, Menu, MessageCircle, Minus, PanelTop, RefreshCw, Settings2, Share2, ShieldAlert, ShieldCheck, UserCog, UserRoundX, Users, X } from 'lucide-react';
@@ -156,6 +156,7 @@ function AuthForm({ path, onSuccess, lineEnabled, localOnly, registrationEnabled
   const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
   const [registrationMethod, setRegistrationMethod] = useState<'CHOICE' | 'EMAIL'>(registration && lineEnabled ? 'CHOICE' : 'EMAIL');
   const [captchaToken, setCaptchaToken] = useState<string | null>(null); const [captchaReset, setCaptchaReset] = useState(0);
+  const directLineStarted = useRef(false);
   const captchaCallback = useCallback((token: string | null) => setCaptchaToken(token), []);
   const lineNotLinked = path === '/login' && search.get('line') === 'not-linked';
   useEffect(() => {
@@ -164,12 +165,19 @@ function AuthForm({ path, onSuccess, lineEnabled, localOnly, registrationEnabled
     else if (lineNotLinked) setMessage('このLINEではログイン登録がまだ完了していません。初めての方は無料会員登録へ進んでください。メールで登録済みの方は、メールでログイン後にマイページからLINEを連携できます。');
     else setMessage('');
   }, [lineNotLinked, path, search]);
-  const acquisition = registration ? { source: search.get('utm_source') || undefined, medium: search.get('utm_medium') || undefined, campaign: search.get('utm_campaign') || undefined, content: search.get('utm_content') || undefined, term: search.get('utm_term') || undefined, referralCode: search.get('ref') || undefined, landingPath: '/register' } : undefined;
+  const acquisition = useMemo(() => registration ? { source: search.get('utm_source') || undefined, medium: search.get('utm_medium') || undefined, campaign: search.get('utm_campaign') || undefined, content: search.get('utm_content') || undefined, term: search.get('utm_term') || undefined, referralCode: search.get('ref') || undefined, landingPath: '/register' } : undefined, [registration, search]);
   const memberReferralCode = registration ? search.get('invite') || undefined : undefined;
+  const directLineEntry = registration && lineEnabled && search.get('entry') === 'line';
+  const lineFriendRequired = directLineEntry && search.get('line') === 'friend-required';
   const parsedReturnTo = lineLoginReturnPathSchema.safeParse(search.get('returnTo'));
   const returnTo = parsedReturnTo.success ? parsedReturnTo.data : undefined;
   async function lineLogin() { setBusy(true); setError(''); try { const value = await api<{ authorizationUrl: string }>('auth/line/start', 'POST', { purpose: 'LOGIN', returnTo }); window.location.assign(value.authorizationUrl); } catch (e) { setError((e as Error).message); setBusy(false); } }
-  async function lineRegister() { setBusy(true); setError(''); try { const value = await api<{ authorizationUrl: string }>('auth/line/start', 'POST', { purpose: 'REGISTER', acquisition, memberReferralCode }); window.location.assign(value.authorizationUrl); } catch (e) { setError((e as Error).message); setBusy(false); } }
+  const lineRegister = useCallback(async () => { setBusy(true); setError(''); try { const value = await api<{ authorizationUrl: string }>('auth/line/start', 'POST', { purpose: 'REGISTER', acquisition, memberReferralCode }); window.location.assign(value.authorizationUrl); } catch (e) { setError((e as Error).message); setBusy(false); } }, [acquisition, memberReferralCode]);
+  useEffect(() => {
+    if (!directLineEntry || lineFriendRequired || directLineStarted.current) return;
+    directLineStarted.current = true;
+    void lineRegister();
+  }, [directLineEntry, lineFriendRequired, lineRegister]);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError(''); setMessage('');
     const form = new FormData(event.currentTarget);
@@ -183,9 +191,15 @@ function AuthForm({ path, onSuccess, lineEnabled, localOnly, registrationEnabled
     } catch (e) { setError((e as Error).message); if (registration && captcha.enabled) { setCaptchaToken(null); setCaptchaReset(value => value + 1); } } finally { setBusy(false); }
   }
   const title = registration ? '無料会員登録' : forgot ? 'パスワードをお忘れの方' : reset ? '新しいパスワードを設定' : 'おかえりなさい';
-  const choosingRegistrationMethod = registration && lineEnabled && registrationMethod === 'CHOICE';
-  return <div className="auth-grid"><div className="auth-intro"><span className="eyebrow">MEMBER’S DESK</span><h1>{title}</h1><p>{choosingRegistrationMethod ? 'LINEまたはメールから、登録方法を選んでください。' : registration ? 'メールアドレスを確認して、無料会員登録を完了します。' : forgot ? '登録したメールアドレスを入力してください。' : reset ? '12文字以上のパスワードを設定してください。' : 'メールアドレスとパスワードでログインしてください。'}</p><div className="auth-aside"><ShieldCheck size={24} /><strong>安心して使えるアカウントに</strong><p>管理者・予想担当と、レース担当の予想操作には、認証アプリによる二段階認証が必要です。</p></div></div>
-    <section className="panel auth-panel">{choosingRegistrationMethod ? <div className="registration-method-picker" aria-labelledby="registration-method-title">
+  const choosingRegistrationMethod = registration && lineEnabled && registrationMethod === 'CHOICE' && !directLineEntry;
+  return <div className="auth-grid"><div className="auth-intro"><span className="eyebrow">MEMBER’S DESK</span><h1>{directLineEntry ? 'LINEから無料会員登録' : title}</h1><p>{directLineEntry ? 'LINE認証と友だち追加を確認した後、システム会員登録へ進みます。' : choosingRegistrationMethod ? 'LINEまたはメールから、登録方法を選んでください。' : registration ? 'メールアドレスを確認して、無料会員登録を完了します。' : forgot ? '登録したメールアドレスを入力してください。' : reset ? '12文字以上のパスワードを設定してください。' : 'メールアドレスとパスワードでログインしてください。'}</p><div className="auth-aside"><ShieldCheck size={24} /><strong>安心して使えるアカウントに</strong><p>管理者・予想担当と、レース担当の予想操作には、認証アプリによる二段階認証が必要です。</p></div></div>
+    <section className="panel auth-panel">{directLineEntry ? <div className="registration-method-picker" aria-live="polite">
+      <div className="registration-method-heading"><span className="eyebrow">STEP 1 OF 2</span><h2>{lineFriendRequired ? 'LINE友だち追加が必要です' : 'LINEを確認しています'}</h2><p>{lineFriendRequired ? '公式LINEを友だち追加してから、もう一度お進みください。追加済みの場合はブロックを解除してください。' : 'LINEの認証画面へ移動します。認証画面で公式LINEを友だち追加してください。'}</p></div>
+      <Notice text={error} error />
+      {lineFriendRequired || error ? <button type="button" className="button line-button full" disabled={busy} onClick={() => { directLineStarted.current = true; void lineRegister(); }}>{busy ? 'LINEへ移動中…' : 'LINE友だち追加を確認して続ける'}<ArrowRight size={18} /></button> : <p role="status" className="form-note">LINEへ移動中…</p>}
+      <p className="registration-method-note">LINE確認後は、表示名・20歳以上・規約への同意だけでシステム登録が完了します。</p>
+      <div className="auth-switch">メールで登録する方は <button type="button" className="text-link" onClick={() => { directLineStarted.current = true; setRegistrationMethod('EMAIL'); router.replace('/register'); }}>登録方法を選ぶ</button></div>
+    </div> : choosingRegistrationMethod ? <div className="registration-method-picker" aria-labelledby="registration-method-title">
       <div className="registration-method-heading"><span className="eyebrow">FREE REGISTRATION</span><h2 id="registration-method-title">登録方法を選ぶ</h2><p>どちらの方法でも無料会員として利用できます。</p></div>
       <Notice text={error} error />
       <button type="button" className="button line-button full registration-method-option" disabled={busy} onClick={() => void lineRegister()}><span><strong>LINEで登録</strong><small>LINE認証と公式LINEの友だち追加へ進みます</small></span><ArrowRight size={18} /></button>
@@ -215,7 +229,7 @@ function LineRegistration({ onSuccess }: { onSuccess: () => Promise<void> }) {
     await api('auth/line/register', 'POST', { token, displayName: form.get('displayName'), adult: form.get('adult') === 'on', terms: form.get('terms') === 'on', privacy: form.get('privacy') === 'on', termsVersion: consentVersions.terms, privacyVersion: consentVersions.privacy });
     await onSuccess(); router.push('/account?line=registered');
   } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
-  return <div className="auth-grid"><div className="auth-intro"><span className="eyebrow">LINE REGISTRATION</span><h1>無料登録を完了</h1><p>表示名と必要な同意を確認すると、LINEでログインできる無料会員になります。</p></div><section className="panel auth-panel"><form onSubmit={submit}><Notice text={error} error /><label className="field">表示名<input name="displayName" autoComplete="nickname" maxLength={60} required /></label><div className="consents"><label><input type="checkbox" name="adult" required /><span>20歳以上です。</span></label><label><input type="checkbox" name="terms" required /><span><Link href="/terms" target="_blank">{legalDocumentLabel(legalDocuments.terms)}</Link>に同意します。</span></label><label><input type="checkbox" name="privacy" required /><span><Link href="/privacy" target="_blank">{legalDocumentLabel(legalDocuments.privacy)}</Link>に同意します。</span></label></div><button className="button line-button full" disabled={busy}>{busy ? '登録中…' : '同意してLINE無料登録を完了'}<ArrowRight size={17} /></button></form></section></div>;
+  return <div className="auth-grid"><div className="auth-intro"><span className="eyebrow">STEP 2 OF 2</span><h1>システム会員登録</h1><p>LINE認証と友だち追加を確認しました。表示名と必要な同意を入力すると、無料会員登録が完了します。</p></div><section className="panel auth-panel"><form onSubmit={submit}><Notice text={error} error /><div className="notice">LINEの確認は完了しています。こちらが最後の登録画面です。</div><label className="field">表示名<input name="displayName" autoComplete="nickname" maxLength={60} required /></label><div className="consents"><label><input type="checkbox" name="adult" required /><span>20歳以上です。</span></label><label><input type="checkbox" name="terms" required /><span><Link href="/terms" target="_blank">{legalDocumentLabel(legalDocuments.terms)}</Link>に同意します。</span></label><label><input type="checkbox" name="privacy" required /><span><Link href="/privacy" target="_blank">{legalDocumentLabel(legalDocuments.privacy)}</Link>に同意します。</span></label></div><button className="button line-button full" disabled={busy}>{busy ? '登録中…' : '同意してシステム登録を完了'}<ArrowRight size={17} /></button></form></section></div>;
 }
 
 function EmailVerification({ onSuccess }: { onSuccess: () => Promise<void> }) {
