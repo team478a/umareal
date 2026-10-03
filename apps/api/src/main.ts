@@ -65,6 +65,7 @@ import { MemberAccountQueryService } from './member-account-query.service';
 import { AccountClosureService } from './account-closure.service';
 import { LineRichMenuController } from './line-rich-menu.controller';
 import { LineRichMenuService } from './line-rich-menu.service';
+import { ManualsController } from './manuals.controller';
 config({ path: resolve(process.cwd(), '../../.env'), quiet: true });
 
 @Catch()
@@ -87,7 +88,7 @@ class ErrorFilter implements ExceptionFilter {
     res.status(status).json({ code, message, requestId: req.requestId, details });
   }
 }
-@Module({ controllers: [RacePapersController, AuthController, AppController, RacesController, AssessmentsController, PredictionsController, Win5Controller, Win5ResultsController, SocialSharesController, AdminSettingsController, AdminContinuityController, StaffController, SupportController, OperationalAlertsController, NotificationsController, MemberNotificationsController, AdminFreeReportsController, MemberFreeReportsController, PublicationSchedulesController, LineWebhookController, LineRichMenuController, ResendWebhookController, RegistrationFollowupsController, LineLoginController, ResultsController, BillingController, ReferralsController], providers: [DbService, AuthService, AuthSessionService, AuthRegistrationService, AuthCredentialService, AuthMfaService, AuthLoginService, AuthSessionLifecycleService, StripeCustomerGatewayService, StripeWebhookService, StripeCheckoutService, BillingSubscriptionLifecycleService, BillingAdminResolutionService, BillingSupportService, BillingLocalSimulationService, BillingCouponService, BillingLocalCheckoutService, BillingQueryService, MemberAccountQueryService, AccountClosureService, SupabaseAuthService, LineLoginService, LineRichMenuService, MailService, RegistrationCaptchaService, ReferralsService, ReadinessService] })
+@Module({ controllers: [RacePapersController, AuthController, AppController, RacesController, AssessmentsController, PredictionsController, Win5Controller, Win5ResultsController, SocialSharesController, AdminSettingsController, AdminContinuityController, ManualsController, StaffController, SupportController, OperationalAlertsController, NotificationsController, MemberNotificationsController, AdminFreeReportsController, MemberFreeReportsController, PublicationSchedulesController, LineWebhookController, LineRichMenuController, ResendWebhookController, RegistrationFollowupsController, LineLoginController, ResultsController, BillingController, ReferralsController], providers: [DbService, AuthService, AuthSessionService, AuthRegistrationService, AuthCredentialService, AuthMfaService, AuthLoginService, AuthSessionLifecycleService, StripeCustomerGatewayService, StripeWebhookService, StripeCheckoutService, BillingSubscriptionLifecycleService, BillingAdminResolutionService, BillingSupportService, BillingLocalSimulationService, BillingCouponService, BillingLocalCheckoutService, BillingQueryService, MemberAccountQueryService, AccountClosureService, SupabaseAuthService, LineLoginService, LineRichMenuService, MailService, RegistrationCaptchaService, ReferralsService, ReadinessService] })
 class AppModule {}
 
 async function main() {
