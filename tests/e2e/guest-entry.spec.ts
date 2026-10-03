@@ -18,14 +18,23 @@ test('guests see a minimal root entry and no member menu', async ({ page }) => {
   await expect(page.locator('main')).toHaveAttribute('class', 'guest-entry');
   await expect(page.getByRole('region', { name: 'ウマリアル' })).toBeVisible();
   await expect(page.getByRole('img', { name: 'ウマリアル' })).toBeVisible();
+  await expect(page.getByRole('link', { name: '動画マニュアル', exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'ログイン', exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: '無料会員登録', exact: true })).toBeVisible();
-  await expect(page.getByRole('link')).toHaveCount(2);
+  await expect(page.getByRole('link')).toHaveCount(3);
   await expect(page.locator('aside, header, footer')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'メニューを開く' })).toHaveCount(0);
   await expect(page.getByRole('navigation', { name: 'メインメニュー' })).toHaveCount(0);
   await expect(page.getByText('WIN5紙面', { exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+
+  await page.getByRole('link', { name: '動画マニュアル', exact: true }).click();
+  await expect(page).toHaveURL(/\/manual$/);
+  await expect(page.getByRole('heading', { name: '動画マニュアル', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /LPからLINE無料登録/ })).toBeVisible();
+
+  await page.goto('/admin/manual');
+  await expect(page.getByRole('heading', { name: 'ログインが必要です' })).toBeVisible();
 
   await page.goto('/login');
   await expect(page.getByRole('heading', { name: 'おかえりなさい' })).toBeVisible();
