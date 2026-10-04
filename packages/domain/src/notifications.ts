@@ -41,6 +41,12 @@ export const memberNotificationItemSchema = z.object({
   race: adminNotificationRaceSchema.nullable(),
   win5: adminNotificationProductSchema.nullable(),
   paper: adminNotificationProductSchema.optional(),
+  content: z.object({
+    id: z.string().uuid(),
+    kind: z.enum(['ARTICLE', 'VIDEO', 'AUDIO']),
+    title: z.string(),
+    category: z.string()
+  }).strict().optional(),
   support: z.object({
     requestId: z.string().uuid(),
     subject: z.string()
@@ -50,11 +56,12 @@ export const memberNotificationItemSchema = z.object({
     raceDate: notificationOperationalDateSchema.nullable()
   }).strict().optional()
 }).strict().superRefine((value, context) => {
-  const targetCount = Number(value.race !== null) + Number(value.win5 !== null) + Number(value.paper !== undefined) + Number(value.support !== undefined) + Number(value.billing !== undefined);
+  const targetCount = Number(value.race !== null) + Number(value.win5 !== null) + Number(value.paper !== undefined) + Number(value.content !== undefined) + Number(value.support !== undefined) + Number(value.billing !== undefined);
   if (targetCount !== 1) context.addIssue({ code: z.ZodIssueCode.custom, message: 'A member notification must have exactly one public target.' });
   if (value.race && value.href !== `/races/${value.race.id}`) context.addIssue({ code: z.ZodIssueCode.custom, path: ['href'], message: 'Race notification href does not match its public target.' });
   if (value.win5 && value.href !== `/win5/${value.win5.id}`) context.addIssue({ code: z.ZodIssueCode.custom, path: ['href'], message: 'WIN5 notification href does not match its public target.' });
   if (value.paper && value.href !== `/papers/${value.paper.id}`) context.addIssue({ code: z.ZodIssueCode.custom, path: ['href'], message: 'Paper notification href does not match its public target.' });
+  if (value.content && value.href !== `/content/${value.content.id}`) context.addIssue({ code: z.ZodIssueCode.custom, path: ['href'], message: 'Content notification href does not match its public target.' });
   if (value.support && (value.href !== '/support' || value.visibility !== 'FREE' || value.version !== 1)) context.addIssue({ code: z.ZodIssueCode.custom, message: 'Support notification metadata is invalid.' });
   if (value.billing && (value.href !== '/account' || value.visibility !== 'FREE' || value.version !== 1)) context.addIssue({ code: z.ZodIssueCode.custom, message: 'Billing notification metadata is invalid.' });
 });
@@ -82,6 +89,7 @@ const adminNotificationEventSchema = z.object({
   eventType: z.string().min(1),
   status: z.string().min(1),
   createdAt: notificationDateTimeSchema,
+  contentVersion: z.object({ id: z.string().uuid(), contentId: z.string().uuid(), version: z.number().int().positive(), kind: z.enum(['ARTICLE', 'VIDEO', 'AUDIO']), title: z.string(), category: z.string(), visibility: z.enum(['PUBLIC', 'MEMBERS', 'PAID']) }).strict().nullable().optional(),
   paperVersion: z.object({ id: z.string().uuid(), version: z.number().int().positive(), targetDate: notificationOperationalDateSchema, title: z.string(), paperId: z.string().uuid(), accessScope: z.enum(['MEMBERS', 'PAID']) }).strict().nullable().optional(),
   version: z.object({
     id: z.string().uuid(),

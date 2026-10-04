@@ -57,6 +57,17 @@ const billingNotificationInputSchema = z.object({
   appBaseUrl: z.string().url()
 }).strict();
 
+const contentNotificationInputSchema = z.object({
+  eventType: z.enum(['CONTENT_PUBLISHED', 'CONTENT_UPDATED']),
+  contentId: z.string().uuid(),
+  kind: z.enum(['ARTICLE', 'VIDEO', 'AUDIO']),
+  title: z.string().trim().min(1).max(160),
+  category: z.string().trim().min(1).max(80),
+  version: z.number().int().positive(),
+  visibility: z.enum(['PUBLIC', 'MEMBERS', 'PAID']),
+  appBaseUrl: z.string().url()
+}).strict();
+
 export type LineTextMessage = { type: 'text'; text: string };
 
 function singleLine(value: string) { return value.replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim(); }
@@ -124,6 +135,18 @@ export function buildSupportReplyLineMessage(raw: z.input<typeof supportReplyNot
   const url = checkedBaseUrl(input.appBaseUrl);
   const link = new URL('/support', url).toString();
   const text = ['お問い合わせへの回答があります', '回答内容は会員ページでご確認ください。', link].join('\n');
+  if (text.length > 5000) throw new Error('LINE text message exceeds the supported length');
+  return { type: 'text', text };
+}
+
+export function buildContentLineMessage(raw: z.input<typeof contentNotificationInputSchema>): LineTextMessage {
+  const input = contentNotificationInputSchema.parse(raw);
+  const url = checkedBaseUrl(input.appBaseUrl);
+  const kind = input.kind === 'ARTICLE' ? '記事' : input.kind === 'VIDEO' ? '動画' : '音声';
+  const heading = input.eventType === 'CONTENT_UPDATED' ? `${kind}を更新しました` : `${kind}を公開しました`;
+  const audience = input.visibility === 'PUBLIC' ? '一般公開' : input.visibility === 'MEMBERS' ? '無料会員以上' : '有料会員限定';
+  const link = new URL(`/content/${input.contentId}`, url).toString();
+  const text = [heading, singleLine(input.title), `${singleLine(input.category)}・第${input.version}版・${audience}`, '内容は会員ページでご確認ください。', link].join('\n');
   if (text.length > 5000) throw new Error('LINE text message exceeds the supported length');
   return { type: 'text', text };
 }

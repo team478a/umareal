@@ -31,6 +31,18 @@ async function publication(visibility: 'FREE' | 'PAID' = 'FREE') {
     return { race, version, event };
   });
 }
+async function contentPublication(visibility: 'PUBLIC' | 'MEMBERS' | 'PAID' = 'PUBLIC') {
+  const publisher = await account('ADMIN');
+  const suffix = randomUUID().slice(0, 8);
+  const contentId = randomUUID();
+  const draft = { kind: 'VIDEO', title: `公開動画${suffix}`, summary: '通知に含めない概要', body: '通知に含めない会員限定本文', thumbnailUrl: null, mediaUrl: 'https://media.example.test/private-video', category: '動画解説', tags: ['通知'], visibility };
+  return db.$transaction(async tx => {
+    await tx.contentItem.create({ data: { id: contentId, ...draft, status: 'PUBLISHED', isVisible: true, createdBy: publisher.user.id, updatedBy: publisher.user.id } });
+    const version = await tx.contentVersion.create({ data: { contentId, version: 1, kind: draft.kind, title: draft.title, summary: draft.summary, thumbnailUrl: null, category: draft.category, tags: draft.tags, visibility, snapshot: draft, publishedBy: publisher.user.id } });
+    const event = await tx.notificationEvent.create({ data: { contentVersionId: version.id, eventType: 'CONTENT_PUBLISHED', status: 'QUEUED', payload: { contentVersionId: version.id, contentId } } });
+    return { contentId, version, event, draft };
+  });
+}
 async function win5Publication() {
   const publisher = await account('ADMIN');
   const suffix = randomUUID().slice(0, 8);
@@ -84,6 +96,28 @@ async function processFirstEmailAttempt(eventId: string, userId: string, transpo
 }
 
 describe('notification worker and administration', () => {
+  it('sends safe CMS notices only to members who enabled articles and can read paid content', async () => {
+    const publicTarget = await contentPublication();
+    const optedIn = await recipient(); const optedOut = await recipient();
+    await db.notificationPreference.update({ where: { userId: optedIn.id }, data: { articles: true } });
+    const sent: Array<{ recipient: string; text: string }> = [];
+    const transport: NotificationTransport = { async send(input) { sent.push({ recipient: input.recipient, text: input.message.text }); return { kind: 'SENT', providerMessageId: `content-${input.retryKey}` }; } };
+    expect(await processFirstAttempt(publicTarget.event.id, optedIn.id, transport)).toMatchObject({ status: 'SENT' });
+    expect(await processFirstEmailAttempt(publicTarget.event.id, optedIn.id, transport)).toMatchObject({ status: 'SENT' });
+    expect(await db.notificationDelivery.count({ where: { eventId: publicTarget.event.id, userId: optedOut.id } })).toBe(0);
+    const lineSubject = (await db.lineAccount.findUniqueOrThrow({ where: { userId: optedIn.id } })).subject;
+    const text = sent.filter(item => item.recipient === optedIn.email || item.recipient === lineSubject).map(item => item.text).join('\n');
+    expect(text).toContain(`/content/${publicTarget.contentId}`);
+    expect(text).toContain(publicTarget.draft.title);
+    expect(text).not.toMatch(/会員限定本文|通知に含めない概要|private-video|mediaUrl/);
+
+    const paidTarget = await contentPublication('PAID');
+    const entitled = await recipient(undefined, true); const excluded = await recipient();
+    await db.notificationPreference.updateMany({ where: { userId: { in: [entitled.id, excluded.id] } }, data: { articles: true } });
+    expect(await processFirstAttempt(paidTarget.event.id, entitled.id, transport)).toMatchObject({ status: 'SENT' });
+    expect(await db.notificationDelivery.count({ where: { eventId: paidTarget.event.id, userId: excluded.id } })).toBe(0);
+  });
+
   it('sends a billing notice only to the affected member without provider secrets', async () => {
     const subject = `test:billing-target:${randomUUID()}`; const member = await recipient(subject); const unrelated = await recipient();
     const target = await db.$transaction(async tx => {

@@ -1,6 +1,6 @@
 import { Controller, Get, Inject, NotFoundException, Param, Post, Query, Req } from '@nestjs/common';
 import { Prisma } from '@keiba/db';
-import { memberNotificationListResponseSchema } from '@keiba/domain';
+import { dayPassWindow, memberNotificationListResponseSchema, parseContentAccessPolicy, planCanReadContent } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
@@ -17,9 +17,10 @@ export class MemberNotificationsController {
 
   private async visibleWhere(userId: string): Promise<Prisma.NotificationEventWhereInput> {
     const now = new Date();
-    const [user, entitlements] = await Promise.all([
+    const [user, entitlements, settings] = await Promise.all([
       this.auth.db.user.findUniqueOrThrow({ where: { id: userId }, select: { createdAt: true } }),
-      this.auth.db.entitlement.findMany({ where: { userId, revokedAt: null, startsAt: { lte: now }, endsAt: { gt: now } }, select: { raceDate: true } })
+      this.auth.db.entitlement.findMany({ where: { userId, revokedAt: null, startsAt: { lte: now }, endsAt: { gt: now } }, select: { planCode: true, raceDate: true } }),
+      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { contentAccessPolicy: true } })
     ]);
     const allPaid = entitlements.some(item => item.raceDate === null);
     const paidDates = [...new Set(entitlements.flatMap(item => item.raceDate ? [item.raceDate] : []))];
@@ -32,10 +33,21 @@ export class MemberNotificationsController {
       { win5EvaluationVersionId: { not: null } },
       { supportEvent: { is: { request: { userId } } } },
       { billingEvent: { is: { userId } } },
-      { version: { is: { visibility: 'FREE' } } }
+      { version: { is: { visibility: 'FREE' } } },
+      { contentVersion: { is: { visibility: { in: ['PUBLIC', 'MEMBERS'] } } } }
     ];
     if (allPaid) visible.push({ version: { is: { visibility: 'PAID' } } });
     else if (paidDates.length) visible.push({ version: { is: { visibility: 'PAID', prediction: { race: { raceDate: { in: paidDates } } } } } });
+    const policy = parseContentAccessPolicy(settings.contentAccessPolicy);
+    const contentEntitlements = entitlements.filter(item => planCanReadContent(item.planCode, 'CONTENT', policy));
+    if (contentEntitlements.some(item => item.raceDate === null)) visible.push({ contentVersion: { is: { visibility: 'PAID' } } });
+    else {
+      const dates = [...new Set(contentEntitlements.flatMap(item => item.raceDate ? [item.raceDate] : []))];
+      for (const date of dates) {
+        const window = dayPassWindow(date);
+        visible.push({ contentVersion: { is: { visibility: 'PAID', publishedAt: { gte: window.startsAt, lt: window.endsAt } } } });
+      }
+    }
     return { AND: [{ createdAt: { gte: user.createdAt } }, { OR: visible }] };
   }
 
@@ -48,6 +60,7 @@ export class MemberNotificationsController {
     const where: Prisma.NotificationEventWhereInput = unread === 'true' ? unreadWhere : visible;
     const select = {
       id: true, eventType: true, createdAt: true,
+      contentVersion: { select: { contentId: true, version: true, kind: true, title: true, category: true, visibility: true, publishedAt: true } },
       paperVersion: { select: { paperId: true, targetDate: true, title: true, accessScope: true, version: true, publishedAt: true } },
       memberReads: { where: { userId: actor.id }, select: { readAt: true }, take: 1 },
       announcement: { select: { version: true, publishedAt: true, race: { select: { id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true } } } },
@@ -65,6 +78,7 @@ export class MemberNotificationsController {
       this.auth.db.notificationEvent.count({ where: unreadWhere })
     ]);
     const items = events.map(event => {
+      if (event.contentVersion) return { id: event.id, eventType: event.eventType, createdAt: event.createdAt, publishedAt: event.contentVersion.publishedAt, version: event.contentVersion.version, visibility: event.contentVersion.visibility === 'PAID' ? 'PAID' : 'FREE', readAt: event.memberReads[0]?.readAt ?? null, race: null, win5: null, content: { id: event.contentVersion.contentId, kind: event.contentVersion.kind, title: event.contentVersion.title, category: event.contentVersion.category }, href: `/content/${event.contentVersion.contentId}`, title: event.eventType === 'CONTENT_UPDATED' ? `${event.contentVersion.kind === 'ARTICLE' ? '記事' : event.contentVersion.kind === 'VIDEO' ? '動画' : '音声'}を更新しました` : `${event.contentVersion.kind === 'ARTICLE' ? '記事' : event.contentVersion.kind === 'VIDEO' ? '動画' : '音声'}を公開しました` };
       if (event.paperVersion) return { id: event.id, eventType: event.eventType, createdAt: event.createdAt, publishedAt: event.paperVersion.publishedAt, version: event.paperVersion.version, visibility: event.paperVersion.accessScope === 'PAID' ? 'PAID' : 'FREE', readAt: event.memberReads[0]?.readAt ?? null, race: null, win5: null, paper: { id: event.paperVersion.paperId, targetDate: event.paperVersion.targetDate, title: event.paperVersion.title }, href: `/papers/${event.paperVersion.paperId}`, title: event.eventType === 'RACE_PAPER_CORRECTED' ? '通常レース紙面の訂正版を公開しました' : '通常レース紙面を公開しました' };
       if (event.billingEvent) {
         const title = {

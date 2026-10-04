@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { buildBillingLineMessage, buildPredictionLineMessage, buildRaceResultLineMessage, buildSupportReplyLineMessage, buildWin5LineMessage, buildWin5ResultLineMessage } from './line';
+import { buildBillingLineMessage, buildContentLineMessage, buildPredictionLineMessage, buildRaceResultLineMessage, buildSupportReplyLineMessage, buildWin5LineMessage, buildWin5ResultLineMessage } from './line';
 
 const base = { eventType: 'PREDICTION_PUBLISHED' as const, raceId: '38bbc51a-2aa4-4b43-8661-c3c6164e2f64', raceDate: '2026-09-12', venue: '東京', raceNumber: 11, raceName: 'テストステークス', version: 1, visibility: 'PAID' as const, appBaseUrl: 'https://members.example.jp' };
 describe('LINE notification message preparation', () => {
+  it('builds a metadata-only CMS publication notice', () => {
+    const message = buildContentLineMessage({ eventType: 'CONTENT_PUBLISHED', contentId: base.raceId, kind: 'VIDEO', title: '明日の注目レース\n解説', category: '動画', version: 1, visibility: 'PAID', appBaseUrl: base.appBaseUrl });
+    expect(message.text).toContain('動画を公開しました');
+    expect(message.text).toContain('明日の注目レース 解説');
+    expect(message.text).toContain(`/content/${base.raceId}`);
+    expect(message.text).not.toMatch(/本文|mediaUrl|配信URL/);
+  });
   it('builds a support reply notice without inquiry content', () => {
     const message = buildSupportReplyLineMessage({ eventType: 'SUPPORT_RESPONSE_POSTED', requestId: 'e06ec166-69c9-4119-bdd4-0fe2b4cf6228', appBaseUrl: 'https://members.example.jp' });
     expect(message.text).toContain('お問い合わせへの回答があります');

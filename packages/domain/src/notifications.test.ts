@@ -130,11 +130,14 @@ describe('notification operations rules', () => {
     const win5Item = { ...common, href: `/win5/${productId}`, race: null, win5: { id: productId, targetDate: '2026-09-27', title: 'WIN5紙面' } };
     const supportItem = { ...common, href: '/support', race: null, win5: null, support: { requestId, subject: '通知について' } };
     const billingItem = { ...common, href: '/account', race: null, win5: null, billing: { planCode: 'DAY_PASS', raceDate: '2026-09-27' } };
-    const parsed = memberNotificationListResponseSchema.parse({ items: [raceItem, win5Item, supportItem, billingItem], total: 4, unreadCount: 4, page: 1, limit: 20 });
+    const contentId = '55555555-5555-4555-8555-555555555555';
+    const contentItem = { ...common, href: `/content/${contentId}`, race: null, win5: null, content: { id: contentId, kind: 'ARTICLE', title: '公開記事', category: '読み物' } };
+    const parsed = memberNotificationListResponseSchema.parse({ items: [raceItem, win5Item, supportItem, billingItem, contentItem], total: 5, unreadCount: 5, page: 1, limit: 20 });
     expect(parsed.items[0]?.createdAt).toBe('2026-09-27T00:00:00.000Z');
     expect(parsed.items[0]?.race?.startsAt).toBe('2026-09-27T02:00:00.000Z');
     expect(memberNotificationListResponseSchema.safeParse({ items: [{ ...raceItem, payload: { secret: true } }], total: 1, unreadCount: 1, page: 1, limit: 20 }).success).toBe(false);
     expect(memberNotificationListResponseSchema.safeParse({ items: [{ ...raceItem, contentSnapshot: { horse: '非公開' } }], total: 1, unreadCount: 1, page: 1, limit: 20 }).success).toBe(false);
+    expect(memberNotificationListResponseSchema.safeParse({ items: [{ ...contentItem, href: '/content/wrong' }], total: 1, unreadCount: 1, page: 1, limit: 20 }).success).toBe(false);
   });
   it('rejects a mismatched or ambiguous member notification destination', () => {
     const raceId = '11111111-1111-4111-8111-111111111111';

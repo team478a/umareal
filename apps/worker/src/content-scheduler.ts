@@ -33,6 +33,7 @@ export async function runContentSchedules(input: { db: PrismaClient; limit?: num
         });
         const versionNumber = (item.versions[0]?.version ?? 0) + 1;
         const version = await tx.contentVersion.create({ data: { contentId: item.id, version: versionNumber, kind: draft.kind, title: draft.title, summary: draft.summary, thumbnailUrl: draft.thumbnailUrl, category: draft.category, tags: draft.tags, visibility: draft.visibility, snapshot: json(draft), publishedBy: item.updatedBy } });
+        await tx.notificationEvent.create({ data: { contentVersionId: version.id, eventType: versionNumber === 1 ? 'CONTENT_PUBLISHED' : 'CONTENT_UPDATED', status: 'QUEUED', payload: json({ contentVersionId: version.id, contentId: item.id }) } });
         await tx.contentItem.update({ where: { id: item.id }, data: { status: 'PUBLISHED', isVisible: true, revision: { increment: 1 }, scheduledAt: null, scheduledRevision: null, scheduleReason: null, scheduleError: null, updatedAt: clock() } });
         await tx.auditLog.create({ data: { actorId: item.updatedBy, actorRole: item.updater.role, action: versionNumber === 1 ? 'CONTENT_SCHEDULE_PUBLISHED' : 'CONTENT_SCHEDULE_VERSION_PUBLISHED', targetType: 'CONTENT_VERSION', targetId: version.id, reason, details: { contentId: item.id, version: versionNumber, scheduledAt: item.scheduledAt }, requestId: `content-schedule:${item.id}:${version.id}` } });
         return true;
