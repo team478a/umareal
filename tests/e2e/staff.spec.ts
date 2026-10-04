@@ -67,6 +67,8 @@ test('administrator must complete MFA before viewing member management', async (
   await page.getByRole('link', { name: '管理画面へ', exact: true }).click();
   await expect(page.getByRole('heading', { name: '管理ダッシュボード', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '開催日運用ボード', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '今すぐ確認すること', exact: true })).toBeVisible();
+  await expect(page.getByLabel('今すぐ確認すること')).toContainText('対象レース未告知');
   await expect(page.getByRole('heading', { name: '開催日リハーサル', exact: true })).toBeVisible();
   const lineAvailable = await page.evaluate(async () => {
     const response = await fetch('/api/v1/auth/config');

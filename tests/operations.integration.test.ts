@@ -29,7 +29,7 @@ describe('race-day operations board', () => {
     const response = await admin.call(`admin/operations?date=${date}`);
     expect(response.status).toBe(200);
     const operations = adminOperationsResponseSchema.parse(response.body);
-    expect(Object.keys(response.body).sort()).toEqual(['alerts', 'date', 'generatedAt', 'items', 'rehearsal']);
+    expect(Object.keys(response.body).sort()).toEqual(['alerts', 'attention', 'date', 'generatedAt', 'items', 'rehearsal']);
     expect(JSON.stringify(response.body)).not.toMatch(/passwordHash|authSubject|email|lineSubject|lineAccessToken|lineChannelSecret|assessmentContent/);
     const item = operations.items.find(value => value.id === race.id); expect(item).toBeTruthy();
     expect(item).toMatchObject({ deadlineState: 'DUE_SOON', entries: { total: 2, paddockCompleted: 1 }, announcement: { version: 1 }, prediction: null, notification: { queued: 0, sent: 0, failed: 1 }, result: null });
@@ -43,6 +43,11 @@ describe('race-day operations board', () => {
       expect.objectContaining({ key: 'DELIVERY', state: 'BLOCKED' }),
       expect.objectContaining({ key: 'RESULT', state: 'NOT_DUE' })
     ]));
+    expect(operations.attention.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ raceId: race.id, code: 'DELIVERY_FAILED', severity: 'CRITICAL', href: '/admin/notifications' }),
+      expect.objectContaining({ raceId: race.id, code: 'PADDOCK_INCOMPLETE', severity: 'CRITICAL', href: `/expert?race=${race.id}` })
+    ]));
+    expect(operations.attention.critical).toBeGreaterThanOrEqual(2);
     const publicConfig = await new Client().call('auth/config'); expect(publicConfig.status).toBe(200);
     expect(operations.rehearsal.preflight.lineAvailable).toBe(publicConfig.body.capabilities.lineNotifications);
     const scopedItem = operations.items.find(value => value.id === scopedRace.id); expect(scopedItem).toBeTruthy();
