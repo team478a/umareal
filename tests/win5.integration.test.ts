@@ -75,9 +75,15 @@ describe('WIN5 product drafting and publication', () => {
     const checked = await expert.client.call(`expert/win5/${created.body.id}/preview`, 'POST', { productRevision: revision, correctionReason: '' });
     expect(checked.status, JSON.stringify(checked.body)).toBe(201);
     expect(checked.body.combinationCount).toBeUndefined(); expect(checked.body.assumedPurchaseAmountYen).toBeUndefined(); expect(checked.body.content.races[0].evaluations).toHaveLength(2);
-    const published = await expert.client.call(`expert/win5/${created.body.id}/publish/${checked.body.previewId}`, 'POST');
-    expect(published.status).toBe(201); expect(published.body.version).toBe(1);
-    expect((await expert.client.call(`expert/win5/${created.body.id}/publish/${checked.body.previewId}`, 'POST')).body.alreadyPublished).toBe(true);
+    const publicationBurst = await Promise.all(Array.from({ length: 8 }, () => expert.client.call(`expert/win5/${created.body.id}/publish/${checked.body.previewId}`, 'POST')));
+    expect(publicationBurst.every(response => response.status === 201), JSON.stringify(publicationBurst)).toBe(true);
+    const firstPublications = publicationBurst.filter(response => response.body.alreadyPublished === false);
+    expect(firstPublications).toHaveLength(1);
+    expect(publicationBurst.filter(response => response.body.alreadyPublished === true)).toHaveLength(7);
+    const published = firstPublications[0];
+    expect(published.body.version).toBe(1);
+    expect(await db.predictionProductVersion.count({ where: { productId: created.body.id } })).toBe(1);
+    expect(await db.notificationEvent.count({ where: { productVersion: { productId: created.body.id } } })).toBe(1);
     const initialEvent = await db.notificationEvent.findUniqueOrThrow({ where: { productVersionId: published.body.versionId } });
     expect(initialEvent).toMatchObject({ eventType: 'WIN5_PREVIEW_PUBLISHED', status: 'QUEUED' });
     expect(JSON.stringify(initialEvent.payload)).not.toMatch(/contentSnapshot|evaluation|horse|amount|summary|reason/i);
@@ -112,6 +118,15 @@ describe('WIN5 product drafting and publication', () => {
     expect(parsedAnonymousList.items[0]?.races).toHaveLength(5);
     expect(JSON.stringify(anonymousList.body)).not.toMatch(/contentSnapshot|evaluations|horseName|expertId|summary|reason/);
     expect((await aal1.client.call(`admin/win5/${created.body.id}/result`)).body.code).toBe('MFA_REQUIRED');
+
+    const readBurst = await Promise.all(Array.from({ length: 90 }, (_, index) => {
+      if (index % 3 === 0) return new Client().call(`win5?targetDate=${targetDate}`);
+      if (index % 3 === 1) return freeClient.call(`win5/${created.body.id}`);
+      return dayClient.call(`win5/${created.body.id}`);
+    }));
+    expect(readBurst.every(response => response.status === 200)).toBe(true);
+    expect(readBurst.filter((_, index) => index % 3 === 1).every(response => response.body.access === 'METADATA')).toBe(true);
+    expect(readBurst.filter((_, index) => index % 3 === 2).every(response => response.body.access === 'FULL')).toBe(true);
 
     const first = await db.predictionProductVersion.findUniqueOrThrow({ where: { id: published.body.versionId } });
     await expect(db.predictionProductVersion.update({ where: { id: first.id }, data: { confidence: 'C' } })).rejects.toThrow();
