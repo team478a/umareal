@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { acquisitionSchema } from './acquisition';
 import { consentVersions } from './legal';
 import { memberReferralCodeInputSchema } from './referrals';
+import { planCanReadContent } from './content-access';
 export * from './races';
 export * from './assessments';
 export * from './predictions';
@@ -40,6 +41,7 @@ export * from './account-closure';
 export * from './member-journey';
 export * from './admin-users';
 export * from './admin-continuity';
+export * from './content-access';
 
 export const roles = ['MEMBER', 'EXPERT', 'EDITOR', 'OPERATOR', 'ADMIN'] as const;
 export type Role = typeof roles[number];
@@ -66,12 +68,16 @@ export function canEditRace(identity: Identity, assignedUserIds: readonly string
     (identity.role === 'OPERATOR' && identity.aal === 2) ||
     (identity.role === 'EXPERT' && identity.aal === 2 && assignedUserIds.includes(identity.id));
 }
-export type Entitlement = { startsAt: Date; endsAt: Date; revokedAt: Date | null; raceDate: string | null };
+export type Entitlement = { planCode?: string; startsAt: Date; endsAt: Date; revokedAt: Date | null; raceDate: string | null };
 export function jstDate(date: Date) { return new Date(date.getTime() + 9 * 3600000).toISOString().slice(0, 10); }
-export function canReadPrediction(input: { now: Date; publishedAt: Date | null; visibility: 'FREE' | 'PAID'; raceDate: string; entitlements: Entitlement[] }) {
+export function canReadPrediction(input: { now: Date; publishedAt: Date | null; visibility: 'FREE' | 'PAID'; raceDate: string; entitlements: Entitlement[]; contentKind?: import('./content-access').PaidContentKind; contentAccessPolicy?: import('./content-access').ContentAccessPolicy }) {
   if (!input.publishedAt || input.publishedAt > input.now) return false;
   if (input.visibility === 'FREE') return true;
-  return input.entitlements.some(e => !e.revokedAt && e.startsAt <= input.now && input.now < e.endsAt && (!e.raceDate || e.raceDate === input.raceDate));
+  return input.entitlements.some(e => {
+    if (e.revokedAt || e.startsAt > input.now || input.now >= e.endsAt || (e.raceDate && e.raceDate !== input.raceDate)) return false;
+    if (!input.contentKind || !input.contentAccessPolicy || !e.planCode) return true;
+    return planCanReadContent(e.planCode, input.contentKind, input.contentAccessPolicy);
+  });
 }
 export function dayPassWindow(date: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Invalid date');

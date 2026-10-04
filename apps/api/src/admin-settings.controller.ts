@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, Patch, Req } from '@nestjs/common';
-import { adminSettingsResponseSchema, adminSettingsUpdateSchema, canManage, requiresMfa } from '@keiba/domain';
+import { adminSettingsResponseSchema, adminSettingsUpdateSchema, canManage, parseContentAccessPolicy, requiresMfa } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { resolveMailConfig, type SystemSetting } from '@keiba/db';
 import { AuthService } from './auth.service';
@@ -66,6 +66,7 @@ export class AdminSettingsController {
       },
       maintenanceMessage: value.maintenanceMessage,
       notificationPolicy: { maxAttempts: value.notificationMaxAttempts, baseDelaySeconds: value.notificationBaseDelaySeconds },
+      contentAccess: parseContentAccessPolicy(value.contentAccessPolicy),
       publicationPolicy: { correction: value.predictionCorrectionPolicy, delayedRace: value.delayedPublicationPolicy },
       environment: {
         launchMode: process.env.LAUNCH_MODE ?? 'UNSET',
@@ -172,6 +173,7 @@ export class AdminSettingsController {
         maintenanceMessage: input.maintenanceMessage,
         notificationMaxAttempts: input.notificationPolicy.maxAttempts,
         notificationBaseDelaySeconds: input.notificationPolicy.baseDelaySeconds,
+        ...(input.contentAccess ? { contentAccessPolicy: input.contentAccess } : {}),
         ...(input.publicationPolicy ? { predictionCorrectionPolicy: input.publicationPolicy.correction, delayedPublicationPolicy: input.publicationPolicy.delayedRace } : {}),
         ...input.billing,
         stripeSecretKeyEncrypted,

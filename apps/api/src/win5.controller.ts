@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Put, Query, Req, UnauthorizedException } from '@nestjs/common';
-import { aggregateWin5Evaluations, publicWin5DetailResponseSchema, publicWin5ListResponseSchema, publicWin5PerformanceResponseSchema, win5LegUpdateSchema, win5PreviewSchema, win5ProductCreateSchema, win5ProductUpdateSchema } from '@keiba/domain';
+import { aggregateWin5Evaluations, canReadPrediction, parseContentAccessPolicy, publicWin5DetailResponseSchema, publicWin5ListResponseSchema, publicWin5PerformanceResponseSchema, win5LegUpdateSchema, win5PreviewSchema, win5ProductCreateSchema, win5ProductUpdateSchema } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -178,11 +178,11 @@ export class Win5Controller {
     let identity: AuthContext | null = null;
     try { identity = await this.auth.authenticate(req); } catch (error) { if (!(error instanceof UnauthorizedException)) throw error; }
     const staffAccess = !!identity && identity.aal === 2 && (['ADMIN', 'OPERATOR'].includes(identity.role) || (identity.role === 'EXPERT' && product.expertId === identity.id));
-    const entitlement = identity?.role === 'MEMBER' ? await this.auth.db.entitlement.findFirst({
-      where: { userId: identity.id, revokedAt: null, startsAt: { lte: now }, endsAt: { gt: now }, OR: [{ raceDate: null }, { raceDate: product.targetDate }] },
-      select: { id: true }
-    }) : null;
-    const fullAccess = staffAccess || !!entitlement;
+    const [entitlements, settings] = await Promise.all([
+      identity?.role === 'MEMBER' ? this.auth.db.entitlement.findMany({ where: { userId: identity.id } }) : Promise.resolve([]),
+      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { contentAccessPolicy: true } })
+    ]);
+    const fullAccess = staffAccess || canReadPrediction({ now, publishedAt: versions[0]?.publishedAt ?? null, visibility: 'PAID', raceDate: product.targetDate, entitlements, contentKind: 'WIN5', contentAccessPolicy: parseContentAccessPolicy(settings.contentAccessPolicy) });
     const selectedNumber = input.version ?? versions[0]?.version;
     if (input.version && !versions.some(version => version.version === input.version)) throw new NotFoundException();
     if (!fullAccess || !selectedNumber) return publicWin5DetailResponseSchema.parse({ access: 'METADATA', product: safeProduct, version: null, versions, locked: !!versions.length });

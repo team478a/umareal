@@ -1595,6 +1595,7 @@ model SystemSetting {
   dayPassPriceYen                 Int      @default(980)
   founderSalesLimit               Int      @default(100)
   billingGraceDays                Int      @default(0)
+  contentAccessPolicy             Json     @default("{\"monthly\":{\"paddock\":true,\"win5\":true,\"racePaper\":true},\"dayPass\":{\"paddock\":true,\"win5\":true,\"racePaper\":true},\"manual\":{\"paddock\":true,\"win5\":true,\"racePaper\":true}}")
   maintenanceMessage              String   @default("")
   notificationMaxAttempts         Int      @default(5)
   notificationBaseDelaySeconds    Int      @default(30)
