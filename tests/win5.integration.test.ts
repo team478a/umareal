@@ -40,6 +40,9 @@ describe('WIN5 product drafting and publication', () => {
     const scheduledPublishAt = `${targetDate}T05:00:00+09:00`;
     const created = await admin.client.call('admin/win5', 'POST', { type: 'WIN5_PREVIEW', targetDate, title: `WIN5試験-${randomUUID().slice(0, 6)}`, expertId: expert.owner.user.id, scheduledPublishAt, accessScope: 'PAID', confidence: 'A', summary: '', showFreeConfidence: false, reason: 'WIN5結合試験の準備' }, undefined, { 'Idempotency-Key': randomUUID() });
     expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const adminExpertEntry = await admin.client.call('expert/win5');
+    expect(adminExpertEntry.status).toBe(200);
+    expect(adminExpertEntry.body.map((item: { id: string }) => item.id)).toContain(created.body.id);
     let revision = created.body.revision as number;
 
     const updated = await admin.client.call(`admin/win5/${created.body.id}`, 'PATCH', { revision, title: created.body.title, expertId: expert.owner.user.id, scheduledPublishAt, accessScope: 'PAID', confidence: 'A', summary: '5レースを通した全体総評', showFreeConfidence: true, reason: '全体総評の入力' });

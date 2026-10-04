@@ -34,6 +34,9 @@ test('creates a WIN5 product from the responsive administration screen', async (
   await expect(page.getByRole('heading', { name: '対象5レース', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '公開前確認', exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.goto('/expert/win5');
+  await expect(page.getByRole('heading', { name: 'WIN5予想管理', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: title, exact: true, level: 3 })).toBeVisible();
 });
 
 test('shows the paid WIN5 paper and version history on the member screen', async ({ page, context }) => {

@@ -205,8 +205,8 @@ export class Win5Controller {
 
   @Get('expert/win5')
   async expertList(@Req() req: AppRequest) {
-    const actor = await this.actor(req, ['EXPERT']);
-    const items = await this.auth.db.predictionProduct.findMany({ where: { expertId: actor.id }, orderBy: [{ targetDate: 'desc' }, { createdAt: 'desc' }], include: { expert: { select: { id: true, displayName: true } }, _count: { select: { races: true, versions: true } } } });
+    const actor = await this.actor(req, ['ADMIN', 'EXPERT']);
+    const items = await this.auth.db.predictionProduct.findMany({ where: actor.role === 'EXPERT' ? { expertId: actor.id } : {}, orderBy: [{ targetDate: 'desc' }, { createdAt: 'desc' }], include: { expert: { select: { id: true, displayName: true } }, _count: { select: { races: true, versions: true } } } });
     return items.map(item => { const { amountPerPointYen, ...safe } = item; void amountPerPointYen; return safe; });
   }
 
