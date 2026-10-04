@@ -130,7 +130,11 @@ describe('LINE Login account lifecycle', () => {
     await db.lineAccount.create({ data: { userId: ownerFixture.user.id, subject: ownedSubject } });
     const started = await attacker.call('auth/line/start', 'POST', { purpose: 'LINK' });
     const state = new URL(started.body.authorizationUrl).searchParams.get('state')!;
-    expect((await callback(attacker, state, ownedSubject)).status).toBe(409);
+    const conflict = await callback(attacker, state, ownedSubject);
+    expect(conflict.status).toBe(303);
+    const conflictLocation = new URL(conflict.headers.get('location')!);
+    expect(conflictLocation.pathname).toBe('/account');
+    expect(conflictLocation.searchParams.get('line')).toBe('already-linked');
     expect(await db.lineAccount.findUnique({ where: { userId: attackerFixture.user.id } })).toBeNull();
 
     const victimStart = await owner.call('auth/line/start', 'POST', { purpose: 'LINK' });

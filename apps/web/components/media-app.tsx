@@ -163,12 +163,14 @@ function AuthForm({ path, onSuccess, lineEnabled, localOnly, registrationEnabled
   const directLineStarted = useRef(false);
   const captchaCallback = useCallback((token: string | null) => setCaptchaToken(token), []);
   const lineNotLinked = path === '/login' && search.get('line') === 'not-linked';
+  const lineAlreadyLinked = path === '/login' && search.get('line') === 'already-linked';
   useEffect(() => {
     if (path !== '/login') return;
     if (search.get('closed') === '1') setMessage('退会手続きが完了し、すべての端末からログアウトしました。');
+    else if (lineAlreadyLinked) setMessage('元の会員を確認するため、下の「LINEでログイン」を押してください。会員情報をまとめたい場合は、ログイン後にお問い合わせください。');
     else if (lineNotLinked) setMessage('このLINEではログイン登録がまだ完了していません。初めての方は無料会員登録へ進んでください。メールで登録済みの方は、メールでログイン後にマイページからLINEを連携できます。');
     else setMessage('');
-  }, [lineNotLinked, path, search]);
+  }, [lineAlreadyLinked, lineNotLinked, path, search]);
   const acquisition = useMemo(() => registration ? { source: search.get('utm_source') || undefined, medium: search.get('utm_medium') || undefined, campaign: search.get('utm_campaign') || undefined, content: search.get('utm_content') || undefined, term: search.get('utm_term') || undefined, referralCode: search.get('ref') || undefined, landingPath: '/register' } : undefined, [registration, search]);
   const memberReferralCode = registration ? search.get('invite') || undefined : undefined;
   const directLineEntry = registration && lineEnabled && search.get('entry') === 'line';
@@ -246,11 +248,13 @@ function EmailVerification({ onSuccess }: { onSuccess: () => Promise<void> }) {
 function Account({ me, refresh, capabilities, emailNotificationsEnabled }: { me: Me; refresh: () => Promise<void>; capabilities: PublicConfig['capabilities']; emailNotificationsEnabled: boolean }) {
   const [preferences, setPreferences] = useState(me.preferences); const [message, setMessage] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
   const [justRegisteredWithLine, setJustRegisteredWithLine] = useState(false);
-  useEffect(() => { const url = new URL(window.location.href); const line = url.searchParams.get('line'); const email = url.searchParams.get('email'); if (line === 'linked') setMessage('LINEアカウントを連携しました。'); else if (line === 'login') setMessage('LINEでログインしました。'); else if (line === 'registered') { setMessage('LINE無料登録が完了しました。登録特典を受け取れます。'); setJustRegisteredWithLine(true); } else if (email === 'verified') setMessage('メールアドレスの確認が完了しました。'); }, []);
+  const [lineAlreadyLinked, setLineAlreadyLinked] = useState(false);
+  useEffect(() => { const url = new URL(window.location.href); const line = url.searchParams.get('line'); const email = url.searchParams.get('email'); if (line === 'linked') setMessage('LINEアカウントを連携しました。'); else if (line === 'login') setMessage('LINEでログインしました。'); else if (line === 'registered') { setMessage('LINE無料登録が完了しました。登録特典を受け取れます。'); setJustRegisteredWithLine(true); } else if (line === 'already-linked') { setError('このLINEは別の会員ですでに利用されています。現在の会員には連携できません。'); setLineAlreadyLinked(true); } else if (email === 'verified') setMessage('メールアドレスの確認が完了しました。'); }, []);
   useEffect(() => { if (me.role === 'MEMBER' && (capabilities.lineLogin || capabilities.lineNotifications)) void api<MemberJourneyResponse>('me/journey', 'POST', { eventType: 'LINE_GUIDANCE_VIEWED' }).catch(() => undefined); }, [me.role, capabilities.lineLogin, capabilities.lineNotifications]);
   async function save(event: FormEvent) { event.preventDefault(); setBusy(true); setError(''); setMessage(''); try { await api<NotificationPreferencesResponse>('me/preferences', 'PATCH', preferences); setMessage('通知設定を保存しました。'); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
   async function enableRaceNotifications() { setBusy(true); setError(''); setMessage(''); const next = { ...preferences, predictions: true }; try { await api<NotificationPreferencesResponse>('me/preferences', 'PATCH', next); setPreferences(next); await refresh(); setMessage('対象レース告知と最終予想の通知を有効にしました。'); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
   async function linkLine() { setBusy(true); setError(''); try { const value = await api<{ authorizationUrl: string }>('auth/line/start', 'POST', { purpose: 'LINK' }); window.location.assign(value.authorizationUrl); } catch (e) { setError((e as Error).message); setBusy(false); } }
+  async function switchToLinkedLineAccount() { setBusy(true); setError(''); try { await api('auth/logout', 'POST'); window.location.assign('/login?line=already-linked'); } catch (e) { setError((e as Error).message); setBusy(false); } }
   async function unlinkLine() { setBusy(true); setError(''); setMessage(''); try { await api('auth/line/unlink', 'POST'); await refresh(); setMessage('LINE連携を解除しました。'); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
   async function fallback(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setBusy(true); setError(''); setMessage(''); const form = new FormData(event.currentTarget); try { const result = await api<{ message: string }>('auth/email/fallback', 'POST', { email: form.get('email'), password: form.get('password') }); setMessage(result.message); event.currentTarget.reset(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
   const hasPaidAccess = me.entitlements.length > 0;
@@ -261,6 +265,7 @@ function Account({ me, refresh, capabilities, emailNotificationsEnabled }: { me:
   const preferenceKeys: (keyof Omit<Preferences, 'emailEnabled'>)[] = capabilities.billing ? ['predictions', 'changes', 'articles', 'billing'] : ['predictions', 'changes', 'articles'];
   const staffWorkspace = staffWorkspaceFor(me.role);
   return <><Heading eyebrow="MY ACCOUNT" title="マイページ" description="会員情報と、通知の受け取り方を確認できます。" /><Notice text={error} error /><Notice text={message} />
+    {lineAlreadyLinked && <section className="panel panel-body"><h2>このLINEで利用している会員を確認してください</h2><p>別の会員としてすでに登録されています。現在の会員からログアウトし、LINEでログインすると、その会員を確認できます。会員情報をまとめたい場合は、運営で本人確認が必要です。</p><div className="panel-actions"><button type="button" className="button line-button" disabled={busy} onClick={() => void switchToLinkedLineAccount()}>{busy ? 'ログアウト中…' : 'ログアウトしてLINEログインへ'}</button><Link className="button secondary" href="/support">運営へ問い合わせる</Link></div></section>}
     {me.role === 'MEMBER' && me.registrationMethod === 'LINE' && <RegistrationBenefit highlight={justRegisteredWithLine} />}
     {staffWorkspace && <section className="panel staff-entry-panel" aria-labelledby="staff-entry-title"><span className="staff-entry-icon"><LayoutDashboard size={25} /></span><div><span className="eyebrow">STAFF ACCESS · {roleLabels[me.role]}</span><h2 id="staff-entry-title">{staffWorkspace.title}</h2><p>{staffWorkspace.description}{(me.mfaRequired || me.role === 'OPERATOR') && me.aal !== 2 ? ' 予想作業の前に認証アプリによる二段階認証を完了してください。' : ''}</p></div><Link className="button" href={staffWorkspace.href}>管理画面を開く<ArrowRight size={17} /></Link></section>}
     <section className="panel onboarding-panel"><div className="panel-heading"><div><span className="eyebrow">GETTING STARTED</span><h2>利用準備</h2></div><span className="status-tag">{onboardingDone} / {onboardingTotal}</span></div><div className="onboarding-list">
