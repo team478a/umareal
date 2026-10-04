@@ -26,7 +26,8 @@ export class Win5Controller {
 
   private async actor(req: AppRequest, roles: AuthContext['role'][]) {
     const actor = await this.auth.authenticate(req);
-    if (!roles.includes(actor.role) || actor.aal !== 2) throw new ForbiddenException({ code: actor.aal !== 2 ? 'MFA_REQUIRED' : 'FORBIDDEN', message: 'WIN5編集権限と二段階認証を確認してください。' });
+    if (!roles.includes(actor.role)) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'WIN5編集権限を確認してください。' });
+    if (actor.aal !== 2) throw new ForbiddenException({ code: 'MFA_REQUIRED', message: 'WIN5編集には二段階認証が必要です。' });
     return actor;
   }
 
