@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ArrowRight, CalendarDays, Clock3, Crown, LockKeyhole } from 'lucide-react';
 import type { PublicWin5DetailResponse, PublicWin5ListResponse } from '@keiba/domain';
+import { PaidContentWatermark, type PaidContentViewer } from './paid-content-watermark';
 
 type Product = PublicWin5ListResponse['items'][number];
 type FullWin5Version = Extract<PublicWin5DetailResponse, { access: 'FULL' }>['version'];
@@ -48,7 +49,7 @@ export function Win5Archive() {
   return <><div className="page-heading"><span className="eyebrow">WIN5 PAPER</span><h1>WIN5紙面予想</h1><p>前日に公開する5レースの紙面予想と、公開版の履歴を確認できます。</p></div>{error && <div className="notice error">{error}</div>}{loading ? <div className="loading" role="status">WIN5情報を読み込み中…</div> : items.length ? <div className="win5-product-grid archive">{items.map(product => <ProductCard key={product.id} product={product} />)}</div> : <div className="empty"><CalendarDays size={32} /><h3>WIN5紙面はまだありません</h3><p>公開予定が決まると、こちらに表示されます。</p></div>}</>;
 }
 
-export function Win5Paper({ productId, loggedIn }: { productId: string; loggedIn: boolean }) {
+export function Win5Paper({ productId, loggedIn, viewer }: { productId: string; loggedIn: boolean; viewer: PaidContentViewer | null }) {
   const search = useSearchParams(); const selectedVersion = search.get('version');
   const [detail, setDetail] = useState<PublicWin5DetailResponse | null>(null); const [error, setError] = useState('');
   useEffect(() => { setDetail(null); setError(''); request<PublicWin5DetailResponse>(`win5/${productId}${selectedVersion ? `?version=${selectedVersion}` : ''}`).then(setDetail).catch(e => setError((e as Error).message)); }, [productId, selectedVersion]);
@@ -59,7 +60,7 @@ export function Win5Paper({ productId, loggedIn }: { productId: string; loggedIn
     <section className="panel win5-metadata"><div className="panel-heading"><div><span className="eyebrow">FIVE LEGS</span><h2>対象5レース</h2></div>{product.confidence && <span className="confidence-badge">信頼度 {product.confidence}</span>}</div><div className="win5-meta-legs">{product.races.map(item => <div key={item.legNumber}><b>第{item.legNumber}レース</b><strong>{item.race.venue} {item.race.number}R</strong><small>{dateTime(item.race.startsAt)} JST</small></div>)}</div></section>
     {detail.locked && <section className="panel win5-lock"><LockKeyhole size={30} /><div><h2>評価馬と詳しいレース見解は有料会員向けです</h2><p>月額会員または対象日の1日利用で、公開済み紙面の本文と訂正履歴を確認できます。</p></div><Link className="button" href={loggedIn ? `/plans?date=${product.targetDate}` : `/login?next=/win5/${product.id}`}>{loggedIn ? '閲覧プランを確認' : 'ログイン'}<ArrowRight size={16} /></Link></section>}
     {!version && !detail.locked && <section className="panel"><div className="panel-body"><p>紙面はまだ公開されていません。公開予定時刻になるまでお待ちください。</p></div></section>}
-    {version && <PaperBody version={version} />}
+    {version && (viewer && version.contentSnapshot.product.accessScope !== 'FREE' ? <PaidContentWatermark viewer={viewer}><PaperBody version={version} /></PaidContentWatermark> : <PaperBody version={version} />)}
     {detail.versions.length > 0 && <section className="panel"><div className="panel-heading"><div><span className="eyebrow">VERSION HISTORY</span><h2>公開履歴</h2></div></div><div className="win5-history">{detail.versions.map(item => <Link key={item.id} className={`win5-history-row ${version?.version === item.version ? 'current' : ''}`} href={`/win5/${product.id}?version=${item.version}`}><span>v{item.version}・{item.status === 'CORRECTED' ? '訂正' : '初版'}</span><small>{dateTime(item.publishedAt)} JST{'correctionReason' in item && item.correctionReason ? `・${item.correctionReason}` : ''}</small></Link>)}</div></section>}
   </>;
 }
