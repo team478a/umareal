@@ -19,7 +19,8 @@ export const adminStaffAccountSchema = z.object({
   dependencies: z.object({
     upcomingRaceAssignments: z.number().int().nonnegative(),
     activeWin5Products: z.number().int().nonnegative(),
-    pendingPublicationSchedules: z.number().int().nonnegative()
+    pendingPublicationSchedules: z.number().int().nonnegative(),
+    pendingContentSchedules: z.number().int().nonnegative()
   }).strict()
 }).strict();
 

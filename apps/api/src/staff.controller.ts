@@ -17,12 +17,13 @@ export class StaffController {
   }
 
   private async dependencies(tx: Prisma.TransactionClient | AuthService['db'], userId: string, now = new Date()) {
-    const [upcomingRaceAssignments, activeWin5Products, pendingPublicationSchedules] = await Promise.all([
+    const [upcomingRaceAssignments, activeWin5Products, pendingPublicationSchedules, pendingContentSchedules] = await Promise.all([
       tx.expertAssignment.count({ where: { userId, race: { startsAt: { gt: now }, status: { notIn: ['FINISHED', 'CANCELLED'] } } } }),
       tx.predictionProduct.count({ where: { expertId: userId, targetDate: { gte: jstDate(now) }, status: { notIn: ['CANCELLED', 'CLOSED'] } } }),
-      tx.publicationSchedule.count({ where: { createdBy: userId, status: { in: ['PENDING', 'PROCESSING'] } } })
+      tx.publicationSchedule.count({ where: { createdBy: userId, status: { in: ['PENDING', 'PROCESSING'] } } }),
+      tx.contentItem.count({ where: { updatedBy: userId, status: 'SCHEDULED' } })
     ]);
-    return { upcomingRaceAssignments, activeWin5Products, pendingPublicationSchedules };
+    return { upcomingRaceAssignments, activeWin5Products, pendingPublicationSchedules, pendingContentSchedules };
   }
 
   private async memberAccessDependencies(tx: Prisma.TransactionClient, userId: string, now = new Date()) {
@@ -44,10 +45,10 @@ export class StaffController {
       orderBy: [{ createdAt: 'desc' }, { role: 'asc' }, { id: 'asc' }],
       take: 200
     });
-    const accounts = await Promise.all(users.map(async user => ({ ...user, dependencies: ['EXPERT', 'OPERATOR'].includes(user.role) ? await this.dependencies(this.auth.db, user.id) : { upcomingRaceAssignments: 0, activeWin5Products: 0, pendingPublicationSchedules: 0 } })));
+    const accounts = await Promise.all(users.map(async user => ({ ...user, dependencies: ['EXPERT', 'EDITOR', 'OPERATOR'].includes(user.role) ? await this.dependencies(this.auth.db, user.id) : { upcomingRaceAssignments: 0, activeWin5Products: 0, pendingPublicationSchedules: 0, pendingContentSchedules: 0 } })));
     return adminStaffListResponseSchema.parse({
       accounts,
-      roles: managedStaffRoles.map(role => ({ role, mfaRequired: requiresMfa(role as Role), win5MfaRequired: role === 'OPERATOR', reserved: role === 'EDITOR' })),
+      roles: managedStaffRoles.map(role => ({ role, mfaRequired: requiresMfa(role as Role), win5MfaRequired: role === 'OPERATOR', reserved: false })),
       policy: { administratorChangesManagedSeparately: true, verifiedEmailRequired: true, reasonRequired: true, sessionsRevoked: true, expertDependenciesProtected: true }
     });
   }
@@ -79,6 +80,7 @@ export class StaffController {
         }
         const dependencies = await this.dependencies(tx, target.id);
         if (target.role === 'OPERATOR' && input.nextRole !== 'OPERATOR' && dependencies.pendingPublicationSchedules) throw new ConflictException({ code: 'STAFF_SCHEDULES_PENDING', message: '待機中または処理中の配信予約を取消・完了してからレース担当ロールを変更してください。' });
+        if (target.role === 'EDITOR' && input.nextRole !== 'EDITOR' && dependencies.pendingContentSchedules) throw new ConflictException({ code: 'STAFF_CONTENT_SCHEDULES_PENDING', message: '予約中のコンテンツを取消または公開してから編集担当ロールを変更してください。' });
         if (target.role === 'EXPERT' && input.nextRole !== 'EXPERT') {
           if (dependencies.upcomingRaceAssignments || dependencies.activeWin5Products) throw new ConflictException({
             code: 'STAFF_EXPERT_STILL_ASSIGNED',
@@ -136,7 +138,7 @@ export class StaffController {
         }
         if (target.disabledAt) throw new ConflictException({ code: 'STAFF_ALREADY_SUSPENDED', message: 'このスタッフアカウントはすでに停止済みです。' });
         const now = new Date(); const dependencies = await this.dependencies(tx, target.id, now);
-        if (dependencies.upcomingRaceAssignments || dependencies.activeWin5Products || dependencies.pendingPublicationSchedules) throw new ConflictException({ code: 'STAFF_OPERATIONAL_DEPENDENCIES', message: '担当レース、WIN5、配信予約を移管または完了してから停止してください。' });
+        if (dependencies.upcomingRaceAssignments || dependencies.activeWin5Products || dependencies.pendingPublicationSchedules || dependencies.pendingContentSchedules) throw new ConflictException({ code: 'STAFF_OPERATIONAL_DEPENDENCIES', message: '担当レース、WIN5、配信予約、コンテンツ公開予約を移管または完了してから停止してください。' });
         const access = await this.memberAccessDependencies(tx, target.id, now);
         if (Object.values(access).some(Boolean)) throw new ConflictException({ code: 'STAFF_ACTIVE_MEMBER_ACCESS', message: '有効または申込中の契約、1日利用、閲覧権限があります。会員アクセスへの影響を確認してから停止してください。' });
         await tx.user.update({ where: { id: target.id }, data: { disabledAt: now } });

@@ -5,6 +5,7 @@ import { databaseRuntimeAccessRestricted, loadMailConfig, PrismaClient } from '@
 import { decryptSecret } from '@keiba/db';
 import { runEmailNotificationBatch, runNotificationBatch, skipPendingNotificationEvents, TestNotificationTransport, type NotificationTransport } from './notification-runner';
 import { runPublicationSchedules } from './publication-scheduler';
+import { runContentSchedules } from './content-scheduler';
 import { LineMessagingTransport } from './line-transport';
 import { ResendEmailTransport } from './email-transport';
 import { ResendOperationalAlertTransport } from './operational-alert-transport';
@@ -12,7 +13,7 @@ import { runOperationalAlerts, TestOperationalAlertTransport, type OperationalAl
 import { recordWorkerHeartbeat } from './service-heartbeat';
 
 config({ path: resolve(process.cwd(), '../../.env'), quiet: true });
-export const workerCapabilities = ['scheduled-publication', 'prediction-notification-outbox', 'email-notifications', 'operational-alerts', 'recipient-authorization', 'retry-policy', 'delivery-attempt-history'] as const;
+export const workerCapabilities = ['scheduled-publication', 'content-scheduled-publication', 'prediction-notification-outbox', 'email-notifications', 'operational-alerts', 'recipient-authorization', 'retry-policy', 'delivery-attempt-history'] as const;
 
 async function main() {
   const transportName = process.env.NOTIFICATION_TRANSPORT ?? 'test';
@@ -50,10 +51,11 @@ async function main() {
         alertTransport = new ResendOperationalAlertTransport(mailConfig.apiKey, mailConfig.from);
       }
       const schedules = await runPublicationSchedules({ db });
+      const contentSchedules = await runContentSchedules({ db });
       const line = transport ? await runNotificationBatch({ db, transport }) : await skipPendingNotificationEvents(db);
       const email = await runEmailNotificationBatch({ db, transport: emailTransport });
       const alerts = await runOperationalAlerts({ db, transport: alertTransport });
-      console.info(JSON.stringify({ job: 'publication-notifications-and-alerts', schedules, line, email, alerts }));
+      console.info(JSON.stringify({ job: 'publication-notifications-and-alerts', schedules, contentSchedules, line, email, alerts }));
       if (!continuous || stopping) break;
       await new Promise(resolveWait => setTimeout(resolveWait, 5000));
     } while (continuous && !stopping);
@@ -68,6 +70,7 @@ export * from './notification-runner';
 export * from './line-transport';
 export * from './email-transport';
 export * from './publication-scheduler';
+export * from './content-scheduler';
 export * from './operational-alert-runner';
 export * from './operational-alert-transport';
 export * from './service-heartbeat';

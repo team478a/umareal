@@ -18,9 +18,9 @@ describe('staff role management', () => {
     expect(list.body.roles).toHaveLength(4);
     expect(list.body.roles.map((item: { role: string }) => item.role)).toEqual(['MEMBER', 'EXPERT', 'EDITOR', 'OPERATOR']);
     const listedCandidate = list.body.accounts.find((item: { id: string }) => item.id === candidateFixture.user.id);
-    expect(listedCandidate).toMatchObject({ role: 'MEMBER', dependencies: { upcomingRaceAssignments: 0, activeWin5Products: 0, pendingPublicationSchedules: 0 } });
+    expect(listedCandidate).toMatchObject({ role: 'MEMBER', dependencies: { upcomingRaceAssignments: 0, activeWin5Products: 0, pendingPublicationSchedules: 0, pendingContentSchedules: 0 } });
     expect(Object.keys(listedCandidate).sort()).toEqual(['createdAt', 'dependencies', 'disabledAt', 'displayName', 'email', 'id', 'registrationMethod', 'role']);
-    expect(Object.keys(listedCandidate.dependencies).sort()).toEqual(['activeWin5Products', 'pendingPublicationSchedules', 'upcomingRaceAssignments']);
+    expect(Object.keys(listedCandidate.dependencies).sort()).toEqual(['activeWin5Products', 'pendingContentSchedules', 'pendingPublicationSchedules', 'upcomingRaceAssignments']);
     expect(JSON.stringify(list.body)).not.toMatch(/passwordHash|authSubject|mfaSecret|pendingMfa|tokenHash|stripeCustomerId|auditLogs/);
 
     const mismatch = await actor.call(`admin/staff/${candidateFixture.user.id}/role`, 'PATCH', { expectedRole: 'MEMBER', nextRole: 'EXPERT', confirmationEmail: 'different@example.test', reason: '専門家として業務開始' });

@@ -31,7 +31,7 @@ describe('audited administration settings', () => {
       captcha: { enabled: true, siteKey: '0x4AAAA-test-site-key', secret: turnstileSecret, clearSecret: false },
       maintenanceMessage: '結合試験中', notificationPolicy: { maxAttempts: 4, baseDelaySeconds: 45 },
       publicationPolicy: { correction: 'EXPERT_OR_ADMIN', delayedRace: 'LATEST_STARTS_AT' },
-      contentAccess: { monthly: { paddock: true, win5: true, racePaper: true }, dayPass: { paddock: true, win5: false, racePaper: false }, manual: { paddock: true, win5: true, racePaper: true } },
+      contentAccess: { monthly: { paddock: true, win5: true, racePaper: true, content: true }, dayPass: { paddock: true, win5: false, racePaper: false, content: false }, manual: { paddock: true, win5: true, racePaper: true, content: true } },
       billing: { founderSalesEnabled: false, standardSalesEnabled: true, dayPassSalesEnabled: true, founderPriceYen: 1980, standardPriceYen: 2980, dayPassPriceYen: 980, founderSalesLimit: 100, billingGraceDays: 0 },
       stripe: { liveMode: false, secretKey: stripeSecretKey, webhookSecret: stripeWebhookSecret, clearSecretKey: false, clearWebhookSecret: false, priceFounder: 'price_Founder123', priceStandard: 'price_Standard123', priceDayPass: 'price_DayPass123' },
       mail: { apiKey: mailApiKey, webhookSecret: mailWebhookSecret, from: '競馬会員メディア <notice@example.test>', clearApiKey: false, clearWebhookSecret: false },
@@ -49,7 +49,7 @@ describe('audited administration settings', () => {
     expect(stopped.body.captcha).toMatchObject({ enabled: true, siteKey: '0x4AAAA-test-site-key', secretConfigured: true, connectionStatus: 'CONFIGURED_NOT_VERIFIED' });
     expect(stopped.body.captcha.readiness).toMatchObject({ siteKeyStored: true, secretStored: true, secretReadable: true, serverValidationReady: true, transport: 'TEST_ONLY', externalConnectionTested: false });
     expect(stopped.body.publicationPolicy).toEqual({ correction: 'EXPERT_OR_ADMIN', delayedRace: 'LATEST_STARTS_AT' });
-    expect(stopped.body.contentAccess.dayPass).toEqual({ paddock: true, win5: false, racePaper: false });
+    expect(stopped.body.contentAccess.dayPass).toEqual({ paddock: true, win5: false, racePaper: false, content: false });
     expect(stopped.body.environment).toMatchObject({ launchMode: 'FULL', authProvider: 'LOCAL_DEVELOPMENT', supabaseConfigured: false });
     expect(JSON.stringify(stopped.body)).not.toContain(channelSecret); expect(JSON.stringify(stopped.body)).not.toContain(channelAccessToken); expect(JSON.stringify(stopped.body)).not.toContain(loginChannelSecret); expect(JSON.stringify(stopped.body)).not.toContain(stripeSecretKey); expect(JSON.stringify(stopped.body)).not.toContain(stripeWebhookSecret); expect(JSON.stringify(stopped.body)).not.toContain(mailApiKey); expect(JSON.stringify(stopped.body)).not.toContain(mailWebhookSecret); expect(JSON.stringify(stopped.body)).not.toContain(turnstileSecret);
     const stored = await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' } });

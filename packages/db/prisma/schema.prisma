@@ -83,6 +83,9 @@ model User {
   paperDrafts                    RacePaper[]
   paperVersionsPublished         RacePaperVersion[]
   paperPreviews                  RacePaperPreview[]
+  contentItemsCreated            ContentItem[]              @relation("ContentItemCreator")
+  contentItemsUpdated            ContentItem[]              @relation("ContentItemUpdater")
+  contentVersionsPublished       ContentVersion[]           @relation("ContentVersionPublisher")
 
   @@map("users")
 }
@@ -1174,6 +1177,62 @@ model RacePaperPreview {
   @@map("race_paper_previews")
 }
 
+model ContentItem {
+  id                String           @id @default(uuid()) @db.Uuid
+  kind              String
+  status            String           @default("DRAFT")
+  isVisible         Boolean          @default(false)
+  revision          Int              @default(1)
+  title             String
+  summary           String
+  body              String
+  thumbnailUrl      String?
+  mediaUrl          String?
+  category          String
+  tags              String[]         @default([])
+  visibility        String
+  scheduledAt       DateTime?        @db.Timestamptz(3)
+  scheduledRevision Int?
+  scheduleReason    String?
+  scheduleError     String?
+  createdBy         String           @db.Uuid
+  creator           User             @relation("ContentItemCreator", fields: [createdBy], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  updatedBy         String           @db.Uuid
+  updater           User             @relation("ContentItemUpdater", fields: [updatedBy], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  createdAt         DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime         @default(now()) @db.Timestamptz(3)
+  versions          ContentVersion[]
+
+  @@index([status, scheduledAt])
+  @@index([isVisible, updatedAt])
+  @@index([updatedAt])
+  @@map("content_items")
+}
+
+model ContentVersion {
+  id           String      @id @default(uuid()) @db.Uuid
+  contentId    String      @db.Uuid
+  content      ContentItem @relation(fields: [contentId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  version      Int
+  kind         String
+  title        String
+  summary      String
+  thumbnailUrl String?
+  category     String
+  tags         String[]    @default([])
+  visibility   String
+  snapshot     Json
+  publishedAt  DateTime    @default(now()) @db.Timestamptz(3)
+  publishedBy  String      @db.Uuid
+  publisher    User        @relation("ContentVersionPublisher", fields: [publishedBy], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  createdTxId  BigInt      @default(dbgenerated("txid_current()"))
+
+  @@unique([contentId, version])
+  @@index([publishedAt])
+  @@index([kind, publishedAt])
+  @@map("content_versions")
+}
+
 model MemberNotificationRead {
   userId  String            @db.Uuid
   user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1595,7 +1654,7 @@ model SystemSetting {
   dayPassPriceYen                 Int      @default(980)
   founderSalesLimit               Int      @default(100)
   billingGraceDays                Int      @default(0)
-  contentAccessPolicy             Json     @default("{\"monthly\":{\"paddock\":true,\"win5\":true,\"racePaper\":true},\"dayPass\":{\"paddock\":true,\"win5\":true,\"racePaper\":true},\"manual\":{\"paddock\":true,\"win5\":true,\"racePaper\":true}}")
+  contentAccessPolicy             Json     @default("{\"monthly\":{\"paddock\":true,\"win5\":true,\"racePaper\":true,\"content\":true},\"dayPass\":{\"paddock\":true,\"win5\":true,\"racePaper\":true,\"content\":false},\"manual\":{\"paddock\":true,\"win5\":true,\"racePaper\":true,\"content\":true}}")
   maintenanceMessage              String   @default("")
   notificationMaxAttempts         Int      @default(5)
   notificationBaseDelaySeconds    Int      @default(30)

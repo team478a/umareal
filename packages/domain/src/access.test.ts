@@ -34,11 +34,12 @@ describe('authorization boundaries', () => {
   });
   it('applies the configured paid content matrix without changing time and date checks', () => {
     const window = dayPassWindow('2026-09-12');
-    const policy = { ...defaultContentAccessPolicy, dayPass: { paddock: true, win5: false, racePaper: false } };
+    const policy = { ...defaultContentAccessPolicy, dayPass: { paddock: true, win5: false, racePaper: false, content: false } };
     const base = { now: window.startsAt, publishedAt: window.startsAt, visibility: 'PAID' as const, raceDate: '2026-09-12', entitlements: [{ ...window, planCode: 'DAY_PASS', revokedAt: null, raceDate: '2026-09-12' }], contentAccessPolicy: policy };
     expect(canReadPrediction({ ...base, contentKind: 'PADDOCK' })).toBe(true);
     expect(canReadPrediction({ ...base, contentKind: 'WIN5' })).toBe(false);
     expect(canReadPrediction({ ...base, contentKind: 'RACE_PAPER' })).toBe(false);
+    expect(canReadPrediction({ ...base, contentKind: 'CONTENT' })).toBe(false);
     expect(canReadPrediction({ ...base, entitlements: [{ ...base.entitlements[0], planCode: 'STANDARD', raceDate: null }], contentKind: 'WIN5' })).toBe(true);
     expect(canReadPrediction({ ...base, entitlements: [{ ...base.entitlements[0], planCode: 'UNKNOWN' }], contentKind: 'PADDOCK' })).toBe(false);
     expect(parseContentAccessPolicy({}).dayPass.win5).toBe(false);
