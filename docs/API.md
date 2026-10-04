@@ -234,6 +234,22 @@ StripeもSecret keyとWebhook secretは同じ暗号化方式で保存し、設�
 
 予想公開を停止すると公開前確認と確定を403 PREDICTION_PUBLICATION_STOPPED、CSV取込を停止するとプレビューと確定を403 CSV_IMPORT_STOPPEDで拒否する。確認後に停止した場合も確定時に再検証する。新規購入とLINE通知のフラグは後続処理が実行直前に参照するための設定で、現時点では外部処理を開始しない。
 
+## 記事・動画・音声CMS
+
+| Method | Path | 動作 |
+| --- | --- | --- |
+| GET | /admin/content | ADMIN+AAL2またはEDITOR。下書き、公開状態、公開履歴を取得 |
+| GET | /admin/content/races | ADMIN+AAL2またはEDITOR。`date`と任意の`ids`で関連付け候補を取得 |
+| POST | /admin/content/draft | ADMIN+AAL2またはEDITOR。revision、理由、最大10件の`relatedRaceIds`を含む下書きを保存 |
+| POST | /admin/content/:id/publish | 即時公開。公開版と関連レース、通知eventを同一トランザクションで追記 |
+| POST | /admin/content/:id/schedule | 未来時刻への公開予約。実行時に編集者と下書き版を再確認 |
+| POST | /admin/content/:id/schedule/cancel | 理由付きで公開予約を取消 |
+| POST | /admin/content/:id/archive | 公開終了。公開版と関連先履歴は削除しない |
+| POST | /admin/content/:id/restore | 公開終了後の再編集を開始 |
+| GET | /content | 公開中のコンテンツ一覧。閲覧権のない有料コンテンツはメタデータのみ |
+| GET | /content/:id | 最新公開版。関連レースは公開メタデータとして返し、本文とメディアURLは権限判定後だけ返す |
+| GET | /races/:raceId/content | そのレースに関連する最新の公開中コンテンツを最大20件返す |
+
 ## レース管理
 
 以下は全てADMIN+AAL2またはOPERATOR。一覧はpage/limit（既定1/20、最大50）。データ定義はpackages/domain/src/races.tsと[CSV仕様](CSV_IMPORT.md)を参照。

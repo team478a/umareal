@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runContentSchedules } from '../apps/worker/src/content-scheduler';
-import { jstDate, publicContentDetailResponseSchema, publicContentListResponseSchema } from '../packages/domain/src';
+import { adminContentRaceOptionsResponseSchema, jstDate, publicContentDetailResponseSchema, publicContentListResponseSchema, publicRaceRelatedContentResponseSchema } from '../packages/domain/src';
 import { account, Client, db } from './helpers';
 
 let originalPolicy: unknown;
@@ -11,7 +11,7 @@ beforeAll(async () => {
 });
 afterAll(async () => { if (originalPolicy) await db.systemSetting.update({ where: { id: 'global' }, data: { contentAccessPolicy: originalPolicy as object } }); await db.$disconnect(); });
 
-const draft = (title: string, visibility: 'PUBLIC' | 'MEMBERS' | 'PAID' = 'PUBLIC') => ({ kind: 'ARTICLE', title, summary: `${title}の概要`, body: `${title}の公開本文`, thumbnailUrl: null, mediaUrl: null, category: '検証記事', tags: ['検証'], visibility });
+const draft = (title: string, visibility: 'PUBLIC' | 'MEMBERS' | 'PAID' = 'PUBLIC', relatedRaceIds: string[] = []) => ({ kind: 'ARTICLE', title, summary: `${title}の概要`, body: `${title}の公開本文`, thumbnailUrl: null, mediaUrl: null, category: '検証記事', tags: ['検証'], relatedRaceIds, visibility });
 
 describe('content CMS publication and access', () => {
   it('enforces editor roles, publishes immutable versions, schedules and redacts paid bodies', async () => {
@@ -24,9 +24,14 @@ describe('content CMS publication and access', () => {
     const notificationClient = new Client(); await notificationClient.login(notificationFixture);
     const memberFixture = await account('MEMBER'); const member = new Client(); await member.login(memberFixture);
     expect((await member.call('admin/content')).status).toBe(403);
+    const relatedRace = await db.race.upsert({ where: { raceDate_venue_number: { raceDate: '2099-12-30', venue: 'CMS検証場', number: 1 } }, create: { raceDate: '2099-12-30', venue: 'CMS検証場', number: 1, name: 'CMS関連レース', startsAt: new Date('2099-12-30T06:00:00.000Z') }, update: { name: 'CMS関連レース' } });
+    const raceOptions = adminContentRaceOptionsResponseSchema.parse((await editor.call('admin/content/races?date=2099-12-30')).body);
+    expect(raceOptions.items).toContainEqual(expect.objectContaining({ id: relatedRace.id, name: 'CMS関連レース' }));
 
     const publicId = randomUUID();
-    const saved = await editor.call('admin/content/draft', 'POST', { id: publicId, revision: 0, draft: draft('公開記事'), reason: '公開記事の下書き作成' });
+    const missingRace = await editor.call('admin/content/draft', 'POST', { id: randomUUID(), revision: 0, draft: draft('不正レース', 'PUBLIC', [randomUUID()]), reason: '存在しない関連先の検証' });
+    expect(missingRace).toMatchObject({ status: 409, body: { code: 'CONTENT_RACE_NOT_FOUND' } });
+    const saved = await editor.call('admin/content/draft', 'POST', { id: publicId, revision: 0, draft: draft('公開記事', 'PUBLIC', [relatedRace.id]), reason: '公開記事の下書き作成' });
     expect(saved).toMatchObject({ status: 201, body: { id: publicId, revision: 1, status: 'DRAFT' } });
     expect((await new Client().call(`content/${publicId}`)).status).toBe(404);
     const published = await editor.call(`admin/content/${publicId}/publish`, 'POST', { revision: 1, reason: '初版公開' });
@@ -37,7 +42,9 @@ describe('content CMS publication and access', () => {
     const webNotices = await notificationClient.call('me/notifications');
     expect(webNotices.body.items.find((item: { id: string }) => item.id === publicEvent.id)).toMatchObject({ content: { id: publicId, kind: 'ARTICLE', title: '公開記事', category: '検証記事' }, href: `/content/${publicId}` });
     const guestRead = publicContentDetailResponseSchema.parse((await new Client().call(`content/${publicId}`)).body);
-    expect(guestRead).toMatchObject({ locked: false, body: '公開記事の公開本文' });
+    expect(guestRead).toMatchObject({ locked: false, body: '公開記事の公開本文', relatedRaces: [{ id: relatedRace.id, name: 'CMS関連レース' }] });
+    const relatedBeforeUpdate = publicRaceRelatedContentResponseSchema.parse((await new Client().call(`races/${relatedRace.id}/content`)).body);
+    expect(relatedBeforeUpdate.items).toContainEqual(expect.objectContaining({ id: publicId, title: '公開記事', locked: false }));
     const publicList = publicContentListResponseSchema.parse((await new Client().call('content?kind=ARTICLE&category=%E6%A4%9C%E8%A8%BC%E8%A8%98%E4%BA%8B')).body);
     expect(publicList.items.find(item => item.id === publicId)).toMatchObject({ locked: false, title: '公開記事' });
 
@@ -52,6 +59,8 @@ describe('content CMS publication and access', () => {
     expect(versions.map(item => item.version)).toEqual([1, 2]);
     expect(await db.notificationEvent.findUniqueOrThrow({ where: { contentVersionId: versions[1].id } })).toMatchObject({ eventType: 'CONTENT_UPDATED' });
     expect(JSON.stringify(versions[0].snapshot)).toContain('公開記事の公開本文');
+    expect(versions[0].relatedRaceIds).toEqual([relatedRace.id]);
+    expect(publicRaceRelatedContentResponseSchema.parse((await new Client().call(`races/${relatedRace.id}/content`)).body).items.some(item => item.id === publicId)).toBe(false);
     const changedKind = await editor.call('admin/content/draft', 'POST', { id: publicId, revision: 4, draft: { ...draft('公開記事'), kind: 'VIDEO', mediaUrl: 'https://example.test/video' }, reason: '種類変更試験' });
     expect(changedKind).toMatchObject({ status: 409, body: { code: 'CONTENT_KIND_FROZEN' } });
     await expect(db.contentVersion.update({ where: { id: versions[0].id }, data: { title: '改ざん' } })).rejects.toThrow();
