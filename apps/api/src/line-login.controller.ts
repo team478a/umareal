@@ -63,14 +63,16 @@ export class LineLoginController {
     }
     if (flow.purpose === 'LINK') {
       const actor = callbackActor!;
-      await this.auth.db.$transaction(async tx => {
+      const outcome = await this.auth.db.$transaction(async tx => {
         const owned = await tx.lineAccount.findUnique({ where: { subject: identity.subject } });
-        if (owned && owned.userId !== actor.id) throw new ConflictException({ code: 'LINE_ACCOUNT_ALREADY_LINKED', message: 'このLINEアカウントは別の会員に連携されています。' });
+        if (owned && owned.userId !== actor.id) return 'ALREADY_LINKED' as const;
         const existing = await tx.lineAccount.findUnique({ where: { userId: actor.id } });
         if (existing) await tx.lineAccount.update({ where: { userId: actor.id }, data: { subject: identity.subject, linkedAt: new Date(), unlinkedAt: null, notificationDisabledAt: null } });
         else await tx.lineAccount.create({ data: { userId: actor.id, subject: identity.subject } });
         await this.auth.audit(tx, req, 'LINE_ACCOUNT_LINK', actor.id, 'LINEアカウント連携', { subjectHash });
+        return 'LINKED' as const;
       });
+      if (outcome === 'ALREADY_LINKED') return res.redirect(303, `${process.env.APP_BASE_URL}/account?line=already-linked`);
       return res.redirect(303, `${process.env.APP_BASE_URL}/account?line=linked`);
     }
     const account = await this.auth.db.lineAccount.findUnique({ where: { subject: identity.subject }, include: { user: true } });
