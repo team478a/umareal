@@ -21,7 +21,7 @@ export class Win5Controller {
     return this.auth.db.$transaction(async tx => {
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(7262027)::text`;
       return work(tx);
-    }, { timeout: 20000, maxWait: 10000 });
+    }, { timeout: 30000, maxWait: 30000 });
   }
 
   private async actor(req: AppRequest, roles: AuthContext['role'][]) {
