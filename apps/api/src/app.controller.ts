@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAccountClosuresResponseSchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminOperationsResponseSchema, adminReadinessResponseSchema, adminSummaryResponseSchema, adminUsersResponseSchema, assessmentSchema, canEditRace, canManage, deploymentConsistency, expertRaceListResponseSchema, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceAnnouncementsResponseSchema, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
+import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAccountClosuresResponseSchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminOperationsRaceSchema, adminOperationsResponseSchema, adminReadinessResponseSchema, adminSummaryResponseSchema, adminUsersResponseSchema, assessmentSchema, buildAdminOperationsAttention, canEditRace, canManage, deploymentConsistency, expertRaceListResponseSchema, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceAnnouncementsResponseSchema, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -211,7 +211,8 @@ export class AppController {
         notification, result: race.resultVersions[0] ?? null, warnings,
         rehearsal: { status: rehearsalStatus, done, total: steps.length, nextStep: actionable?.key ?? null, steps } };
     });
-    return adminOperationsResponseSchema.parse({ date, generatedAt: now, items, alerts: items.reduce((sum, item) => sum + item.warnings.length, 0), rehearsal: {
+    const attention = buildAdminOperationsAttention(items.map(item => adminOperationsRaceSchema.parse(item)));
+    return adminOperationsResponseSchema.parse({ date, generatedAt: now, items, alerts: items.reduce((sum, item) => sum + item.warnings.length, 0), attention, rehearsal: {
       ready: items.filter(item => ['READY', 'COMPLETE'].includes(item.rehearsal.status)).length,
       blocked: items.filter(item => item.rehearsal.status === 'BLOCKED').length,
       total: items.length,
