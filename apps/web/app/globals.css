@@ -1157,5 +1157,17 @@ td { padding:17px 24px; border-top:1px solid var(--line); }
 .content-media-link { margin-top:26px; }
 .content-lock { display:grid; justify-items:center; gap:12px; margin-top:28px; padding:34px 20px; border-radius:8px; background:#f6f4ef; text-align:center; }
 .content-lock h2,.content-lock p { margin:0; }
+.content-race-links { margin:18px 0; padding:16px; border:1px solid var(--line); border-radius:7px; }
+.content-race-links legend { padding:0 6px; font-weight:800; }
+.content-race-options { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:12px 0; }
+.content-race-options>label { display:flex; align-items:flex-start; gap:9px; padding:10px; border:1px solid var(--line); border-radius:6px; background:#fff; }
+.content-race-options input { margin-top:3px; }
+.content-related-races { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; margin-top:18px; padding:13px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+.content-related-races a { color:var(--green); font-weight:700; }
+.content-related-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+.content-related-list article { padding:16px; border:1px solid var(--line); border-radius:7px; }
+.content-related-list article>div { display:flex; align-items:center; gap:8px; }
+.content-related-list h3 { margin:10px 0 6px; }
+.content-related-list p { color:var(--muted); line-height:1.7; }
 @media(max-width:900px) { .content-manager-layout { grid-template-columns:1fr; } .content-library-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
-@media(max-width:620px) { .content-editor-grid,.content-filters,.content-library-grid { grid-template-columns:1fr; } .content-editor-actions .button,.inline-schedule { width:100%; } .content-card-body { padding:18px; } }
+@media(max-width:620px) { .content-editor-grid,.content-filters,.content-library-grid,.content-race-options,.content-related-list { grid-template-columns:1fr; } .content-editor-actions .button,.inline-schedule { width:100%; } .content-card-body { padding:18px; } }

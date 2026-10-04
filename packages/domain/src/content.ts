@@ -20,6 +20,7 @@ export const contentDraftSchema = z.object({
   mediaUrl: httpsUrl.nullable(),
   category: safeText(1, 80),
   tags: z.array(safeText(1, 30)).max(10).refine(values => new Set(values).size === values.length, 'タグは重複できません。'),
+  relatedRaceIds: z.array(z.string().uuid()).max(10).refine(values => new Set(values).size === values.length, '関連レースは重複できません。').default([]),
   visibility: z.enum(contentVisibilities)
 }).strict().superRefine((value, context) => {
   if (value.kind === 'ARTICLE' && value.mediaUrl) context.addIssue({ code: 'custom', path: ['mediaUrl'], message: '記事には動画・音声URLを設定できません。' });
@@ -42,11 +43,18 @@ const contentMetadataSchema = z.object({
   thumbnailUrl: z.string().nullable(), category: z.string(), tags: z.array(z.string()), visibility: z.enum(contentVisibilities), publishedAt: dateTime
 }).strict();
 
+export const contentRelatedRaceSchema = z.object({
+  id: z.string().uuid(), raceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), venue: z.string(), number: z.number().int().min(1).max(12),
+  name: z.string(), startsAt: dateTime
+}).strict();
+
 const adminContentItemSchema = z.object({
   id: z.string().uuid(), revision: z.number().int().positive(), status: z.enum(contentStatuses), isVisible: z.boolean(), draft: contentDraftSchema,
   scheduledAt: dateTime.nullable(), scheduleError: z.string().nullable(), createdAt: dateTime, updatedAt: dateTime,
   versions: z.array(contentMetadataSchema).max(50)
 }).strict();
+
+export const adminContentRaceOptionsResponseSchema = z.object({ items: z.array(contentRelatedRaceSchema).max(100) }).strict();
 
 export const adminContentListResponseSchema = z.object({ items: z.array(adminContentItemSchema).max(100) }).strict();
 export const adminContentItemResponseSchema = adminContentItemSchema;
@@ -59,12 +67,18 @@ export const publicContentListResponseSchema = z.object({
 }).strict();
 
 export const publicContentDetailResponseSchema = z.discriminatedUnion('locked', [
-  contentMetadataSchema.extend({ locked: z.literal(true) }).strict(),
-  contentMetadataSchema.extend({ locked: z.literal(false), body: z.string(), mediaUrl: z.string().nullable() }).strict()
+  contentMetadataSchema.extend({ locked: z.literal(true), relatedRaces: z.array(contentRelatedRaceSchema).max(10) }).strict(),
+  contentMetadataSchema.extend({ locked: z.literal(false), body: z.string(), mediaUrl: z.string().nullable(), relatedRaces: z.array(contentRelatedRaceSchema).max(10) }).strict()
 ]);
+
+export const publicRaceRelatedContentResponseSchema = z.object({
+  items: z.array(contentMetadataSchema.extend({ locked: z.boolean() }).strict()).max(20)
+}).strict();
 
 export type AdminContentListResponse = z.infer<typeof adminContentListResponseSchema>;
 export type AdminContentItemResponse = z.infer<typeof adminContentItemResponseSchema>;
 export type AdminContentMutationResponse = z.infer<typeof adminContentMutationResponseSchema>;
+export type AdminContentRaceOptionsResponse = z.infer<typeof adminContentRaceOptionsResponseSchema>;
 export type PublicContentListResponse = z.infer<typeof publicContentListResponseSchema>;
 export type PublicContentDetailResponse = z.infer<typeof publicContentDetailResponseSchema>;
+export type PublicRaceRelatedContentResponse = z.infer<typeof publicRaceRelatedContentResponseSchema>;

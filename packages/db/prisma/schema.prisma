@@ -1195,6 +1195,7 @@ model ContentItem {
   mediaUrl          String?
   category          String
   tags              String[]         @default([])
+  relatedRaceIds    String[]         @default([]) @db.Uuid
   visibility        String
   scheduledAt       DateTime?        @db.Timestamptz(3)
   scheduledRevision Int?
@@ -1225,6 +1226,7 @@ model ContentVersion {
   thumbnailUrl      String?
   category          String
   tags              String[]           @default([])
+  relatedRaceIds    String[]           @default([]) @db.Uuid
   visibility        String
   snapshot          Json
   publishedAt       DateTime           @default(now()) @db.Timestamptz(3)

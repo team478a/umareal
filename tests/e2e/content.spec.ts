@@ -19,16 +19,16 @@ test('an editor publishes an article and the public library shows it on desktop/
   await page.goto('/admin/content');
   await expect(page.getByRole('heading', { name: '記事・動画・音声', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '新規作成', exact: true }).click();
-  await page.getByLabel('タイトル').fill(title);
-  await page.getByLabel('概要').fill('今週の開催で注目したいポイントを紹介します。');
-  await page.getByLabel('本文').fill('馬場傾向と当日の確認ポイントを、初心者にもわかりやすく解説します。');
-  await page.getByLabel('カテゴリ').fill('読みもの');
-  await page.getByLabel('タグ（カンマ区切り・10件まで）').fill('秋競馬, 初心者');
-  await page.getByLabel('操作理由').fill('公開画面のE2E確認');
+  await page.getByLabel('タイトル', { exact: true }).fill(title);
+  await page.getByLabel('概要', { exact: true }).fill('今週の開催で注目したいポイントを紹介します。');
+  await page.getByLabel('本文', { exact: true }).fill('馬場傾向と当日の確認ポイントを、初心者にもわかりやすく解説します。');
+  await page.getByLabel('カテゴリ', { exact: true }).fill('読みもの');
+  await page.getByLabel('タグ（カンマ区切り・10件まで）', { exact: true }).fill('秋競馬, 初心者');
+  await page.getByLabel('操作理由', { exact: true }).fill('公開画面のE2E確認');
   await page.getByRole('button', { name: '下書きを保存', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('下書きを作成しました');
 
-  await page.getByLabel('操作理由').fill('公開画面のE2E確認');
+  await page.getByLabel('操作理由', { exact: true }).fill('公開画面のE2E確認');
   await page.getByRole('button', { name: '今すぐ公開', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('新しい公開版を公開しました');
   await expect(page.getByText('公開中', { exact: true })).toBeVisible();
