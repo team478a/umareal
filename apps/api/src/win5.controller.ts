@@ -15,6 +15,8 @@ const previewDetailsSchema = z.object({ correctionReason: z.string(), nextVersio
 
 @Controller()
 export class Win5Controller {
+  private readonly publicationQueues = new Map<string, Promise<void>>();
+
   constructor(@Inject(AuthService) private readonly auth: AuthService) {}
 
   private locked<T>(work: (tx: Tx) => Promise<T>) {
@@ -29,6 +31,20 @@ export class Win5Controller {
     if (!roles.includes(actor.role)) throw new ForbiddenException({ code: 'FORBIDDEN', message: 'WIN5編集権限を確認してください。' });
     if (actor.aal !== 2) throw new ForbiddenException({ code: 'MFA_REQUIRED', message: 'WIN5編集には二段階認証が必要です。' });
     return actor;
+  }
+
+  private async serializePublication<T>(previewId: string, work: () => Promise<T>) {
+    const previous = this.publicationQueues.get(previewId) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>(resolve => { release = resolve; });
+    this.publicationQueues.set(previewId, current);
+    await previous;
+    try {
+      return await work();
+    } finally {
+      release();
+      if (this.publicationQueues.get(previewId) === current) this.publicationQueues.delete(previewId);
+    }
   }
 
   private ensureCorrectionActor(actor: AuthContext, correcting: boolean, policy: string) {
@@ -303,7 +319,7 @@ export class Win5Controller {
   @Post(['admin/win5/:productId/publish/:previewId', 'expert/win5/:productId/publish/:previewId'])
   async publish(@Req() req: AppRequest, @Param('productId') productId: string, @Param('previewId') previewId: string) {
     z.string().uuid().parse(productId); z.string().uuid().parse(previewId);
-    return this.locked(async tx => {
+    return this.serializePublication(previewId, () => this.locked(async tx => {
       const { actor, product } = await this.access(tx, req, productId); await this.ensurePublicationEnabled(tx);
       const settings = await tx.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { predictionCorrectionPolicy: true } });
       const preview = await tx.predictionProductPreview.findUnique({ where: { id: previewId } });
@@ -322,6 +338,6 @@ export class Win5Controller {
       await tx.predictionProductPreview.update({ where: { id: preview.id }, data: { confirmedVersionId: version.id } });
       await tx.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: correcting ? 'WIN5_PRODUCT_CORRECT' : 'WIN5_PRODUCT_PUBLISH', targetType: 'PREDICTION_PRODUCT_VERSION', targetId: version.id, reason: correcting ? details.correctionReason : 'WIN5予想の公開', details: json({ productId, version: version.version, formatVersion: version.formatVersion, previousVersionId: previous?.id ?? null, notificationEventId: notificationEvent.id, activatedDayPasses }), requestId: req.requestId } });
       return { published: true, versionId: version.id, version: version.version, alreadyPublished: false, publishedAt: version.publishedAt };
-    });
+    }));
   }
 }
