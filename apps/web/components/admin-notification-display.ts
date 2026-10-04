@@ -9,6 +9,7 @@ export type AdminNotificationDisplay = {
 };
 
 export function adminNotificationDisplay(event: NotificationEvent): AdminNotificationDisplay {
+  if (event.contentVersion) return { title: event.contentVersion.title, detail: `${event.contentVersion.kind === 'ARTICLE' ? '記事' : event.contentVersion.kind === 'VIDEO' ? '動画' : '音声'} 第${event.contentVersion.version}版 · ${event.contentVersion.visibility}`, targetDate: event.contentVersion.category };
   if (event.paperVersion) return { title: event.paperVersion.title, detail: `通常レース紙面 第${event.paperVersion.version}版`, targetDate: event.paperVersion.targetDate };
   const billing = event.billingEvent;
   if (billing) {

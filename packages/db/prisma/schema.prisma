@@ -52,8 +52,8 @@ model User {
   billingCheckouts               BillingCheckout[]
   billingSupportRequests         BillingSupportRequest[]    @relation("BillingSupportRequester")
   billingSupportEvents           BillingSupportEvent[]      @relation("BillingSupportActor")
-  billingCouponsCreated          BillingCoupon[]             @relation("BillingCouponCreator")
-  billingCouponsDeactivated      BillingCoupon[]             @relation("BillingCouponDeactivator")
+  billingCouponsCreated          BillingCoupon[]            @relation("BillingCouponCreator")
+  billingCouponsDeactivated      BillingCoupon[]            @relation("BillingCouponDeactivator")
   billingCouponRedemptions       BillingCouponRedemption[]
   supportRequests                SupportRequest[]           @relation("SupportRequester")
   assignedSupportRequests        SupportRequest[]           @relation("SupportAssignee")
@@ -436,24 +436,24 @@ model ReferralReward {
 }
 
 model PaymentTransaction {
-  id                String                  @id @default(uuid()) @db.Uuid
-  userId            String                  @db.Uuid
-  user              User                    @relation(fields: [userId], references: [id])
+  id                String                   @id @default(uuid()) @db.Uuid
+  userId            String                   @db.Uuid
+  user              User                     @relation(fields: [userId], references: [id])
   provider          String
-  providerPaymentId String                  @unique
+  providerPaymentId String                   @unique
   kind              String
   status            String
   amountYen         Int
-  subscriptionId    String?                 @db.Uuid
-  subscription      Subscription?           @relation(fields: [subscriptionId], references: [id])
-  dayPassId         String?                 @db.Uuid
-  dayPass           DayPass?                @relation(fields: [dayPassId], references: [id])
-  billingCheckoutId String?                 @db.Uuid
-  billingCheckout   BillingCheckout?        @relation(fields: [billingCheckoutId], references: [id])
+  subscriptionId    String?                  @db.Uuid
+  subscription      Subscription?            @relation(fields: [subscriptionId], references: [id])
+  dayPassId         String?                  @db.Uuid
+  dayPass           DayPass?                 @relation(fields: [dayPassId], references: [id])
+  billingCheckoutId String?                  @db.Uuid
+  billingCheckout   BillingCheckout?         @relation(fields: [billingCheckoutId], references: [id])
   supportRequests   BillingSupportRequest[]
   couponRedemption  BillingCouponRedemption?
-  occurredAt        DateTime                @default(now()) @db.Timestamptz(3)
-  createdTxId       BigInt                  @default(dbgenerated("txid_current()"))
+  occurredAt        DateTime                 @default(now()) @db.Timestamptz(3)
+  createdTxId       BigInt                   @default(dbgenerated("txid_current()"))
 
   @@index([userId, occurredAt])
   @@index([billingCheckoutId])
@@ -535,20 +535,20 @@ model SupportEvent {
 }
 
 model BillingEvent {
-  id             String        @id @default(uuid()) @db.Uuid
-  userId         String        @db.Uuid
-  user           User          @relation(fields: [userId], references: [id])
-  eventType      String
-  subscriptionId String?       @db.Uuid
-  subscription   Subscription? @relation(fields: [subscriptionId], references: [id])
-  dayPassId      String?       @db.Uuid
-  dayPass        DayPass?      @relation(fields: [dayPassId], references: [id])
-  billingCheckoutId String?    @db.Uuid
-  billingCheckout BillingCheckout? @relation(fields: [billingCheckoutId], references: [id])
-  details        Json
-  actorId        String        @db.Uuid
-  occurredAt     DateTime      @default(now()) @db.Timestamptz(3)
-  createdTxId    BigInt        @default(dbgenerated("txid_current()"))
+  id                String             @id @default(uuid()) @db.Uuid
+  userId            String             @db.Uuid
+  user              User               @relation(fields: [userId], references: [id])
+  eventType         String
+  subscriptionId    String?            @db.Uuid
+  subscription      Subscription?      @relation(fields: [subscriptionId], references: [id])
+  dayPassId         String?            @db.Uuid
+  dayPass           DayPass?           @relation(fields: [dayPassId], references: [id])
+  billingCheckoutId String?            @db.Uuid
+  billingCheckout   BillingCheckout?   @relation(fields: [billingCheckoutId], references: [id])
+  details           Json
+  actorId           String             @db.Uuid
+  occurredAt        DateTime           @default(now()) @db.Timestamptz(3)
+  createdTxId       BigInt             @default(dbgenerated("txid_current()"))
   notificationEvent NotificationEvent?
 
   @@index([userId, occurredAt])
@@ -557,27 +557,27 @@ model BillingEvent {
 }
 
 model BillingCheckout {
-  id                     String    @id @default(uuid()) @db.Uuid
-  userId                 String    @db.Uuid
-  user                   User      @relation(fields: [userId], references: [id])
+  id                     String                   @id @default(uuid()) @db.Uuid
+  userId                 String                   @db.Uuid
+  user                   User                     @relation(fields: [userId], references: [id])
   kind                   String
   planCode               String
   raceDate               String?
-  baseAmountYen           Int
-  discountAmountYen       Int       @default(0)
+  baseAmountYen          Int
+  discountAmountYen      Int                      @default(0)
   amountYen              Int
-  recurringAmountYen      Int?
-  couponId                String?   @db.Uuid
-  coupon                  BillingCoupon? @relation(fields: [couponId], references: [id])
-  status                 String    @default("INITIATED")
-  idempotencyKey         String    @unique
+  recurringAmountYen     Int?
+  couponId               String?                  @db.Uuid
+  coupon                 BillingCoupon?           @relation(fields: [couponId], references: [id])
+  status                 String                   @default("INITIATED")
+  idempotencyKey         String                   @unique
   requestHash            String
-  providerSessionId      String?   @unique
+  providerSessionId      String?                  @unique
   providerCheckoutUrl    String?
   providerSubscriptionId String?
-  createdAt              DateTime  @default(now()) @db.Timestamptz(3)
-  expiresAt              DateTime  @db.Timestamptz(3)
-  completedAt            DateTime? @db.Timestamptz(3)
+  createdAt              DateTime                 @default(now()) @db.Timestamptz(3)
+  expiresAt              DateTime                 @db.Timestamptz(3)
+  completedAt            DateTime?                @db.Timestamptz(3)
   payments               PaymentTransaction[]
   events                 BillingEvent[]
   couponRedemption       BillingCouponRedemption?
@@ -624,10 +624,10 @@ model BillingCouponRedemption {
   paymentTransactionId String?             @unique @db.Uuid
   paymentTransaction   PaymentTransaction? @relation(fields: [paymentTransactionId], references: [id])
   status               String
-  reservedUntil        DateTime?            @db.Timestamptz(3)
-  redeemedAt           DateTime?            @db.Timestamptz(3)
-  createdAt            DateTime             @default(now()) @db.Timestamptz(3)
-  updatedAt            DateTime             @default(now()) @db.Timestamptz(3)
+  reservedUntil        DateTime?           @db.Timestamptz(3)
+  redeemedAt           DateTime?           @db.Timestamptz(3)
+  createdAt            DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime            @default(now()) @db.Timestamptz(3)
 
   @@unique([couponId, userId])
   @@index([couponId, status, reservedUntil])
@@ -745,15 +745,15 @@ model FreeReportVersion {
 }
 
 model FreeMemberBenefit {
-  id          String   @id
+  id          String                  @id
   title       String
   description String
   videoUrl    String
-  revision    Int      @default(1)
-  createdAt   DateTime @default(now()) @db.Timestamptz(3)
-  createdBy   String?  @db.Uuid
-  updatedBy   String?  @db.Uuid
-  updatedAt   DateTime @default(now()) @db.Timestamptz(3)
+  revision    Int                     @default(1)
+  createdAt   DateTime                @default(now()) @db.Timestamptz(3)
+  createdBy   String?                 @db.Uuid
+  updatedBy   String?                 @db.Uuid
+  updatedAt   DateTime                @default(now()) @db.Timestamptz(3)
   views       FreeMemberBenefitView[]
 
   @@index([createdAt])
@@ -1096,6 +1096,8 @@ model PublicationPreview {
 
 model NotificationEvent {
   id                      String                    @id @default(uuid()) @db.Uuid
+  contentVersionId        String?                   @unique @db.Uuid
+  contentVersion          ContentVersion?           @relation(fields: [contentVersionId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   paperVersionId          String?                   @unique @db.Uuid
   paperVersion            RacePaperVersion?         @relation(fields: [paperVersionId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   versionId               String?                   @unique @db.Uuid
@@ -1128,52 +1130,55 @@ model NotificationEvent {
 }
 
 model RacePaper {
-  id        String   @id @default(uuid()) @db.Uuid
-  revision  Int      @default(1)
+  id        String             @id @default(uuid()) @db.Uuid
+  revision  Int                @default(1)
   draft     Json
-  updatedBy String   @db.Uuid
-  updater   User     @relation(fields: [updatedBy], references: [id], onDelete: Restrict, onUpdate: NoAction)
-  createdAt DateTime @default(now()) @db.Timestamptz(3)
-  updatedAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedBy String             @db.Uuid
+  updater   User               @relation(fields: [updatedBy], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  createdAt DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime           @default(now()) @db.Timestamptz(3)
   versions  RacePaperVersion[]
   previews  RacePaperPreview[]
+
   @@map("race_papers")
 }
 
 model RacePaperVersion {
-  id               String   @id @default(uuid()) @db.Uuid
-  paperId          String   @db.Uuid
-  paper            RacePaper @relation(fields: [paperId], references: [id], onDelete: Restrict, onUpdate: NoAction)
-  version          Int
-  targetDate       String
-  title            String
-  accessScope      String
-  snapshot         Json
-  deadlineAt       DateTime @db.Timestamptz(3)
-  publishedAt      DateTime @default(now()) @db.Timestamptz(3)
-  publishedBy      String   @db.Uuid
-  publisher        User     @relation(fields: [publishedBy], references: [id], onDelete: Restrict, onUpdate: NoAction)
-  correctionReason String?
-  createdTxId      BigInt   @default(dbgenerated("txid_current()"))
+  id                String             @id @default(uuid()) @db.Uuid
+  paperId           String             @db.Uuid
+  paper             RacePaper          @relation(fields: [paperId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  version           Int
+  targetDate        String
+  title             String
+  accessScope       String
+  snapshot          Json
+  deadlineAt        DateTime           @db.Timestamptz(3)
+  publishedAt       DateTime           @default(now()) @db.Timestamptz(3)
+  publishedBy       String             @db.Uuid
+  publisher         User               @relation(fields: [publishedBy], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  correctionReason  String?
+  createdTxId       BigInt             @default(dbgenerated("txid_current()"))
   notificationEvent NotificationEvent?
   confirmedPreviews RacePaperPreview[]
+
   @@unique([paperId, version])
   @@index([targetDate, publishedAt])
   @@map("race_paper_versions")
 }
 
 model RacePaperPreview {
-  id               String   @id @default(uuid()) @db.Uuid
-  paperId          String   @db.Uuid
-  paper            RacePaper @relation(fields: [paperId], references: [id], onDelete: Restrict, onUpdate: NoAction)
-  actorId          String   @db.Uuid
-  actor            User     @relation(fields: [actorId], references: [id], onDelete: Restrict, onUpdate: NoAction)
-  baselineHash     String
-  version          Int
-  correctionReason String
-  expiresAt        DateTime @db.Timestamptz(3)
-  confirmedVersionId String? @db.Uuid
-  confirmedVersion RacePaperVersion? @relation(fields: [confirmedVersionId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  id                 String            @id @default(uuid()) @db.Uuid
+  paperId            String            @db.Uuid
+  paper              RacePaper         @relation(fields: [paperId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  actorId            String            @db.Uuid
+  actor              User              @relation(fields: [actorId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  baselineHash       String
+  version            Int
+  correctionReason   String
+  expiresAt          DateTime          @db.Timestamptz(3)
+  confirmedVersionId String?           @db.Uuid
+  confirmedVersion   RacePaperVersion? @relation(fields: [confirmedVersionId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
   @@map("race_paper_previews")
 }
 
@@ -1210,22 +1215,23 @@ model ContentItem {
 }
 
 model ContentVersion {
-  id           String      @id @default(uuid()) @db.Uuid
-  contentId    String      @db.Uuid
-  content      ContentItem @relation(fields: [contentId], references: [id], onDelete: Restrict, onUpdate: NoAction)
-  version      Int
-  kind         String
-  title        String
-  summary      String
-  thumbnailUrl String?
-  category     String
-  tags         String[]    @default([])
-  visibility   String
-  snapshot     Json
-  publishedAt  DateTime    @default(now()) @db.Timestamptz(3)
-  publishedBy  String      @db.Uuid
-  publisher    User        @relation("ContentVersionPublisher", fields: [publishedBy], references: [id], onDelete: Restrict, onUpdate: NoAction)
-  createdTxId  BigInt      @default(dbgenerated("txid_current()"))
+  id                String             @id @default(uuid()) @db.Uuid
+  contentId         String             @db.Uuid
+  content           ContentItem        @relation(fields: [contentId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  version           Int
+  kind              String
+  title             String
+  summary           String
+  thumbnailUrl      String?
+  category          String
+  tags              String[]           @default([])
+  visibility        String
+  snapshot          Json
+  publishedAt       DateTime           @default(now()) @db.Timestamptz(3)
+  publishedBy       String             @db.Uuid
+  publisher         User               @relation("ContentVersionPublisher", fields: [publishedBy], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  createdTxId       BigInt             @default(dbgenerated("txid_current()"))
+  notificationEvent NotificationEvent?
 
   @@unique([contentId, version])
   @@index([publishedAt])

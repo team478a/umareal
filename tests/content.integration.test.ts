@@ -20,6 +20,8 @@ describe('content CMS publication and access', () => {
     await admin.mfa();
     const editorFixture = await account('EDITOR'); const editor = new Client(); await editor.login(editorFixture);
     expect((await editor.call('admin/content')).status).toBe(200);
+    const notificationFixture = await account('MEMBER');
+    const notificationClient = new Client(); await notificationClient.login(notificationFixture);
     const memberFixture = await account('MEMBER'); const member = new Client(); await member.login(memberFixture);
     expect((await member.call('admin/content')).status).toBe(403);
 
@@ -29,6 +31,11 @@ describe('content CMS publication and access', () => {
     expect((await new Client().call(`content/${publicId}`)).status).toBe(404);
     const published = await editor.call(`admin/content/${publicId}/publish`, 'POST', { revision: 1, reason: '初版公開' });
     expect(published).toMatchObject({ status: 201, body: { status: 'PUBLISHED', version: 1, revision: 2 } });
+    const publicVersion = await db.contentVersion.findFirstOrThrow({ where: { contentId: publicId, version: 1 } });
+    const publicEvent = await db.notificationEvent.findUniqueOrThrow({ where: { contentVersionId: publicVersion.id } });
+    expect(publicEvent).toMatchObject({ eventType: 'CONTENT_PUBLISHED', status: 'QUEUED', payload: { contentId: publicId, contentVersionId: publicVersion.id } });
+    const webNotices = await notificationClient.call('me/notifications');
+    expect(webNotices.body.items.find((item: { id: string }) => item.id === publicEvent.id)).toMatchObject({ content: { id: publicId, kind: 'ARTICLE', title: '公開記事', category: '検証記事' }, href: `/content/${publicId}` });
     const guestRead = publicContentDetailResponseSchema.parse((await new Client().call(`content/${publicId}`)).body);
     expect(guestRead).toMatchObject({ locked: false, body: '公開記事の公開本文' });
     const publicList = publicContentListResponseSchema.parse((await new Client().call('content?kind=ARTICLE&category=%E6%A4%9C%E8%A8%BC%E8%A8%98%E4%BA%8B')).body);
@@ -43,6 +50,7 @@ describe('content CMS publication and access', () => {
     expect((await editor.call(`admin/content/${publicId}/publish`, 'POST', { revision: 3, reason: '第2版公開' })).body.version).toBe(2);
     const versions = await db.contentVersion.findMany({ where: { contentId: publicId }, orderBy: { version: 'asc' } });
     expect(versions.map(item => item.version)).toEqual([1, 2]);
+    expect(await db.notificationEvent.findUniqueOrThrow({ where: { contentVersionId: versions[1].id } })).toMatchObject({ eventType: 'CONTENT_UPDATED' });
     expect(JSON.stringify(versions[0].snapshot)).toContain('公開記事の公開本文');
     const changedKind = await editor.call('admin/content/draft', 'POST', { id: publicId, revision: 4, draft: { ...draft('公開記事'), kind: 'VIDEO', mediaUrl: 'https://example.test/video' }, reason: '種類変更試験' });
     expect(changedKind).toMatchObject({ status: 409, body: { code: 'CONTENT_KIND_FROZEN' } });
@@ -68,6 +76,8 @@ describe('content CMS publication and access', () => {
     expect(scheduled.body).toMatchObject({ status: 'SCHEDULED', revision: 2 });
     const run = await runContentSchedules({ db, now: () => new Date(scheduledAt.getTime() + 1000) });
     expect(run).toEqual({ claimed: 1, published: 1, failed: 0 });
+    const scheduledVersion = await db.contentVersion.findFirstOrThrow({ where: { contentId: scheduledId, version: 1 } });
+    expect(await db.notificationEvent.findUniqueOrThrow({ where: { contentVersionId: scheduledVersion.id } })).toMatchObject({ eventType: 'CONTENT_PUBLISHED' });
     expect((await member.call(`content/${scheduledId}`)).body).toMatchObject({ locked: false, mediaUrl: 'https://example.test/video' });
 
     const archived = await editor.call(`admin/content/${scheduledId}/archive`, 'POST', { revision: 3, reason: '掲載期間終了' });
