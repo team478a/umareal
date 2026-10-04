@@ -98,7 +98,7 @@ describe('prediction drafts, publication and immutable versions', () => {
     const allowed = await member.client.call(`races/${fixture.race.id}/prediction`); const allowedBody = publicPredictionResponseSchema.parse(allowed.body); expect(allowedBody.locked).toBe(false); expect(allowedBody.latest).toMatchObject({ locked: false, summary: '結合試験の最終見解' }); expect(JSON.stringify(allowedBody)).not.toMatch(/betType|amountPerPointYen|estimatedTotalYen|contentSnapshot|passwordHash|authSubject/);
     const accessSetting = await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { contentAccessPolicy: true } });
     try {
-      await db.systemSetting.update({ where: { id: 'global' }, data: { contentAccessPolicy: { monthly: { paddock: true, win5: true, racePaper: true }, dayPass: { paddock: false, win5: true, racePaper: true }, manual: { paddock: true, win5: true, racePaper: true } } } });
+      await db.systemSetting.update({ where: { id: 'global' }, data: { contentAccessPolicy: { monthly: { paddock: true, win5: true, racePaper: true, content: true }, dayPass: { paddock: false, win5: true, racePaper: true, content: false }, manual: { paddock: true, win5: true, racePaper: true, content: true } } } });
       const deniedByProductPolicy = await member.client.call(`races/${fixture.race.id}/prediction`);
       expect(deniedByProductPolicy.body).toMatchObject({ locked: true, latest: { locked: true } });
     } finally {

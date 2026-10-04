@@ -13,7 +13,7 @@ describe('administrator settings response contract', () => {
     maintenanceMessage: '',
     notificationPolicy: { maxAttempts: 5, baseDelaySeconds: 30 },
     publicationPolicy: { correction: 'ADMIN_ONLY' as const, delayedRace: 'CLOSED' as const },
-    contentAccess: { monthly: { paddock: true, win5: true, racePaper: true }, dayPass: { paddock: true, win5: true, racePaper: true }, manual: { paddock: true, win5: true, racePaper: true } },
+    contentAccess: { monthly: { paddock: true, win5: true, racePaper: true, content: true }, dayPass: { paddock: true, win5: true, racePaper: true, content: false }, manual: { paddock: true, win5: true, racePaper: true, content: true } },
     environment: {
       launchMode: 'FULL', authProvider: 'LOCAL_DEVELOPMENT' as const, applicationUrl: 'http://localhost:3000',
       adminUrlConfigured: false, supabaseConfigured: false, sentryConfigured: false,

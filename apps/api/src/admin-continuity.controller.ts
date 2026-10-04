@@ -156,8 +156,8 @@ export class AdminContinuityController {
         }
         if (target.disabledAt) throw new ConflictException({ code: 'ADMIN_ALREADY_SUSPENDED', message: 'この管理者アカウントはすでに停止済みです。' });
         this.ensureContinuity(await this.activeAdministrators(tx, target.id));
-        const pendingPublicationSchedules = await tx.publicationSchedule.count({ where: { createdBy: target.id, status: { in: ['PENDING', 'PROCESSING'] } } });
-        if (pendingPublicationSchedules) throw new ConflictException({ code: 'ADMIN_SCHEDULES_PENDING', message: 'この管理者が作成した待機中または処理中の配信予約を取消・完了してから停止してください。' });
+        const [pendingPublicationSchedules, pendingContentSchedules] = await Promise.all([tx.publicationSchedule.count({ where: { createdBy: target.id, status: { in: ['PENDING', 'PROCESSING'] } } }), tx.contentItem.count({ where: { updatedBy: target.id, status: 'SCHEDULED' } })]);
+        if (pendingPublicationSchedules || pendingContentSchedules) throw new ConflictException({ code: 'ADMIN_SCHEDULES_PENDING', message: 'この管理者が作成した配信予約またはコンテンツ公開予約を取消・完了してから停止してください。' });
         const now = new Date(); await tx.user.update({ where: { id: target.id }, data: { disabledAt: now } });
         const revokedLocalSessions = await tx.session.deleteMany({ where: { userId: target.id } });
         await this.auth.audit(tx, req, 'ADMIN_ACCOUNT_SUSPENDED', target.id, input.reason, { suspendedAt: now.toISOString(), localSessionsRevoked: revokedLocalSessions.count });
@@ -186,8 +186,9 @@ export class AdminContinuityController {
         if (target.role !== 'ADMIN' || target.disabledAt || !target.email || !target.emailVerifiedAt) throw new ConflictException({ code: 'ADMIN_ACCOUNT_NOT_READY', message: '有効で確認済みメールを持つ管理者だけを降格できます。' });
         if (target.email.toLowerCase() !== input.confirmationEmail) throw new ConflictException({ code: 'ADMIN_CONFIRMATION_MISMATCH', message: '確認用メールアドレスが一致しません。' });
         this.ensureContinuity(await this.activeAdministrators(tx, target.id));
-        const pendingPublicationSchedules = await tx.publicationSchedule.count({ where: { createdBy: target.id, status: { in: ['PENDING', 'PROCESSING'] } } });
-        if (pendingPublicationSchedules && input.nextRole !== 'OPERATOR') throw new ConflictException({ code: 'ADMIN_SCHEDULES_PENDING', message: 'この管理者が作成した待機中または処理中の配信予約を取消・完了するか、レース担当へ変更してください。' });
+        const [pendingPublicationSchedules, pendingContentSchedules] = await Promise.all([tx.publicationSchedule.count({ where: { createdBy: target.id, status: { in: ['PENDING', 'PROCESSING'] } } }), tx.contentItem.count({ where: { updatedBy: target.id, status: 'SCHEDULED' } })]);
+        if (pendingPublicationSchedules && input.nextRole !== 'OPERATOR') throw new ConflictException({ code: 'ADMIN_SCHEDULES_PENDING', message: 'この管理者が作成した配信予約を取消・完了するか、レース担当へ変更してください。' });
+        if (pendingContentSchedules && input.nextRole !== 'EDITOR') throw new ConflictException({ code: 'ADMIN_CONTENT_SCHEDULES_PENDING', message: 'この管理者が作成したコンテンツ公開予約を取消・完了するか、編集担当へ変更してください。' });
         if (input.nextRole !== 'MEMBER') {
           const access = await this.memberAccessDependencies(tx, target.id);
           if (Object.values(access).some(Boolean)) throw new ConflictException({ code: 'ADMIN_ACTIVE_MEMBER_ACCESS', message: '有効または申込中の契約、1日利用、閲覧権限があります。会員として変更するか、アクセス終了後にスタッフへ変更してください。' });

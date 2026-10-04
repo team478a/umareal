@@ -10,7 +10,7 @@ const staffListResponse = {
     registrationMethod: 'EMAIL',
     disabledAt: null,
     createdAt: new Date('2026-09-29T01:00:00.000Z'),
-    dependencies: { upcomingRaceAssignments: 0, activeWin5Products: 0, pendingPublicationSchedules: 2 }
+    dependencies: { upcomingRaceAssignments: 0, activeWin5Products: 0, pendingPublicationSchedules: 2, pendingContentSchedules: 1 }
   }],
   roles: [{ role: 'MEMBER', mfaRequired: false, win5MfaRequired: false, reserved: false }],
   policy: {
@@ -28,7 +28,7 @@ describe('admin staff list response', () => {
     expect(parsed.accounts[0]).toMatchObject({
       role: 'OPERATOR',
       createdAt: '2026-09-29T01:00:00.000Z',
-      dependencies: { pendingPublicationSchedules: 2 }
+      dependencies: { pendingPublicationSchedules: 2, pendingContentSchedules: 1 }
     });
   });
 
