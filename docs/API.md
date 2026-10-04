@@ -137,7 +137,7 @@ HTTP 400=入力不正、401=未認証、403=権限/MFA/Origin不正、404=対象
 
 | Method | Path | 権限・動作 |
 | --- | --- | --- |
-| GET | /expert/win5 | 担当EXPERT+AAL2。自分が担当する商品一覧 |
+| GET | /expert/win5 | 担当EXPERT+AAL2は自分の担当商品一覧。ADMIN+AAL2は担当割当に関係なく全商品一覧 |
 | GET | /expert/win5/:win5Id | 担当EXPERT+AAL2または管理担当+AAL2。編集用商品、5レース、出走馬、下書き、公開履歴 |
 | GET | /expert/win5/:win5Id/options | 同上。対象日と一致するレース・出走馬候補 |
 | PUT | /expert/win5/:win5Id/races/:legNumber | 担当EXPERT+AAL2、ADMIN+AAL2、またはOPERATOR+AAL2。中心馬、相手候補、注目馬、危険馬、理由、信頼度、展開見解、短評をrevision付き保存 |
