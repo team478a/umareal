@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req, Body } from '@nestjs/common';
 import { Prisma } from '@keiba/db';
-import { buildRacePaperNotice, canEditRace, canReadPrediction, paperNameKey, parseRacePaper, racePaperDraftSchema, racePaperImportSchema, racePaperListSchema, racePaperMetadataSchema, racePaperPreviewInputSchema, racePaperPreviewSchema, racePaperReadSchema, racePaperSaveSchema, racePaperSnapshotSchema, racePaperWorkspaceSchema } from '@keiba/domain';
+import { buildRacePaperNotice, canEditRace, canReadPrediction, paperNameKey, parseContentAccessPolicy, parseRacePaper, racePaperDraftSchema, racePaperImportSchema, racePaperListSchema, racePaperMetadataSchema, racePaperPreviewInputSchema, racePaperPreviewSchema, racePaperReadSchema, racePaperSaveSchema, racePaperSnapshotSchema, racePaperWorkspaceSchema } from '@keiba/domain';
 import type { RacePaperDraft, RacePaperSnapshot } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -148,13 +148,17 @@ export class RacePapersController {
     z.string().uuid().parse(id); const actor = await this.auth.authenticate(req);
     const paper = await this.auth.db.racePaper.findUnique({ where: { id }, select: { id: true, versions: { orderBy: { version: 'desc' }, take: 50, select: { ...metadataSelect, snapshot: true } } } });
     if (!paper?.versions.length) throw new NotFoundException();
-    const entitlements = actor.role === 'MEMBER' ? await this.auth.db.entitlement.findMany({ where: { userId: actor.id } }) : [];
+    const [entitlements, settings] = await Promise.all([
+      actor.role === 'MEMBER' ? this.auth.db.entitlement.findMany({ where: { userId: actor.id } }) : Promise.resolve([]),
+      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { contentAccessPolicy: true } })
+    ]);
+    const contentAccessPolicy = parseContentAccessPolicy(settings.contentAccessPolicy);
     const versions = [];
     for (const v of paper.versions) {
       const snapshot = racePaperSnapshotSchema.parse(v.snapshot);
       const races = actor.role !== 'MEMBER' ? await this.auth.db.race.findMany({ where: { id: { in: snapshot.races.map(r => r.raceId) } }, include: { assignments: true } }) : [];
       const staff = races.length === snapshot.races.length && races.every(r => canEditRace(actor, r.assignments.map(a => a.userId)));
-      const allowed = v.accessScope === 'MEMBERS' || staff || actor.role === 'MEMBER' && canReadPrediction({ now: new Date(), publishedAt: v.publishedAt, visibility: 'PAID', raceDate: v.targetDate, entitlements });
+      const allowed = v.accessScope === 'MEMBERS' || staff || actor.role === 'MEMBER' && canReadPrediction({ now: new Date(), publishedAt: v.publishedAt, visibility: 'PAID', raceDate: v.targetDate, entitlements, contentKind: 'RACE_PAPER', contentAccessPolicy });
       const meta = metadata({ ...v, id: v.id });
       versions.push(allowed ? { ...meta, locked: false, snapshot } : { ...meta, locked: true, correctionReason: null });
     }

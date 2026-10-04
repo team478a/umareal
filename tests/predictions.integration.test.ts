@@ -94,8 +94,16 @@ describe('prediction drafts, publication and immutable versions', () => {
   it('redacts paid content without entitlement and returns it only inside the active period', async () => {
     const fixture = await assessmentFixture(); const saved = await save(fixture, draftFor(fixture.entries[0].id, 'PAID')); const checked = await preview(fixture, saved.result.body.revision); await fixture.client.call(`expert/races/${fixture.race.id}/prediction/publish/${checked.body.previewId}`, 'POST');
     const anonymous = await new Client().call(`races/${fixture.race.id}/prediction`); const anonymousBody = publicPredictionResponseSchema.parse(anonymous.body); expect(anonymousBody.locked).toBe(true); expect(anonymousBody.latest).toMatchObject({ locked: true }); expect(JSON.stringify(anonymousBody)).not.toMatch(/結合試験の最終見解|総合評価|assessmentSnapshot|summary|marks|deadlineAt|publisherId/);
-    const member = await assessmentFixture('MEMBER'); const now = new Date(); await db.entitlement.create({ data: { userId: member.owner.user.id, planCode: 'TEST', startsAt: new Date(now.getTime() - 1000), endsAt: new Date(now.getTime() + 3600000), raceDate: fixture.race.raceDate, reason: '閲覧結合試験', grantedBy: member.owner.user.id } });
+    const member = await assessmentFixture('MEMBER'); const now = new Date(); await db.entitlement.create({ data: { userId: member.owner.user.id, planCode: 'DAY_PASS', startsAt: new Date(now.getTime() - 1000), endsAt: new Date(now.getTime() + 3600000), raceDate: fixture.race.raceDate, reason: '閲覧結合試験', grantedBy: member.owner.user.id } });
     const allowed = await member.client.call(`races/${fixture.race.id}/prediction`); const allowedBody = publicPredictionResponseSchema.parse(allowed.body); expect(allowedBody.locked).toBe(false); expect(allowedBody.latest).toMatchObject({ locked: false, summary: '結合試験の最終見解' }); expect(JSON.stringify(allowedBody)).not.toMatch(/betType|amountPerPointYen|estimatedTotalYen|contentSnapshot|passwordHash|authSubject/);
+    const accessSetting = await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { contentAccessPolicy: true } });
+    try {
+      await db.systemSetting.update({ where: { id: 'global' }, data: { contentAccessPolicy: { monthly: { paddock: true, win5: true, racePaper: true }, dayPass: { paddock: false, win5: true, racePaper: true }, manual: { paddock: true, win5: true, racePaper: true } } } });
+      const deniedByProductPolicy = await member.client.call(`races/${fixture.race.id}/prediction`);
+      expect(deniedByProductPolicy.body).toMatchObject({ locked: true, latest: { locked: true } });
+    } finally {
+      await db.systemSetting.update({ where: { id: 'global' }, data: { contentAccessPolicy: accessSetting.contentAccessPolicy } });
+    }
   });
   it('keeps detailed horse information restricted even when legacy visibility says FREE', async () => {
     const paidFirst = await assessmentFixture();

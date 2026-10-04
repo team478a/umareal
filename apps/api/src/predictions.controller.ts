@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req, UnauthorizedException } from '@nestjs/common';
-import { assessmentSchema, canEditRace, canReadPrediction, expertPredictionDraftSaveResponseSchema, expertPredictionEditorResponseSchema, expertPredictionPreviewResponseSchema, expertPredictionPublishResponseSchema, legacyPredictionDraftSchema, paddockComplete, predictionDraftSchema, predictionSaveSchema, publicPredictionResponseSchema, publishablePredictionSchema, publishPreviewSchema } from '@keiba/domain';
+import { assessmentSchema, canEditRace, canReadPrediction, expertPredictionDraftSaveResponseSchema, expertPredictionEditorResponseSchema, expertPredictionPreviewResponseSchema, expertPredictionPublishResponseSchema, legacyPredictionDraftSchema, paddockComplete, parseContentAccessPolicy, predictionDraftSchema, predictionSaveSchema, publicPredictionResponseSchema, publishablePredictionSchema, publishPreviewSchema } from '@keiba/domain';
 import type { PredictionDraft } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -152,8 +152,11 @@ export class PredictionsController {
     let identity: AuthContext | null = null;
     try { identity = await this.auth.authenticate(req); } catch (error) { if (!(error instanceof UnauthorizedException)) throw error; }
     const staffAccess = !!identity && canEditRace(identity, race.assignments.map(a => a.userId));
-    const entitlements = identity?.role === 'MEMBER' ? await this.auth.db.entitlement.findMany({ where: { userId: identity.id } }) : [];
-    const canView = (version: typeof latest) => !!staffAccess || canReadPrediction({ now: new Date(), publishedAt: version.publishedAt, visibility: 'PAID', raceDate: race.raceDate, entitlements });
+    const [entitlements, settings] = await Promise.all([
+      identity?.role === 'MEMBER' ? this.auth.db.entitlement.findMany({ where: { userId: identity.id } }) : Promise.resolve([]),
+      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { contentAccessPolicy: true } })
+    ]);
+    const canView = (version: typeof latest) => !!staffAccess || canReadPrediction({ now: new Date(), publishedAt: version.publishedAt, visibility: 'PAID', raceDate: race.raceDate, entitlements, contentKind: 'PADDOCK', contentAccessPolicy: parseContentAccessPolicy(settings.contentAccessPolicy) });
     const redact = (version: NonNullable<typeof latest>) => canView(version)
       ? { ...version, locked: false }
       : { id: version.id, version: version.version, status: version.status, visibility: version.visibility, publishedAt: version.publishedAt, previousVersionId: version.previousVersionId, locked: true };

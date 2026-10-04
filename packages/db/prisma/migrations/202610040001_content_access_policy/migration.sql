@@ -1,0 +1,19 @@
+ALTER TABLE "system_settings"
+ADD COLUMN "contentAccessPolicy" JSONB NOT NULL DEFAULT '{"monthly":{"paddock":true,"win5":true,"racePaper":true},"dayPass":{"paddock":true,"win5":true,"racePaper":true},"manual":{"paddock":true,"win5":true,"racePaper":true}}'::jsonb;
+
+ALTER TABLE "system_settings"
+ADD CONSTRAINT "system_settings_content_access_policy_shape" CHECK (
+  jsonb_typeof("contentAccessPolicy") = 'object'
+  AND jsonb_typeof("contentAccessPolicy"->'monthly') = 'object'
+  AND jsonb_typeof("contentAccessPolicy"->'dayPass') = 'object'
+  AND jsonb_typeof("contentAccessPolicy"->'manual') = 'object'
+  AND jsonb_typeof("contentAccessPolicy"->'monthly'->'paddock') = 'boolean'
+  AND jsonb_typeof("contentAccessPolicy"->'monthly'->'win5') = 'boolean'
+  AND jsonb_typeof("contentAccessPolicy"->'monthly'->'racePaper') = 'boolean'
+  AND jsonb_typeof("contentAccessPolicy"->'dayPass'->'paddock') = 'boolean'
+  AND jsonb_typeof("contentAccessPolicy"->'dayPass'->'win5') = 'boolean'
+  AND jsonb_typeof("contentAccessPolicy"->'dayPass'->'racePaper') = 'boolean'
+  AND jsonb_typeof("contentAccessPolicy"->'manual'->'paddock') = 'boolean'
+  AND jsonb_typeof("contentAccessPolicy"->'manual'->'win5') = 'boolean'
+  AND jsonb_typeof("contentAccessPolicy"->'manual'->'racePaper') = 'boolean'
+);
