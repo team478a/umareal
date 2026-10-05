@@ -144,7 +144,7 @@ export const aiRaceGuideGeneratedOutputSchema = z.object({
 export type AiRaceGuideGeneratedOutput = z.infer<typeof aiRaceGuideGeneratedOutputSchema>;
 
 export type AiRaceGuideValidationResult = { valid: true; output: AiRaceGuideGeneratedOutput } | { valid: false; issues: string[] };
-const forbiddenNarrative = /(買い目|自動投票|購入金額|勝率|的中率|利益保証|必ず勝|絶対に勝|本命|対抗|単勝|複勝|三国谷氏?の発言)/;
+const forbiddenNarrative = /(買い目|自動投票|購入金額|勝率|的中率|期待利益|利益予測|利益保証|的中保証|必ず勝|絶対に勝|本命|対抗|単勝|複勝|馬連|馬単|ワイド|三連複|三連単|三国谷氏?(?:が言った|の発言|の予想|の評価))/;
 
 export function validateAiRaceGuideGeneratedOutput(inputValue: unknown, outputValue: unknown): AiRaceGuideValidationResult {
   const input = aiRaceGuideStructuredInputSchema.safeParse(inputValue);
@@ -168,6 +168,93 @@ export function validateAiRaceGuideGeneratedOutput(inputValue: unknown, outputVa
   }
   return issues.length ? { valid: false, issues } : { valid: true, output: output.data };
 }
+
+export const aiRaceGuideStatuses = ['DATA_PENDING', 'QUEUED', 'GENERATING', 'VALIDATING', 'REVIEW_REQUIRED', 'READY', 'PUBLISHED', 'FAILED', 'STALE'] as const;
+export const aiRaceGuideTransportSchema = z.enum(['disabled', 'test']);
+export type AiRaceGuideTransport = z.infer<typeof aiRaceGuideTransportSchema>;
+export type AiRaceGuideRuntime = { enabled: boolean; generationEnabled: boolean; publicationEnabled: boolean; transport: AiRaceGuideTransport };
+export function resolveAiRaceGuideRuntime(env: Record<string, string | undefined>): AiRaceGuideRuntime {
+  const flag = (name: string) => env[name] === 'true';
+  return {
+    enabled: flag('AI_RACE_GUIDE_ENABLED'),
+    generationEnabled: flag('AI_RACE_GUIDE_GENERATION_ENABLED'),
+    publicationEnabled: flag('AI_RACE_GUIDE_PUBLICATION_ENABLED'),
+    transport: aiRaceGuideTransportSchema.catch('disabled').parse(env.AI_RACE_GUIDE_TRANSPORT)
+  };
+}
+
+export interface AiRaceGuideNarrativeProvider {
+  readonly name: 'test' | 'disabled';
+  readonly modelVersion: string;
+  generate(input: AiRaceGuideStructuredInput): Promise<AiRaceGuideGeneratedOutput>;
+}
+
+export class DisabledAiRaceGuideNarrativeProvider implements AiRaceGuideNarrativeProvider {
+  readonly name = 'disabled' as const;
+  readonly modelVersion = 'disabled';
+  async generate(): Promise<AiRaceGuideGeneratedOutput> { throw new Error('AI_RACE_GUIDE_TRANSPORT_DISABLED'); }
+}
+
+const sectionForCategory: Record<typeof aiRaceGuideFactCategories[number], typeof aiRaceGuideSectionKinds[number]> = {
+  RACE_OVERVIEW: 'RACE_OVERVIEW', ATTENTION_MATERIAL: 'ATTENTION_MATERIALS', POSITIVE_FACTOR: 'POSITIVE_FACTORS',
+  CAUTION_FACTOR: 'CAUTION_FACTORS', COURSE_SUITABILITY: 'COURSE_SUITABILITY', DISTANCE_SUITABILITY: 'DISTANCE_SUITABILITY',
+  GOING_SUITABILITY: 'GOING_SUITABILITY', PEDIGREE_REFERENCE: 'PEDIGREE_REFERENCES', RECENT_PERFORMANCE: 'RECENT_PERFORMANCE',
+  PACE_REFERENCE: 'PACE_REFERENCES', RACE_COMPLEXITY: 'RACE_COMPLEXITY', PADDOCK_CHECK_POINT: 'PADDOCK_CHECK_POINTS'
+};
+const deterministicText: Record<typeof aiRaceGuideFactCategories[number], string> = {
+  RACE_OVERVIEW: '登録済みのレース条件を整理しました。', ATTENTION_MATERIAL: 'データ上の注目材料があります。',
+  POSITIVE_FACTOR: '確認できるプラス材料があります。', CAUTION_FACTOR: '確認しておきたい注意材料があります。',
+  COURSE_SUITABILITY: 'コース条件の参考情報です。', DISTANCE_SUITABILITY: '距離条件の参考情報です。',
+  GOING_SUITABILITY: '馬場条件の参考情報です。', PEDIGREE_REFERENCE: '血統に関する参考情報です。',
+  RECENT_PERFORMANCE: '近走内容の参考情報です。', PACE_REFERENCE: '展開を考えるための参考情報です。',
+  RACE_COMPLEXITY: 'データの情報差を整理しました。', PADDOCK_CHECK_POINT: 'パドックで確認したいポイントです。'
+};
+
+export class TestAiRaceGuideNarrativeProvider implements AiRaceGuideNarrativeProvider {
+  readonly name = 'test' as const;
+  readonly modelVersion = 'deterministic-test-v1';
+  async generate(inputValue: AiRaceGuideStructuredInput): Promise<AiRaceGuideGeneratedOutput> {
+    const input = aiRaceGuideStructuredInputSchema.parse(inputValue);
+    const grouped = new Map<typeof aiRaceGuideSectionKinds[number], z.infer<typeof statementSchema>[]>();
+    for (const fact of input.facts) {
+      const kind = sectionForCategory[fact.category];
+      const text = fact.state === 'KNOWN' ? deterministicText[fact.category] : fact.state === 'INSUFFICIENT_DATA' ? '判断に必要なデータ件数が不足しています。' : fact.state === 'NOT_AVAILABLE' ? 'この情報は取得対象外です。' : '確認できるデータがありません。';
+      const statements = grouped.get(kind) ?? [];
+      statements.push({ statementId: `statement:${fact.factId}`, text, factIds: [fact.factId], entryIds: fact.entryId ? [fact.entryId] : [] });
+      grouped.set(kind, statements);
+    }
+    return aiRaceGuideGeneratedOutputSchema.parse({ formatVersion: 1, sections: [...grouped].map(([kind, statements]) => ({ kind, statements })) });
+  }
+}
+
+export function createAiRaceGuideNarrativeProvider(transport: AiRaceGuideTransport): AiRaceGuideNarrativeProvider {
+  return transport === 'test' ? new TestAiRaceGuideNarrativeProvider() : new DisabledAiRaceGuideNarrativeProvider();
+}
+
+const mutationBase = z.object({ revision: z.number().int().nonnegative(), mutationId: z.string().uuid(), reason: z.string().trim().min(1).max(500) }).strict();
+export const aiRaceGuideGenerationRequestSchema = mutationBase;
+export const aiRaceGuideApprovalSchema = mutationBase.extend({ generationId: z.string().uuid() }).strict();
+export const aiRaceGuidePublishSchema = mutationBase.extend({ generationId: z.string().uuid(), correctionReason: z.string().trim().max(500).default('') }).strict();
+
+export const aiRaceGuideAdminResponseSchema = z.object({
+  race: z.object({ id: z.string().uuid(), raceDate: dateSchema, venue: z.string(), number: z.number().int(), name: z.string(), startsAt: dateTime }).strict(),
+  runtime: z.object({ enabled: z.boolean(), generationEnabled: z.boolean(), publicationEnabled: z.boolean(), transport: aiRaceGuideTransportSchema }).strict(),
+  guide: z.object({ id: z.string().uuid(), status: z.enum(aiRaceGuideStatuses), revision: z.number().int().positive(), latestGenerationId: z.string().uuid().nullable(), updatedAt: dateTime }).strict().nullable(),
+  generations: z.array(z.object({ id: z.string().uuid(), attemptNo: z.number().int().positive(), inputHash: z.string(), dataCutoffAt: dateTime, logicVersion: z.string(), promptVersion: z.string(), sourceVersion: z.string(), modelProvider: aiRaceGuideTransportSchema, modelVersion: z.string(), validationStatus: z.string(), validationErrors: z.array(z.string()), generatedOutput: aiRaceGuideGeneratedOutputSchema.nullable(), structuredInputSnapshot: aiRaceGuideStructuredInputSchema, createdAt: dateTime }).strict()),
+  versions: z.array(z.object({ id: z.string().uuid(), version: z.number().int().positive(), publishedAt: dateTime, correctionReason: z.string().nullable() }).strict())
+}).strict();
+export type AiRaceGuideAdminResponse = z.infer<typeof aiRaceGuideAdminResponseSchema>;
+
+export const aiRaceGuideAdminRaceListResponseSchema = z.object({
+  items: z.array(z.object({ id: z.string().uuid(), raceDate: dateSchema, venue: z.string(), number: z.number().int().positive(), name: z.string(), startsAt: dateTime, status: z.string() }).strict()).max(500)
+}).strict();
+export type AiRaceGuideAdminRaceListResponse = z.infer<typeof aiRaceGuideAdminRaceListResponseSchema>;
+
+export const aiRaceGuidePublicResponseSchema = z.discriminatedUnion('available', [
+  z.object({ available: z.literal(false) }).strict(),
+  z.object({ available: z.literal(true), accessScope: z.enum(['FREE_PREVIEW', 'PAID_FULL']), metadata: z.object({ raceId: z.string().uuid(), raceDate: dateSchema, version: z.number().int().positive(), dataCutoffAt: dateTime, generatedAt: dateTime, publishedAt: dateTime, modelVersion: z.string(), logicVersion: z.string(), promptVersion: z.string(), sourceVersion: z.string() }).strict(), content: aiRaceGuideGeneratedOutputSchema }).strict()
+]);
+export type AiRaceGuidePublicResponse = z.infer<typeof aiRaceGuidePublicResponseSchema>;
 
 export const aiRaceGuidePublicationSnapshotSchema = z.object({
   raceId: z.string().uuid(),

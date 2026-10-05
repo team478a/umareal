@@ -33,6 +33,10 @@ jobs:
       BILLING_TRANSPORT: test
       MAIL_TRANSPORT: test
       CAPTCHA_TRANSPORT: test
+      AI_RACE_GUIDE_ENABLED: 'true'
+      AI_RACE_GUIDE_GENERATION_ENABLED: 'true'
+      AI_RACE_GUIDE_PUBLICATION_ENABLED: 'true'
+      AI_RACE_GUIDE_TRANSPORT: test
       NEXT_TELEMETRY_DISABLED: '1'
     steps:
       - uses: actions/checkout@v4

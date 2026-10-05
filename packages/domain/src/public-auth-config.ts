@@ -17,7 +17,8 @@ export const publicAuthConfigResponseSchema = z.object({
   }).strict(),
   emailNotificationsEnabled: z.boolean(),
   lineEnabled: z.boolean(),
-  lineNotificationsEnabled: z.boolean()
+  lineNotificationsEnabled: z.boolean(),
+  aiRaceGuideEnabled: z.boolean()
 }).strict();
 
 export type PublicAuthConfigResponse = z.infer<typeof publicAuthConfigResponseSchema>;

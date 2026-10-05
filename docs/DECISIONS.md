@@ -1142,4 +1142,8 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 - Domain contractは`KNOWN`、`UNKNOWN`、`INSUFFICIENT_DATA`、`NOT_AVAILABLE`を区別し、既知factには元データの根拠を必須とする。生成文の各statementは入力factを参照し、入力にない数値、予想・購入表現、存在しない馬・entry参照を検証で拒否する。
 - sourceは`GUIDE_GENERATION`と`MEMBER_DISPLAY`の許諾を必須とし、外部LLMを選ぶ場合はさらに`EXTERNAL_AI_PROCESSING`を必須とする。Phase 1Aではsynthetic dataと決定的testだけを使用し、JRA-VAN実データや外部AIへ送信しない。
 - 無料previewは有料fullに存在する同一statementの部分集合とし、サーバー側projectionで全文を除外できるcontractにする。現段階では会員APIや画面には接続しない。
-- Phase 1AではDB schema、migration、API、worker、管理画面、会員画面、live credential、本番デプロイを変更しない。Phase 1B以降はデータ利用許諾と個別承認を再度必要とする。
+- Phase 1A前半はDB schema、migration、API、worker、管理画面、会員画面を変更しなかった。その後の明示承認により、Phase 1A後半としてadditive DB、決定的test provider、validator、管理API/UI、会員API/UI、既存Entitlement、auditを追加した。
+- 4つのFeature Flagは未設定時false/disabledとし、`ENABLED=false`ではAPIを404、管理導線を非表示にする。test providerはproductionで使用できず、外部通信を実装しない。
+- 公開版と生成試行は追記専用とし、PostgreSQLでも更新・削除・TRUNCATEを拒否する。公開は`ADMIN+AAL2`の確認を必須とし、発走後、stale、validator failureを拒否する。
+- 会員画面は三国谷パドックの後、結果の前にAIレースガイドを表示する。無料responseへfull snapshotを含めず、有料全文は既存Entitlementと個別透かしを再利用する。
+- JRA-VAN実通信、外部AI API、live credential、自動公開、通知、本番デプロイ・migrationは引き続き禁止する。Phase 1Bは別承認を必要とする。

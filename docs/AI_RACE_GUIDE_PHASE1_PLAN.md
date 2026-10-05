@@ -2,7 +2,7 @@
 
 作成日: 2026-10-05
 
-状態: Phase 1Aローカル実装完了。Phase 1B以降は未承認・未着手。
+状態: Phase 1A後半までローカル実装・検証完了。Phase 1B以降は未承認・未着手。
 
 ## Phase 1Aの確定範囲
 
@@ -13,7 +13,7 @@
 - canonical input仕様と、synthetic fixtureによるunit test
 - `DETERMINISTIC_TEST` / `EXTERNAL_LLM`の処理区分。外部AI処理は明示的な利用許諾がないsourceをcontractで拒否する
 
-Phase 1AではDB schema、migration、API、worker、管理画面、会員画面を変更せず、JRA-VAN実通信、外部AI API、live credential、本番デプロイを行わない。これらはPhase 1B以降の個別承認対象とする。
+Phase 1A前半では文書とDomain contractに限定した。追加承認された後半では、additive DB、決定的test provider、validator、管理API/UI、会員API/UI、既存Entitlement、audit、feature flagsを実装した。JRA-VAN実通信、外部AI API、live credential、本番デプロイ・migrationは行わない。
 
 ## 1. V1の最小スコープ
 

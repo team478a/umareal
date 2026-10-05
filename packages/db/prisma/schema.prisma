@@ -86,6 +86,7 @@ model User {
   contentItemsCreated            ContentItem[]              @relation("ContentItemCreator")
   contentItemsUpdated            ContentItem[]              @relation("ContentItemUpdater")
   contentVersionsPublished       ContentVersion[]           @relation("ContentVersionPublisher")
+  aiGuideVersionsPublished       AiRaceGuideVersion[]       @relation("AiRaceGuidePublisher")
 
   @@map("users")
 }
@@ -677,6 +678,7 @@ model Race {
   win5ResultLegs        Win5ResultLeg[]
   predictionEvaluations PredictionEvaluation[]
   win5EvaluationLegs    Win5EvaluationLeg[]
+  aiRaceGuide           AiRaceGuide?
 
   @@unique([raceDate, venue, number])
   @@map("races")
@@ -818,32 +820,34 @@ model RaceDay {
 }
 
 model Horse {
-  id      String      @id @db.Uuid
-  name    String
-  entries RaceEntry[]
+  id              String                    @id @db.Uuid
+  name            String
+  entries         RaceEntry[]
+  aiGuideVersions AiRaceGuideVersionHorse[]
 
   @@map("horses")
 }
 
 model RaceEntry {
-  assessment     Assessment?
-  id             String                       @id @default(uuid()) @db.Uuid
-  raceId         String                       @db.Uuid
-  race           Race                         @relation(fields: [raceId], references: [id])
-  horseId        String                       @db.Uuid
-  horse          Horse                        @relation(fields: [horseId], references: [id])
-  number         Int
-  gate           Int
-  horseName      String
-  sex            String
-  age            Int
-  carriedWeight  Decimal                      @db.Decimal(4, 1)
-  jockey         String
-  trainer        String
-  winOdds        Decimal?                     @db.Decimal(8, 1)
-  popularity     Int?
-  status         String                       @default("ACTIVE")
-  win5Selections PredictionProductSelection[]
+  assessment      Assessment?
+  id              String                       @id @default(uuid()) @db.Uuid
+  raceId          String                       @db.Uuid
+  race            Race                         @relation(fields: [raceId], references: [id])
+  horseId         String                       @db.Uuid
+  horse           Horse                        @relation(fields: [horseId], references: [id])
+  number          Int
+  gate            Int
+  horseName       String
+  sex             String
+  age             Int
+  carriedWeight   Decimal                      @db.Decimal(4, 1)
+  jockey          String
+  trainer         String
+  winOdds         Decimal?                     @db.Decimal(8, 1)
+  popularity      Int?
+  status          String                       @default("ACTIVE")
+  win5Selections  PredictionProductSelection[]
+  aiGuideVersions AiRaceGuideVersionHorse[]
 
   @@unique([raceId, number])
   @@unique([raceId, horseId])
@@ -972,6 +976,92 @@ model PredictionVersion {
 
   @@unique([predictionId, version])
   @@map("prediction_versions")
+}
+
+model AiRaceGuide {
+  id                 String                  @id @default(uuid()) @db.Uuid
+  raceId             String                  @unique @db.Uuid
+  race               Race                    @relation(fields: [raceId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  status             String                  @default("DATA_PENDING")
+  revision           Int                     @default(1)
+  latestGenerationId String?                 @unique @db.Uuid
+  latestGeneration   AiRaceGuideGeneration?  @relation("AiRaceGuideLatestGeneration", fields: [latestGenerationId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  generations        AiRaceGuideGeneration[] @relation("AiRaceGuideGenerations")
+  versions           AiRaceGuideVersion[]
+  createdAt          DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime                @default(now()) @db.Timestamptz(3)
+
+  @@index([status, updatedAt])
+  @@map("ai_race_guides")
+}
+
+model AiRaceGuideGeneration {
+  id                      String               @id @default(uuid()) @db.Uuid
+  guideId                 String               @db.Uuid
+  guide                   AiRaceGuide          @relation("AiRaceGuideGenerations", fields: [guideId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  latestForGuide          AiRaceGuide?         @relation("AiRaceGuideLatestGeneration")
+  attemptNo               Int
+  structuredInputSnapshot Json
+  inputHash               String
+  dataCutoffAt            DateTime             @db.Timestamptz(3)
+  logicVersion            String
+  promptVersion           String
+  sourceVersion           String
+  modelProvider           String
+  modelVersion            String
+  generatedOutput         Json?
+  validationStatus        String
+  validationErrors        Json
+  failureCode             String?
+  createdAt               DateTime             @default(now()) @db.Timestamptz(3)
+  versions                AiRaceGuideVersion[]
+
+  @@unique([guideId, attemptNo])
+  @@index([guideId, createdAt])
+  @@index([inputHash])
+  @@map("ai_race_guide_generations")
+}
+
+model AiRaceGuideVersion {
+  id               String                    @id @default(uuid()) @db.Uuid
+  guideId          String                    @db.Uuid
+  guide            AiRaceGuide               @relation(fields: [guideId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  generationId     String                    @unique @db.Uuid
+  generation       AiRaceGuideGeneration     @relation(fields: [generationId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  version          Int
+  scope            String
+  previewSnapshot  Json
+  fullSnapshot     Json
+  dataCutoffAt     DateTime                  @db.Timestamptz(3)
+  generatedAt      DateTime                  @db.Timestamptz(3)
+  modelVersion     String
+  logicVersion     String
+  promptVersion    String
+  sourceVersion    String
+  publishedAt      DateTime                  @default(now()) @db.Timestamptz(3)
+  publishedBy      String                    @db.Uuid
+  publisher        User                      @relation("AiRaceGuidePublisher", fields: [publishedBy], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  correctionReason String?
+  createdTxId      BigInt                    @default(dbgenerated("txid_current()"))
+  horses           AiRaceGuideVersionHorse[]
+
+  @@unique([guideId, version])
+  @@index([publishedAt])
+  @@map("ai_race_guide_versions")
+}
+
+model AiRaceGuideVersionHorse {
+  versionId    String             @db.Uuid
+  version      AiRaceGuideVersion @relation(fields: [versionId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  horseId      String             @db.Uuid
+  horse        Horse              @relation(fields: [horseId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  raceEntryId  String             @db.Uuid
+  raceEntry    RaceEntry          @relation(fields: [raceEntryId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  relationKind String
+
+  @@id([versionId, horseId, relationKind])
+  @@index([horseId, versionId])
+  @@map("ai_race_guide_version_horses")
 }
 
 model PredictionMark {
@@ -1662,7 +1752,7 @@ model SystemSetting {
   dayPassPriceYen                 Int      @default(980)
   founderSalesLimit               Int      @default(100)
   billingGraceDays                Int      @default(0)
-  contentAccessPolicy             Json     @default("{\"monthly\":{\"paddock\":true,\"win5\":true,\"racePaper\":true,\"content\":true},\"dayPass\":{\"paddock\":true,\"win5\":true,\"racePaper\":true,\"content\":false},\"manual\":{\"paddock\":true,\"win5\":true,\"racePaper\":true,\"content\":true}}")
+  contentAccessPolicy             Json     @default("{\"monthly\":{\"paddock\":true,\"win5\":true,\"racePaper\":true,\"content\":true,\"aiRaceGuide\":true},\"dayPass\":{\"paddock\":true,\"win5\":true,\"racePaper\":true,\"content\":false,\"aiRaceGuide\":true},\"manual\":{\"paddock\":true,\"win5\":true,\"racePaper\":true,\"content\":true,\"aiRaceGuide\":true}}")
   maintenanceMessage              String   @default("")
   notificationMaxAttempts         Int      @default(5)
   notificationBaseDelaySeconds    Int      @default(30)

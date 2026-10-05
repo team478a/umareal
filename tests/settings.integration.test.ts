@@ -49,7 +49,7 @@ describe('audited administration settings', () => {
     expect(stopped.body.captcha).toMatchObject({ enabled: true, siteKey: '0x4AAAA-test-site-key', secretConfigured: true, connectionStatus: 'CONFIGURED_NOT_VERIFIED' });
     expect(stopped.body.captcha.readiness).toMatchObject({ siteKeyStored: true, secretStored: true, secretReadable: true, serverValidationReady: true, transport: 'TEST_ONLY', externalConnectionTested: false });
     expect(stopped.body.publicationPolicy).toEqual({ correction: 'EXPERT_OR_ADMIN', delayedRace: 'LATEST_STARTS_AT' });
-    expect(stopped.body.contentAccess.dayPass).toEqual({ paddock: true, win5: false, racePaper: false, content: false });
+    expect(stopped.body.contentAccess.dayPass).toEqual({ paddock: true, win5: false, racePaper: false, content: false, aiRaceGuide: false });
     expect(stopped.body.environment).toMatchObject({ launchMode: 'FULL', authProvider: 'LOCAL_DEVELOPMENT', supabaseConfigured: false });
     expect(JSON.stringify(stopped.body)).not.toContain(channelSecret); expect(JSON.stringify(stopped.body)).not.toContain(channelAccessToken); expect(JSON.stringify(stopped.body)).not.toContain(loginChannelSecret); expect(JSON.stringify(stopped.body)).not.toContain(stripeSecretKey); expect(JSON.stringify(stopped.body)).not.toContain(stripeWebhookSecret); expect(JSON.stringify(stopped.body)).not.toContain(mailApiKey); expect(JSON.stringify(stopped.body)).not.toContain(mailWebhookSecret); expect(JSON.stringify(stopped.body)).not.toContain(turnstileSecret);
     const stored = await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' } });
@@ -64,7 +64,7 @@ describe('audited administration settings', () => {
     const publicConfig = await new Client().call('auth/config');
     expect(publicConfig.status).toBe(200);
     publicAuthConfigResponseSchema.parse(publicConfig.body);
-    expect(Object.keys(publicConfig.body).sort()).toEqual(['provider', 'localOnly', 'launchMode', 'capabilities', 'registration', 'captcha', 'emailNotificationsEnabled', 'lineEnabled', 'lineNotificationsEnabled'].sort());
+    expect(Object.keys(publicConfig.body).sort()).toEqual(['provider', 'localOnly', 'launchMode', 'capabilities', 'registration', 'captcha', 'emailNotificationsEnabled', 'lineEnabled', 'lineNotificationsEnabled', 'aiRaceGuideEnabled'].sort());
     expect(publicConfig.body.registration).toEqual({ enabled: false, message: stoppedBody.registrationPauseMessage });
     expect(publicConfig.body.captcha).toEqual({ enabled: true, siteKey: '0x4AAAA-test-site-key', mode: 'TEST_ONLY' });
     expect(publicConfig.body.emailNotificationsEnabled).toBe(false);
