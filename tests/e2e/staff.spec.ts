@@ -181,6 +181,7 @@ test('administrator must complete MFA before viewing member management', async (
   await page.goto('/admin/account-closures');
   await expect(page.getByRole('heading', { name: '退会・保持記録', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '正式方針の記録', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '匿名化対象プレビュー', exact: true })).toBeVisible();
   await expect(page.getByLabel('方針version')).toBeVisible();
   await expect(page.getByRole('button', { name: '正式方針を承認記録', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '処理済み一覧', exact: true })).toBeVisible();

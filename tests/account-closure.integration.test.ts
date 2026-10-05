@@ -89,6 +89,7 @@ describe('account closure and retained history', () => {
   it('requires administrator AAL2 and records a versioned retention policy without executing anonymization', async () => {
     const admin = new Client(); await admin.login(await account('ADMIN'));
     expect((await admin.call('admin/account-closures/retention-policy')).status).toBe(403);
+    expect((await admin.call('admin/account-closures/retention-preview')).status).toBe(403);
     await admin.mfa();
     const version = `privacy-${randomUUID()}`;
     const input = { version, identityRetentionDays: 365, networkIdentifierRetentionDays: 90, anonymizationScope: ['EMAIL', 'DISPLAY_NAME', 'AUTH_IDENTITY', 'LINE_IDENTITY', 'NETWORK_IDENTIFIERS'], reRegistrationHandling: 'MANUAL_REVIEW', dataRequestHandling: 'MANUAL_LEGAL_REVIEW', legalReviewReference: 'integration-legal-review', reason: '保持方針の結合試験' };
@@ -98,6 +99,10 @@ describe('account closure and retained history', () => {
     expect((await admin.call('admin/account-closures/retention-policy', 'POST', input)).status).toBe(409);
     const status = await admin.call('admin/account-closures/retention-policy');
     expect(status).toMatchObject({ status: 200, body: { current: { version }, dryRun: { eligibleClosures: expect.any(Number) }, unmappedClosures: expect.any(Number), executionEnabled: false } });
+    const preview = await admin.call('admin/account-closures/retention-preview');
+    expect(preview).toMatchObject({ status: 200, body: { items: expect.any(Array), total: expect.any(Number), page: 1, limit: 20, automaticExecution: false } });
+    expect(preview.body.items.some((item: { policyVersion: string; status: string }) => item.policyVersion === 'development-v1' && item.status === 'POLICY_UNMAPPED')).toBe(true);
+    expect(JSON.stringify(preview.body)).not.toMatch(/passwordHash|authSubject|lineSubject|mfaSecret/);
     const member = new Client(); await member.login(await account());
     expect((await member.call('me/closure')).body.retentionPolicyVersion).toBe(version);
   });

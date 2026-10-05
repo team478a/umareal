@@ -100,6 +100,22 @@ describe('AccountClosureService', () => {
     expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { retentionPolicyVersion: policy.version, accessRevokedAt: { lte: expect.any(Date) } } }));
   });
 
+  it('previews mapped and unmapped closures without mutating personal data', async () => {
+    const policy = { version: 'privacy-2026-10', identityRetentionDays: 365, networkIdentifierRetentionDays: 90, anonymizationScope: ['EMAIL', 'AUTH_IDENTITY', 'LINE_IDENTITY'], reRegistrationHandling: 'MANUAL_REVIEW', dataRequestHandling: 'MANUAL_LEGAL_REVIEW', legalReviewReference: 'LEGAL-42', approvedAt: now.toISOString(), approvedBy: { id: userId, displayName: '管理者' } };
+    const user = { id: userId, displayName: '退会会員', email: 'closed@example.test', registrationMethod: 'EMAIL' };
+    const closures = [
+      { id: '22222222-2222-4222-8222-222222222222', retentionPolicyVersion: policy.version, accessRevokedAt: new Date('2026-01-01T00:00:00Z'), user },
+      { id: '33333333-3333-4333-8333-333333333333', retentionPolicyVersion: 'development-v1', accessRevokedAt: new Date('2025-01-01T00:00:00Z'), user }
+    ];
+    const findMany = vi.fn().mockResolvedValue(closures);
+    const service = new AccountClosureService({ db: { auditLog: { findMany: vi.fn().mockResolvedValue([{ details: policy }]) }, accountClosure: { findMany, count: vi.fn().mockResolvedValue(2) } } } as unknown as AuthService);
+    const result = await service.retentionPreview(1, 20, now);
+    expect(result.items[0]).toMatchObject({ status: 'ELIGIBLE', daysRemaining: 0, externalActionsRequired: ['SUPABASE_AUTH_REVIEW', 'LINE_PROVIDER_REVIEW'] });
+    expect(result.items[1]).toMatchObject({ status: 'POLICY_UNMAPPED', eligibleAt: null, anonymizationScope: [] });
+    expect(result.automaticExecution).toBe(false);
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 0, take: 20 }));
+  });
+
   it('stops every account access path and appends the closure audit in one transaction', async () => {
     const closure = { id: 'closure-1', accessRevokedAt: now, retentionPolicyVersion: 'development-v1' };
     const tx = {
