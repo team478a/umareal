@@ -1,10 +1,11 @@
 import { NextRequest } from 'next/server';
-import { apiBaseUrl, mergeResponseCookies, proxyRequestHeaders, shouldRefreshSession } from '../proxy';
+import { apiBaseUrl, attachRateLimitIdentity, mergeResponseCookies, proxyRequestHeaders, shouldRefreshSession } from '../proxy';
 export const dynamic = 'force-dynamic';
 async function forward(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const { path } = await context.params;
   if (path.some(p => !/^[a-zA-Z0-9_-]+$/.test(p))) return Response.json({ code: 'NOT_FOUND', message: 'ページが見つかりません。' }, { status: 404 });
   const headers = proxyRequestHeaders(request.headers);
+  attachRateLimitIdentity(headers, request.headers, process.env.RATE_LIMIT_PROXY_SECRET, process.env.NODE_ENV === 'production');
   const body = ['GET', 'HEAD'].includes(request.method) ? undefined : await request.arrayBuffer();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);

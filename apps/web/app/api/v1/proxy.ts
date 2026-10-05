@@ -1,3 +1,5 @@
+import { createHmac } from 'node:crypto';
+
 const forwardedRequestHeaderNames = [
   'cookie',
   'content-type',
@@ -20,6 +22,18 @@ export function proxyRequestHeaders(source: Headers) {
     if (value) headers.set(key, value);
   }
   return headers;
+}
+
+export function attachRateLimitIdentity(target: Headers, source: Headers, secret: string | undefined, required = false) {
+  if (!secret) {
+    if (required) throw new Error('Configure RATE_LIMIT_PROXY_SECRET');
+    return;
+  }
+  if (Buffer.byteLength(secret) < 32) throw new Error('RATE_LIMIT_PROXY_SECRET must contain at least 32 bytes');
+  const forwarded = source.get('x-forwarded-for')?.split(',', 1)[0]?.trim();
+  const address = forwarded || source.get('x-real-ip')?.trim();
+  if (!address || address.length > 128) return;
+  target.set('x-umareal-client-key', createHmac('sha256', secret).update(address).digest('hex'));
 }
 
 export function apiBaseUrl(value = process.env.API_BASE_URL) {

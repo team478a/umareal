@@ -1851,3 +1851,17 @@ model SystemSetting {
 
   @@map("system_settings")
 }
+
+/// Mutable operational counters shared by every API instance. The key is a
+/// one-way HMAC and never contains a raw IP address or account identifier.
+model RateLimitBucket {
+  scope     String
+  keyHash   String
+  totalHits Int      @default(0)
+  resetAt   DateTime @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@id([scope, keyHash])
+  @@index([resetAt])
+  @@map("rate_limit_buckets")
+}

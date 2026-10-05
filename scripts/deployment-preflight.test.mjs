@@ -5,7 +5,7 @@ import { validateDeploymentEnvironment } from './deployment-preflight.mjs';
 const secret = Buffer.alloc(32, 7).toString('base64');
 const common = {
   NODE_ENV: 'production', LAUNCH_MODE: 'FREE_REGISTRATION', DATABASE_URL: 'postgresql://runtime:secret@db.internal/app',
-  APP_BASE_URL: 'https://members.example.test', MARKETING_BASE_URL: 'https://umareal.com', ENCRYPTION_KEY: secret, MAIL_TRANSPORT: 'resend', RESEND_API_KEY: 'configured',
+  APP_BASE_URL: 'https://members.example.test', MARKETING_BASE_URL: 'https://umareal.com', ENCRYPTION_KEY: secret, RATE_LIMIT_PROXY_SECRET: 'test-rate-limit-proxy-secret-32-characters', MAIL_TRANSPORT: 'resend', RESEND_API_KEY: 'configured',
   MAIL_FROM: 'Umazone <notice@example.test>', NOTIFICATION_TRANSPORT: 'disabled'
 };
 
@@ -37,8 +37,9 @@ describe('deployment environment preflight', () => {
 
   it('validates worker and web service boundaries independently', () => {
     assert.equal(validateDeploymentEnvironment('worker', common).ok, true);
-    assert.equal(validateDeploymentEnvironment('web', { NODE_ENV: 'production', API_BASE_URL: 'umareal-api:10000' }).ok, true);
-    assert.equal(validateDeploymentEnvironment('web', { NODE_ENV: 'production', API_BASE_URL: 'https://user:secret@example.test/path' }).ok, false);
+    assert.equal(validateDeploymentEnvironment('web', { NODE_ENV: 'production', API_BASE_URL: 'umareal-api:10000', RATE_LIMIT_PROXY_SECRET: common.RATE_LIMIT_PROXY_SECRET }).ok, true);
+    assert.equal(validateDeploymentEnvironment('web', { NODE_ENV: 'production', API_BASE_URL: 'https://user:secret@example.test/path', RATE_LIMIT_PROXY_SECRET: common.RATE_LIMIT_PROXY_SECRET }).ok, false);
+    assert.ok(validateDeploymentEnvironment('web', { NODE_ENV: 'production', API_BASE_URL: 'umareal-api:10000' }).errors.some(item => item.code === 'RATE_LIMIT_PROXY_SECRET'));
   });
 
   it('allows free-member LINE delivery without enabling billing and rejects unsafe transports', () => {
@@ -60,7 +61,7 @@ describe('deployment environment preflight', () => {
     assert.equal(api.ok, true);
     assert.ok(api.manual.some(item => item.code === 'STAGING_DRAFT_LEGAL_ONLY'));
     assert.equal(api.manual.some(item => item.code === 'LEGAL_RELEASE'), false);
-    const web = validateDeploymentEnvironment('web', { NODE_ENV: 'production', LAUNCH_MODE: 'CLOUD_STAGING', API_BASE_URL: 'umareal-staging-api:10000' });
+    const web = validateDeploymentEnvironment('web', { NODE_ENV: 'production', LAUNCH_MODE: 'CLOUD_STAGING', API_BASE_URL: 'umareal-staging-api:10000', RATE_LIMIT_PROXY_SECRET: common.RATE_LIMIT_PROXY_SECRET });
     assert.equal(web.ok, true);
     assert.ok(web.manual.some(item => item.code === 'STAGING_NOINDEX'));
     const unsafe = validateDeploymentEnvironment('api', { ...common, LAUNCH_MODE: 'CLOUD_STAGING', AUTH_PROVIDER: 'supabase', ADMIN_BASE_URL: common.APP_BASE_URL, SUPABASE_URL: 'https://project.supabase.co', SUPABASE_ANON_KEY: 'configured', JOB_SECRET: 'x'.repeat(32), RESEND_WEBHOOK_SECRET: 'configured', CAPTCHA_TRANSPORT: 'turnstile', LINE_OAUTH_TRANSPORT: 'disabled', BILLING_TRANSPORT: 'stripe', STRIPE_LIVE_MODE: 'false', AUTH_RATE_LIMIT: '60' });
@@ -74,7 +75,7 @@ describe('deployment environment preflight', () => {
     assert.equal(api.ok, true);
     assert.ok(api.manual.some(item => item.code === 'STAGING_DRAFT_LEGAL_ONLY'));
     assert.ok(api.manual.some(item => item.code === 'PROVIDER_LIVE_TESTS' && item.message.includes('Stripe test-mode')));
-    const web = validateDeploymentEnvironment('web', { NODE_ENV: 'production', LAUNCH_MODE: 'STRIPE_SANDBOX', API_BASE_URL: 'umareal-staging-api:10000' });
+    const web = validateDeploymentEnvironment('web', { NODE_ENV: 'production', LAUNCH_MODE: 'STRIPE_SANDBOX', API_BASE_URL: 'umareal-staging-api:10000', RATE_LIMIT_PROXY_SECRET: common.RATE_LIMIT_PROXY_SECRET });
     assert.equal(web.ok, true);
     assert.ok(web.manual.some(item => item.code === 'STAGING_NOINDEX'));
     assert.equal(validateDeploymentEnvironment('api', { ...sandbox, STRIPE_LIVE_MODE: 'true' }).ok, false);

@@ -69,8 +69,17 @@ LINE登録はOAuth完了後に15分有効の使い切りgrantを発行し、成�
 - Supabaseの認証コード確認前に期限切れセッションを一度だけ更新する。更新できない場合、またはLINEログインのローカルセッションでは、メールアドレスとパスワードで再ログインしてから認証コードを入力する。
 - MFA_REPLAY: 同じ30秒のコードを再利用せず次のコードを待つ。
 - ORIGIN_REJECTED: APP_BASE_URLとブラウザーのscheme/host/portを一致させる。
-- 429: 1分待って再操作。本番ではプロセス間の制限共有が必要。
+- 429: 1分待って再操作。制限値は全APIインスタンスでPostgreSQL上の同じ1分枠を共有する。
+- `RATE_LIMIT_STORE_UNAVAILABLE`（503）: 制限を回避して通過させず、安全側で拒否している。DB接続、`rate_limit_buckets` migration、runtimeロールのCRUD権限を確認する。
 - 500/503: requestIdで調査。ログにはエラー種別のみ記録し、秘密値を追加しない。
+
+## 共有レート制限
+
+- `RATE_LIMIT_PROXY_SECRET`はAPIとWebで同じ32バイト以上のランダム値を設定する。画面、ログ、DBへ値を出さず、`ENCRYPTION_KEY`と兼用しない。
+- Webはホスティング基盤が渡した接続元アドレスをHMAC化し、匿名キーだけを非公開APIへ渡す。APIはさらにscope別HMACへ変換し、`rate_limit_buckets.keyHash`へ保存する。生IP、メール、会員IDは保存しない。
+- 認証、LINE/Stripe/Resend Webhook、管理、専門家のscopeは独立する。API再起動や増台でカウンタはリセットされない。
+- 監視時は`SELECT "scope", count(*) AS buckets, max("updatedAt") AS last_update FROM rate_limit_buckets GROUP BY "scope";`で件数と最終更新だけを確認する。`keyHash`を運営画面やログへ転記しない。
+- 期限切れ行の整理は、負荷の低い保守時間に所有者または承認済み保守ジョブで`DELETE FROM rate_limit_buckets WHERE "resetAt" < CURRENT_TIMESTAMP - INTERVAL '1 day';`を実行できる。現在枠は削除しない。本番での自動削除は別途承認する。
 
 ## 運用・連携設定
 

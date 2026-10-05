@@ -69,6 +69,7 @@ import { ManualsController } from './manuals.controller';
 import { ContentController } from './content.controller';
 import { AiRaceGuideController } from './ai-race-guide.controller';
 import { AiRaceGuideService } from './ai-race-guide.service';
+import { assertSharedRateLimitStoreReady, hashRateLimitKey, PostgresRateLimitStore, rateLimitIdentity, RateLimitStoreUnavailableError, RATE_LIMIT_WINDOW_MS } from './rate-limit-store';
 config({ path: resolve(process.cwd(), '../../.env'), quiet: true });
 
 @Catch()
@@ -78,7 +79,8 @@ class ErrorFilter implements ExceptionFilter {
     const req = host.switchToHttp().getRequest<AppRequest>();
     let status = 500, code = 'INTERNAL_ERROR', message = '処理を完了できませんでした。時間をおいて再度お試しください。';
     let details: unknown = undefined;
-    if (error instanceof ZodError) { status = 400; code = 'VALIDATION_ERROR'; message = '入力内容を確認してください。'; details = error.issues.map(i => ({ path: i.path.join('.'), message: i.message })); }
+    if (error instanceof RateLimitStoreUnavailableError) { status = 503; code = 'RATE_LIMIT_STORE_UNAVAILABLE'; message = '現在接続できません。時間をおいて再度お試しください。'; }
+    else if (error instanceof ZodError) { status = 400; code = 'VALIDATION_ERROR'; message = '入力内容を確認してください。'; details = error.issues.map(i => ({ path: i.path.join('.'), message: i.message })); }
     else if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') { status = 409; code = 'CONFLICT'; message = '登録内容が重複しています。'; }
     else if (error instanceof HttpException) {
       status = error.getStatus();
@@ -87,7 +89,7 @@ class ErrorFilter implements ExceptionFilter {
       code = data.code ?? ({ 401: 'UNAUTHENTICATED', 403: 'FORBIDDEN', 404: 'NOT_FOUND', 400: 'BAD_REQUEST' }[status] ?? 'REQUEST_ERROR');
       message = data.message ?? (status === 401 ? 'ログインしてください。' : 'リクエストを処理できません。');
     }
-    if (status === 500) console.error(JSON.stringify({ requestId: req.requestId, code, errorType: error instanceof Error ? error.name : 'UnknownError' }));
+    if (status >= 500) console.error(JSON.stringify({ requestId: req.requestId, code, errorType: error instanceof Error ? error.name : 'UnknownError' }));
     res.status(status).json({ code, message, requestId: req.requestId, details });
   }
 }
@@ -143,12 +145,16 @@ async function main() {
   if (!Number.isInteger(authRateLimit) || authRateLimit < 1 || authRateLimit > 1000 || (process.env.NODE_ENV === 'production' && authRateLimit > 60)) throw new Error('Invalid AUTH_RATE_LIMIT');
   const localRateMultiplier = provider === 'local' ? Number(process.env.LOCAL_RATE_LIMIT_MULTIPLIER ?? 1) : 1;
   if (!Number.isInteger(localRateMultiplier) || localRateMultiplier < 1 || localRateMultiplier > 10) throw new Error('Invalid LOCAL_RATE_LIMIT_MULTIPLIER');
+  if (process.env.NODE_ENV === 'production' && Buffer.byteLength(process.env.RATE_LIMIT_PROXY_SECRET ?? '') < 32) throw new Error('Configure RATE_LIMIT_PROXY_SECRET');
   const app = await NestFactory.create(AppModule, { logger: ['error', 'warn'], rawBody: true });
-  if (process.env.NODE_ENV === 'production' && !await databaseRuntimeAccessRestricted(app.get(DbService))) {
+  const db = app.get(DbService);
+  try { await assertSharedRateLimitStoreReady(db); }
+  catch (error) { await app.close(); throw error; }
+  if (process.env.NODE_ENV === 'production' && !await databaseRuntimeAccessRestricted(db)) {
     await app.close();
     throw new Error('Production requires a restricted database runtime role');
   }
-  if (process.env.NODE_ENV === 'production' && !(await loadMailConfig(app.get(DbService))).complete) {
+  if (process.env.NODE_ENV === 'production' && !(await loadMailConfig(db)).complete) {
     await app.close();
     throw new Error('Production requires a complete admin or environment mail configuration');
   }
@@ -166,12 +172,17 @@ async function main() {
     next();
   });
   const handler = (req: Request, res: Response) => { res.status(429).json({ code: 'RATE_LIMITED', message: 'しばらく待ってから再度お試しください。', requestId: (req as AppRequest).requestId }); };
-  app.use('/api/v1/auth', rateLimit({ windowMs: 60000, limit: authRateLimit, standardHeaders: 'draft-8', legacyHeaders: false, handler }));
-  app.use('/api/v1/webhooks/line', rateLimit({ windowMs: 60000, limit: 300 * localRateMultiplier, standardHeaders: 'draft-8', legacyHeaders: false, handler }));
-  app.use('/api/v1/webhooks/stripe', rateLimit({ windowMs: 60000, limit: 300 * localRateMultiplier, standardHeaders: 'draft-8', legacyHeaders: false, handler }));
-  app.use('/api/v1/webhooks/resend', rateLimit({ windowMs: 60000, limit: 300 * localRateMultiplier, standardHeaders: 'draft-8', legacyHeaders: false, handler }));
-  app.use('/api/v1/admin', rateLimit({ windowMs: 60000, limit: 200 * localRateMultiplier, standardHeaders: 'draft-8', legacyHeaders: false, handler }));
-  app.use('/api/v1/expert', rateLimit({ windowMs: 60000, limit: 300 * localRateMultiplier, standardHeaders: 'draft-8', legacyHeaders: false, handler }));
+  const limiter = (scope: string, limit: number) => rateLimit({
+    windowMs: RATE_LIMIT_WINDOW_MS, limit, standardHeaders: 'draft-8', legacyHeaders: false, handler,
+    keyGenerator: req => hashRateLimitKey(process.env.ENCRYPTION_KEY!, scope, rateLimitIdentity(req)),
+    store: new PostgresRateLimitStore(db, scope), passOnStoreError: false
+  });
+  app.use('/api/v1/auth', limiter('auth', authRateLimit));
+  app.use('/api/v1/webhooks/line', limiter('webhook-line', 300 * localRateMultiplier));
+  app.use('/api/v1/webhooks/stripe', limiter('webhook-stripe', 300 * localRateMultiplier));
+  app.use('/api/v1/webhooks/resend', limiter('webhook-resend', 300 * localRateMultiplier));
+  app.use('/api/v1/admin', limiter('admin', 200 * localRateMultiplier));
+  app.use('/api/v1/expert', limiter('expert', 300 * localRateMultiplier));
   app.useGlobalFilters(new ErrorFilter());
   app.enableShutdownHooks();
   const port = Number(process.env.PORT ?? process.env.API_PORT ?? 4000);

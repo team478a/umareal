@@ -156,7 +156,7 @@ MFA端末紛失時のfactor解除・本人確認・再登録は、復旧責任�
 ## 独自ドメイン設定の順序
 
 1. Render Postgresを先に作成し、`docs/DATABASE_ACCESS.md` に従って所有者接続でマイグレーションを実行し、runtimeロールを構成・検証する。所有者接続をAPI・workerに保存しない。
-2. RenderでこのGitHubリポジトリのBlueprintを選び、API、Web、workerと本番用secretを作成する。APIとworkerの `DATABASE_URL` には検証済みruntime接続だけを設定する。
+2. RenderでこのGitHubリポジトリのBlueprintを選び、API、Web、workerと本番用secretを作成する。APIとworkerの `DATABASE_URL` には検証済みruntime接続だけを設定する。`RATE_LIMIT_PROXY_SECRET`には32バイト以上のランダム値を作成し、APIとWebへ同じ値を設定する。`ENCRYPTION_KEY`とは別の値にする。
 3. 一時URLで `/health` が200を返し、GitHub Actions、API、workerの起動を確認する。
 4. `umareal-web` に独自ドメインを追加する。
 5. Renderが表示するA/CNAMEと所有確認用DNSレコードをドメイン管理会社へ登録する。固定値を推測して入力しない。
@@ -174,6 +174,6 @@ MFA端末紛失時のfactor解除・本人確認・再登録は、復旧責任�
 2. 利用規約とプライバシーポリシーは `2026-10-01-v1` の公開候補をコードへ反映した。Pull Requestの内容を運営者が確認してマージするまでは公開承認済みとして扱わない。有料販売には別途、電話番号を含む通信販売表示の確定が必要である。
 3. 個人情報の保持・匿名化と、本番バックアップの保持・復元責任者が未確定である。DB権限分離の実装は完了したが、本番DBでのruntimeロール構成と検証は未実施である。
 4. 無料募集に必要なSupabase SMTP、Turnstile、監視のライブ資格情報と実環境試験が未実施である。LINEとStripeは`FULL`への拡張前に実施する。
-5. APIのレート制限はプロセス内保存である。初期はAPIを1インスタンスに固定し、複数インスタンス化の前に共有ストアへ移す。
+5. PostgreSQL共有レート制限は実装済みだが、本番migration適用、API/Web共通`RATE_LIMIT_PROXY_SECRET`設定、429応答とDB障害時503の実環境試験は未実施である。これらの確認前にAPIを複数インスタンス化しない。
 
 次の公開準備ゴールは、`2026-10-01-v1` の本文を運営者がPull Request上で確認してマージし、`FREE_REGISTRATION`で独自ドメインのLINE登録・ログインとメール登録・確認・ログインを実環境確認することとする。有料販売は通信販売表示とStripe liveの確認を別工程で行う。
