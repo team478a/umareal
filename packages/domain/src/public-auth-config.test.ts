@@ -11,7 +11,8 @@ describe('public authentication configuration response contract', () => {
     captcha: { enabled: false, siteKey: null, mode: 'TEST_ONLY' as const },
     emailNotificationsEnabled: true,
     lineEnabled: false,
-    lineNotificationsEnabled: false
+    lineNotificationsEnabled: false,
+    aiRaceGuideEnabled: false
   };
 
   it('preserves the existing public launch and registration response', () => {

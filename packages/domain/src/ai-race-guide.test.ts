@@ -5,7 +5,9 @@ import {
   aiRaceGuidePublicationSnapshotSchema,
   aiRaceGuideStructuredInputSchema,
   canonicalizeAiRaceGuideInput,
+  createAiRaceGuideNarrativeProvider,
   projectAiRaceGuideSnapshot,
+  resolveAiRaceGuideRuntime,
   validateAiRaceGuideGeneratedOutput
 } from './ai-race-guide';
 
@@ -111,5 +113,30 @@ describe('AI race guide Phase 1A contract', () => {
       preview: validOutput, full: validOutput
     };
     expect(aiRaceGuidePublicationSnapshotSchema.safeParse(snapshot).success).toBe(false);
+  });
+
+  it('keeps every feature flag off by default and rejects disabled transport', async () => {
+    expect(resolveAiRaceGuideRuntime({})).toEqual({ enabled: false, generationEnabled: false, publicationEnabled: false, transport: 'disabled' });
+    expect(resolveAiRaceGuideRuntime({ AI_RACE_GUIDE_ENABLED: 'true', AI_RACE_GUIDE_GENERATION_ENABLED: 'false', AI_RACE_GUIDE_PUBLICATION_ENABLED: 'true', AI_RACE_GUIDE_TRANSPORT: 'unknown' })).toEqual({ enabled: true, generationEnabled: false, publicationEnabled: true, transport: 'disabled' });
+    await expect(createAiRaceGuideNarrativeProvider('disabled').generate(aiRaceGuideStructuredInputSchema.parse(input()))).rejects.toThrow('AI_RACE_GUIDE_TRANSPORT_DISABLED');
+  });
+
+  it('uses a deterministic network-free test provider', async () => {
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (() => { calls += 1; throw new Error('network forbidden'); }) as typeof fetch;
+    try {
+      const provider = createAiRaceGuideNarrativeProvider('test');
+      const structured = aiRaceGuideStructuredInputSchema.parse(input());
+      expect(await provider.generate(structured)).toEqual(await provider.generate(structured));
+      expect(calls).toBe(0);
+    } finally { globalThis.fetch = originalFetch; }
+  });
+
+  it('rejects horse references and misattribution that are absent from the input', () => {
+    const unknownHorse = structuredClone(validOutput); unknownHorse.sections[0].statements[0].entryIds = [randomUUID()];
+    expect(validateAiRaceGuideGeneratedOutput(input(), unknownHorse)).toMatchObject({ valid: false });
+    const misattribution = structuredClone(validOutput); misattribution.sections[0].statements[0].text = '三国谷氏の予想として表示します。';
+    expect(validateAiRaceGuideGeneratedOutput(input(), misattribution)).toMatchObject({ valid: false });
   });
 });
