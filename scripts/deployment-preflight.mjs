@@ -28,6 +28,7 @@ export function validateDeploymentEnvironment(service, env) {
 
   if (service === 'web') {
     requireValue('API_BASE_URL', privateHttpOrigin(env.API_BASE_URL), 'API_BASE_URL must be an HTTP(S) origin or private host:port without credentials or a path.');
+    requireValue('RATE_LIMIT_PROXY_SECRET', Buffer.byteLength(env.RATE_LIMIT_PROXY_SECRET ?? '') >= 32, 'RATE_LIMIT_PROXY_SECRET must contain at least 32 bytes.');
     const webLaunchMode = env.LAUNCH_MODE ?? null;
     if (present(webLaunchMode)) requireValue('LAUNCH_MODE', ['CLOUD_STAGING', 'STRIPE_SANDBOX', 'FREE_REGISTRATION', 'FULL'].includes(webLaunchMode), 'LAUNCH_MODE must be CLOUD_STAGING, STRIPE_SANDBOX, FREE_REGISTRATION or FULL.');
     if (['CLOUD_STAGING', 'STRIPE_SANDBOX'].includes(webLaunchMode)) manual.push({ code: 'STAGING_NOINDEX', message: 'Confirm that page and same-origin API responses include no-store and X-Robots-Tag: noindex, nofollow.' });
@@ -55,6 +56,7 @@ export function validateDeploymentEnvironment(service, env) {
   }
 
   requireValue('AUTH_PROVIDER', env.AUTH_PROVIDER === 'supabase', 'AUTH_PROVIDER must be supabase.');
+  requireValue('RATE_LIMIT_PROXY_SECRET', Buffer.byteLength(env.RATE_LIMIT_PROXY_SECRET ?? '') >= 32, 'RATE_LIMIT_PROXY_SECRET must contain at least 32 bytes.');
   requireValue('ADMIN_BASE_URL', origin(env.ADMIN_BASE_URL, ['https:']), 'ADMIN_BASE_URL must be an HTTPS origin without credentials or a path.');
   if (['FREE_REGISTRATION', 'FULL'].includes(launchMode)) {
     requireValue('MARKETING_BASE_URL', origin(env.MARKETING_BASE_URL, ['https:']), 'MARKETING_BASE_URL must be an HTTPS origin without credentials or a path for public launch modes.');

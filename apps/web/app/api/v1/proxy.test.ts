@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { apiBaseUrl, mergeResponseCookies, proxyRequestHeaders, shouldRefreshSession } from './proxy';
+import { apiBaseUrl, attachRateLimitIdentity, mergeResponseCookies, proxyRequestHeaders, shouldRefreshSession } from './proxy';
 
 describe('same-origin API proxy', () => {
   it('forwards provider signatures and drops arbitrary request headers', () => {
@@ -24,6 +24,17 @@ describe('same-origin API proxy', () => {
     const bearer = proxyRequestHeaders(new Headers({ authorization: 'Bearer signed-token' }));
     expect(basic.has('authorization')).toBe(false);
     expect(bearer.get('authorization')).toBe('Bearer signed-token');
+  });
+
+  it('forwards only a one-way client identity to the private API', () => {
+    const source = new Headers({ 'x-forwarded-for': '203.0.113.9, 10.0.0.2' });
+    const first = new Headers(); const second = new Headers();
+    attachRateLimitIdentity(first, source, 'test-proxy-secret-that-is-at-least-32-characters');
+    attachRateLimitIdentity(second, source, 'test-proxy-secret-that-is-at-least-32-characters');
+    expect(first.get('x-umareal-client-key')).toMatch(/^[0-9a-f]{64}$/);
+    expect(first.get('x-umareal-client-key')).toBe(second.get('x-umareal-client-key'));
+    expect(first.get('x-umareal-client-key')).not.toContain('203.0.113.9');
+    expect(first.has('x-forwarded-for')).toBe(false);
   });
 
   it('accepts a private host and port from a hosting platform', () => {
