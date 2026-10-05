@@ -7,8 +7,17 @@ import { createDayPassAccess } from './day-pass-access';
 
 type Tx = Prisma.TransactionClient;
 
-export function buildMemberReferralUrl(referralCode: string, appBaseUrl: string, marketingBaseUrl?: string) {
-  const marketingBase = marketingBaseUrl?.trim();
+const productionMarketingBaseUrl = 'https://umareal.com';
+
+export function buildMemberReferralUrl(
+  referralCode: string,
+  appBaseUrl: string,
+  marketingBaseUrl?: string,
+  runtime: { nodeEnv?: string; launchMode?: string } = { nodeEnv: process.env.NODE_ENV, launchMode: process.env.LAUNCH_MODE }
+) {
+  const configuredMarketingBase = marketingBaseUrl?.trim();
+  const publicProduction = runtime.nodeEnv === 'production' && ['FREE_REGISTRATION', 'FULL'].includes(runtime.launchMode ?? '');
+  const marketingBase = configuredMarketingBase || (publicProduction ? productionMarketingBaseUrl : '');
   const url = new URL(marketingBase ? '/' : '/register', marketingBase || appBaseUrl);
   url.search = '';
   url.hash = '';

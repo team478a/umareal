@@ -56,6 +56,9 @@ export function validateDeploymentEnvironment(service, env) {
 
   requireValue('AUTH_PROVIDER', env.AUTH_PROVIDER === 'supabase', 'AUTH_PROVIDER must be supabase.');
   requireValue('ADMIN_BASE_URL', origin(env.ADMIN_BASE_URL, ['https:']), 'ADMIN_BASE_URL must be an HTTPS origin without credentials or a path.');
+  if (['FREE_REGISTRATION', 'FULL'].includes(launchMode)) {
+    requireValue('MARKETING_BASE_URL', origin(env.MARKETING_BASE_URL, ['https:']), 'MARKETING_BASE_URL must be an HTTPS origin without credentials or a path for public launch modes.');
+  }
   requireValue('SUPABASE_URL', origin(env.SUPABASE_URL, ['https:']), 'SUPABASE_URL must be an HTTPS origin.');
   requireValue('SUPABASE_ANON_KEY', present(env.SUPABASE_ANON_KEY), 'SUPABASE_ANON_KEY is required.');
   requireValue('JOB_SECRET', Buffer.byteLength(env.JOB_SECRET ?? '') >= 32, 'JOB_SECRET must contain at least 32 bytes.');

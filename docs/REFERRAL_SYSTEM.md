@@ -2,7 +2,7 @@
 
 ## 制度概要
 
-ログイン可能な一般会員は、個人情報を含まない一意の紹介コードと紹介URLを持つ。本番の紹介URLは `https://umareal.com/?invite=...` とし、LPから `/register?invite=...` へコードを引き継ぐ。紹介された人が通常の無料会員登録と本人確認を完了すると紹介が成立する。初期マイルストーンはDBで管理し、3人と10人の成立時にそれぞれ一日券を1枚付与する。
+ログイン可能な一般会員は、個人情報を含まない一意の紹介コードと紹介URLを持つ。本番の紹介URLは `https://umareal.com/?invite=...` とし、LPから `/register?invite=...` へコードを引き継ぐ。公開本番ではRenderの`MARKETING_BASE_URL`が欠落しても本番LPを安全な既定値として使用し、登録画面へ直接フォールバックしない。配備前検査は同変数がHTTPS originとして明示されていない公開APIリリースを拒否する。紹介された人が通常の無料会員登録と本人確認を完了すると紹介が成立する。初期マイルストーンはDBで管理し、3人と10人の成立時にそれぞれ一日券を1枚付与する。
 
 既存の `MemberAcquisition.referralCode` と `AcquisitionCampaign.referralCode` は広告・流入計測として意味を変更しない。会員間の紹介コードは `users.referralCode`、関係は `referrals` に分離する。URLでも流入計測用 `ref` と会員紹介用 `invite` を分ける。
 
