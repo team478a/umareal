@@ -1,5 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { adminReadinessResponseSchema } from './readiness';
+import { adminLocalRestoreAttestationInputSchema, adminLocalRestoreAttestationResponseSchema, adminReadinessResponseSchema } from './readiness';
+
+const verification = {
+  status: 'VERIFIED' as const,
+  verifiedAt: '2026-10-05T01:00:00.000Z',
+  backupId: 'keiba-physical-20261005100000',
+  format: 'postgresql-physical-directory' as const,
+  postgresMajor: 16 as const,
+  encrypted: false as const,
+  sha256: 'a'.repeat(64),
+  sizeBytes: 1024,
+  fileCount: 10,
+  migrations: 83,
+  requiredTriggers: 12,
+  restoredDatabaseRemoved: true as const,
+  counts: { users: 1, races: 2, predictionVersions: 3, freeReportVersions: 4, audioAssets: 5, publicationSchedules: 6, memberAcquisitions: 7, acquisitionCampaigns: 8, auditLogs: 9, notificationEvents: 10, operationalAlerts: 11, operationalAlertDeliveries: 12, billingSupportRequests: 13, billingSupportEvents: 14 }
+};
 
 describe('admin readiness API contract', () => {
   it('normalizes server dates and rejects fields outside the public response', () => {
@@ -23,5 +39,18 @@ describe('admin readiness API contract', () => {
     expect(adminReadinessResponseSchema.parse(response).generatedAt).toBe(generatedAt.toISOString());
     expect(adminReadinessResponseSchema.safeParse({ ...response, databaseUrl: 'postgresql://private' }).success).toBe(false);
     expect(adminReadinessResponseSchema.safeParse({ ...response, checks: [{ ...response.checks[0], secret: 'private' }] }).success).toBe(false);
+  });
+
+  it('accepts only successful restore evidence with a reason', () => {
+    expect(adminLocalRestoreAttestationInputSchema.parse({ verification, reason: ' 公開前の復元確認 ' }).reason).toBe('公開前の復元確認');
+    expect(adminLocalRestoreAttestationInputSchema.safeParse({ verification: { ...verification, status: 'FAILED' }, reason: '確認' }).success).toBe(false);
+    expect(adminLocalRestoreAttestationInputSchema.safeParse({ verification, reason: '' }).success).toBe(false);
+    expect(adminLocalRestoreAttestationInputSchema.safeParse({ verification, reason: '確認', secret: 'private' }).success).toBe(false);
+  });
+
+  it('normalizes dates in the public attestation response', () => {
+    const response = adminLocalRestoreAttestationResponseSchema.parse({ latest: { id: '10000000-0000-4000-8000-000000000001', recordedAt: new Date('2026-10-05T01:05:00.000Z'), recordedBy: { id: '10000000-0000-4000-8000-000000000002', displayName: '管理者' }, reason: '確認', verification } });
+    expect(response.latest?.recordedAt).toBe('2026-10-05T01:05:00.000Z');
+    expect(adminLocalRestoreAttestationResponseSchema.parse({ latest: null })).toEqual({ latest: null });
   });
 });

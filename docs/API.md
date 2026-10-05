@@ -39,6 +39,8 @@
 | POST | /admin/operational-alerts/:alertId/acknowledge | ADMIN+AAL2またはOPERATOR。理由付きでアラートを確認済みにする |
 | POST | /admin/operational-alerts/:alertId/resolve | ADMIN+AAL2またはOPERATOR。理由付きでアラートを解決済みにする。問い合わせ期限条件は解消時にワーカーも自動解決する |
 | GET | /admin/backups/status | ADMIN+AAL2。最後のローカル隔離復元検証の状態、ハッシュ、件数照合結果を返す。資格情報と絶対パスは返さない |
+| GET | /admin/readiness/local-restore-attestation | ADMIN+AAL2。最新の管理者記録済みローカル復元確認を返す |
+| POST | /admin/readiness/local-restore-attestation | ADMIN+AAL2。7日以内・migration数一致・必須トリガー確認済みの復元結果を理由付きでappend-only監査履歴へ記録する |
 | GET | /admin/readiness | ADMIN+AAL2。認証・外部接続・法務データ・運用復旧の準備状態、根拠、次の対応を返す。秘密値を返さず、公開承認には使わない |
 | GET | /me/closure | 本人。退会可否、契約・1日利用の阻害要因、保持対象を返す |
 | POST | /me/close | MEMBER本人。確認文言と、パスワード設定済みなら現在のパスワードが必須。セッション、通知、LINE、閲覧権限を停止し退会記録を追記 |
