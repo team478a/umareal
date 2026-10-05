@@ -11,7 +11,7 @@ Read docs/SPEC.md and docs/DECISIONS.md before changing behavior. Read the featu
 - Never log tokens, password/reset/MFA secrets, database URLs or payment information. Do not commit .env or .local.
 - Preserve old predictions and losing predictions. Do not choose business policies silently; record pending choices in DECISIONS.md.
 - Registration requires adult confirmation and versioned terms/privacy consent. Draft consent is for development only.
-- No betting execution, purchase proxy, custody of money, prediction AI or automatic bet generation.
+- No betting execution, purchase proxy, custody of money, autonomous prediction AI or automatic bet generation. The AI race guide may only organize approved structured facts and generate grounded explanatory text under `docs/AI_RACE_GUIDE_ARCHITECTURE.md`; it must remain separate from expert assessments and predictions, may not infer missing facts, and may not generate bets, stakes, probabilities, paddock image/video assessments or overrides of expert judgment.
 - Run generation/shared-package builds, typecheck, lint, unit tests, meaningful database/API integration tests, applicable E2E and build. Do not disable tests to pass CI.
 - Report implemented behavior, test evidence, limitations and next phase. Keep production rollout separate from local delivery.
 - No subagents are required for this repository.

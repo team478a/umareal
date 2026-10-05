@@ -1134,3 +1134,12 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 - レース詳細には現在公開中の最新版がそのレースを関連先として持つ場合だけ表示する。旧版だけの関連、公開終了、下書き変更は表示しない。
 - 有料コンテンツはレース詳細でもタイトル、概要、種別、公開時刻のみを返し、本文とメディアURLは従来どおりコンテンツ詳細APIの閲覧権判定後だけ返す。
 - 関連馬、自動推定、記事の自動公開、通知本文へのレース情報追加は行わない。本番migrationと配備はローカル検証・PRと別に承認する。
+
+## AIレースガイド Phase 1A（2026-10-05）
+
+- Phase 0の`CONDITIONAL GO`とユーザーの着手指示に基づき、AIレースガイドの最初の実装区間を方針更新、Domain contract、synthetic unit testに限定する。
+- AIレースガイドは三国谷氏のパドック直前予想を補完する情報であり、予想担当として扱わない。`Assessment`、`Prediction`、`PredictionVersion`と別のmodel/API/UIを使用し、AIから専門家評価を更新しない。
+- Domain contractは`KNOWN`、`UNKNOWN`、`INSUFFICIENT_DATA`、`NOT_AVAILABLE`を区別し、既知factには元データの根拠を必須とする。生成文の各statementは入力factを参照し、入力にない数値、予想・購入表現、存在しない馬・entry参照を検証で拒否する。
+- sourceは`GUIDE_GENERATION`と`MEMBER_DISPLAY`の許諾を必須とし、外部LLMを選ぶ場合はさらに`EXTERNAL_AI_PROCESSING`を必須とする。Phase 1Aではsynthetic dataと決定的testだけを使用し、JRA-VAN実データや外部AIへ送信しない。
+- 無料previewは有料fullに存在する同一statementの部分集合とし、サーバー側projectionで全文を除外できるcontractにする。現段階では会員APIや画面には接続しない。
+- Phase 1AではDB schema、migration、API、worker、管理画面、会員画面、live credential、本番デプロイを変更しない。Phase 1B以降はデータ利用許諾と個別承認を再度必要とする。
