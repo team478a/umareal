@@ -531,6 +531,9 @@ td { padding:17px 24px; border-top:1px solid var(--line); }
 .backup-checklist small { margin-top:4px; color:var(--muted); }
 .backup-command { display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
 .backup-command code { padding:6px 9px; border-radius:4px; background:#e6eeea; overflow-wrap:anywhere; }
+.restore-attestation-form .form-grid.two { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+.restore-attestation-form .checkbox-list { display:grid; gap:9px; margin:4px 0 18px; }
+.restore-attestation-form .checkbox-list label { display:flex; align-items:center; gap:9px; }
 .restore-attestation { margin-top:20px; }
 .restore-attestation .panel-heading>div { min-width:0; }
 .restore-attestation .panel-heading svg { color:var(--green); flex:none; }
@@ -541,7 +544,7 @@ td { padding:17px 24px; border-top:1px solid var(--line); }
 .restore-attestation-form { padding:0 24px 24px; }
 .restore-attestation-form textarea { max-width:100%; }
 @media(max-width:850px) { .backup-metrics,.backup-counts { grid-template-columns:repeat(2,minmax(0,1fr)); } .backup-checklist { grid-template-columns:repeat(2,minmax(0,1fr)); } }
-@media(max-width:650px) { .backup-hero { grid-template-columns:auto minmax(0,1fr); padding:19px; } .backup-hero>.button { grid-column:1/-1; width:100%; min-height:44px; } .backup-metrics { grid-template-columns:1fr 1fr; gap:10px; } .backup-metrics>div { padding:16px; } .backup-counts { grid-template-columns:1fr 1fr; padding:0 20px 20px; } .backup-details { padding:0 20px 18px; } .backup-details>div { grid-template-columns:1fr; gap:5px; } .backup-checklist { grid-template-columns:1fr; padding:0 20px 18px; } .backup-checklist li { padding:15px 0; } .restore-attestation .panel-intro { padding:0 20px 18px; } .restore-attestation-latest { margin:0 20px 20px; } .restore-attestation-form { padding:0 20px 20px; } .restore-attestation-form .button { width:100%; } }
+@media(max-width:650px) { .backup-hero { grid-template-columns:auto minmax(0,1fr); padding:19px; } .backup-hero>.button { grid-column:1/-1; width:100%; min-height:44px; } .backup-metrics { grid-template-columns:1fr 1fr; gap:10px; } .backup-metrics>div { padding:16px; } .backup-counts { grid-template-columns:1fr 1fr; padding:0 20px 20px; } .backup-details { padding:0 20px 18px; } .backup-details>div { grid-template-columns:1fr; gap:5px; } .backup-checklist { grid-template-columns:1fr; padding:0 20px 18px; } .backup-checklist li { padding:15px 0; } .restore-attestation .panel-intro { padding:0 20px 18px; } .restore-attestation-latest { margin:0 20px 20px; } .restore-attestation-form { padding:0 20px 20px; } .restore-attestation-form .form-grid.two { grid-template-columns:1fr; } .restore-attestation-form .button { width:100%; } }
 .button.danger { background:#9b382e; border-color:#9b382e; color:#fff; }
 .account-closure { margin-top:22px; border-color:#ddc5c0; }
 .account-closure .panel-heading svg { color:#9b382e; }

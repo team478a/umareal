@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
 import { databaseRuntimeAccessRestricted, loadMailConfig } from '@keiba/db';
-import { adminBackupFailedStatusSchema, adminBackupVerifiedStatusSchema, adminLocalRestoreAttestationSchema, adminRetentionPolicySchema, consentVersions, launchCapabilities, legalDocumentReleaseErrors, resolveLaunchMode } from '@keiba/domain';
-import type { AdminLocalRestoreAttestationInput, AdminReadinessCheck } from '@keiba/domain';
+import { adminBackupFailedStatusSchema, adminBackupVerifiedStatusSchema, adminLocalRestoreAttestationSchema, adminProductionBackupAttestationInputSchema, adminProductionBackupAttestationSchema, adminRetentionPolicySchema, consentVersions, launchCapabilities, legalDocumentReleaseErrors, resolveLaunchMode } from '@keiba/domain';
+import type { AdminLocalRestoreAttestationInput, AdminProductionBackupAttestationInput, AdminReadinessCheck } from '@keiba/domain';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { z } from 'zod';
@@ -14,6 +14,7 @@ export class ReadinessService {
   constructor(@Inject(DbService) private readonly db: DbService) {}
 
   private readonly restoreAudit = { action: 'LOCAL_RESTORE_ATTESTED', targetType: 'READINESS_CHECK', targetId: 'LOCAL_RESTORE_TEST' } as const;
+  private readonly productionBackupAudit = { action: 'PRODUCTION_BACKUP_ATTESTED', targetType: 'READINESS_CHECK', targetId: 'PRODUCTION_BACKUP' } as const;
 
   async appliedMigrationCount() {
     return this.db.$queryRaw<Array<{ count: number }>>`SELECT count(*)::int AS count FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`.then(rows => rows[0]?.count ?? 0);
@@ -37,6 +38,28 @@ export class ReadinessService {
     return adminLocalRestoreAttestationSchema.parse({ id: audit.id, recordedAt: audit.createdAt, recordedBy: { id: audit.actorId, displayName: details.data.recordedByDisplayName }, reason: audit.reason, verification: details.data.verification });
   }
 
+  async validateProductionBackupAttestation(input: AdminProductionBackupAttestationInput, now = new Date()) {
+    const parsed = adminProductionBackupAttestationInputSchema.parse(input);
+    const restoredAt = new Date(parsed.restoreTestedAt);
+    const nextReviewAt = new Date(parsed.nextReviewAt);
+    if (restoredAt.getTime() > now.getTime() + 5 * 60000) throw new BadRequestException({ code: 'BACKUP_RESTORE_TEST_IN_FUTURE', message: '復元試験日時が現在より後になっています。' });
+    if (nextReviewAt.getTime() <= now.getTime()) throw new ConflictException({ code: 'BACKUP_REVIEW_EXPIRED', message: '次回確認日は現在より後を指定してください。' });
+    if (nextReviewAt.getTime() > now.getTime() + 366 * 86400000) throw new BadRequestException({ code: 'BACKUP_REVIEW_TOO_FAR', message: '次回確認日は1年以内を指定してください。' });
+    return parsed;
+  }
+
+  async latestProductionBackupAttestation(now = new Date()) {
+    const audit = await this.db.auditLog.findFirst({ where: this.productionBackupAudit, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
+    if (!audit || !audit.actorId) return null;
+    const details = adminProductionBackupAttestationInputSchema.omit({ reason: true }).extend({ recordedByDisplayName: z.string().min(1) }).strict().safeParse(audit.details);
+    if (!details.success) return null;
+    const { recordedByDisplayName, ...evidence } = details.data;
+    return adminProductionBackupAttestationSchema.parse({
+      id: audit.id, recordedAt: audit.createdAt, recordedBy: { id: audit.actorId, displayName: recordedByDisplayName },
+      reason: audit.reason, ...evidence, reviewStatus: new Date(evidence.nextReviewAt).getTime() > now.getTime() ? 'CURRENT' : 'EXPIRED'
+    });
+  }
+
   async localBackupStatus() {
     const statusPath = resolve(__dirname, '../../../.local/backups/status.json');
     try {
@@ -52,10 +75,11 @@ export class ReadinessService {
   async getReadiness() {
     const launchMode = resolveLaunchMode(process.env.LAUNCH_MODE);
     const capabilities = launchCapabilities(launchMode);
-    const [settings, backup, restoreAttestation, appliedMigrations, stripeConfig, mailConfig, databaseAccessRestricted, adminContinuity, alertSetting, retentionPolicyAudit] = await Promise.all([
+    const [settings, backup, restoreAttestation, productionBackupAttestation, appliedMigrations, stripeConfig, mailConfig, databaseAccessRestricted, adminContinuity, alertSetting, retentionPolicyAudit] = await Promise.all([
       this.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { newRegistrationsEnabled: true, registrationCaptchaEnabled: true, turnstileSiteKey: true, turnstileSecretEncrypted: true, emailNotificationsEnabled: true, predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: true, lineLoginEnabled: true, newPurchasesEnabled: true, lineChannelId: true, lineChannelSecretEncrypted: true, lineAccessTokenEncrypted: true, lineLoginChannelId: true, lineLoginChannelSecretEncrypted: true, lineLoginCallbackUrl: true, updatedAt: true } }),
       this.localBackupStatus(),
       this.latestLocalRestoreAttestation(),
+      this.latestProductionBackupAttestation(),
       this.appliedMigrationCount(),
       loadStripeConfig(this.db),
       loadMailConfig(this.db),
@@ -102,7 +126,13 @@ export class ReadinessService {
       evidence: backupFresh ? `${backup.migrations}件のマイグレーションを含む隔離復元を7日以内に、このサーバー上で確認済みです。` : attestationFresh ? `${restoreAttestation.verification.migrations}件のマイグレーションを含む隔離復元結果を、${restoreAttestation.recordedBy.displayName}が監査付きで記録しました。本番サーバーによる自動再現ではありません。` : '現在のDB構成について、7日以内の正常な隔離復元結果または管理者記録がありません。',
       action: backupFresh ? '7日以内ごと、またはmigration追加後に再実行します。' : attestationFresh ? '記録内容と開発端末の原本を公開責任者が確認します。' : '開発端末で復元検証を実行し、管理画面へ結果を記録します。', href: '/admin/backups'
     });
-    add({ code: 'PRODUCTION_BACKUP', group: 'OPERATIONS', status: 'MANUAL', title: '本番バックアップ運用', evidence: '暗号化、別拠点保管、保持世代、RPO/RTOは未確認です。', action: 'DB基盤のバックアップ設定と定期復元試験の責任者を確認します。', href: '/admin/backups' });
+    add({
+      code: 'PRODUCTION_BACKUP', group: 'OPERATIONS', status: 'MANUAL', title: '本番バックアップ運用',
+      evidence: productionBackupAttestation?.reviewStatus === 'CURRENT'
+        ? `${productionBackupAttestation.provider}の暗号化・別障害領域・自動取得、${productionBackupAttestation.retentionDays}日/${productionBackupAttestation.retentionGenerations}世代、RPO ${productionBackupAttestation.rpoMinutes}分、RTO ${productionBackupAttestation.rtoMinutes}分を管理者が記録済みです。外部基盤の自動検証ではありません。`
+        : productionBackupAttestation ? `本番バックアップ運用の管理者記録は${productionBackupAttestation.nextReviewAt.slice(0, 10)}に期限切れです。` : '暗号化、別拠点保管、保持世代、RPO/RTOは未確認です。',
+      action: productionBackupAttestation?.reviewStatus === 'CURRENT' ? '証跡原本と最新の復元試験を公開責任者が確認します。' : 'DB基盤のバックアップ設定と定期復元試験の責任者を確認し、監査付きで記録します。', href: '/admin/backups'
+    });
     const monitoringReady = alertSetting.enabled && alertSetting.destinationEmails.length > 0 && mailConfigured;
     add({ code: 'EXTERNAL_MONITORING', group: 'OPERATIONS', status: monitoringReady ? 'MANUAL' : 'BLOCKED', title: '運用異常の外部通知', evidence: monitoringReady ? `配信・予約公開・公開期限の異常を${alertSetting.destinationEmails.length}件の運営通知先へ送る設定があります。` : '外部アラートが無効、通知先なし、またはメール送信設定が不足しています。', action: monitoringReady ? '重大・警告を1件ずつ発生させ、通知到達と確認・解決記録をリハーサルします。' : '障害対応画面で通知先と最低重大度を設定します。', href: '/admin/incidents' });
     const unsafePurchases = capabilities.billing && settings.newPurchasesEnabled && !stripeConfigured;

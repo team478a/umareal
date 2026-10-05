@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adminLocalRestoreAttestationInputSchema, adminLocalRestoreAttestationResponseSchema, adminReadinessResponseSchema } from './readiness';
+import { adminLocalRestoreAttestationInputSchema, adminLocalRestoreAttestationResponseSchema, adminProductionBackupAttestationInputSchema, adminProductionBackupAttestationResponseSchema, adminReadinessResponseSchema } from './readiness';
 
 const verification = {
   status: 'VERIFIED' as const,
@@ -52,5 +52,19 @@ describe('admin readiness API contract', () => {
     const response = adminLocalRestoreAttestationResponseSchema.parse({ latest: { id: '10000000-0000-4000-8000-000000000001', recordedAt: new Date('2026-10-05T01:05:00.000Z'), recordedBy: { id: '10000000-0000-4000-8000-000000000002', displayName: '管理者' }, reason: '確認', verification } });
     expect(response.latest?.recordedAt).toBe('2026-10-05T01:05:00.000Z');
     expect(adminLocalRestoreAttestationResponseSchema.parse({ latest: null })).toEqual({ latest: null });
+  });
+
+  it('accepts only complete production backup evidence without secret locations', () => {
+    const input = {
+      provider: 'Managed PostgreSQL', encryptedAtRest: true, separateFailureDomain: true, automatedBackups: true,
+      retentionDays: 30, retentionGenerations: 14, rpoMinutes: 60, rtoMinutes: 240,
+      responsibleRole: '運用責任者', restoreTestedAt: '2026-10-01T01:00:00.000Z', nextReviewAt: '2026-11-01T01:00:00.000Z',
+      evidenceReference: 'ops/backup-review-20261001', reason: '本番公開前の運用確認'
+    } as const;
+    expect(adminProductionBackupAttestationInputSchema.parse(input).provider).toBe('Managed PostgreSQL');
+    expect(adminProductionBackupAttestationInputSchema.safeParse({ ...input, encryptedAtRest: false }).success).toBe(false);
+    expect(adminProductionBackupAttestationInputSchema.safeParse({ ...input, evidenceReference: 'https://example.test/?token=secret' }).success).toBe(false);
+    expect(adminProductionBackupAttestationInputSchema.safeParse({ ...input, databaseUrl: 'postgresql://secret' }).success).toBe(false);
+    expect(adminProductionBackupAttestationResponseSchema.parse({ latest: null })).toEqual({ latest: null });
   });
 });

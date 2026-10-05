@@ -39,6 +39,7 @@
 | POST | /admin/operational-alerts/:alertId/acknowledge | ADMIN+AAL2またはOPERATOR。理由付きでアラートを確認済みにする |
 | POST | /admin/operational-alerts/:alertId/resolve | ADMIN+AAL2またはOPERATOR。理由付きでアラートを解決済みにする。問い合わせ期限条件は解消時にワーカーも自動解決する |
 | GET | /admin/backups/status | ADMIN+AAL2。最後のローカル隔離復元検証の状態、ハッシュ、件数照合結果を返す。資格情報と絶対パスは返さない |
+| GET/POST | /admin/readiness/production-backup-attestation | ADMIN+AAL2。本番バックアップの暗号化、別障害領域、自動取得、保持、RPO/RTO、責任区分、復元試験と次回確認を、秘密値を含まない証跡参照とともに追記記録する。外部基盤の自動検証やバックアップ実行は行わない |
 | GET | /admin/readiness/local-restore-attestation | ADMIN+AAL2。最新の管理者記録済みローカル復元確認を返す |
 | POST | /admin/readiness/local-restore-attestation | ADMIN+AAL2。7日以内・migration数一致・必須トリガー確認済みの復元結果を理由付きでappend-only監査履歴へ記録する |
 | GET | /admin/readiness | ADMIN+AAL2。認証・外部接続・法務データ・運用復旧の準備状態、根拠、次の対応を返す。秘密値を返さず、公開承認には使わない |

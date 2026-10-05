@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAccountClosuresResponseSchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminLocalRestoreAttestationInputSchema, adminLocalRestoreAttestationResponseSchema, adminOperationsRaceSchema, adminOperationsResponseSchema, adminReadinessResponseSchema, adminRetentionPolicyInputSchema, adminRetentionPolicyResponseSchema, adminRetentionPolicySchema, adminRetentionPreviewResponseSchema, adminSummaryResponseSchema, adminUsersResponseSchema, assessmentSchema, buildAdminOperationsAttention, canEditRace, canManage, deploymentConsistency, expertRaceListResponseSchema, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceAnnouncementsResponseSchema, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
+import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAccountClosuresResponseSchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminLocalRestoreAttestationInputSchema, adminLocalRestoreAttestationResponseSchema, adminOperationsRaceSchema, adminOperationsResponseSchema, adminProductionBackupAttestationInputSchema, adminProductionBackupAttestationResponseSchema, adminReadinessResponseSchema, adminRetentionPolicyInputSchema, adminRetentionPolicyResponseSchema, adminRetentionPolicySchema, adminRetentionPreviewResponseSchema, adminSummaryResponseSchema, adminUsersResponseSchema, assessmentSchema, buildAdminOperationsAttention, canEditRace, canManage, deploymentConsistency, expertRaceListResponseSchema, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceAnnouncementsResponseSchema, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -343,6 +343,20 @@ export class AppController {
       'READINESS_CHECK'
     ));
     return adminLocalRestoreAttestationResponseSchema.parse({ latest: { id: audit.id, recordedAt: audit.createdAt, recordedBy: { id: actor.id, displayName: actor.user.displayName }, reason: audit.reason, verification } });
+  }
+  @Get('admin/readiness/production-backup-attestation') async productionBackupAttestation(@Req() req: AppRequest) {
+    await this.staff(req, ['ADMIN']);
+    return adminProductionBackupAttestationResponseSchema.parse({ latest: await this.readinessQuery.latestProductionBackupAttestation() });
+  }
+  @Post('admin/readiness/production-backup-attestation') async attestProductionBackup(@Body() body: unknown, @Req() req: AppRequest) {
+    const actor = await this.staff(req, ['ADMIN']);
+    const input = await this.readinessQuery.validateProductionBackupAttestation(adminProductionBackupAttestationInputSchema.parse(body));
+    const { reason, ...evidence } = input;
+    const audit = await this.auth.db.$transaction(tx => this.auth.audit(
+      tx, req, 'PRODUCTION_BACKUP_ATTESTED', 'PRODUCTION_BACKUP', reason,
+      { ...evidence, recordedByDisplayName: actor.user.displayName }, 'READINESS_CHECK'
+    ));
+    return adminProductionBackupAttestationResponseSchema.parse({ latest: { id: audit.id, recordedAt: audit.createdAt, recordedBy: { id: actor.id, displayName: actor.user.displayName }, reason, ...evidence, reviewStatus: 'CURRENT' } });
   }
   @Get('admin/readiness') async readiness(@Req() req: AppRequest) {
     await this.staff(req, ['ADMIN']);
