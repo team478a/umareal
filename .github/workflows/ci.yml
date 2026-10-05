@@ -52,8 +52,8 @@ jobs:
           python-version: '3.14'
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
-      - name: Generate ephemeral test encryption key
-        run: node -e "const key = require('crypto').randomBytes(32).toString('base64'); console.log('::add-mask::' + key); require('fs').appendFileSync(process.env.GITHUB_ENV, 'ENCRYPTION_KEY=' + key + '\n')"
+      - name: Generate ephemeral test secrets
+        run: node -e "const { randomBytes } = require('crypto'); const encryption = randomBytes(32).toString('base64'); const rateLimit = randomBytes(32).toString('base64url'); console.log('::add-mask::' + encryption); console.log('::add-mask::' + rateLimit); require('fs').appendFileSync(process.env.GITHUB_ENV, 'ENCRYPTION_KEY=' + encryption + '\nRATE_LIMIT_PROXY_SECRET=' + rateLimit + '\n')"
       - name: Generate Prisma client
         run: pnpm db:generate
       - name: Apply migrations to fresh CI database
