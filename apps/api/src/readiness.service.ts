@@ -1,7 +1,7 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
 import { databaseRuntimeAccessRestricted, loadMailConfig } from '@keiba/db';
-import { adminBackupFailedStatusSchema, adminBackupVerifiedStatusSchema, consentVersions, launchCapabilities, legalDocumentReleaseErrors, resolveLaunchMode } from '@keiba/domain';
-import type { AdminReadinessCheck } from '@keiba/domain';
+import { adminBackupFailedStatusSchema, adminBackupVerifiedStatusSchema, adminLocalRestoreAttestationSchema, consentVersions, launchCapabilities, legalDocumentReleaseErrors, resolveLaunchMode } from '@keiba/domain';
+import type { AdminLocalRestoreAttestationInput, AdminReadinessCheck } from '@keiba/domain';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { z } from 'zod';
@@ -12,6 +12,30 @@ import { loadStripeConfig } from './stripe-config';
 @Injectable()
 export class ReadinessService {
   constructor(@Inject(DbService) private readonly db: DbService) {}
+
+  private readonly restoreAudit = { action: 'LOCAL_RESTORE_ATTESTED', targetType: 'READINESS_CHECK', targetId: 'LOCAL_RESTORE_TEST' } as const;
+
+  async appliedMigrationCount() {
+    return this.db.$queryRaw<Array<{ count: number }>>`SELECT count(*)::int AS count FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`.then(rows => rows[0]?.count ?? 0);
+  }
+
+  async validateLocalRestoreAttestation(input: AdminLocalRestoreAttestationInput, now = new Date()) {
+    const verifiedAt = new Date(input.verification.verifiedAt);
+    if (verifiedAt.getTime() > now.getTime() + 5 * 60000) throw new BadRequestException({ code: 'RESTORE_VERIFICATION_IN_FUTURE', message: '復元確認時刻が現在より後になっています。' });
+    if (now.getTime() - verifiedAt.getTime() > 7 * 86400000) throw new ConflictException({ code: 'RESTORE_VERIFICATION_EXPIRED', message: '7日以内の復元確認結果を使用してください。' });
+    const migrations = await this.appliedMigrationCount();
+    if (input.verification.migrations !== migrations) throw new ConflictException({ code: 'RESTORE_MIGRATION_MISMATCH', message: `現在のDB構成（${migrations} migration）と復元確認結果が一致しません。` });
+    if (input.verification.requiredTriggers !== 12) throw new ConflictException({ code: 'RESTORE_TRIGGER_MISMATCH', message: '必要な履歴保護トリガーをすべて確認できていません。' });
+    return input.verification;
+  }
+
+  async latestLocalRestoreAttestation() {
+    const audit = await this.db.auditLog.findFirst({ where: this.restoreAudit, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
+    if (!audit || !audit.actorId) return null;
+    const details = z.object({ verification: adminBackupVerifiedStatusSchema, recordedByDisplayName: z.string().min(1) }).strict().safeParse(audit.details);
+    if (!details.success) return null;
+    return adminLocalRestoreAttestationSchema.parse({ id: audit.id, recordedAt: audit.createdAt, recordedBy: { id: audit.actorId, displayName: details.data.recordedByDisplayName }, reason: audit.reason, verification: details.data.verification });
+  }
 
   async localBackupStatus() {
     const statusPath = resolve(__dirname, '../../../.local/backups/status.json');
@@ -28,10 +52,11 @@ export class ReadinessService {
   async getReadiness() {
     const launchMode = resolveLaunchMode(process.env.LAUNCH_MODE);
     const capabilities = launchCapabilities(launchMode);
-    const [settings, backup, appliedMigrations, stripeConfig, mailConfig, databaseAccessRestricted, adminContinuity, alertSetting] = await Promise.all([
+    const [settings, backup, restoreAttestation, appliedMigrations, stripeConfig, mailConfig, databaseAccessRestricted, adminContinuity, alertSetting] = await Promise.all([
       this.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { newRegistrationsEnabled: true, registrationCaptchaEnabled: true, turnstileSiteKey: true, turnstileSecretEncrypted: true, emailNotificationsEnabled: true, predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: true, lineLoginEnabled: true, newPurchasesEnabled: true, lineChannelId: true, lineChannelSecretEncrypted: true, lineAccessTokenEncrypted: true, lineLoginChannelId: true, lineLoginChannelSecretEncrypted: true, lineLoginCallbackUrl: true, updatedAt: true } }),
       this.localBackupStatus(),
-      this.db.$queryRaw<Array<{ count: number }>>`SELECT count(*)::int AS count FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`.then(rows => rows[0]?.count ?? 0),
+      this.latestLocalRestoreAttestation(),
+      this.appliedMigrationCount(),
       loadStripeConfig(this.db),
       loadMailConfig(this.db),
       databaseRuntimeAccessRestricted(this.db),
@@ -69,7 +94,12 @@ export class ReadinessService {
     add({ code: 'DATA_RETENTION', group: 'LEGAL_DATA', status: 'BLOCKED', title: '個人情報の保持・匿名化', evidence: '退会処理はdevelopment-v1方針で履歴を保持しています。', action: '保持期間、匿名化範囲、開示・削除請求、再登録の扱いを確定します。', href: '/admin/account-closures' });
     add({ code: 'DATABASE_LEAST_PRIVILEGE', group: 'LEGAL_DATA', status: databaseAccessRestricted ? 'READY' : 'BLOCKED', title: 'DB実行権限の分離', evidence: databaseAccessRestricted ? 'API接続はCRUD限定で、所有権、DDL、TRUNCATE、トリガー操作権限を持ちません。' : '現在のAPI接続は所有者または必要以上のDB権限を持っています。', action: '`pnpm db:access:configure` でruntimeロールを構成し、APIとworkerにruntime接続だけを設定します。' });
     const backupFresh = backup.status === 'VERIFIED' && backup.migrations === appliedMigrations && Date.now() - new Date(backup.verifiedAt).getTime() <= 7 * 86400000;
-    add({ code: 'LOCAL_RESTORE_TEST', group: 'OPERATIONS', status: backupFresh ? 'READY' : 'BLOCKED', title: 'ローカル復元試験', evidence: backupFresh ? `${backup.migrations}件のマイグレーションを含む隔離復元を7日以内に確認済みです。` : '現在のDB構成について、7日以内の正常な隔離復元結果がありません。', action: '開発端末で復元検証を実行します。', href: '/admin/backups' });
+    const attestationFresh = !!restoreAttestation && restoreAttestation.verification.migrations === appliedMigrations && Date.now() - new Date(restoreAttestation.verification.verifiedAt).getTime() <= 7 * 86400000;
+    add({
+      code: 'LOCAL_RESTORE_TEST', group: 'OPERATIONS', status: backupFresh ? 'READY' : attestationFresh ? 'MANUAL' : 'BLOCKED', title: 'ローカル復元試験',
+      evidence: backupFresh ? `${backup.migrations}件のマイグレーションを含む隔離復元を7日以内に、このサーバー上で確認済みです。` : attestationFresh ? `${restoreAttestation.verification.migrations}件のマイグレーションを含む隔離復元結果を、${restoreAttestation.recordedBy.displayName}が監査付きで記録しました。本番サーバーによる自動再現ではありません。` : '現在のDB構成について、7日以内の正常な隔離復元結果または管理者記録がありません。',
+      action: backupFresh ? '7日以内ごと、またはmigration追加後に再実行します。' : attestationFresh ? '記録内容と開発端末の原本を公開責任者が確認します。' : '開発端末で復元検証を実行し、管理画面へ結果を記録します。', href: '/admin/backups'
+    });
     add({ code: 'PRODUCTION_BACKUP', group: 'OPERATIONS', status: 'MANUAL', title: '本番バックアップ運用', evidence: '暗号化、別拠点保管、保持世代、RPO/RTOは未確認です。', action: 'DB基盤のバックアップ設定と定期復元試験の責任者を確認します。', href: '/admin/backups' });
     const monitoringReady = alertSetting.enabled && alertSetting.destinationEmails.length > 0 && mailConfigured;
     add({ code: 'EXTERNAL_MONITORING', group: 'OPERATIONS', status: monitoringReady ? 'MANUAL' : 'BLOCKED', title: '運用異常の外部通知', evidence: monitoringReady ? `配信・予約公開・公開期限の異常を${alertSetting.destinationEmails.length}件の運営通知先へ送る設定があります。` : '外部アラートが無効、通知先なし、またはメール送信設定が不足しています。', action: monitoringReady ? '重大・警告を1件ずつ発生させ、通知到達と確認・解決記録をリハーサルします。' : '障害対応画面で通知先と最低重大度を設定します。', href: '/admin/incidents' });

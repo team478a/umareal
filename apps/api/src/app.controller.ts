@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAccountClosuresResponseSchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminOperationsRaceSchema, adminOperationsResponseSchema, adminReadinessResponseSchema, adminSummaryResponseSchema, adminUsersResponseSchema, assessmentSchema, buildAdminOperationsAttention, canEditRace, canManage, deploymentConsistency, expertRaceListResponseSchema, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceAnnouncementsResponseSchema, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
+import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAccountClosuresResponseSchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminLocalRestoreAttestationInputSchema, adminLocalRestoreAttestationResponseSchema, adminOperationsRaceSchema, adminOperationsResponseSchema, adminReadinessResponseSchema, adminSummaryResponseSchema, adminUsersResponseSchema, assessmentSchema, buildAdminOperationsAttention, canEditRace, canManage, deploymentConsistency, expertRaceListResponseSchema, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceAnnouncementsResponseSchema, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -324,6 +324,25 @@ export class AppController {
   @Get('admin/backups/status') async backupStatus(@Req() req: AppRequest) {
     await this.staff(req, ['ADMIN']);
     return adminBackupStatusResponseSchema.parse(await this.readinessQuery.localBackupStatus());
+  }
+  @Get('admin/readiness/local-restore-attestation') async localRestoreAttestation(@Req() req: AppRequest) {
+    await this.staff(req, ['ADMIN']);
+    return adminLocalRestoreAttestationResponseSchema.parse({ latest: await this.readinessQuery.latestLocalRestoreAttestation() });
+  }
+  @Post('admin/readiness/local-restore-attestation') async attestLocalRestore(@Body() body: unknown, @Req() req: AppRequest) {
+    const actor = await this.staff(req, ['ADMIN']);
+    const input = adminLocalRestoreAttestationInputSchema.parse(body);
+    const verification = await this.readinessQuery.validateLocalRestoreAttestation(input);
+    const audit = await this.auth.db.$transaction(tx => this.auth.audit(
+      tx,
+      req,
+      'LOCAL_RESTORE_ATTESTED',
+      'LOCAL_RESTORE_TEST',
+      input.reason,
+      { verification, recordedByDisplayName: actor.user.displayName },
+      'READINESS_CHECK'
+    ));
+    return adminLocalRestoreAttestationResponseSchema.parse({ latest: { id: audit.id, recordedAt: audit.createdAt, recordedBy: { id: actor.id, displayName: actor.user.displayName }, reason: audit.reason, verification } });
   }
   @Get('admin/readiness') async readiness(@Req() req: AppRequest) {
     await this.staff(req, ['ADMIN']);

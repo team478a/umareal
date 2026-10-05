@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { adminBackupVerifiedStatusSchema } from './backup-status';
 
 const readinessDateTimeSchema = z.preprocess(
   value => value instanceof Date ? value.toISOString() : value,
@@ -48,5 +49,25 @@ export const adminReadinessResponseSchema = z.object({
   declaration: z.string().min(1)
 }).strict();
 
+export const adminLocalRestoreAttestationInputSchema = z.object({
+  verification: adminBackupVerifiedStatusSchema,
+  reason: z.string().trim().min(1).max(500)
+}).strict();
+
+export const adminLocalRestoreAttestationSchema = z.object({
+  id: z.string().uuid(),
+  recordedAt: readinessDateTimeSchema,
+  recordedBy: z.object({ id: z.string().uuid(), displayName: z.string().min(1) }).strict(),
+  reason: z.string().min(1),
+  verification: adminBackupVerifiedStatusSchema
+}).strict();
+
+export const adminLocalRestoreAttestationResponseSchema = z.object({
+  latest: adminLocalRestoreAttestationSchema.nullable()
+}).strict();
+
 export type AdminReadinessCheck = z.infer<typeof adminReadinessCheckSchema>;
 export type AdminReadinessResponse = z.infer<typeof adminReadinessResponseSchema>;
+export type AdminLocalRestoreAttestationInput = z.infer<typeof adminLocalRestoreAttestationInputSchema>;
+export type AdminLocalRestoreAttestation = z.infer<typeof adminLocalRestoreAttestationSchema>;
+export type AdminLocalRestoreAttestationResponse = z.infer<typeof adminLocalRestoreAttestationResponseSchema>;

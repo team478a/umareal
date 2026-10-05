@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { adminReadinessResponseSchema } from '../packages/domain/src';
+import { adminLocalRestoreAttestationResponseSchema, adminReadinessResponseSchema } from '../packages/domain/src';
 import { account, Client, db } from './helpers';
 
 afterAll(() => db.$disconnect());
@@ -33,7 +33,7 @@ describe('production readiness', () => {
       'SAFE_FEATURE_FLAGS'
     ]);
     expect(readiness.checks.find(item => item.code === 'DATABASE_LEAST_PRIVILEGE')?.status).toBe('BLOCKED');
-    expect(['READY', 'BLOCKED']).toContain(readiness.checks.find(item => item.code === 'LOCAL_RESTORE_TEST')?.status);
+    expect(['READY', 'MANUAL', 'BLOCKED']).toContain(readiness.checks.find(item => item.code === 'LOCAL_RESTORE_TEST')?.status);
     expect(readiness.declaration).toContain('本番公開を承認しません');
     expect(JSON.stringify(response.body)).not.toMatch(/DATABASE_URL|SUPABASE_ANON_KEY|RESEND_API_KEY|lineChannelSecretEncrypted|lineAccessTokenEncrypted|\.local|55432|password/i);
 
@@ -41,5 +41,42 @@ describe('production readiness', () => {
     expect((await operator.call('admin/readiness')).status).toBe(403);
     const member = new Client(); await member.login(await account());
     expect((await member.call('admin/readiness')).status).toBe(403);
+  });
+
+  it('records a recent matching restore result as an append-only administrator attestation', async () => {
+    const migrations = await db.$queryRaw<Array<{ count: number }>>`SELECT count(*)::int AS count FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL`;
+    const verification = {
+      status: 'VERIFIED', verifiedAt: new Date().toISOString(), backupId: `keiba-physical-${new Date().toISOString().replace(/\D/g, '').slice(0, 14)}`,
+      format: 'postgresql-physical-directory', postgresMajor: 16, encrypted: false, sha256: 'b'.repeat(64), sizeBytes: 4096, fileCount: 20,
+      migrations: migrations[0]?.count ?? 0, requiredTriggers: 12, restoredDatabaseRemoved: true,
+      counts: { users: 1, races: 2, predictionVersions: 3, freeReportVersions: 4, audioAssets: 5, publicationSchedules: 6, memberAcquisitions: 7, acquisitionCampaigns: 8, auditLogs: 9, notificationEvents: 10, operationalAlerts: 11, operationalAlertDeliveries: 12, billingSupportRequests: 13, billingSupportEvents: 14 }
+    };
+    const fixture = await account('ADMIN');
+    const admin = new Client(); await admin.login(fixture);
+    expect((await admin.call('admin/readiness/local-restore-attestation', 'POST', { verification, reason: '公開前の復元確認' })).status).toBe(403);
+    await admin.mfa();
+    expect((await admin.call('admin/readiness/local-restore-attestation', 'POST', { verification, reason: '公開前の復元確認' }, 'https://evil.example')).status).toBe(403);
+
+    const created = await admin.call('admin/readiness/local-restore-attestation', 'POST', { verification, reason: '公開前の復元確認' });
+    expect(created.status).toBe(201);
+    const parsed = adminLocalRestoreAttestationResponseSchema.parse(created.body);
+    expect(parsed.latest).toEqual(expect.objectContaining({ recordedBy: { id: fixture.user.id, displayName: fixture.user.displayName }, reason: '公開前の復元確認' }));
+    expect(parsed.latest?.verification.migrations).toBe(verification.migrations);
+
+    const fetched = await admin.call('admin/readiness/local-restore-attestation');
+    expect(fetched.status).toBe(200);
+    expect(adminLocalRestoreAttestationResponseSchema.parse(fetched.body).latest?.id).toBe(parsed.latest?.id);
+    expect(await db.auditLog.findUnique({ where: { id: parsed.latest!.id }, select: { action: true, targetType: true, targetId: true, reason: true } })).toEqual({ action: 'LOCAL_RESTORE_ATTESTED', targetType: 'READINESS_CHECK', targetId: 'LOCAL_RESTORE_TEST', reason: '公開前の復元確認' });
+
+    const mismatch = await admin.call('admin/readiness/local-restore-attestation', 'POST', { verification: { ...verification, migrations: verification.migrations + 1 }, reason: '不一致の確認' });
+    expect(mismatch.status).toBe(409);
+    expect(mismatch.body.code).toBe('RESTORE_MIGRATION_MISMATCH');
+    const stale = await admin.call('admin/readiness/local-restore-attestation', 'POST', { verification: { ...verification, verifiedAt: new Date(Date.now() - 8 * 86400000).toISOString() }, reason: '期限切れの確認' });
+    expect(stale.status).toBe(409);
+    expect(stale.body.code).toBe('RESTORE_VERIFICATION_EXPIRED');
+
+    const operator = new Client(); await operator.login(await account('OPERATOR')); await operator.mfa();
+    expect((await operator.call('admin/readiness/local-restore-attestation')).status).toBe(403);
+    expect((await operator.call('admin/readiness/local-restore-attestation', 'POST', { verification, reason: '権限なし' })).status).toBe(403);
   });
 });
