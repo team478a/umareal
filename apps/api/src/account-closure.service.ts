@@ -1,4 +1,6 @@
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
+import type { Prisma } from '@keiba/db';
+import { adminRetentionPolicySchema, type AdminRetentionPolicy, type AdminRetentionPolicyInput } from '@keiba/domain';
 import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
 
@@ -6,10 +8,62 @@ export type AccountClosureReason = 'SERVICE_NO_LONGER_NEEDED' | 'PRICE' | 'CONTE
 
 const retentionPolicyVersion = 'development-v1';
 const retainedHistory = ['公開・評価履歴との関係', '支払・契約履歴', '同意履歴', '監査履歴'];
+const retentionPolicyAudit = { action: 'DATA_RETENTION_POLICY_APPROVED', targetType: 'DATA_RETENTION_POLICY' } as const;
 
 @Injectable()
 export class AccountClosureService {
   constructor(@Inject(AuthService) private readonly auth: AuthService) {}
+
+  private async approvedPolicies(client: Prisma.TransactionClient | AuthService['db'] = this.auth.db): Promise<AdminRetentionPolicy[]> {
+    const records = await client.auditLog.findMany({ where: retentionPolicyAudit, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
+    const policies: AdminRetentionPolicy[] = [];
+    const versions = new Set<string>();
+    for (const record of records) {
+      const parsed = adminRetentionPolicySchema.safeParse(record.details);
+      if (parsed.success && !versions.has(parsed.data.version)) { policies.push(parsed.data); versions.add(parsed.data.version); }
+    }
+    return policies;
+  }
+
+  private async currentPolicy(client: Prisma.TransactionClient | AuthService['db'] = this.auth.db): Promise<AdminRetentionPolicy | null> {
+    return (await this.approvedPolicies(client))[0] ?? null;
+  }
+
+  async retentionPolicyStatus() {
+    const policies = await this.approvedPolicies();
+    const current = policies[0] ?? null;
+    const approvedVersions = policies.map(policy => policy.version);
+    const unmappedClosures = await this.auth.db.accountClosure.count({ where: approvedVersions.length ? { retentionPolicyVersion: { notIn: approvedVersions } } : {} });
+    if (!current) return { current: null, dryRun: null, unmappedClosures, executionEnabled: false as const };
+    const cutoffAt = new Date(Date.now() - current.identityRetentionDays * 86400000);
+    const [eligibleClosures, oldest] = await Promise.all([
+      this.auth.db.accountClosure.count({ where: { retentionPolicyVersion: current.version, accessRevokedAt: { lte: cutoffAt } } }),
+      this.auth.db.accountClosure.findFirst({ where: { retentionPolicyVersion: current.version, accessRevokedAt: { lte: cutoffAt } }, orderBy: [{ accessRevokedAt: 'asc' }, { id: 'asc' }], select: { accessRevokedAt: true } })
+    ]);
+    return { current, dryRun: { eligibleClosures, cutoffAt, oldestClosureAt: oldest?.accessRevokedAt ?? null }, unmappedClosures, executionEnabled: false as const };
+  }
+
+  async approveRetentionPolicy(input: AdminRetentionPolicyInput, actor: { id: string; user: { displayName: string } }, req: AppRequest) {
+    return this.auth.db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('data-retention-policy'))::text`;
+      const duplicate = await tx.auditLog.findFirst({ where: { ...retentionPolicyAudit, targetId: input.version }, select: { id: true } });
+      if (duplicate) throw new ConflictException({ code: 'RETENTION_POLICY_VERSION_EXISTS', message: '同じ保持方針versionは既に記録されています。' });
+      const approvedAt = new Date();
+      const current = adminRetentionPolicySchema.parse({
+        version: input.version,
+        identityRetentionDays: input.identityRetentionDays,
+        networkIdentifierRetentionDays: input.networkIdentifierRetentionDays,
+        anonymizationScope: input.anonymizationScope,
+        reRegistrationHandling: input.reRegistrationHandling,
+        dataRequestHandling: input.dataRequestHandling,
+        legalReviewReference: input.legalReviewReference,
+        approvedAt,
+        approvedBy: { id: actor.id, displayName: actor.user.displayName }
+      });
+      await this.auth.audit(tx, req, retentionPolicyAudit.action, input.version, input.reason, current, retentionPolicyAudit.targetType);
+      return current;
+    });
+  }
 
   async eligibility(userId: string, passwordRequired: boolean) {
     const now = new Date();
@@ -37,7 +91,8 @@ export class AccountClosureService {
       ...(dayPass ? [{ code: 'ACTIVE_DAY_PASS', message: '有効な1日利用の終了後に退会できます。', href: '/account', endsAt: dayPass.endsAt }] : []),
       ...(checkout ? [{ code: 'PENDING_CHECKOUT', message: '進行中の決済を完了または取消し、決済画面の有効期限が切れてから退会してください。', href: '/account', endsAt: checkout.expiresAt }] : []),
     ];
-    return { eligible: blockers.length === 0, passwordRequired, blockers, retentionPolicyVersion, retained: retainedHistory };
+    const policy = await this.currentPolicy();
+    return { eligible: blockers.length === 0, passwordRequired, blockers, retentionPolicyVersion: policy?.version ?? retentionPolicyVersion, retained: retainedHistory };
   }
 
   async close(userId: string, reasonCode: AccountClosureReason, req: AppRequest) {
@@ -55,7 +110,9 @@ export class AccountClosureService {
       if (activeSubscriptions || activeDayPasses || pendingCheckouts) {
         throw new ConflictException({ code: 'ACTIVE_BILLING_EXISTS', message: '利用期間中または決済中の契約があります。解約、取消し、または有効期間終了後に退会してください。' });
       }
-      const closure = await tx.accountClosure.create({ data: { userId, reasonCode, requestedAt: now, accessRevokedAt: now, retentionPolicyVersion } });
+      const policy = await this.currentPolicy(tx);
+      const appliedRetentionPolicyVersion = policy?.version ?? retentionPolicyVersion;
+      const closure = await tx.accountClosure.create({ data: { userId, reasonCode, requestedAt: now, accessRevokedAt: now, retentionPolicyVersion: appliedRetentionPolicyVersion } });
       await tx.notificationPreference.updateMany({ where: { userId }, data: { predictions: false, changes: false, articles: false, billing: false } });
       await tx.lineAccount.updateMany({ where: { userId }, data: { unlinkedAt: now, notificationDisabledAt: now } });
       await tx.entitlement.updateMany({ where: { userId, revokedAt: null, endsAt: { gt: now } }, data: { revokedAt: now } });

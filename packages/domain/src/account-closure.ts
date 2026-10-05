@@ -26,6 +26,34 @@ export const accountClosureCompletionResponseSchema = z.object({
   retainedHistory: z.literal(true)
 }).strict();
 
+export const retentionPolicyVersionSchema = z.string().trim().min(3).max(80).regex(/^[a-z0-9][a-z0-9._-]*$/i);
+export const retentionAnonymizationScopeSchema = z.enum(['EMAIL', 'DISPLAY_NAME', 'AUTH_IDENTITY', 'LINE_IDENTITY', 'ACQUISITION_METADATA', 'NETWORK_IDENTIFIERS']);
+export const retentionReRegistrationSchema = z.enum(['NEW_ACCOUNT', 'MANUAL_REVIEW']);
+export const retentionDataRequestHandlingSchema = z.enum(['MANUAL_SUPPORT', 'MANUAL_LEGAL_REVIEW']);
+
+export const adminRetentionPolicyInputSchema = z.object({
+  version: retentionPolicyVersionSchema,
+  identityRetentionDays: z.number().int().min(0).max(3650),
+  networkIdentifierRetentionDays: z.number().int().min(0).max(3650),
+  anonymizationScope: z.array(retentionAnonymizationScopeSchema).min(1).max(6).refine(value => new Set(value).size === value.length, '匿名化対象が重複しています。'),
+  reRegistrationHandling: retentionReRegistrationSchema,
+  dataRequestHandling: retentionDataRequestHandlingSchema,
+  legalReviewReference: z.string().trim().min(1).max(500),
+  reason: z.string().trim().min(1).max(500)
+}).strict();
+
+export const adminRetentionPolicySchema = adminRetentionPolicyInputSchema.omit({ reason: true }).extend({
+  approvedAt: accountClosureDateTimeSchema,
+  approvedBy: z.object({ id: z.string().uuid(), displayName: z.string().min(1) }).strict()
+}).strict();
+
+export const adminRetentionPolicyResponseSchema = z.object({
+  current: adminRetentionPolicySchema.nullable(),
+  dryRun: z.object({ eligibleClosures: z.number().int().nonnegative(), cutoffAt: accountClosureDateTimeSchema, oldestClosureAt: accountClosureDateTimeSchema.nullable() }).strict().nullable(),
+  unmappedClosures: z.number().int().nonnegative(),
+  executionEnabled: z.literal(false)
+}).strict();
+
 export const adminAccountClosuresResponseSchema = z.object({
   items: z.array(z.object({
     id: z.string().uuid(),
@@ -50,3 +78,6 @@ export const adminAccountClosuresResponseSchema = z.object({
 export type AccountClosureEligibilityResponse = z.infer<typeof accountClosureEligibilityResponseSchema>;
 export type AccountClosureCompletionResponse = z.infer<typeof accountClosureCompletionResponseSchema>;
 export type AdminAccountClosuresResponse = z.infer<typeof adminAccountClosuresResponseSchema>;
+export type AdminRetentionPolicyInput = z.infer<typeof adminRetentionPolicyInputSchema>;
+export type AdminRetentionPolicy = z.infer<typeof adminRetentionPolicySchema>;
+export type AdminRetentionPolicyResponse = z.infer<typeof adminRetentionPolicyResponseSchema>;

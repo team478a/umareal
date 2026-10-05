@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAccountClosuresResponseSchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminLocalRestoreAttestationInputSchema, adminLocalRestoreAttestationResponseSchema, adminOperationsRaceSchema, adminOperationsResponseSchema, adminReadinessResponseSchema, adminSummaryResponseSchema, adminUsersResponseSchema, assessmentSchema, buildAdminOperationsAttention, canEditRace, canManage, deploymentConsistency, expertRaceListResponseSchema, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceAnnouncementsResponseSchema, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
+import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAccountClosuresResponseSchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminLocalRestoreAttestationInputSchema, adminLocalRestoreAttestationResponseSchema, adminOperationsRaceSchema, adminOperationsResponseSchema, adminReadinessResponseSchema, adminRetentionPolicyInputSchema, adminRetentionPolicyResponseSchema, adminRetentionPolicySchema, adminSummaryResponseSchema, adminUsersResponseSchema, assessmentSchema, buildAdminOperationsAttention, canEditRace, canManage, deploymentConsistency, expertRaceListResponseSchema, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceAnnouncementsResponseSchema, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -356,6 +356,15 @@ export class AppController {
       this.auth.db.accountClosure.count()
     ]);
     return adminAccountClosuresResponseSchema.parse({ items: items.map(item => ({ id: item.id, reasonCode: item.reasonCode, requestedAt: item.requestedAt, accessRevokedAt: item.accessRevokedAt, retentionPolicyVersion: item.retentionPolicyVersion, status: item.user.disabledAt ? 'CLOSED' : 'REVIEW_REQUIRED', user: item.user })), total, page, limit });
+  }
+  @Get('admin/account-closures/retention-policy') async retentionPolicy(@Req() req: AppRequest) {
+    await this.staff(req, ['ADMIN']);
+    return adminRetentionPolicyResponseSchema.parse(await this.accountClosure.retentionPolicyStatus());
+  }
+  @Post('admin/account-closures/retention-policy') async approveRetentionPolicy(@Body() body: unknown, @Req() req: AppRequest) {
+    const actor = await this.staff(req, ['ADMIN']);
+    const input = adminRetentionPolicyInputSchema.parse(body);
+    return adminRetentionPolicySchema.parse(await this.accountClosure.approveRetentionPolicy(input, actor, req));
   }
   @Get('admin/users') async users(@Req() req: AppRequest, @Query() query: unknown) {
     await this.staff(req, ['ADMIN']);

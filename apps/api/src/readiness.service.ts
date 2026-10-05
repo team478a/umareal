@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
 import { databaseRuntimeAccessRestricted, loadMailConfig } from '@keiba/db';
-import { adminBackupFailedStatusSchema, adminBackupVerifiedStatusSchema, adminLocalRestoreAttestationSchema, consentVersions, launchCapabilities, legalDocumentReleaseErrors, resolveLaunchMode } from '@keiba/domain';
+import { adminBackupFailedStatusSchema, adminBackupVerifiedStatusSchema, adminLocalRestoreAttestationSchema, adminRetentionPolicySchema, consentVersions, launchCapabilities, legalDocumentReleaseErrors, resolveLaunchMode } from '@keiba/domain';
 import type { AdminLocalRestoreAttestationInput, AdminReadinessCheck } from '@keiba/domain';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -52,7 +52,7 @@ export class ReadinessService {
   async getReadiness() {
     const launchMode = resolveLaunchMode(process.env.LAUNCH_MODE);
     const capabilities = launchCapabilities(launchMode);
-    const [settings, backup, restoreAttestation, appliedMigrations, stripeConfig, mailConfig, databaseAccessRestricted, adminContinuity, alertSetting] = await Promise.all([
+    const [settings, backup, restoreAttestation, appliedMigrations, stripeConfig, mailConfig, databaseAccessRestricted, adminContinuity, alertSetting, retentionPolicyAudit] = await Promise.all([
       this.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { newRegistrationsEnabled: true, registrationCaptchaEnabled: true, turnstileSiteKey: true, turnstileSecretEncrypted: true, emailNotificationsEnabled: true, predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: true, lineLoginEnabled: true, newPurchasesEnabled: true, lineChannelId: true, lineChannelSecretEncrypted: true, lineAccessTokenEncrypted: true, lineLoginChannelId: true, lineLoginChannelSecretEncrypted: true, lineLoginCallbackUrl: true, updatedAt: true } }),
       this.localBackupStatus(),
       this.latestLocalRestoreAttestation(),
@@ -65,7 +65,8 @@ export class ReadinessService {
         this.db.user.count({ where: { role: 'ADMIN', disabledAt: null, externalMfaFactorId: { not: null } } }),
         this.db.user.count({ where: { role: 'ADMIN', disabledAt: null, externalBackupMfaFactorId: { not: null } } })
       ]),
-      this.db.operationalAlertSetting.findUniqueOrThrow({ where: { id: 'global' } })
+      this.db.operationalAlertSetting.findUniqueOrThrow({ where: { id: 'global' } }),
+      this.db.auditLog.findMany({ where: { action: 'DATA_RETENTION_POLICY_APPROVED', targetType: 'DATA_RETENTION_POLICY' }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 20 })
     ]);
     const checks: AdminReadinessCheck[] = [];
     const add = (check: AdminReadinessCheck) => checks.push(check);
@@ -91,7 +92,8 @@ export class ReadinessService {
     add({ code: 'EXTERNAL_BILLING', group: 'CONNECTIONS', status: !capabilities.billing ? 'READY' : stripeConfigured ? 'MANUAL' : 'BLOCKED', title: '外部決済', evidence: !capabilities.billing ? '無料会員募集モードでは購入機能を停止しています。' : stripeConfigured ? `Stripe ${stripeSandbox ? 'test mode' : 'live mode'}のCheckoutと署名付きWebhookの設定があります（設定元: ${stripeConfig.source === 'ADMIN' ? '管理画面' : '環境変数'}）。疎通は人による確認が必要です。` : stripeSandbox ? 'Stripeテスト資格情報、テストWebhook、またはテストPrice IDが不足・不整合です。' : '現在はローカル決済試験、またはStripe設定が不足・不整合です。', action: !capabilities.billing ? 'FULLへ切り替える前に本番決済リハーサルを完了します。' : stripeConfigured ? `${stripeSandbox ? 'Stripeテストカード' : '本番移行前のテスト環境'}で決済成功・重複Webhook・金額不一致を確認します。` : '管理画面でStripe資格情報、動作モード、3プランのPrice IDを設定します。', href: '/admin/settings' });
     const legalReady = legalDocumentReleaseErrors().length === 0;
     add({ code: 'LEGAL_DOCUMENTS', group: 'LEGAL_DATA', status: legalReady ? 'READY' : 'BLOCKED', title: '利用規約・プライバシー', evidence: legalReady ? '正式版の文書バージョンを使用しています。' : `同意文書は開発版（${consentVersions.terms} / ${consentVersions.privacy}）です。`, action: '正式文書を確定し、バージョンを更新して同意を取得します。' });
-    add({ code: 'DATA_RETENTION', group: 'LEGAL_DATA', status: 'BLOCKED', title: '個人情報の保持・匿名化', evidence: '退会処理はdevelopment-v1方針で履歴を保持しています。', action: '保持期間、匿名化範囲、開示・削除請求、再登録の扱いを確定します。', href: '/admin/account-closures' });
+    const retentionPolicy = retentionPolicyAudit.map(record => adminRetentionPolicySchema.safeParse(record.details)).find(result => result.success) ?? adminRetentionPolicySchema.safeParse(null);
+    add({ code: 'DATA_RETENTION', group: 'LEGAL_DATA', status: retentionPolicy.success ? 'MANUAL' : 'BLOCKED', title: '個人情報の保持・匿名化', evidence: retentionPolicy.success ? `保持方針 ${retentionPolicy.data.version} を承認済みです（識別情報 ${retentionPolicy.data.identityRetentionDays}日、ネットワーク識別子 ${retentionPolicy.data.networkIdentifierRetentionDays}日）。自動匿名化は無効です。` : '退会処理はdevelopment-v1方針で履歴を保持しています。', action: retentionPolicy.success ? '期限到来件数を確認し、匿名化実行機能の実装・法務確認・復元不能性の試験を完了します。' : '保持期間、匿名化範囲、開示・削除請求、再登録の扱いを管理画面で承認記録します。', href: '/admin/account-closures' });
     add({ code: 'DATABASE_LEAST_PRIVILEGE', group: 'LEGAL_DATA', status: databaseAccessRestricted ? 'READY' : 'BLOCKED', title: 'DB実行権限の分離', evidence: databaseAccessRestricted ? 'API接続はCRUD限定で、所有権、DDL、TRUNCATE、トリガー操作権限を持ちません。' : '現在のAPI接続は所有者または必要以上のDB権限を持っています。', action: '`pnpm db:access:configure` でruntimeロールを構成し、APIとworkerにruntime接続だけを設定します。' });
     const backupFresh = backup.status === 'VERIFIED' && backup.migrations === appliedMigrations && Date.now() - new Date(backup.verifiedAt).getTime() <= 7 * 86400000;
     const attestationFresh = !!restoreAttestation && restoreAttestation.verification.migrations === appliedMigrations && Date.now() - new Date(restoreAttestation.verification.verifiedAt).getTime() <= 7 * 86400000;

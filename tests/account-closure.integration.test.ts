@@ -12,7 +12,7 @@ describe('account closure and retained history', () => {
     const first = new Client(); const second = new Client(); await first.login(fixture); await second.login(fixture);
     expect((await new Client().call('me/closure')).status).toBe(401);
     const eligibility = await first.call('me/closure');
-    expect(eligibility.status).toBe(200); expect(eligibility.body).toMatchObject({ eligible: true, passwordRequired: true, retentionPolicyVersion: 'development-v1' });
+    expect(eligibility.status).toBe(200); expect(eligibility.body).toMatchObject({ eligible: true, passwordRequired: true }); expect(eligibility.body.retentionPolicyVersion).toEqual(expect.any(String));
     expect(Object.keys(eligibility.body).sort()).toEqual(['blockers', 'eligible', 'passwordRequired', 'retained', 'retentionPolicyVersion'].sort());
     expect(eligibility.body.blockers).toEqual([]);
     expect(JSON.stringify(eligibility.body)).not.toMatch(/passwordHash|userId|subscriptionId|dayPassId|checkoutId/);
@@ -35,14 +35,14 @@ describe('account closure and retained history', () => {
     ]);
     expect(user.disabledAt).not.toBeNull(); expect(preferences).toMatchObject({ predictions: false, changes: false, articles: false, billing: false });
     expect(line.unlinkedAt).not.toBeNull(); expect(line.notificationDisabledAt).not.toBeNull(); expect(revoked.revokedAt).not.toBeNull(); expect(sessions).toBe(0);
-    expect(closure).toMatchObject({ reasonCode: 'SERVICE_NO_LONGER_NEEDED', retentionPolicyVersion: 'development-v1' }); expect(audit.details).toMatchObject({ closureId: closure.id });
+    expect(closure).toMatchObject({ reasonCode: 'SERVICE_NO_LONGER_NEEDED', retentionPolicyVersion: eligibility.body.retentionPolicyVersion }); expect(audit.details).toMatchObject({ closureId: closure.id });
     await expect(db.accountClosure.update({ where: { id: closure.id }, data: { reasonCode: 'PRICE' } })).rejects.toThrow();
     await expect(db.accountClosure.delete({ where: { id: closure.id } })).rejects.toThrow();
 
     const admin = new Client(); await admin.login(await account('ADMIN'));
     expect((await admin.call('admin/account-closures')).status).toBe(403); await admin.mfa();
     const records = await admin.call('admin/account-closures'); expect(records.status).toBe(200);
-    expect(records.body.items).toEqual(expect.arrayContaining([expect.objectContaining({ id: closure.id, status: 'CLOSED', retentionPolicyVersion: 'development-v1' })]));
+    expect(records.body.items).toEqual(expect.arrayContaining([expect.objectContaining({ id: closure.id, status: 'CLOSED', retentionPolicyVersion: eligibility.body.retentionPolicyVersion })]));
     expect(Object.keys(records.body).sort()).toEqual(['items', 'limit', 'page', 'total'].sort());
     const record = records.body.items.find((item: { id: string }) => item.id === closure.id);
     expect(Object.keys(record).sort()).toEqual(['accessRevokedAt', 'id', 'reasonCode', 'requestedAt', 'retentionPolicyVersion', 'status', 'user'].sort());
@@ -84,5 +84,21 @@ describe('account closure and retained history', () => {
     const response = await client.call('me/close', 'POST', { reasonCode: 'PRICE', confirmation: '退会する', currentPassword: fixture.password });
     expect(response).toMatchObject({ status: 409, body: { code: 'ACTIVE_BILLING_EXISTS' } });
     expect(await db.accountClosure.findUnique({ where: { userId: fixture.user.id } })).toBeNull();
+  });
+
+  it('requires administrator AAL2 and records a versioned retention policy without executing anonymization', async () => {
+    const admin = new Client(); await admin.login(await account('ADMIN'));
+    expect((await admin.call('admin/account-closures/retention-policy')).status).toBe(403);
+    await admin.mfa();
+    const version = `privacy-${randomUUID()}`;
+    const input = { version, identityRetentionDays: 365, networkIdentifierRetentionDays: 90, anonymizationScope: ['EMAIL', 'DISPLAY_NAME', 'AUTH_IDENTITY', 'LINE_IDENTITY', 'NETWORK_IDENTIFIERS'], reRegistrationHandling: 'MANUAL_REVIEW', dataRequestHandling: 'MANUAL_LEGAL_REVIEW', legalReviewReference: 'integration-legal-review', reason: '保持方針の結合試験' };
+    const approved = await admin.call('admin/account-closures/retention-policy', 'POST', input);
+    expect(approved.status).toBe(201); expect(approved.body).toMatchObject({ version, identityRetentionDays: 365, networkIdentifierRetentionDays: 90, anonymizationScope: input.anonymizationScope, reRegistrationHandling: 'MANUAL_REVIEW', dataRequestHandling: 'MANUAL_LEGAL_REVIEW', legalReviewReference: 'integration-legal-review', approvedBy: { id: expect.any(String), displayName: expect.any(String) } });
+    expect(approved.body).not.toHaveProperty('reason');
+    expect((await admin.call('admin/account-closures/retention-policy', 'POST', input)).status).toBe(409);
+    const status = await admin.call('admin/account-closures/retention-policy');
+    expect(status).toMatchObject({ status: 200, body: { current: { version }, dryRun: { eligibleClosures: expect.any(Number) }, unmappedClosures: expect.any(Number), executionEnabled: false } });
+    const member = new Client(); await member.login(await account());
+    expect((await member.call('me/closure')).body.retentionPolicyVersion).toBe(version);
   });
 });
