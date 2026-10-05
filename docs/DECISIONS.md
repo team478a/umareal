@@ -1,5 +1,14 @@
 # 設計判断と保留事項
 
+## 退会後匿名化の実行・承認設計（2026-10-06）
+
+- 匿名化実行は退会記録1件単位から開始し、一括自動実行を行わない。正式な保持方針、法的保全、未解決業務、外部事業者の条件が揃わない対象はfail closedする。
+- 申請者と承認者を別の`ADMIN+AAL2`とし、候補snapshot、保持方針version、対象field、実行logicのいずれかが変われば承認を`STALE`として失効させる。
+- DB匿名化、DB検証、Supabase Auth・LINE等の外部確認を別stepとして追記する。部分成功では元値へ戻さず`PARTIAL_FAILURE`で停止し、同じplanから未完了stepだけを再開する。
+- 元値、元値hash、置換値、provider応答本文を匿名化証跡へ保存しない。公開・評価、結果、課金、同意、問い合わせ、監査等の業務履歴は内部UUIDとの関係を維持し、表示上の識別情報だけを分離する。
+- 元値を戻すrollbackは設けない。実行前のstale検知、DB transaction rollback、synthetic fixture、初回1件・二名立会い、backup保持方針を含む復旧不能性検証で誤処理を防ぐ。
+- 現段階は`docs/ACCOUNT_ANONYMIZATION_EXECUTION_DESIGN.md`の設計追加だけとし、匿名化API、worker、CLI、DB migration、本番操作は実装しない。
+
 ## 退会後の保持方針承認基盤（2026-10-05）
 
 - 保持期間や再登録の事業判断をコードへ固定しない。ADMIN+AAL2が法務確認参照と理由を添え、構造化した正式方針を追記専用監査ログへ承認記録する。
