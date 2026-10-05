@@ -49,7 +49,7 @@ describe('production readiness', () => {
       status: 'VERIFIED', verifiedAt: new Date().toISOString(), backupId: `keiba-physical-${new Date().toISOString().replace(/\D/g, '').slice(0, 14)}`,
       format: 'postgresql-physical-directory', postgresMajor: 16, encrypted: false, sha256: 'b'.repeat(64), sizeBytes: 4096, fileCount: 20,
       migrations: migrations[0]?.count ?? 0, requiredTriggers: 12, restoredDatabaseRemoved: true,
-      counts: { users: 1, races: 2, predictionVersions: 3, freeReportVersions: 4, audioAssets: 5, publicationSchedules: 6, memberAcquisitions: 7, acquisitionCampaigns: 8, auditLogs: 9, notificationEvents: 10, operationalAlerts: 11, operationalAlertDeliveries: 12, billingSupportRequests: 13, billingSupportEvents: 14 }
+      counts: { users: 1, races: 2, predictionVersions: 3, predictionProducts: 4, predictionProductVersions: 5, freeReportVersions: 6, audioAssets: 7, publicationSchedules: 8, memberAcquisitions: 9, acquisitionCampaigns: 10, auditLogs: 11, notificationEvents: 12, operationalAlerts: 13, operationalAlertDeliveries: 14, billingSupportRequests: 15, billingSupportEvents: 16 }
     };
     const fixture = await account('ADMIN');
     const admin = new Client(); await admin.login(fixture);

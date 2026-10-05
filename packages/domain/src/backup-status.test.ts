@@ -18,17 +18,19 @@ const verified = {
     users: 1,
     races: 2,
     predictionVersions: 3,
-    freeReportVersions: 4,
-    audioAssets: 5,
-    publicationSchedules: 6,
-    memberAcquisitions: 7,
-    acquisitionCampaigns: 8,
-    auditLogs: 9,
-    notificationEvents: 10,
-    operationalAlerts: 11,
-    operationalAlertDeliveries: 12,
-    billingSupportRequests: 13,
-    billingSupportEvents: 14
+    predictionProducts: 4,
+    predictionProductVersions: 5,
+    freeReportVersions: 6,
+    audioAssets: 7,
+    publicationSchedules: 8,
+    memberAcquisitions: 9,
+    acquisitionCampaigns: 10,
+    auditLogs: 11,
+    notificationEvents: 12,
+    operationalAlerts: 13,
+    operationalAlertDeliveries: 14,
+    billingSupportRequests: 15,
+    billingSupportEvents: 16
   }
 };
 
@@ -56,5 +58,14 @@ describe('administrator backup status API contract', () => {
       ...verified,
       counts: { ...verified.counts, log: 'internal output' }
     }).success).toBe(false);
+  });
+
+  it('accepts the complete count set emitted by backup-verify', () => {
+    const parsed = adminBackupStatusResponseSchema.parse(verified);
+    expect(parsed.status).toBe('VERIFIED');
+    if (parsed.status === 'VERIFIED') {
+      expect(parsed.counts.predictionProducts).toBe(4);
+      expect(parsed.counts.predictionProductVersions).toBe(5);
+    }
   });
 });
