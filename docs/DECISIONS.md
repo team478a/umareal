@@ -1,5 +1,13 @@
 # 設計判断と保留事項
 
+## DB移行を先行させる手動リリースゲート（2026-10-05）
+
+- CMS配備時にアプリケーションが先に更新され、未作成テーブルを参照したworkerが停止した事象を受け、RenderのAPI、Web、workerはCI成功時の自動配備を停止する。CI成功はコード品質のゲートであり、本番DB移行完了の証明にはしない。
+- DB変更を含むかどうかにかかわらず、配備前に保護された作業端末から`pnpm db:release:prepare`を実行する。コマンドは一時的な所有者接続で保留migrationを適用し、成功後に別のruntime接続で全テーブルのCRUD権限と禁止権限を検証する。migration失敗時は権限検証へ進まず、いずれかが失敗した場合は配備しない。
+- コマンドは所有者とruntimeが同じDBを指し、異なるロールであること、および明示確認値を必須にする。所有者URLをruntime検証へ渡さず、runtime URLをmigrationへ渡さない。URLやパスワードをログ、Git、Render常駐環境、GitHub Actionsへ保存しない。
+- APIとworkerをメンテナンスまたは安全な停止状態にした後にDB準備を行い、成功後だけRender Dashboardから同じmainコミットを3サービスへ手動配備する。最後に`deploy:wait-for-release`または`deploy:verify-releases`でWeb、API、workerの版一致とworker heartbeatを確認する。
+- Render API key、deploy hook、DB資格情報をGitHub共有ランナーへ追加しない。将来、固定IPと短命資格情報を持つ保護runnerを用意できた場合だけ無人化を再検討する。
+
 ## 有料コンテンツ閲覧範囲（2026-10-04）
 
 - 月額、1日利用、手動付与ごとに、パドック直前予想、WIN5、通常レース前日紙面の閲覧可否を管理設定で保持する。
@@ -14,10 +22,10 @@
 - 管理者向けMP4をWeb公開ディレクトリへ置かない。APIが認証・認可後に固定許可リストから配信し、URLの推測だけでは取得できない構成にする。
 - 今回は同梱済み動画の公開だけを対象とし、動画CMS、外部ストレージ、署名付きURL、DRM、視聴分析は追加しない。
 
-## staging配備確認のGitHub手動実行（2026-09-26）
+## staging配備確認のGitHub手動実行（2026-09-26、2026-10-05更新）
 
-- mainの`Validate foundation`成功後はRenderの`After CI Checks Pass`が配備を開始する。配備開始後、GitHub Actionsをmainから手動実行してstagingの公開`/health`を最大12分監視し、対象mainコミットへWeb、API、workerが揃い、worker heartbeatが現在時刻に追随した場合だけ成功とする。
-- 当初は`workflow_run`で自動起動したが、GitHub上の公開確認自体もCI checkになり、Renderはその完了を待ち、公開確認はRenderの配備を待つ相互待ちが実際に発生した。RenderのCI成功後配備を維持するため、自動起動を廃止してスマートフォンから実行できる`workflow_dispatch`だけに限定する。
+- mainの`Validate foundation`成功後、保護端末でDBリリース準備を完了し、Render Dashboardから手動配備する。配備開始後、GitHub Actionsをmainから手動実行してstagingの公開`/health`を最大12分監視し、対象mainコミットへWeb、API、workerが揃い、worker heartbeatが現在時刻に追随した場合だけ成功とする。
+- 当初はRenderの`After CI Checks Pass`と`workflow_run`を組み合わせたが相互待ちが発生し、DB migrationよりアプリ配備が先行する危険も残った。2026-10-05以降はRender自動配備を停止し、確認workflowはスマートフォンから実行できる`workflow_dispatch`だけに限定する。
 - 検査は公開URLと短縮コミットだけを使用し、Render API key、deploy hook、DB URLを必要としない。ログとGitHub summaryへ資格情報、サービスID、内部URLを出さない。
 - staging Postgresは外部接続元IPを限定している。接続元が変動するGitHub共有ランナーへ所有者DB URLを渡すために`0.0.0.0/0`や広いGitHub IP範囲を許可せず、所有者資格情報を常駐Renderサービスへ保存しない。migrationとruntime権限再設定は従来どおり、作業端末IPだけを一時許可した保護実行環境で行う。
 - 公開検査の失敗は既存サービスの停止や自動ロールバックを行わない。旧版、版ずれ、worker停止、DB migration不足を運用者が確認するためのゲートとして扱う。
@@ -434,7 +442,7 @@ Phase 6G完了時に次候補として示したキャンペーンURL発行とCSV
 - 公開入口はWebの独自ドメイン1つとし、APIは同一OriginのNext.js中継からRender private network経由で接続する。API用の公開ドメインを増やさない。
 - LINEとStripeのWebhookもWeb中継を使うため、署名ヘッダーと未加工本文をAPIへ転送する。任意の受信ヘッダーは転送しない。
 - DockerイメージはNode.jsとpnpmのバージョンを固定し、非rootユーザーでWeb、API、ワーカーのいずれも起動できる共通成果物とする。
-- Render BlueprintはSingaporeリージョン、外部接続を閉じたPostgreSQL、CI成功後の自動配備、配備前マイグレーション、Webの統合ヘルスチェックを定義する。料金プランは利用量とバックアップ要件を確認して選ぶため固定しない。
+- Render BlueprintはSingaporeリージョン、外部接続を閉じたPostgreSQL、手動配備、Webの統合ヘルスチェックを定義する。配備前migrationは常駐サービスから分離した保護端末で実行する。料金プランは利用量とバックアップ要件を確認して選ぶため固定しない。
 - `ENCRYPTION_KEY` はAPIとワーカーに同じ32-byte base64値を設定する。秘密値をBlueprint、Git、ログへ保存しない。
 - Supabase JWT検証アダプターだけでは無料登録を本番利用できない。ブラウザー側のSupabase登録・ログイン・セッション更新・ログアウトと、サーバー側ユーザー作成・同意記録の結合を完了するまで、本番認証は管理画面でも人による確認扱いにする。
 - 正式な利用規約・プライバシーポリシー、個人情報保持、DB権限分離、外部監視、暗号化バックアップの確認も公開前条件として維持する。
