@@ -43,6 +43,42 @@ export class AccountClosureService {
     return { current, dryRun: { eligibleClosures, cutoffAt, oldestClosureAt: oldest?.accessRevokedAt ?? null }, unmappedClosures, executionEnabled: false as const };
   }
 
+  async retentionPreview(page: number, limit: number, now = new Date()) {
+    const [policies, closures, total] = await Promise.all([
+      this.approvedPolicies(),
+      this.auth.db.accountClosure.findMany({
+        include: { user: { select: { id: true, displayName: true, email: true, registrationMethod: true } } },
+        orderBy: [{ accessRevokedAt: 'asc' }, { id: 'asc' }], skip: (page - 1) * limit, take: limit
+      }),
+      this.auth.db.accountClosure.count()
+    ]);
+    const byVersion = new Map(policies.map(policy => [policy.version, policy]));
+    return {
+      generatedAt: now,
+      items: closures.map(closure => {
+        const policy = byVersion.get(closure.retentionPolicyVersion);
+        if (!policy) return {
+          closureId: closure.id, policyVersion: closure.retentionPolicyVersion, status: 'POLICY_UNMAPPED' as const,
+          accessRevokedAt: closure.accessRevokedAt, eligibleAt: null, daysRemaining: null, anonymizationScope: [],
+          preservedRecords: retainedHistory, externalActionsRequired: [], user: closure.user
+        };
+        const eligibleAt = new Date(closure.accessRevokedAt.getTime() + policy.identityRetentionDays * 86400000);
+        const eligible = eligibleAt <= now;
+        return {
+          closureId: closure.id, policyVersion: policy.version, status: eligible ? 'ELIGIBLE' as const : 'NOT_DUE' as const,
+          accessRevokedAt: closure.accessRevokedAt, eligibleAt, daysRemaining: eligible ? 0 : Math.ceil((eligibleAt.getTime() - now.getTime()) / 86400000),
+          anonymizationScope: policy.anonymizationScope, preservedRecords: retainedHistory,
+          externalActionsRequired: [
+            ...(policy.anonymizationScope.includes('AUTH_IDENTITY') ? ['SUPABASE_AUTH_REVIEW' as const] : []),
+            ...(policy.anonymizationScope.includes('LINE_IDENTITY') ? ['LINE_PROVIDER_REVIEW' as const] : [])
+          ],
+          user: closure.user
+        };
+      }),
+      total, page, limit, automaticExecution: false as const
+    };
+  }
+
   async approveRetentionPolicy(input: AdminRetentionPolicyInput, actor: { id: string; user: { displayName: string } }, req: AppRequest) {
     return this.auth.db.$transaction(async tx => {
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('data-retention-policy'))::text`;

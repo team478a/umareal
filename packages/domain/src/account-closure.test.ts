@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, adminAccountClosuresResponseSchema, adminRetentionPolicyInputSchema, adminRetentionPolicyResponseSchema } from './account-closure';
+import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, adminAccountClosuresResponseSchema, adminRetentionPolicyInputSchema, adminRetentionPolicyResponseSchema, adminRetentionPreviewResponseSchema } from './account-closure';
 
 const response = {
   eligible: false,
@@ -47,6 +47,15 @@ describe('administrator retention policy contract', () => {
     const response = adminRetentionPolicyResponseSchema.parse({ current: { version: input.version, identityRetentionDays: input.identityRetentionDays, networkIdentifierRetentionDays: input.networkIdentifierRetentionDays, anonymizationScope: input.anonymizationScope, reRegistrationHandling: input.reRegistrationHandling, dataRequestHandling: input.dataRequestHandling, legalReviewReference: input.legalReviewReference, approvedAt: new Date('2026-10-05T12:00:00Z'), approvedBy: { id: '11111111-1111-4111-8111-111111111111', displayName: '管理者' } }, dryRun: { eligibleClosures: 2, cutoffAt: new Date('2025-10-05T12:00:00Z'), oldestClosureAt: null }, unmappedClosures: 1, executionEnabled: false });
     expect(response.executionEnabled).toBe(false);
     expect(response.current?.approvedAt).toBe('2026-10-05T12:00:00.000Z');
+  });
+});
+
+describe('administrator retention preview contract', () => {
+  it('returns only the fields needed for a read-only impact review', () => {
+    const parsed = adminRetentionPreviewResponseSchema.parse({ generatedAt: new Date('2026-10-06T00:00:00Z'), items: [{ closureId: '11111111-1111-4111-8111-111111111111', policyVersion: 'privacy-2026-10', status: 'ELIGIBLE', accessRevokedAt: new Date('2025-10-01T00:00:00Z'), eligibleAt: new Date('2026-10-01T00:00:00Z'), daysRemaining: 0, anonymizationScope: ['EMAIL'], preservedRecords: ['監査履歴'], externalActionsRequired: ['SUPABASE_AUTH_REVIEW'], user: { id: '22222222-2222-4222-8222-222222222222', displayName: '退会会員', email: 'closed@example.test', registrationMethod: 'EMAIL' } }], total: 1, page: 1, limit: 20, automaticExecution: false });
+    expect(parsed.automaticExecution).toBe(false);
+    expect(parsed.items[0].status).toBe('ELIGIBLE');
+    expect(JSON.stringify(parsed)).not.toMatch(/passwordHash|authSubject|lineSubject/);
   });
 });
 

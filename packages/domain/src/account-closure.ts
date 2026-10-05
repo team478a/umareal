@@ -54,6 +54,31 @@ export const adminRetentionPolicyResponseSchema = z.object({
   executionEnabled: z.literal(false)
 }).strict();
 
+export const adminRetentionPreviewResponseSchema = z.object({
+  generatedAt: accountClosureDateTimeSchema,
+  items: z.array(z.object({
+    closureId: z.string().uuid(),
+    policyVersion: z.string().min(1),
+    status: z.enum(['ELIGIBLE', 'NOT_DUE', 'POLICY_UNMAPPED']),
+    accessRevokedAt: accountClosureDateTimeSchema,
+    eligibleAt: accountClosureDateTimeSchema.nullable(),
+    daysRemaining: z.number().int().nonnegative().nullable(),
+    anonymizationScope: z.array(retentionAnonymizationScopeSchema),
+    preservedRecords: z.array(z.string().min(1)),
+    externalActionsRequired: z.array(z.enum(['SUPABASE_AUTH_REVIEW', 'LINE_PROVIDER_REVIEW'])),
+    user: z.object({
+      id: z.string().uuid(),
+      displayName: z.string().min(1),
+      email: z.string().email().nullable(),
+      registrationMethod: z.string().min(1)
+    }).strict()
+  }).strict()),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  limit: z.number().int().min(1).max(50),
+  automaticExecution: z.literal(false)
+}).strict();
+
 export const adminAccountClosuresResponseSchema = z.object({
   items: z.array(z.object({
     id: z.string().uuid(),
@@ -81,3 +106,4 @@ export type AdminAccountClosuresResponse = z.infer<typeof adminAccountClosuresRe
 export type AdminRetentionPolicyInput = z.infer<typeof adminRetentionPolicyInputSchema>;
 export type AdminRetentionPolicy = z.infer<typeof adminRetentionPolicySchema>;
 export type AdminRetentionPolicyResponse = z.infer<typeof adminRetentionPolicyResponseSchema>;
+export type AdminRetentionPreviewResponse = z.infer<typeof adminRetentionPreviewResponseSchema>;
