@@ -107,3 +107,10 @@ Data Labの一般向け月額料金はJRADB商用契約の料金根拠にしな�
 - [JRA-VAN公式: 商用利用にはJRADBが必要](https://developer.jra-van.jp/t/topic/899)
 - [JRA-VAN利用規約](https://jra-van.jp/info/rule.html)
 - [JRA-VAN SDK提供コーナー](https://jra-van.jp/dlb/sdv/sdk.html)
+
+## Gate実行文書
+
+- `docs/AI_RACE_GUIDE_COMMERCIAL_LICENSE_GATE.md`
+- `docs/AI_RACE_GUIDE_JRADB_INQUIRY_DRAFT.md`
+- `docs/AI_RACE_GUIDE_PROVIDER_EVALUATION.md`
+- `docs/AI_RACE_GUIDE_LICENSE_DECISION_TEMPLATE.md`
