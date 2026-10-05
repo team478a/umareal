@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, adminAccountClosuresResponseSchema } from './account-closure';
+import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, adminAccountClosuresResponseSchema, adminRetentionPolicyInputSchema, adminRetentionPolicyResponseSchema } from './account-closure';
 
 const response = {
   eligible: false,
@@ -27,6 +27,26 @@ describe('account closure eligibility response contract', () => {
       blockers: [{ ...response.blockers[0], subscriptionId: 'internal-subscription' }]
     }).success).toBe(false);
     expect(accountClosureEligibilityResponseSchema.safeParse({ ...response, passwordHash: 'secret' }).success).toBe(false);
+  });
+});
+
+describe('administrator retention policy contract', () => {
+  const input = {
+    version: 'privacy-2026-10', identityRetentionDays: 365, networkIdentifierRetentionDays: 90,
+    anonymizationScope: ['EMAIL', 'DISPLAY_NAME', 'AUTH_IDENTITY', 'LINE_IDENTITY'],
+    reRegistrationHandling: 'MANUAL_REVIEW', dataRequestHandling: 'MANUAL_LEGAL_REVIEW', legalReviewReference: 'LEGAL-42', reason: '正式方針の承認'
+  };
+
+  it('accepts an explicit complete policy and rejects duplicate or unknown scope', () => {
+    expect(adminRetentionPolicyInputSchema.parse(input)).toEqual(input);
+    expect(adminRetentionPolicyInputSchema.safeParse({ ...input, anonymizationScope: ['EMAIL', 'EMAIL'] }).success).toBe(false);
+    expect(adminRetentionPolicyInputSchema.safeParse({ ...input, anonymizationScope: ['EMAIL', 'PASSWORD_HASH'] }).success).toBe(false);
+  });
+
+  it('keeps execution disabled in the administration response', () => {
+    const response = adminRetentionPolicyResponseSchema.parse({ current: { version: input.version, identityRetentionDays: input.identityRetentionDays, networkIdentifierRetentionDays: input.networkIdentifierRetentionDays, anonymizationScope: input.anonymizationScope, reRegistrationHandling: input.reRegistrationHandling, dataRequestHandling: input.dataRequestHandling, legalReviewReference: input.legalReviewReference, approvedAt: new Date('2026-10-05T12:00:00Z'), approvedBy: { id: '11111111-1111-4111-8111-111111111111', displayName: '管理者' } }, dryRun: { eligibleClosures: 2, cutoffAt: new Date('2025-10-05T12:00:00Z'), oldestClosureAt: null }, executionEnabled: false });
+    expect(response.executionEnabled).toBe(false);
+    expect(response.current?.approvedAt).toBe('2026-10-05T12:00:00.000Z');
   });
 });
 

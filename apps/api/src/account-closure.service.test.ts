@@ -22,6 +22,7 @@ describe('AccountClosureService', () => {
       subscription: { findFirst: subscription },
       dayPass: { findFirst: dayPass },
       billingCheckout: { findFirst: checkout },
+      auditLog: { findMany: vi.fn().mockResolvedValue([]) },
     } } as unknown as AuthService);
 
     await expect(service.eligibility(userId, true)).resolves.toEqual({
@@ -53,6 +54,7 @@ describe('AccountClosureService', () => {
       subscription: { findFirst: vi.fn().mockResolvedValue({ id: 'subscription-1', currentPeriodEndsAt: subscriptionEnd, cancelAtPeriodEnd: true }) },
       dayPass: { findFirst: vi.fn().mockResolvedValue({ id: 'pass-1', endsAt: passEnd }) },
       billingCheckout: { findFirst: vi.fn().mockResolvedValue({ id: 'checkout-1', expiresAt: checkoutEnd }) },
+      auditLog: { findMany: vi.fn().mockResolvedValue([]) },
     } } as unknown as AuthService);
 
     const result = await service.eligibility(userId, false);
@@ -66,6 +68,26 @@ describe('AccountClosureService', () => {
     ]);
   });
 
+  it('uses the latest valid approved policy for new closure eligibility', async () => {
+    const approved = { version: 'privacy-2026-10', identityRetentionDays: 365, networkIdentifierRetentionDays: 90, anonymizationScope: ['EMAIL'], reRegistrationHandling: 'MANUAL_REVIEW', dataRequestHandling: 'MANUAL_LEGAL_REVIEW', legalReviewReference: 'LEGAL-42', approvedAt: now.toISOString(), approvedBy: { id: userId, displayName: '管理者' } };
+    const service = new AccountClosureService({ db: {
+      subscription: { findFirst: vi.fn().mockResolvedValue(null) }, dayPass: { findFirst: vi.fn().mockResolvedValue(null) }, billingCheckout: { findFirst: vi.fn().mockResolvedValue(null) },
+      auditLog: { findMany: vi.fn().mockResolvedValue([{ details: { invalid: true } }, { details: approved }]) },
+    } } as unknown as AuthService);
+    await expect(service.eligibility(userId, false)).resolves.toMatchObject({ retentionPolicyVersion: 'privacy-2026-10' });
+  });
+
+  it('records an approved policy append-only with actor and legal reference', async () => {
+    const audit = vi.fn().mockResolvedValue({});
+    const tx = { $queryRaw: vi.fn().mockResolvedValue([]), auditLog: { findFirst: vi.fn().mockResolvedValue(null) } };
+    const service = new AccountClosureService({ db: { $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)) }, audit } as unknown as AuthService);
+    const input = { version: 'privacy-2026-10', identityRetentionDays: 365, networkIdentifierRetentionDays: 90, anonymizationScope: ['EMAIL'] as Array<'EMAIL'>, reRegistrationHandling: 'MANUAL_REVIEW' as const, dataRequestHandling: 'MANUAL_LEGAL_REVIEW' as const, legalReviewReference: 'LEGAL-42', reason: '正式承認' };
+    const actor = { id: userId, user: { displayName: '管理者' } };
+    const result = await service.approveRetentionPolicy(input, actor, req);
+    expect(result).toMatchObject({ version: input.version, approvedBy: { id: userId, displayName: '管理者' }, legalReviewReference: 'LEGAL-42' });
+    expect(audit).toHaveBeenCalledWith(tx, req, 'DATA_RETENTION_POLICY_APPROVED', input.version, input.reason, result, 'DATA_RETENTION_POLICY');
+  });
+
   it('stops every account access path and appends the closure audit in one transaction', async () => {
     const closure = { id: 'closure-1', accessRevokedAt: now, retentionPolicyVersion: 'development-v1' };
     const tx = {
@@ -74,6 +96,7 @@ describe('AccountClosureService', () => {
       subscription: { count: vi.fn().mockResolvedValue(0) },
       dayPass: { count: vi.fn().mockResolvedValue(0) },
       billingCheckout: { count: vi.fn().mockResolvedValue(0) },
+      auditLog: { findMany: vi.fn().mockResolvedValue([]) },
       notificationPreference: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
       lineAccount: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
       entitlement: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
