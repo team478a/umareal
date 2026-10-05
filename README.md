@@ -133,6 +133,6 @@ WIN5前日紙面とパドック直前予想の設計経緯は[docs/WIN5_PHASE1_D
 
 Renderへ資格情報を保存する前に、Git管理外のサービス別環境ファイルを使って `pnpm deploy:preflight -- api`、`pnpm deploy:preflight -- web`、`pnpm deploy:preflight -- worker` を実行できます。検査結果には秘密値を表示しません。
 
-配備後は `pnpm deploy:verify-releases -- https://<Webドメイン>` でWeb・API・workerのコミット一致とworker heartbeatを確認できます。Renderのローリング配備中は再実行し、成功後にステージング試験を開始します。
+配備前はAPI・workerを安全な停止状態にし、保護端末のGit管理外環境ファイルから `node --env-file=.env.release-db.local scripts/prepare-release-database.mjs` を実行します。所有者によるmigrationに成功した後だけruntime最小権限を検証します。所有者接続をRender常駐サービスやGitHubへ保存しません。
 
-mainのCI成功後はRenderが配備を開始します。配備開始後、GitHub Actionsの`Verify staging release`で`Run workflow`からmainを選ぶと、スマートフォンからWeb・API・workerの公開切替を最大12分確認できます。Renderの`After CI Checks Pass`と相互待ちになるため、この確認workflowは自動起動しません。DB migrationは接続元IPを限定した所有者接続が必要なため、GitHub共有ランナーでは実行しません。
+Renderの自動配備は停止しています。DB準備の成功後、Dashboardから同じmain commitをAPI・Web・workerへ手動配備し、`pnpm deploy:wait-for-release -- https://<Webドメイン> <40桁commit SHA> 720000`で版一致とworker heartbeatを確認します。GitHub Actionsの`Verify staging release`もスマートフォンから同じ確認に利用できます。詳しい順序は[配備手順](docs/DEPLOYMENT.md)を参照してください。

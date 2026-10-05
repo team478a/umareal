@@ -7,7 +7,7 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     dockerCommand: pnpm --filter @keiba/api start
-    autoDeployTrigger: checksPass
+    autoDeployTrigger: off
     maxShutdownDelaySeconds: 30
     envVars:
       - key: NODE_ENV
@@ -62,7 +62,7 @@ services:
     dockerContext: .
     dockerCommand: pnpm --filter @keiba/web exec next start --hostname 0.0.0.0 --port 10000
     healthCheckPath: /health
-    autoDeployTrigger: checksPass
+    autoDeployTrigger: off
     envVars:
       - key: NODE_ENV
         value: production
@@ -82,7 +82,7 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     dockerCommand: pnpm --filter @keiba/worker start
-    autoDeployTrigger: checksPass
+    autoDeployTrigger: off
     maxShutdownDelaySeconds: 30
     envVars:
       - key: NODE_ENV

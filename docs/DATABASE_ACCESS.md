@@ -27,9 +27,26 @@ DATABASE_RUNTIME_URL={runtime接続URL}
 ## 将来のマイグレーション
 
 1. APIとworkerをメンテナンスまたは安全な停止状態にする。
-2. 保護された一時実行環境で、所有者接続を `DATABASE_URL` に設定して `pnpm db:migrate` を実行する。
-3. runtime接続で `pnpm db:access:verify` を実行する。新規テーブルを含む全テーブルがCRUD対象で、DDLとトリガー操作権限がないことを確認する。
-4. APIとworkerを起動し、`/health` と管理画面の `DATABASE_LEAST_PRIVILEGE` を確認する。production APIは起動時にも同じ実権限を検査し、所有者や過剰権限の接続を拒否する。
+2. Render Postgresの外部接続許可へ作業端末の現在IPだけを一時追加する。
+3. Git管理外の`.env.release-db.local`へ次の3値だけを一時保存する。
+
+```text
+DATABASE_ADMIN_URL={マイグレーション所有者のURL}
+DATABASE_RUNTIME_URL={runtimeロールのURL}
+DB_RELEASE_CONFIRM=APPLY_MIGRATIONS_AND_VERIFY_RUNTIME
+```
+
+4. 保護された作業端末で次を実行する。
+
+```powershell
+node --env-file=.env.release-db.local scripts/prepare-release-database.mjs
+```
+
+このコマンドは所有者接続による`prisma migrate deploy`の成功後だけruntime実権限検証へ進む。両URLの接続先DB一致とロール分離も検査する。どちらかが失敗した場合はアプリを配備しない。
+
+5. 一時IP許可と端末上の`.env.release-db.local`を削除する。所有者URLをRender、GitHub、Git、チャットへ保存しない。
+6. Render Dashboardから対象mainコミットをAPI、Web、workerへ手動配備する。Blueprintは`autoDeployTrigger: off`とし、DB準備より先にアプリが自動更新されないようにする。
+7. APIとworkerを起動し、`/health`、worker heartbeat、管理画面の`DATABASE_LEAST_PRIVILEGE`を確認する。production APIは起動時にも同じ実権限を検査し、所有者や過剰権限の接続を拒否する。
 
 GitHub共有ランナーからstaging migrationは実行しない。ランナーの接続元IPは実行ごとに変わるため、Render Postgresの許可範囲を広げるか、所有者資格情報を常駐サービスへ保存する必要が生じる。作業端末の現在IPだけを一時許可する既存手順を維持し、migration後の公開状態は`Verify staging release` GitHub Actionsをmainから手動実行して再確認する。
 

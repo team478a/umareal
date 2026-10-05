@@ -37,9 +37,26 @@ pnpm deploy:verify-releases -- https://umareal-staging-web.onrender.com
 
 `CONSISTENT`かつworkerが`OK`の場合だけ成功する。`RELEASE_UNKNOWN`は旧版またはRender標準コミット値を取得できない状態、`RELEASE_MISMATCH`はサービス間の版ずれ、`WORKER_NOT_READY`はworker停止またはheartbeat遅延を示す。ローリング配備中は`/health`自体を停止させず、検査コマンドを再実行して完了を判定する。
 
-mainの`Validate foundation`成功後、Renderの`After CI Checks Pass`が配備を開始する。配備開始後にGitHub Actionsの`Verify staging release`をmainから手動実行すると、同じ確認を最大12分繰り返し、結果と対象短縮コミットをスマートフォンで読めるsummaryへ表示する。このworkflowを`workflow_run`で自動起動するとRenderがそのチェックの完了を待ち、workflowはRenderの配備を待つ相互待ちになるため、手動実行だけに限定する。失敗しても既存サービスを停止・ロールバックしない。
+mainの`Validate foundation`成功後もRenderは自動配備しない。下記のDB先行リリース手順を完了してRender Dashboardから手動配備した後、GitHub Actionsの`Verify staging release`をmainから実行すると、同じ確認を最大12分繰り返し、結果と対象短縮コミットをスマートフォンで読めるsummaryへ表示する。確認workflowは`workflow_dispatch`だけに限定し、失敗しても既存サービスを停止・ロールバックしない。
 
 このGitHub共有ランナーではDB migrationを実行しない。staging Postgresは外部接続元IPを作業端末へ限定しており、共有ランナーの変動IPを許可するためにDBを広く公開しないためである。migrationは本書冒頭と[DATABASE_ACCESS.md](DATABASE_ACCESS.md)のとおり、所有者接続を保護された一時実行環境だけへ設定して行う。完了後にGitHub Actionsの`Run workflow`からmainを再確認する。
+
+## DBを先に更新するリリース手順
+
+Render Blueprintは3サービスとも`autoDeployTrigger: off`にする。CI成功直後に新しいアプリだけが先行し、未適用schemaを参照しないためである。
+
+1. mainの`Validate foundation`成功と対象40桁commit SHAを確認する。
+2. APIとworkerをメンテナンスまたは安全な停止状態にし、作業端末の現在IPだけをDBへ一時許可する。
+3. Git管理外の`.env.release-db.local`に`DATABASE_ADMIN_URL`、`DATABASE_RUNTIME_URL`、`DB_RELEASE_CONFIRM=APPLY_MIGRATIONS_AND_VERIFY_RUNTIME`を一時設定する。
+4. `node --env-file=.env.release-db.local scripts/prepare-release-database.mjs`を実行する。migrationとruntime最小権限検証の両方が成功しなければ配備を中止する。
+5. 一時IP許可と端末上のDB環境ファイルを削除し、Render DashboardからAPI、Web、workerへ同じmain commitを手動配備する。
+6. 次のコマンドで対象commitへの切替とworker heartbeatを待つ。
+
+```powershell
+pnpm deploy:wait-for-release -- https://app.umareal.com {40桁commit SHA} 720000
+```
+
+7. 管理画面で`DATABASE_LEAST_PRIVILEGE`と主要機能を確認する。配備が失敗してもmigrationを巻き戻したり公開済みデータを変更したりせず、旧アプリとの互換性を確認して復旧判断する。
 
 ## 採用する初期構成
 
@@ -63,7 +80,7 @@ mainの`Validate foundation`成功後、Renderの`After CI Checks Pass`が配備
 - Next.jsのAPI中継はCookie、認証、Range、冪等キーに加え、`Stripe-Signature` と `x-line-signature` を許可リストで転送する。
 - DBマイグレーションは常駐サービスと分けた保護実行環境から、所有者接続で `pnpm db:migrate` を実行する。APIとworkerにはruntime接続だけを渡す。
 - ワーカーはSIGTERM/SIGINTを受けると新しい処理ループへ進まず、DB接続を閉じる。
-- GitHub Actionsが成功したコミットだけを自動配備対象にする。
+- GitHub Actionsが成功したコミットだけを手動配備対象にする。DB準備完了前の自動配備は行わない。
 - API private serviceにも`/api/v1/health`を設定し、DBへ到達できないインスタンスを正常扱いしない。
 
 ## 資格情報投入前の設定検査
