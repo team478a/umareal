@@ -97,7 +97,7 @@ describe('account closure and retained history', () => {
     expect(approved.body).not.toHaveProperty('reason');
     expect((await admin.call('admin/account-closures/retention-policy', 'POST', input)).status).toBe(409);
     const status = await admin.call('admin/account-closures/retention-policy');
-    expect(status).toMatchObject({ status: 200, body: { current: { version }, dryRun: { eligibleClosures: expect.any(Number) }, executionEnabled: false } });
+    expect(status).toMatchObject({ status: 200, body: { current: { version }, dryRun: { eligibleClosures: expect.any(Number) }, unmappedClosures: expect.any(Number), executionEnabled: false } });
     const member = new Client(); await member.login(await account());
     expect((await member.call('me/closure')).body.retentionPolicyVersion).toBe(version);
   });

@@ -50,6 +50,7 @@ export const adminRetentionPolicySchema = adminRetentionPolicyInputSchema.omit({
 export const adminRetentionPolicyResponseSchema = z.object({
   current: adminRetentionPolicySchema.nullable(),
   dryRun: z.object({ eligibleClosures: z.number().int().nonnegative(), cutoffAt: accountClosureDateTimeSchema, oldestClosureAt: accountClosureDateTimeSchema.nullable() }).strict().nullable(),
+  unmappedClosures: z.number().int().nonnegative(),
   executionEnabled: z.literal(false)
 }).strict();
 

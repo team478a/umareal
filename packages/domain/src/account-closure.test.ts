@@ -44,7 +44,7 @@ describe('administrator retention policy contract', () => {
   });
 
   it('keeps execution disabled in the administration response', () => {
-    const response = adminRetentionPolicyResponseSchema.parse({ current: { version: input.version, identityRetentionDays: input.identityRetentionDays, networkIdentifierRetentionDays: input.networkIdentifierRetentionDays, anonymizationScope: input.anonymizationScope, reRegistrationHandling: input.reRegistrationHandling, dataRequestHandling: input.dataRequestHandling, legalReviewReference: input.legalReviewReference, approvedAt: new Date('2026-10-05T12:00:00Z'), approvedBy: { id: '11111111-1111-4111-8111-111111111111', displayName: '管理者' } }, dryRun: { eligibleClosures: 2, cutoffAt: new Date('2025-10-05T12:00:00Z'), oldestClosureAt: null }, executionEnabled: false });
+    const response = adminRetentionPolicyResponseSchema.parse({ current: { version: input.version, identityRetentionDays: input.identityRetentionDays, networkIdentifierRetentionDays: input.networkIdentifierRetentionDays, anonymizationScope: input.anonymizationScope, reRegistrationHandling: input.reRegistrationHandling, dataRequestHandling: input.dataRequestHandling, legalReviewReference: input.legalReviewReference, approvedAt: new Date('2026-10-05T12:00:00Z'), approvedBy: { id: '11111111-1111-4111-8111-111111111111', displayName: '管理者' } }, dryRun: { eligibleClosures: 2, cutoffAt: new Date('2025-10-05T12:00:00Z'), oldestClosureAt: null }, unmappedClosures: 1, executionEnabled: false });
     expect(response.executionEnabled).toBe(false);
     expect(response.current?.approvedAt).toBe('2026-10-05T12:00:00.000Z');
   });

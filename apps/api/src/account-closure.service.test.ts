@@ -88,6 +88,18 @@ describe('AccountClosureService', () => {
     expect(audit).toHaveBeenCalledWith(tx, req, 'DATA_RETENTION_POLICY_APPROVED', input.version, input.reason, result, 'DATA_RETENTION_POLICY');
   });
 
+  it('does not retroactively count closures recorded under another policy version', async () => {
+    const policy = { version: 'privacy-2026-10', identityRetentionDays: 365, networkIdentifierRetentionDays: 90, anonymizationScope: ['EMAIL'], reRegistrationHandling: 'MANUAL_REVIEW', dataRequestHandling: 'MANUAL_LEGAL_REVIEW', legalReviewReference: 'LEGAL-42', approvedAt: now.toISOString(), approvedBy: { id: userId, displayName: '管理者' } };
+    const count = vi.fn().mockResolvedValueOnce(3).mockResolvedValueOnce(1);
+    const findFirst = vi.fn().mockResolvedValue({ accessRevokedAt: new Date('2025-01-01T00:00:00Z') });
+    const service = new AccountClosureService({ db: { auditLog: { findMany: vi.fn().mockResolvedValue([{ details: policy }]) }, accountClosure: { count, findFirst } } } as unknown as AuthService);
+    const result = await service.retentionPolicyStatus();
+    expect(result).toMatchObject({ current: { version: policy.version }, dryRun: { eligibleClosures: 1 }, unmappedClosures: 3, executionEnabled: false });
+    expect(count).toHaveBeenNthCalledWith(1, { where: { retentionPolicyVersion: { notIn: [policy.version] } } });
+    expect(count).toHaveBeenNthCalledWith(2, { where: { retentionPolicyVersion: policy.version, accessRevokedAt: { lte: expect.any(Date) } } });
+    expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { retentionPolicyVersion: policy.version, accessRevokedAt: { lte: expect.any(Date) } } }));
+  });
+
   it('stops every account access path and appends the closure audit in one transaction', async () => {
     const closure = { id: 'closure-1', accessRevokedAt: now, retentionPolicyVersion: 'development-v1' };
     const tx = {

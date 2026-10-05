@@ -14,24 +14,33 @@ const retentionPolicyAudit = { action: 'DATA_RETENTION_POLICY_APPROVED', targetT
 export class AccountClosureService {
   constructor(@Inject(AuthService) private readonly auth: AuthService) {}
 
-  private async currentPolicy(client: Prisma.TransactionClient | AuthService['db'] = this.auth.db): Promise<AdminRetentionPolicy | null> {
-    const records = await client.auditLog.findMany({ where: retentionPolicyAudit, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 20 });
+  private async approvedPolicies(client: Prisma.TransactionClient | AuthService['db'] = this.auth.db): Promise<AdminRetentionPolicy[]> {
+    const records = await client.auditLog.findMany({ where: retentionPolicyAudit, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
+    const policies: AdminRetentionPolicy[] = [];
+    const versions = new Set<string>();
     for (const record of records) {
       const parsed = adminRetentionPolicySchema.safeParse(record.details);
-      if (parsed.success) return parsed.data;
+      if (parsed.success && !versions.has(parsed.data.version)) { policies.push(parsed.data); versions.add(parsed.data.version); }
     }
-    return null;
+    return policies;
+  }
+
+  private async currentPolicy(client: Prisma.TransactionClient | AuthService['db'] = this.auth.db): Promise<AdminRetentionPolicy | null> {
+    return (await this.approvedPolicies(client))[0] ?? null;
   }
 
   async retentionPolicyStatus() {
-    const current = await this.currentPolicy();
-    if (!current) return { current: null, dryRun: null, executionEnabled: false as const };
+    const policies = await this.approvedPolicies();
+    const current = policies[0] ?? null;
+    const approvedVersions = policies.map(policy => policy.version);
+    const unmappedClosures = await this.auth.db.accountClosure.count({ where: approvedVersions.length ? { retentionPolicyVersion: { notIn: approvedVersions } } : {} });
+    if (!current) return { current: null, dryRun: null, unmappedClosures, executionEnabled: false as const };
     const cutoffAt = new Date(Date.now() - current.identityRetentionDays * 86400000);
     const [eligibleClosures, oldest] = await Promise.all([
-      this.auth.db.accountClosure.count({ where: { accessRevokedAt: { lte: cutoffAt } } }),
-      this.auth.db.accountClosure.findFirst({ where: { accessRevokedAt: { lte: cutoffAt } }, orderBy: [{ accessRevokedAt: 'asc' }, { id: 'asc' }], select: { accessRevokedAt: true } })
+      this.auth.db.accountClosure.count({ where: { retentionPolicyVersion: current.version, accessRevokedAt: { lte: cutoffAt } } }),
+      this.auth.db.accountClosure.findFirst({ where: { retentionPolicyVersion: current.version, accessRevokedAt: { lte: cutoffAt } }, orderBy: [{ accessRevokedAt: 'asc' }, { id: 'asc' }], select: { accessRevokedAt: true } })
     ]);
-    return { current, dryRun: { eligibleClosures, cutoffAt, oldestClosureAt: oldest?.accessRevokedAt ?? null }, executionEnabled: false as const };
+    return { current, dryRun: { eligibleClosures, cutoffAt, oldestClosureAt: oldest?.accessRevokedAt ?? null }, unmappedClosures, executionEnabled: false as const };
   }
 
   async approveRetentionPolicy(input: AdminRetentionPolicyInput, actor: { id: string; user: { displayName: string } }, req: AppRequest) {
