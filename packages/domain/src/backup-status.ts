@@ -22,6 +22,8 @@ export const adminBackupVerifiedStatusSchema = z.object({
     users: z.number().int().nonnegative(),
     races: z.number().int().nonnegative(),
     predictionVersions: z.number().int().nonnegative(),
+    predictionProducts: z.number().int().nonnegative(),
+    predictionProductVersions: z.number().int().nonnegative(),
     freeReportVersions: z.number().int().nonnegative(),
     audioAssets: z.number().int().nonnegative(),
     publicationSchedules: z.number().int().nonnegative(),
