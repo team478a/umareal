@@ -3,6 +3,7 @@ import {
   aiRaceGuideAdminResponseSchema,
   aiRaceGuideAdminRaceListResponseSchema,
   aiRaceGuideApprovalSchema,
+  aiRaceGuideDataCoverageResponseSchema,
   aiRaceGuideGenerationRequestSchema,
   aiRaceGuideGeneratedOutputSchema,
   aiRaceGuidePublicResponseSchema,
@@ -12,6 +13,7 @@ import {
   parseContentAccessPolicy,
   projectAiRaceGuideSnapshot,
   resolveAiRaceGuideRuntime,
+  resultEntrySchema,
   validateAiRaceGuideGeneratedOutput
 } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
@@ -177,6 +179,59 @@ export class AiRaceGuideController {
     this.ensureVisible(); await this.admin(req);
     const items = await this.auth.db.race.findMany({ orderBy: [{ raceDate: 'desc' }, { venue: 'asc' }, { number: 'asc' }], take: 500, select: { id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true, status: true } });
     return aiRaceGuideAdminRaceListResponseSchema.parse({ items: items.map(item => ({ ...item, startsAt: item.startsAt.toISOString() })) });
+  }
+
+  @Get('admin/races/:raceId/ai-guide/data-coverage')
+  async dataCoverage(@Req() req: AppRequest, @Param('raceId') raceId: string) {
+    z.string().uuid().parse(raceId); this.ensureVisible(); await this.admin(req);
+    const race = await this.auth.db.race.findUnique({ where: { id: raceId }, include: raceInclude });
+    if (!race) throw new NotFoundException();
+    const cutoff = new Date(Math.min(Date.now(), race.startsAt.getTime() - 1));
+    const horseIds = race.entries.map(entry => entry.horseId);
+    const [versions, policies] = await Promise.all([
+      this.auth.db.raceResultVersion.findMany({
+        where: { confirmedAt: { lte: cutoff }, race: { startsAt: { lt: race.startsAt }, entries: { some: { horseId: { in: horseIds } } } } },
+        include: { race: { include: { entries: true } } },
+        orderBy: [{ confirmedAt: 'asc' }, { version: 'asc' }]
+      }),
+      this.auth.db.dataLicensePolicy.findMany({
+        where: { effectiveFrom: { lte: cutoff }, OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: cutoff } }] },
+        orderBy: { effectiveFrom: 'desc' }
+      })
+    ]);
+    const latest = new Map<string, typeof versions[number]>();
+    for (const version of versions) latest.set(version.raceId, version);
+    const finishedByHorse = new Map(horseIds.map(id => [id, 0]));
+    for (const version of latest.values()) {
+      const snapshot = z.array(resultEntrySchema).safeParse(version.entriesSnapshot);
+      if (!snapshot.success || version.raceCanceled) continue;
+      const horseByEntry = new Map(version.race.entries.map(entry => [entry.id, entry.horseId]));
+      for (const result of snapshot.data) {
+        const horseId = horseByEntry.get(result.entryId);
+        if (horseId && finishedByHorse.has(horseId) && result.status === 'FINISHED') finishedByHorse.set(horseId, (finishedByHorse.get(horseId) ?? 0) + 1);
+      }
+    }
+    const requiredFields: Record<string, string[]> = {
+      RACE: ['raceDate', 'venue', 'number', 'name', 'startsAt', 'raceClass', 'distance', 'surface', 'direction', 'going'],
+      RACE_ENTRY: ['horseId', 'horseName', 'number', 'gate', 'sex', 'age', 'carriedWeight', 'jockey', 'trainer'],
+      RACE_RESULT: ['status', 'finishPosition', 'popularity', 'finalOdds', 'confirmedAt']
+    };
+    const approved = (sourceKind: string) => (requiredFields[sourceKind] ?? []).every(field => policies.some(policy => policy.sourceKind === sourceKind && (policy.fieldName === '*' || policy.fieldName === field) && policy.storageUse === 'APPROVED' && policy.derivationUse === 'APPROVED' && policy.memberDisplayUse === 'APPROVED'));
+    const fullHistory = [...finishedByHorse.values()].filter(count => count >= 3).length;
+    const anyHistory = [...finishedByHorse.values()].some(count => count > 0);
+    const licenseGate = (sourceKind: string, fallback: 'AVAILABLE' | 'PARTIAL' | 'NOT_AVAILABLE') => approved(sourceKind) ? fallback : 'LICENSE_REVIEW_REQUIRED' as const;
+    const coverage = [
+      { category: 'RACE_DATA' as const, status: licenseGate('RACE', 'AVAILABLE'), availableCount: 1, requiredCount: 1, note: approved('RACE') ? 'レース基本項目を利用できます。' : '構造はありますがsource/field別の利用許諾登録が必要です。' },
+      { category: 'ENTRY_DATA' as const, status: licenseGate('RACE_ENTRY', race.entries.length ? 'AVAILABLE' : 'NOT_AVAILABLE'), availableCount: race.entries.length, requiredCount: race.entries.length, note: approved('RACE_ENTRY') ? '出走馬基本項目を利用できます。' : '出走馬構造はありますが利用許諾登録が必要です。' },
+      { category: 'PAST_RACES' as const, status: licenseGate('RACE_RESULT', fullHistory === race.entries.length ? 'AVAILABLE' : anyHistory ? 'PARTIAL' : 'NOT_AVAILABLE'), availableCount: fullHistory, requiredCount: race.entries.length, note: `cutoff以前に3走以上ある馬は${fullHistory}/${race.entries.length}頭です。結果訂正はcutoff時点の最新版だけを数えます。` },
+      { category: 'PEDIGREE' as const, status: 'NOT_AVAILABLE' as const, availableCount: 0, requiredCount: race.entries.length, note: '本番血統取得はPhase 1Bの対象外です。' },
+      { category: 'TRAINING' as const, status: 'NOT_AVAILABLE' as const, availableCount: 0, requiredCount: race.entries.length, note: '調教・追切は将来候補です。' }
+    ];
+    return aiRaceGuideDataCoverageResponseSchema.parse({
+      raceId, dataCutoffAt: cutoff.toISOString(), logicVersion: 'phase1b-fact-rules-v1', coverage,
+      factStates: { known: approved('RACE') && approved('RACE_ENTRY') ? 1 : 0, unknown: [...finishedByHorse.values()].filter(count => count === 0).length, insufficientData: [...finishedByHorse.values()].filter(count => count > 0 && count < 3).length, notAvailable: coverage.filter(item => item.status === 'NOT_AVAILABLE' || item.status === 'LICENSE_REVIEW_REQUIRED').length },
+      boundaries: { assessmentExcluded: true, predictionExcluded: true, expertCommentExcluded: true, userDataExcluded: true, futureDataExcluded: true, externalAiCommunication: false }
+    });
   }
 
   @Get('admin/ai-guide/generations/:generationId')

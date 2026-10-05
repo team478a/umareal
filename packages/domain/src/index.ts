@@ -44,6 +44,8 @@ export * from './admin-continuity';
 export * from './content-access';
 export * from './content';
 export * from './ai-race-guide';
+export * from './ai-race-guide-facts';
+export * from './ai-race-guide-phase1b-fixtures';
 
 export const roles = ['MEMBER', 'EXPERT', 'EDITOR', 'OPERATOR', 'ADMIN'] as const;
 export type Role = typeof roles[number];
