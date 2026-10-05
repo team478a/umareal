@@ -28,9 +28,11 @@ const jsonValueSchema: z.ZodType<AiRaceGuideJsonValue> = z.lazy(() => z.union([
 export const aiRaceGuideSourceSchema = z.object({
   sourceId: stableId,
   kind: z.enum(aiRaceGuideSourceKinds),
+  sourceProvider: z.string().trim().min(1).max(100).optional(),
   sourceVersion: z.string().trim().min(1).max(100),
   licenseDecision: z.literal('APPROVED'),
-  allowedUses: z.array(z.enum(aiRaceGuideDataUses)).min(1).max(aiRaceGuideDataUses.length)
+  allowedUses: z.array(z.enum(aiRaceGuideDataUses)).min(1).max(aiRaceGuideDataUses.length),
+  licensePolicyVersion: z.string().trim().min(1).max(100).optional()
 }).strict().superRefine((value, ctx) => {
   if (new Set(value.allowedUses).size !== value.allowedUses.length) {
     ctx.addIssue({ code: 'custom', path: ['allowedUses'], message: 'allowedUsesが重複しています。' });
@@ -44,14 +46,23 @@ export const aiRaceGuideEvidenceSchema = z.object({
   evidenceId: stableId,
   sourceId: stableId,
   sourceRecordId: z.string().trim().min(1).max(200).optional(),
+  sourceProvider: z.string().trim().min(1).max(100).optional(),
+  sourceKind: z.string().trim().min(1).max(100).optional(),
+  sourceRecordReference: z.string().trim().min(1).max(200).optional(),
   sourceVersion: z.string().trim().min(1).max(100),
-  observedAt: dateTime
+  observedAt: dateTime,
+  importedAt: dateTime.optional(),
+  dataCutoffAt: dateTime.optional(),
+  logicVersion: z.string().trim().min(1).max(100).optional()
 }).strict();
 
 const factBase = z.object({
   factId: stableId,
   category: z.enum(aiRaceGuideFactCategories),
-  entryId: z.string().uuid().optional()
+  entryId: z.string().uuid().optional(),
+  sampleSize: z.number().int().nonnegative().optional(),
+  dataCutoffAt: dateTime.optional(),
+  logicVersion: z.string().trim().min(1).max(100).optional()
 });
 const knownFact = factBase.extend({
   state: z.literal('KNOWN'),
@@ -99,11 +110,15 @@ export const aiRaceGuideStructuredInputSchema = z.object({
     if (!source) ctx.addIssue({ code: 'custom', path: ['evidence', index, 'sourceId'], message: '存在するsourceIdを指定してください。' });
     else if (source.sourceVersion !== evidence.sourceVersion) ctx.addIssue({ code: 'custom', path: ['evidence', index, 'sourceVersion'], message: 'sourceVersionがsourceと一致しません。' });
     if (new Date(evidence.observedAt).getTime() > cutoff) ctx.addIssue({ code: 'custom', path: ['evidence', index, 'observedAt'], message: 'dataCutoffAtより後の根拠は使用できません。' });
+    if (evidence.importedAt && new Date(evidence.importedAt).getTime() > cutoff) ctx.addIssue({ code: 'custom', path: ['evidence', index, 'importedAt'], message: 'dataCutoffAtより後に取り込まれた根拠は使用できません。' });
+    if (evidence.dataCutoffAt && evidence.dataCutoffAt !== value.dataCutoffAt) ctx.addIssue({ code: 'custom', path: ['evidence', index, 'dataCutoffAt'], message: 'evidenceのdataCutoffAtが入力と一致しません。' });
   });
 
   value.facts.forEach((fact, index) => {
     if (new Set(fact.evidenceIds).size !== fact.evidenceIds.length) ctx.addIssue({ code: 'custom', path: ['facts', index, 'evidenceIds'], message: 'evidenceIdが重複しています。' });
     if (fact.entryId && !entryIds.has(fact.entryId)) ctx.addIssue({ code: 'custom', path: ['facts', index, 'entryId'], message: '存在するentryIdを指定してください。' });
+    if (fact.dataCutoffAt && fact.dataCutoffAt !== value.dataCutoffAt) ctx.addIssue({ code: 'custom', path: ['facts', index, 'dataCutoffAt'], message: 'factのdataCutoffAtが入力と一致しません。' });
+    if (fact.logicVersion && fact.logicVersion !== value.logicVersion) ctx.addIssue({ code: 'custom', path: ['facts', index, 'logicVersion'], message: 'factのlogicVersionが入力と一致しません。' });
     const refs = fact.evidenceIds.map(id => evidenceById.get(id));
     if (refs.some(ref => !ref)) ctx.addIssue({ code: 'custom', path: ['facts', index, 'evidenceIds'], message: '存在するevidenceIdだけを指定してください。' });
     if (fact.state === 'KNOWN' && refs.every(ref => ref && sourceById.get(ref.sourceId)?.kind === 'DERIVED_RULE')) {

@@ -11,6 +11,9 @@ test('admin publishes a synthetic guide and paddock remains first on desktop and
   await context.addCookies([{ name: 'keiba_session', value: fixture.token, domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
   await page.goto('/admin/ai-race-guides');
   await page.getByLabel('対象レース').selectOption(fixture.race.id);
+  await expect(page.getByRole('heading', { name: 'データcoverage' })).toBeVisible();
+  await expect(page.getByText('PAST_RACES', { exact: true })).toBeVisible();
+  await expect(page.getByText('Assessment・Prediction・三国谷コメント・会員情報は事前Factへ使用しません。cutoff後の結果も除外します。')).toBeVisible();
   await page.getByRole('button', { name: 'synthetic fixtureで生成' }).click();
   await expect(page.getByText('生成・検証が完了しました。')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText('VALID', { exact: true })).toBeVisible();

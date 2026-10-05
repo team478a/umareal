@@ -820,10 +820,11 @@ model RaceDay {
 }
 
 model Horse {
-  id              String                    @id @db.Uuid
-  name            String
-  entries         RaceEntry[]
-  aiGuideVersions AiRaceGuideVersionHorse[]
+  id                 String                    @id @db.Uuid
+  name               String
+  entries            RaceEntry[]
+  aiGuideVersions    AiRaceGuideVersionHorse[]
+  externalIdentities HorseExternalIdentity[]
 
   @@map("horses")
 }
@@ -848,6 +849,7 @@ model RaceEntry {
   status          String                       @default("ACTIVE")
   win5Selections  PredictionProductSelection[]
   aiGuideVersions AiRaceGuideVersionHorse[]
+  performances    RaceEntryPerformance[]
 
   @@unique([raceId, number])
   @@unique([raceId, horseId])
@@ -1125,11 +1127,80 @@ model RaceResultVersion {
   predictionEvaluations PredictionEvaluation[]
   win5EvaluationLegs    Win5EvaluationLeg[]
   notificationEvent     NotificationEvent?
+  entryPerformances     RaceEntryPerformance[]
 
   @@unique([raceId, version])
   @@unique([raceId, sourceRevision])
   @@index([confirmedAt])
   @@map("race_result_versions")
+}
+
+model HorseExternalIdentity {
+  id              String   @id @default(uuid()) @db.Uuid
+  horseId         String?  @db.Uuid
+  horse           Horse?   @relation(fields: [horseId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  provider        String
+  externalKeyHash String
+  sourceVersion   String
+  observedName    String
+  matchStatus     String   @default("UNRESOLVED")
+  firstObservedAt DateTime @db.Timestamptz(3)
+  lastObservedAt  DateTime @db.Timestamptz(3)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([provider, externalKeyHash])
+  @@index([horseId, provider])
+  @@index([observedName, matchStatus])
+  @@map("horse_external_identities")
+}
+
+model DataLicensePolicy {
+  id                String                 @id @default(uuid()) @db.Uuid
+  provider          String
+  sourceKind        String
+  fieldName         String
+  policyVersion     String
+  storageUse        String
+  derivationUse     String
+  memberDisplayUse  String
+  externalAiUse     String
+  effectiveFrom     DateTime               @db.Timestamptz(3)
+  effectiveUntil    DateTime?              @db.Timestamptz(3)
+  decisionReference String?
+  createdAt         DateTime               @default(now()) @db.Timestamptz(3)
+  entryPerformances RaceEntryPerformance[]
+
+  @@unique([provider, sourceKind, fieldName, policyVersion])
+  @@index([provider, sourceKind, fieldName, effectiveFrom])
+  @@map("data_license_policies")
+}
+
+model RaceEntryPerformance {
+  id                    String             @id @default(uuid()) @db.Uuid
+  resultVersionId       String             @db.Uuid
+  resultVersion         RaceResultVersion  @relation(fields: [resultVersionId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  raceEntryId           String             @db.Uuid
+  raceEntry             RaceEntry          @relation(fields: [raceEntryId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  finishTimeMs          Int?
+  marginText            String?
+  finalSectionTimeMs    Int?
+  bodyWeightKg          Int?
+  bodyWeightChangeKg    Int?
+  cornerPositions       Json?
+  sourceProvider        String
+  sourceVersion         String
+  sourceRecordReference String
+  observedAt            DateTime           @db.Timestamptz(3)
+  importedAt            DateTime           @default(now()) @db.Timestamptz(3)
+  licensePolicyId       String?            @db.Uuid
+  licensePolicy         DataLicensePolicy? @relation(fields: [licensePolicyId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  createdAt             DateTime           @default(now()) @db.Timestamptz(3)
+
+  @@unique([resultVersionId, raceEntryId])
+  @@index([raceEntryId, observedAt])
+  @@index([sourceProvider, sourceVersion])
+  @@map("race_entry_performances")
 }
 
 model PredictionPerformance {

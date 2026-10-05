@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { aiRaceGuideAdminResponseSchema, aiRaceGuidePublicResponseSchema } from '../packages/domain/src';
+import { aiRaceGuideAdminResponseSchema, aiRaceGuideDataCoverageResponseSchema, aiRaceGuidePublicResponseSchema } from '../packages/domain/src';
 import { account, Client, db } from './helpers';
 
 afterAll(() => db.$disconnect());
@@ -78,5 +78,45 @@ describe('AI race guide synthetic generation and publication', () => {
     const refused = await target.admin.call(`${endpoint}/approve`, 'POST', { revision: changed.revision, generationId: invalid.id, mutationId: randomUUID(), reason: 'invalid検証' });
     expect(refused).toMatchObject({ status: 400, body: { code: 'AI_GUIDE_VALIDATION_FAILED' } });
     expect(await db.aiRaceGuideVersion.count({ where: { guideId: guide.id } })).toBe(0);
+  });
+
+  it('stores identity/provenance extensions safely and reports cutoff-bound coverage', async () => {
+    const target = await fixture();
+    const provider = `SYNTHETIC_${randomUUID()}`;
+    for (const sourceKind of ['RACE', 'RACE_ENTRY', 'RACE_RESULT']) {
+      await db.dataLicensePolicy.create({ data: {
+        provider, sourceKind, fieldName: '*', policyVersion: 'integration-v1', storageUse: 'APPROVED', derivationUse: 'APPROVED', memberDisplayUse: 'APPROVED', externalAiUse: 'PROHIBITED', effectiveFrom: new Date(Date.now() - 60_000), decisionReference: 'synthetic integration fixture'
+      } });
+    }
+    const identity = await db.horseExternalIdentity.create({ data: {
+      horseId: target.race.entries[0].horseId, provider, externalKeyHash: 'a'.repeat(64), sourceVersion: 'fixture-v1', observedName: target.race.entries[0].horseName, matchStatus: 'MATCHED', firstObservedAt: new Date(Date.now() - 60_000), lastObservedAt: new Date()
+    } });
+    await expect(db.horseExternalIdentity.create({ data: { horseId: null, provider, externalKeyHash: identity.externalKeyHash, sourceVersion: 'fixture-v1', observedName: identity.observedName, matchStatus: 'UNRESOLVED', firstObservedAt: new Date(), lastObservedAt: new Date() } })).rejects.toThrow();
+    await expect(db.horseExternalIdentity.update({ where: { id: identity.id }, data: { externalKeyHash: 'b'.repeat(64) } })).rejects.toThrow();
+
+    const pastDate = `${Number(target.race.raceDate.slice(0, 4)) - 1}${target.race.raceDate.slice(4)}`;
+    const past = await db.race.create({ data: {
+      raceDate: pastDate, venue: target.race.venue, number: target.race.number, name: `過去走 ${randomUUID().slice(0, 6)}`, startsAt: new Date(`${pastDate}T15:00:00+09:00`), raceClass: 'synthetic', distance: 1600, surface: 'TURF', direction: 'RIGHT', going: 'GOOD', status: 'FINISHED',
+      entries: { create: target.race.entries.map(entry => ({ horse: { connect: { id: entry.horseId } }, number: entry.number, gate: entry.gate, horseName: entry.horseName, sex: entry.sex, age: entry.age, carriedWeight: entry.carriedWeight, jockey: entry.jockey, trainer: entry.trainer })) }
+    }, include: { entries: true } });
+    const entriesSnapshot = past.entries.map((entry, index) => ({ entryId: entry.id, status: 'FINISHED', finishPosition: index + 1, popularity: index + 1, finalOdds: `${index + 2}.0` }));
+    const version1 = await db.raceResultVersion.create({ data: { raceId: past.id, version: 1, sourceRevision: 1, ruleVersion: 'result-v1', raceCanceled: false, entriesSnapshot, payoutsSnapshot: [], reason: 'synthetic first result', confirmedBy: target.adminAccount.user.id, confirmedAt: new Date(Date.now() - 120_000) } });
+    await db.raceResultVersion.create({ data: { raceId: past.id, version: 2, sourceRevision: 2, ruleVersion: 'result-v1', raceCanceled: false, entriesSnapshot: entriesSnapshot.map((entry, index) => ({ ...entry, finishPosition: index ? 1 : 2 })), payoutsSnapshot: [], reason: 'synthetic correction', confirmedBy: target.adminAccount.user.id, confirmedAt: new Date(Date.now() - 60_000) } });
+    await db.raceResultVersion.create({ data: { raceId: past.id, version: 3, sourceRevision: 3, ruleVersion: 'result-v1', raceCanceled: false, entriesSnapshot, payoutsSnapshot: [], reason: 'future correction must not leak', confirmedBy: target.adminAccount.user.id, confirmedAt: new Date(Date.now() + 86_400_000) } });
+    const policy = await db.dataLicensePolicy.findFirstOrThrow({ where: { provider, sourceKind: 'RACE_RESULT' } });
+    const performance = await db.raceEntryPerformance.create({ data: { resultVersionId: version1.id, raceEntryId: past.entries[0].id, finishTimeMs: 95432, finalSectionTimeMs: 34100, bodyWeightKg: 480, bodyWeightChangeKg: 4, cornerPositions: [3, 3, 2, 2], sourceProvider: provider, sourceVersion: 'fixture-v1', sourceRecordReference: 'synthetic-performance-1', observedAt: new Date(Date.now() - 120_000), importedAt: new Date(Date.now() - 60_000), licensePolicyId: policy.id } });
+    await expect(db.raceEntryPerformance.update({ where: { id: performance.id }, data: { bodyWeightKg: 481 } })).rejects.toThrow();
+    await expect(db.raceEntryPerformance.delete({ where: { id: performance.id } })).rejects.toThrow();
+    await expect(db.dataLicensePolicy.update({ where: { id: policy.id }, data: { decisionReference: 'rewrite' } })).rejects.toThrow();
+    await expect(db.$executeRawUnsafe('TRUNCATE TABLE race_entry_performances')).rejects.toThrow();
+    await expect(db.$executeRawUnsafe('TRUNCATE TABLE data_license_policies')).rejects.toThrow();
+
+    expect((await target.member.call(`admin/races/${target.race.id}/ai-guide/data-coverage`)).status).toBe(403);
+    const response = await target.admin.call(`admin/races/${target.race.id}/ai-guide/data-coverage`);
+    expect(response.status).toBe(200);
+    const coverage = aiRaceGuideDataCoverageResponseSchema.parse(response.body);
+    expect(coverage.boundaries).toEqual({ assessmentExcluded: true, predictionExcluded: true, expertCommentExcluded: true, userDataExcluded: true, futureDataExcluded: true, externalAiCommunication: false });
+    expect(coverage.coverage.find(item => item.category === 'PAST_RACES')).toMatchObject({ status: 'PARTIAL', availableCount: 0, requiredCount: 2 });
+    expect(coverage.factStates).toMatchObject({ insufficientData: 2 });
   });
 });

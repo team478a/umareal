@@ -1147,3 +1147,14 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 - 公開版と生成試行は追記専用とし、PostgreSQLでも更新・削除・TRUNCATEを拒否する。公開は`ADMIN+AAL2`の確認を必須とし、発走後、stale、validator failureを拒否する。
 - 会員画面は三国谷パドックの後、結果の前にAIレースガイドを表示する。無料responseへfull snapshotを含めず、有料全文は既存Entitlementと個別透かしを再利用する。
 - JRA-VAN実通信、外部AI API、live credential、自動公開、通知、本番デプロイ・migrationは引き続き禁止する。Phase 1Bは別承認を必要とする。
+
+## AIレースガイド Phase 1B（2026-10-05）
+
+- ユーザーの明示承認に基づき、競馬データからEvidence付きFactまでの決定的基盤を実装する。外部LLM、JRA-VAN追加取得、本番backfill・deploy・migrationは対象外とする。
+- `Race`、`Horse`、`RaceEntry`、`RaceResultVersion`を正本として再利用し、AI専用の過去走コピーを作らない。追加DBは外部ID照合、現在保存先のない任意成績値、source/field/用途別license policyに限定する。
+- Horse external identityは許可されたexternal keyのhashだけを保持する。名前一致だけでは統合せず`POSSIBLE_DUPLICATE`として人間確認を要求し、既存Horseを自動削除・mergeしない。
+- Fact Builderは`dataCutoffAt`以前に確定・観測・取込された結果だけを使用し、同一race/horseはcutoff時点の最大結果versionへ固定する。後着結果・訂正の混入を不変条件としてテストする。
+- 条件別Factは最低3完走を必要とし、未達は`INSUFFICIENT_DATA`とする。「得意」「苦手」等を断定せず、出走数、1着数、3着以内、平均着順を保持する。
+- `DataLicensePolicy`は保存・派生・会員表示・外部AI送信を独立判定する。未登録は`LICENSE_REVIEW_REQUIRED`としてfail closedし、policyと任意成績値は追記専用にする。
+- Phase 1A inputへの接続はallowlist projectionだけを通し、Assessment、Prediction、三国谷コメント、User情報、内部メモを拒否する。Phase 1Bではexternal AI modeを使用しない。
+- 既存`Assessment.content.calm`は変更しない。`sweating`と`calmness`は後方互換な追加案だけを文書化し、自動推定・backfillを行わない。
