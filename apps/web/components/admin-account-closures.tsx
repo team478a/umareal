@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Archive, RefreshCw, ShieldCheck, UserRoundX } from 'lucide-react';
-import type { AdminAccountClosuresResponse, AdminRetentionPolicyResponse, AdminRetentionPreviewResponse } from '@keiba/domain';
+import type { AdminAccountClosuresResponse, AdminAccountRestoreResponse, AdminRetentionPolicyResponse, AdminRetentionPreviewResponse } from '@keiba/domain';
 
 type Item = AdminAccountClosuresResponse['items'][number];
 const reasons: Record<string, string> = { SERVICE_NO_LONGER_NEEDED: '利用しなくなった', PRICE: '料金', CONTENT: '内容', OTHER: 'その他' };
@@ -11,7 +11,7 @@ const formatDate = (value: string) => new Intl.DateTimeFormat('ja-JP', { timeZon
 
 export function AdminAccountClosures() {
   const [items, setItems] = useState<Item[]>([]); const [total, setTotal] = useState(0); const [page, setPage] = useState(1);
-  const [policy, setPolicy] = useState<AdminRetentionPolicyResponse | null>(null); const [preview, setPreview] = useState<AdminRetentionPreviewResponse | null>(null); const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [error, setError] = useState(''); const [success, setSuccess] = useState('');
+  const [policy, setPolicy] = useState<AdminRetentionPolicyResponse | null>(null); const [preview, setPreview] = useState<AdminRetentionPreviewResponse | null>(null); const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [restoringId, setRestoringId] = useState<string | null>(null); const [error, setError] = useState(''); const [success, setSuccess] = useState('');
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
@@ -41,6 +41,22 @@ export function AdminAccountClosures() {
     } catch (e) { setError((e as Error).message); } finally { setSaving(false); }
   }
 
+  async function restoreAccount(event: FormEvent<HTMLFormElement>, item: Item) {
+    event.preventDefault(); setRestoringId(item.id); setError(''); setSuccess('');
+    const formElement = event.currentTarget; const form = new FormData(formElement);
+    try {
+      const response = await fetch(`/api/v1/admin/account-closures/${item.id}/restore`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+        body: JSON.stringify({ expectedDisabledAt: item.user.disabledAt, confirmation: form.get('confirmation'), reason: form.get('reason') })
+      });
+      const result = await response.json() as AdminAccountRestoreResponse & { message?: string };
+      if (!response.ok) throw new Error(result.message ?? 'アカウントを復旧できませんでした。');
+      setSuccess(result.lineLoginRestored ? '元のアカウントを復旧しました。同じLINEからログインできます。通知設定と閲覧権限は復旧していません。' : '元のアカウントを復旧しました。予備メールからログインできます。通知設定と閲覧権限は復旧していません。');
+      formElement.reset(); await load();
+    } catch (e) { setError((e as Error).message); } finally { setRestoringId(null); }
+  }
+
   return <>
     <div className="page-heading"><span className="eyebrow">ACCOUNT RETENTION</span><h1>退会・保持記録</h1><p>利用停止済み会員、正式な保持方針、匿名化期限の到来状況を確認します。</p></div>
     {error && <div className="notice error" role="alert">{error}</div>}{success && <div className="notice success" role="status">{success}</div>}
@@ -53,7 +69,7 @@ export function AdminAccountClosures() {
         <div className="notice">この操作は方針を追記記録し、以後の退会へversionを固定します。既存会員の匿名化・削除は実行しません。</div><button className="button primary" disabled={saving}>{saving ? '記録中…' : '正式方針を承認記録'}</button></form>
     </div></section>
     <section className="panel"><div className="panel-heading"><h2>匿名化対象プレビュー</h2><span className="count-tag">読み取り専用</span></div>{loading ? <div className="panel-body" role="status">読み込み中…</div> : preview?.items.length ? <div className="closure-list">{preview.items.map(item => <article key={item.closureId} className="closure-row"><div><strong>{item.user.displayName}</strong><small>{item.user.email ?? 'メール未設定'} · {item.policyVersion}</small></div><div><span>判定</span><strong>{previewStatusLabels[item.status]}</strong><small>{item.status === 'NOT_DUE' ? `あと${item.daysRemaining}日` : item.status === 'POLICY_UNMAPPED' ? '最新方針を遡及適用しません' : '実行には別承認が必要'}</small></div><div><span>対象項目</span><strong>{item.anonymizationScope.length ? item.anonymizationScope.map(value => scopeLabels[value]).join('、') : '未確定'}</strong><small>保持履歴：{item.preservedRecords.join('、')}</small></div><div><span>外部確認</span><strong>{item.externalActionsRequired.length ? item.externalActionsRequired.map(value => value === 'SUPABASE_AUTH_REVIEW' ? '認証基盤' : 'LINE').join('、') : 'なし'}</strong><small>{item.eligibleAt ? `期限 ${formatDate(item.eligibleAt)}` : '期限未確定'}</small></div></article>)}</div> : <div className="empty"><ShieldCheck size={32} /><h3>確認対象はありません</h3><p>退会記録が作成されると、方針versionごとの判定を表示します。</p></div>}<div className="panel-foot">この一覧は確認専用です。画面表示によって匿名化・削除・外部サービス操作は実行されません。</div></section>
-    <section className="panel"><div className="panel-heading"><h2>処理済み一覧</h2><span className="count-tag">{total} 件</span></div>{loading ? <div className="panel-body" role="status">読み込み中…</div> : items.length ? <div className="closure-list">{items.map(item => <article key={item.id} className="closure-row"><div><strong>{item.user.displayName}</strong><small>{item.user.email ?? 'メール未設定'} · {item.user.registrationMethod}</small></div><div><span>退会理由</span><strong>{reasons[item.reasonCode] ?? item.reasonCode}</strong></div><div><span>利用停止（JST）</span><strong>{formatDate(item.accessRevokedAt)}</strong></div><div><span className={`status-tag ${item.status === 'CLOSED' ? '' : 'warning'}`}>{item.status === 'CLOSED' ? '停止済み' : '要確認'}</span><small>{item.retentionPolicyVersion}</small></div></article>)}</div> : <div className="empty"><UserRoundX size={32} /><h3>退会記録はありません</h3><p>会員本人が退会すると、こちらへ追記されます。</p></div>}<div className="pagination"><span>全{total}件 · {page}ページ</span><button className="button secondary small" disabled={page <= 1} onClick={() => setPage(value => value - 1)}>前へ</button><button className="button secondary small" disabled={page * 20 >= total} onClick={() => setPage(value => value + 1)}>次へ</button></div></section>
+    <section className="panel"><div className="panel-heading"><h2>処理済み一覧</h2><span className="count-tag">{total} 件</span></div>{loading ? <div className="panel-body" role="status">読み込み中…</div> : items.length ? <div className="closure-list">{items.map(item => <article key={item.id} className="closure-row"><div><strong>{item.user.displayName}</strong><small>{item.user.email ?? 'メール未設定'} · {item.user.registrationMethod}</small></div><div><span>退会理由</span><strong>{reasons[item.reasonCode] ?? item.reasonCode}</strong></div><div><span>利用停止（JST）</span><strong>{formatDate(item.accessRevokedAt)}</strong></div><div><span className={`status-tag ${item.status === 'CLOSED' ? '' : item.status === 'RESTORED' ? 'success' : 'warning'}`}>{item.status === 'CLOSED' ? '停止済み' : item.status === 'RESTORED' ? '復旧済み' : '要確認'}</span><small>{item.retentionPolicyVersion}</small></div>{item.status === 'CLOSED' && <form className="closure-restore-form" onSubmit={event => void restoreAccount(event, item)}><div className="notice">元の会員だけを復旧します。退会記録、紹介実績、失効済み閲覧権限は変更せず、通知設定も停止したままです。</div><label className="field">確認のため表示名を入力<input name="confirmation" required maxLength={60} autoComplete="off" /></label><label className="field">復旧理由<textarea name="reason" required minLength={10} maxLength={500} rows={3} /></label><button className="button secondary small" disabled={restoringId !== null}>{restoringId === item.id ? '復旧中…' : '元のアカウントを復旧'}</button></form>}</article>)}</div> : <div className="empty"><UserRoundX size={32} /><h3>退会記録はありません</h3><p>会員本人が退会すると、こちらへ追記されます。</p></div>}<div className="pagination"><span>全{total}件 · {page}ページ</span><button className="button secondary small" disabled={page <= 1} onClick={() => setPage(value => value - 1)}>前へ</button><button className="button secondary small" disabled={page * 20 >= total} onClick={() => setPage(value => value + 1)}>次へ</button></div></section>
     <div className="notice">公開・評価、支払・契約、同意、監査の履歴は削除しません。期限到来件数は確認用であり、この画面から匿名化や物理削除は行いません。</div>
   </>;
 }

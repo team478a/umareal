@@ -45,6 +45,7 @@
 | GET | /me/closure | 本人。退会可否、契約・1日利用の阻害要因、保持対象を返す |
 | POST | /me/close | MEMBER本人。確認文言と、パスワード設定済みなら現在のパスワードが必須。セッション、通知、LINE、閲覧権限を停止し退会記録を追記 |
 | GET | /admin/account-closures | ADMIN+AAL2。退会処理済み会員と保持方針バージョンをページング表示 |
+| POST | /admin/account-closures/:closureId/restore | ADMIN+AAL2。Idempotency-Key、取得時の利用停止日時、表示名の再入力、理由を必須とし、退会記録を保持したまま元のMEMBERとLINEログインだけを復旧する。通知設定、失効済み閲覧権限、紹介関係は変更せず、セッションも作成しない |
 | POST | /me/journey | MEMBER本人。`LINE_GUIDANCE_VIEWED`、`PLAN_VIEWED`または`CHECKOUT_REVIEWED`の初回到達を冪等記録。初回ログインは認証成功時にサーバーが記録 |
 | GET | /support/me | MEMBER本人。自分の一般問い合わせと会員向け回答だけを返し、内部対応理由を返さない |
 | POST | /support/requests | MEMBER本人。種別、件名、本文をIdempotency-Key付きで受付し、内容と作成履歴を追記保護する |

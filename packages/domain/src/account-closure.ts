@@ -26,6 +26,21 @@ export const accountClosureCompletionResponseSchema = z.object({
   retainedHistory: z.literal(true)
 }).strict();
 
+export const adminAccountRestoreInputSchema = z.object({
+  expectedDisabledAt: z.string().datetime({ offset: true }),
+  confirmation: z.string().trim().min(1).max(60),
+  reason: z.string().trim().min(10).max(500)
+}).strict();
+
+export const adminAccountRestoreResponseSchema = z.object({
+  closureId: z.string().uuid(),
+  restoredAt: accountClosureDateTimeSchema,
+  lineLoginRestored: z.boolean(),
+  notificationsRemainDisabled: z.literal(true),
+  entitlementsRestored: z.literal(false),
+  referralChanged: z.literal(false)
+}).strict();
+
 export const retentionPolicyVersionSchema = z.string().trim().min(3).max(80).regex(/^[a-z0-9][a-z0-9._-]*$/i);
 export const retentionAnonymizationScopeSchema = z.enum(['EMAIL', 'DISPLAY_NAME', 'AUTH_IDENTITY', 'LINE_IDENTITY', 'ACQUISITION_METADATA', 'NETWORK_IDENTIFIERS']);
 export const retentionReRegistrationSchema = z.enum(['NEW_ACCOUNT', 'MANUAL_REVIEW']);
@@ -86,7 +101,7 @@ export const adminAccountClosuresResponseSchema = z.object({
     requestedAt: accountClosureDateTimeSchema,
     accessRevokedAt: accountClosureDateTimeSchema,
     retentionPolicyVersion: z.string().min(1),
-    status: z.enum(['CLOSED', 'REVIEW_REQUIRED']),
+    status: z.enum(['CLOSED', 'RESTORED', 'REVIEW_REQUIRED']),
     user: z.object({
       id: z.string().uuid(),
       displayName: z.string().min(1),
@@ -102,6 +117,8 @@ export const adminAccountClosuresResponseSchema = z.object({
 
 export type AccountClosureEligibilityResponse = z.infer<typeof accountClosureEligibilityResponseSchema>;
 export type AccountClosureCompletionResponse = z.infer<typeof accountClosureCompletionResponseSchema>;
+export type AdminAccountRestoreInput = z.infer<typeof adminAccountRestoreInputSchema>;
+export type AdminAccountRestoreResponse = z.infer<typeof adminAccountRestoreResponseSchema>;
 export type AdminAccountClosuresResponse = z.infer<typeof adminAccountClosuresResponseSchema>;
 export type AdminRetentionPolicyInput = z.infer<typeof adminRetentionPolicyInputSchema>;
 export type AdminRetentionPolicy = z.infer<typeof adminRetentionPolicySchema>;
