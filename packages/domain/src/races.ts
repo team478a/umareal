@@ -119,6 +119,17 @@ export const expertRaceListResponseSchema = z.object({
 
 export type ExpertRaceListResponse = z.infer<typeof expertRaceListResponseSchema>;
 
+export const expertRaceWorkspaceResponseSchema = z.object({
+  race: z.object({
+    id: z.string().uuid(),
+    name: z.string().min(1),
+    startsAt: raceDiscoveryDateTimeSchema
+  }).strict(),
+  inputEnabled: z.literal(true)
+}).strict();
+
+export type ExpertRaceWorkspaceResponse = z.infer<typeof expertRaceWorkspaceResponseSchema>;
+
 export const publicRaceAnnouncementsResponseSchema = z.object({
   items: z.array(z.object({
     id: z.string().uuid(),

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
-import { CsvRaceDataProvider, dateSchema, entryHeaders, expertRaceListResponseSchema, parseCsv, parseJraVanRaceBundle, parseQuickRaceList, publicRaceAnnouncementsResponseSchema, publicRaceListQuerySchema, publicRaceListResponseSchema, raceHeaders, raceInputSchema, serializeRaceCsv } from './races';
+import { CsvRaceDataProvider, dateSchema, entryHeaders, expertRaceListResponseSchema, expertRaceWorkspaceResponseSchema, parseCsv, parseJraVanRaceBundle, parseQuickRaceList, publicRaceAnnouncementsResponseSchema, publicRaceListQuerySchema, publicRaceListResponseSchema, raceHeaders, raceInputSchema, serializeRaceCsv } from './races';
 const provider = new CsvRaceDataProvider();
 const race = '2099-01-10,東京,1,"名前,引用",未勝利,1600,TURF,LEFT,2099-01-10T10:00:00+09:00,GOOD,晴,SCHEDULED,';
 describe('CSV validation before mutations', () => {
@@ -153,5 +153,21 @@ describe('CSV validation before mutations', () => {
     expect(parsed.items[0]?.startsAt).toBe('2026-09-30T06:00:00.000Z');
     expect(expertRaceListResponseSchema.safeParse({ items: [{ ...item, raceDayId: item.id, revision: 1 }] }).success).toBe(false);
     expect(expertRaceListResponseSchema.safeParse({ items: [{ ...item, assignments: [{ userId: item.id }] }] }).success).toBe(false);
+  });
+
+  it('keeps the expert race workspace response limited to its existing public fields', () => {
+    const response = {
+      race: {
+        id: '11111111-1111-4111-8111-111111111111',
+        name: '作業対象',
+        startsAt: '2026-10-10T06:00:00.000Z'
+      },
+      inputEnabled: true as const
+    };
+    expect(expertRaceWorkspaceResponseSchema.parse(response)).toEqual(response);
+    expect(expertRaceWorkspaceResponseSchema.safeParse({
+      ...response,
+      race: { ...response.race, assignments: [{ userId: response.race.id }] }
+    }).success).toBe(false);
   });
 });
