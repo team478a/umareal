@@ -19,6 +19,7 @@ test('administrator searches the safe audit trail', async ({ page }) => {
   const secret = await page.locator('.setup-secret code').innerText();
   await page.getByLabel('認証コード').fill(totp(secret));
   await page.getByRole('button', { name: 'コードを確認' }).click();
+  await expect(page.getByRole('heading', { name: '二段階認証が完了しています' })).toBeVisible();
   await page.goto('/admin/audit');
   await expect(page.getByRole('heading', { name: '操作履歴', exact: true })).toBeVisible();
   await page.getByLabel('操作').fill('AUDIT_BROWSER');
