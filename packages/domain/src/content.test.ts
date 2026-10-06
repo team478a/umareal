@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { adminContentItemResponseSchema, contentDraftSchema, publicContentDetailResponseSchema, publicContentListResponseSchema } from './content';
 
 const id = '11111111-1111-4111-8111-111111111111';
-const draft = { kind: 'ARTICLE' as const, title: '秋競馬の見どころ', summary: '開催の注目点を紹介します。', body: '会員向けの本文です。', thumbnailUrl: null, mediaUrl: null, category: '読みもの', tags: ['秋競馬'], relatedRaceIds: [], visibility: 'PUBLIC' as const };
+const draft = { kind: 'ARTICLE' as const, title: '秋競馬の見どころ', summary: '開催の注目点を紹介します。', body: '会員向けの本文です。', thumbnailUrl: null, mediaUrl: null, category: '読みもの', tags: ['秋競馬'], relatedRaceIds: [], relatedHorseIds: [], visibility: 'PUBLIC' as const };
 const metadata = { id, version: 1, kind: 'ARTICLE' as const, title: draft.title, summary: draft.summary, thumbnailUrl: null, category: draft.category, tags: draft.tags, visibility: 'PUBLIC' as const, publishedAt: new Date('2026-10-05T01:00:00.000Z') };
 
 describe('content CMS contracts', () => {
@@ -11,13 +11,14 @@ describe('content CMS contracts', () => {
     expect(contentDraftSchema.safeParse({ ...draft, kind: 'VIDEO', mediaUrl: null }).success).toBe(false);
     expect(contentDraftSchema.safeParse({ ...draft, kind: 'AUDIO', mediaUrl: 'http://example.test/audio.mp3' }).success).toBe(false);
     expect(contentDraftSchema.safeParse({ ...draft, kind: 'VIDEO', mediaUrl: 'https://example.test/video', tags: ['重複', '重複'] }).success).toBe(false);
+    expect(contentDraftSchema.safeParse({ ...draft, relatedHorseIds: [id, id] }).success).toBe(false);
   });
 
   it('keeps locked public responses free of body and media URL', () => {
-    const locked = publicContentDetailResponseSchema.parse({ ...metadata, visibility: 'PAID', locked: true, relatedRaces: [] });
+    const locked = publicContentDetailResponseSchema.parse({ ...metadata, visibility: 'PAID', locked: true, relatedRaces: [], relatedHorses: [] });
     expect(locked.locked).toBe(true);
-    expect(publicContentDetailResponseSchema.safeParse({ ...metadata, visibility: 'PAID', locked: true, relatedRaces: [], body: '秘密本文' }).success).toBe(false);
-    expect(publicContentDetailResponseSchema.safeParse({ ...metadata, visibility: 'PAID', locked: true, relatedRaces: [], mediaUrl: 'https://example.test/private' }).success).toBe(false);
+    expect(publicContentDetailResponseSchema.safeParse({ ...metadata, visibility: 'PAID', locked: true, relatedRaces: [], relatedHorses: [], body: '秘密本文' }).success).toBe(false);
+    expect(publicContentDetailResponseSchema.safeParse({ ...metadata, visibility: 'PAID', locked: true, relatedRaces: [], relatedHorses: [], mediaUrl: 'https://example.test/private' }).success).toBe(false);
   });
 
   it('strictly validates administrative and public list shapes', () => {

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runContentSchedules } from '../apps/worker/src/content-scheduler';
-import { adminContentRaceOptionsResponseSchema, jstDate, publicContentDetailResponseSchema, publicContentListResponseSchema, publicRaceRelatedContentResponseSchema } from '../packages/domain/src';
+import { adminContentHorseOptionsResponseSchema, adminContentRaceOptionsResponseSchema, jstDate, publicContentDetailResponseSchema, publicContentListResponseSchema, publicRaceRelatedContentResponseSchema } from '../packages/domain/src';
 import { account, Client, db } from './helpers';
 
 let originalPolicy: unknown;
@@ -11,7 +11,7 @@ beforeAll(async () => {
 });
 afterAll(async () => { if (originalPolicy) await db.systemSetting.update({ where: { id: 'global' }, data: { contentAccessPolicy: originalPolicy as object } }); await db.$disconnect(); });
 
-const draft = (title: string, visibility: 'PUBLIC' | 'MEMBERS' | 'PAID' = 'PUBLIC', relatedRaceIds: string[] = []) => ({ kind: 'ARTICLE', title, summary: `${title}の概要`, body: `${title}の公開本文`, thumbnailUrl: null, mediaUrl: null, category: '検証記事', tags: ['検証'], relatedRaceIds, visibility });
+const draft = (title: string, visibility: 'PUBLIC' | 'MEMBERS' | 'PAID' = 'PUBLIC', relatedRaceIds: string[] = [], relatedHorseIds: string[] = []) => ({ kind: 'ARTICLE', title, summary: `${title}の概要`, body: `${title}の公開本文`, thumbnailUrl: null, mediaUrl: null, category: '検証記事', tags: ['検証'], relatedRaceIds, relatedHorseIds, visibility });
 
 describe('content CMS publication and access', () => {
   it('enforces editor roles, publishes immutable versions, schedules and redacts paid bodies', async () => {
@@ -27,11 +27,18 @@ describe('content CMS publication and access', () => {
     const relatedRace = await db.race.upsert({ where: { raceDate_venue_number: { raceDate: '2099-12-30', venue: 'CMS検証場', number: 1 } }, create: { raceDate: '2099-12-30', venue: 'CMS検証場', number: 1, name: 'CMS関連レース', startsAt: new Date('2099-12-30T06:00:00.000Z') }, update: { name: 'CMS関連レース' } });
     const raceOptions = adminContentRaceOptionsResponseSchema.parse((await editor.call('admin/content/races?date=2099-12-30')).body);
     expect(raceOptions.items).toContainEqual(expect.objectContaining({ id: relatedRace.id, name: 'CMS関連レース' }));
+    const relatedHorse = await db.horse.create({ data: { id: randomUUID(), name: `CMS関連馬-${randomUUID().slice(0, 8)}` } });
+    const horseOptions = adminContentHorseOptionsResponseSchema.parse((await editor.call(`admin/content/horses?query=${encodeURIComponent(relatedHorse.name)}`)).body);
+    expect(horseOptions.items).toContainEqual({ id: relatedHorse.id, name: relatedHorse.name });
+    const selectedHorseOption = adminContentHorseOptionsResponseSchema.parse((await editor.call(`admin/content/horses?query=%E4%B8%80%E8%87%B4%E3%81%97%E3%81%AA%E3%81%84&ids=${relatedHorse.id}`)).body);
+    expect(selectedHorseOption.items).toEqual([{ id: relatedHorse.id, name: relatedHorse.name }]);
 
     const publicId = randomUUID();
     const missingRace = await editor.call('admin/content/draft', 'POST', { id: randomUUID(), revision: 0, draft: draft('不正レース', 'PUBLIC', [randomUUID()]), reason: '存在しない関連先の検証' });
     expect(missingRace).toMatchObject({ status: 409, body: { code: 'CONTENT_RACE_NOT_FOUND' } });
-    const saved = await editor.call('admin/content/draft', 'POST', { id: publicId, revision: 0, draft: draft('公開記事', 'PUBLIC', [relatedRace.id]), reason: '公開記事の下書き作成' });
+    const missingHorse = await editor.call('admin/content/draft', 'POST', { id: randomUUID(), revision: 0, draft: draft('不正な関連馬', 'PUBLIC', [], [randomUUID()]), reason: '存在しない関連馬の検証' });
+    expect(missingHorse).toMatchObject({ status: 409, body: { code: 'CONTENT_HORSE_NOT_FOUND' } });
+    const saved = await editor.call('admin/content/draft', 'POST', { id: publicId, revision: 0, draft: draft('公開記事', 'PUBLIC', [relatedRace.id], [relatedHorse.id]), reason: '公開記事の下書き作成' });
     expect(saved).toMatchObject({ status: 201, body: { id: publicId, revision: 1, status: 'DRAFT' } });
     expect((await new Client().call(`content/${publicId}`)).status).toBe(404);
     const published = await editor.call(`admin/content/${publicId}/publish`, 'POST', { revision: 1, reason: '初版公開' });
@@ -42,7 +49,7 @@ describe('content CMS publication and access', () => {
     const webNotices = await notificationClient.call('me/notifications');
     expect(webNotices.body.items.find((item: { id: string }) => item.id === publicEvent.id)).toMatchObject({ content: { id: publicId, kind: 'ARTICLE', title: '公開記事', category: '検証記事' }, href: `/content/${publicId}` });
     const guestRead = publicContentDetailResponseSchema.parse((await new Client().call(`content/${publicId}`)).body);
-    expect(guestRead).toMatchObject({ locked: false, body: '公開記事の公開本文', relatedRaces: [{ id: relatedRace.id, name: 'CMS関連レース' }] });
+    expect(guestRead).toMatchObject({ locked: false, body: '公開記事の公開本文', relatedRaces: [{ id: relatedRace.id, name: 'CMS関連レース' }], relatedHorses: [{ id: relatedHorse.id, name: relatedHorse.name }] });
     const relatedBeforeUpdate = publicRaceRelatedContentResponseSchema.parse((await new Client().call(`races/${relatedRace.id}/content`)).body);
     expect(relatedBeforeUpdate.items).toContainEqual(expect.objectContaining({ id: publicId, title: '公開記事', locked: false }));
     const publicList = publicContentListResponseSchema.parse((await new Client().call('content?kind=ARTICLE&category=%E6%A4%9C%E8%A8%BC%E8%A8%98%E4%BA%8B')).body);
@@ -60,6 +67,10 @@ describe('content CMS publication and access', () => {
     expect(await db.notificationEvent.findUniqueOrThrow({ where: { contentVersionId: versions[1].id } })).toMatchObject({ eventType: 'CONTENT_UPDATED' });
     expect(JSON.stringify(versions[0].snapshot)).toContain('公開記事の公開本文');
     expect(versions[0].relatedRaceIds).toEqual([relatedRace.id]);
+    expect(versions[0].relatedHorseIds).toEqual([relatedHorse.id]);
+    expect(versions[1].relatedHorseIds).toEqual([]);
+    await expect(db.contentItem.update({ where: { id: publicId }, data: { relatedHorseIds: [relatedHorse.id, relatedHorse.id] } })).rejects.toThrow();
+    await expect(db.contentItem.update({ where: { id: publicId }, data: { relatedHorseIds: [randomUUID()] } })).rejects.toThrow();
     expect(publicRaceRelatedContentResponseSchema.parse((await new Client().call(`races/${relatedRace.id}/content`)).body).items.some(item => item.id === publicId)).toBe(false);
     const changedKind = await editor.call('admin/content/draft', 'POST', { id: publicId, revision: 4, draft: { ...draft('公開記事'), kind: 'VIDEO', mediaUrl: 'https://example.test/video' }, reason: '種類変更試験' });
     expect(changedKind).toMatchObject({ status: 409, body: { code: 'CONTENT_KIND_FROZEN' } });
@@ -67,10 +78,10 @@ describe('content CMS publication and access', () => {
     await expect(db.contentVersion.delete({ where: { id: versions[0].id } })).rejects.toThrow();
 
     const paidId = randomUUID();
-    const paidSaved = await admin.call('admin/content/draft', 'POST', { id: paidId, revision: 0, draft: draft('有料記事', 'PAID'), reason: '有料記事の下書き' });
+    const paidSaved = await admin.call('admin/content/draft', 'POST', { id: paidId, revision: 0, draft: draft('有料記事', 'PAID', [], [relatedHorse.id]), reason: '有料記事の下書き' });
     await admin.call(`admin/content/${paidId}/publish`, 'POST', { revision: paidSaved.body.revision, reason: '有料記事公開' });
     const guestLocked = publicContentDetailResponseSchema.parse((await new Client().call(`content/${paidId}`)).body);
-    expect(guestLocked.locked).toBe(true); expect(JSON.stringify(guestLocked)).not.toMatch(/公開本文|body|mediaUrl/);
+    expect(guestLocked).toMatchObject({ locked: true, relatedHorses: [{ id: relatedHorse.id, name: relatedHorse.name }] }); expect(JSON.stringify(guestLocked)).not.toMatch(/公開本文|body|mediaUrl/);
     expect((await member.call(`content/${paidId}`)).body.locked).toBe(true);
     const now = new Date();
     const dayPassFixture = await account('MEMBER'); const dayPassMember = new Client(); await dayPassMember.login(dayPassFixture);

@@ -9,6 +9,7 @@ test('an editor publishes an article and the public library shows it on desktop/
   const editor = await account('EDITOR');
   const suffix = randomUUID().slice(0, 8);
   const title = `秋競馬の見どころ ${suffix}`;
+  const horse = await db.horse.create({ data: { id: randomUUID(), name: `テストホース ${suffix}` } });
 
   await page.goto('/login');
   await page.getByLabel('メールアドレス', { exact: true }).fill(editor.user.email!);
@@ -24,6 +25,9 @@ test('an editor publishes an article and the public library shows it on desktop/
   await page.getByLabel('本文', { exact: true }).fill('馬場傾向と当日の確認ポイントを、初心者にもわかりやすく解説します。');
   await page.getByLabel('カテゴリ', { exact: true }).fill('読みもの');
   await page.getByLabel('タグ（カンマ区切り・10件まで）', { exact: true }).fill('秋競馬, 初心者');
+  await page.getByLabel('馬名で検索', { exact: true }).fill(horse.name);
+  await expect(page.getByText(horse.name, { exact: true })).toBeVisible();
+  await page.getByText(horse.name, { exact: true }).click();
   await page.getByLabel('操作理由', { exact: true }).fill('公開画面のE2E確認');
   await page.getByRole('button', { name: '下書きを保存', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('下書きを作成しました');
@@ -39,6 +43,8 @@ test('an editor publishes an article and the public library shows it on desktop/
   await expect(card).toBeVisible();
   await card.getByRole('link', { name: '読む', exact: true }).click();
   await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
+  await expect(page.getByText('関連馬', { exact: true })).toBeVisible();
+  await expect(page.getByText(horse.name, { exact: true })).toBeVisible();
   await expect(page.getByText('馬場傾向と当日の確認ポイントを、初心者にもわかりやすく解説します。')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
