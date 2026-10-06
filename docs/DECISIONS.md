@@ -1283,3 +1283,9 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 - `GET /admin/acquisition`、`GET /admin/onboarding-funnel`と集客CSV用の集計取得を`AdminGrowthQueryService`へ分離する。Controllerには既存のADMIN+AAL2認可、入力Contract検証、CSV整形とキャンペーン作成操作を残す。
 - `GET /admin/incidents`の設定・配送・Webhook取得と障害判定を`AdminIncidentQueryService`へ分離する。Controllerには既存のADMIN/OPERATOR認可を残し、秘密値は設定充足判定だけに使用して応答へ含めない。
 - 集計期間、閾値、表示文、公開メッセージ、並び順、API URL、応答Contract、画面、DB schemaを変更しない。本番デプロイ・migrationは行わない。
+
+## 会員設定・会員導線Command Service分離（2026-10-07）
+
+- `PATCH /me/preferences`の通知設定更新、受信拒否後のメール再開制限、変更前後の監査記録を`MemberAccountCommandService`へ分離する。Controllerには既存の本人認証と入力Contract検証を残す。
+- `POST /me/journey`の初回ログイン補完と会員導線イベントの冪等記録を同サービスへ分離する。ControllerにはMEMBER限定認可と入力Contract検証を残し、`AuthService.journey`の共通保存処理を再利用する。
+- 設定項目、イベント種別、重複防止、監査内容、API URL・応答・エラーコード、画面、DB schemaを変更しない。本番デプロイ・migrationは行わない。
