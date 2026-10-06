@@ -96,6 +96,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 会員アカウント読み取りpilot: `GET /me`の本人情報、通知状態、有効な閲覧権限、同意履歴の限定取得と既存共有Contractへの整形を`MemberAccountQueryService`へ分離する。Controllerには本人認証を残し、通知状態・MFA・パスワード準備判定、API URL・応答項目・DB schemaは変更しない。DB取得列は応答判定に必要な項目だけへ限定し、認証subject、password hash、MFA secretは公開Contractから引き続き除外する。
 - 会員退会orchestration pilot: `GET /me/closure`の月額・一日利用・進行中Checkoutの阻害確認と、`POST /me/close`のadvisory lock、再検査、退会記録・監査の追記、通知・LINE・閲覧権限・未使用認証フロー・全セッションの一括停止を`AccountClosureService`へ分離する。Controllerには本人認証、MEMBER限定、確認文言・理由・現在パスワード検証、成功後のCookie削除を残し、保持方針、API URL・応答、エラーコード、DB schemaは変更しない。
 - 管理者ディレクトリ読み取りpilot: `GET /admin/users`と`GET /admin/audit`の限定select、ページング、監査検索、担当者表示名解決、共有Contractへの投影を`AdminDirectoryQueryService`へ分離する。ControllerにはADMIN+AAL2認可と入力検証を残し、API URL・検索条件・応答項目・並び順・DB schemaは変更しない。監査ログの任意JSON `details`はDB取得対象からも除外する。
+- 管理者退会記録読み取りpilot: `GET /admin/account-closures`の限定select、ページング、状態投影を既存`AccountClosureService`へ分離する。ControllerにはADMIN+AAL2認可と入力検証を残し、API URL・応答項目・並び順・保持方針・退会処理・DB schemaは変更しない。認証・MFA・決済等の一覧表示に不要な会員情報は取得しない。
 
 ### MA-005 DBアクセス境界（後続PR候補）
 

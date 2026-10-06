@@ -1247,3 +1247,9 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 - `GET /admin/users`と`GET /admin/audit`のDB問合せ・安全な応答投影を`AdminDirectoryQueryService`へ分離し、Controllerには既存のADMIN+AAL2認可と共有入力Contract検証を残す。
 - 会員一覧は既存表示項目だけをselectし、認証subject、password hash、MFA secret等を取得・返却しない。操作履歴は表示に必要な項目と担当者解決用`actorId`だけをselectし、任意JSON `details`を取得しない。
 - API URL、ページング、JST期間、検索条件、並び順、応答Contract、画面、DB schemaを変更しない。本番デプロイ・migrationは行わない。
+
+## 管理者向け退会記録Query Service分離（2026-10-06）
+
+- `GET /admin/account-closures`のDB問合せと共有Contractへの安全な投影を、既存の退会・保持方針境界である`AccountClosureService`へ移す。Controllerには既存のADMIN+AAL2認可とページング検証を残す。
+- AccountClosureと表示用会員情報だけを明示的にselectし、password hash、認証subject、MFA secret、決済・通知情報は取得しない。会員の`disabledAt`から既存どおり`CLOSED`または`REVIEW_REQUIRED`を投影する。
+- API URL、ページング、並び順、応答Contract、管理画面、退会処理、保持方針、DB schemaを変更しない。本番デプロイ・migrationは行わない。
