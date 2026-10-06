@@ -1213,6 +1213,7 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 - 無料previewは有料fullに存在する同一statementの部分集合とし、サーバー側projectionで全文を除外できるcontractにする。現段階では会員APIや画面には接続しない。
 - Phase 1A前半はDB schema、migration、API、worker、管理画面、会員画面を変更しなかった。その後の明示承認により、Phase 1A後半としてadditive DB、決定的test provider、validator、管理API/UI、会員API/UI、既存Entitlement、auditを追加した。
 - 4つのFeature Flagは未設定時false/disabledとし、`ENABLED=false`ではAPIを404、管理導線を非表示にする。test providerはproductionで使用できず、外部通信を実装しない。
+- JRA-VAN未接続の初期運用では`AI_RACE_GUIDE_TRANSPORT=template`を選択可能とする。`template`は登録済みRace/RaceEntryのEvidence付きFactだけを決定的な固定文へ変換し、外部AI通信を行わない。既存の管理者確認・追記専用公開・Entitlementを再利用し、三国谷氏コメント、Assessment、Prediction、会員情報を入力へ含めない。未設定時`disabled`と各Feature Flagの初期値falseは維持する。
 - 公開版と生成試行は追記専用とし、PostgreSQLでも更新・削除・TRUNCATEを拒否する。公開は`ADMIN+AAL2`の確認を必須とし、発走後、stale、validator failureを拒否する。
 - 会員画面は三国谷パドックの後、結果の前にAIレースガイドを表示する。無料responseへfull snapshotを含めず、有料全文は既存Entitlementと個別透かしを再利用する。
 - JRA-VAN実通信、外部AI API、live credential、自動公開、通知、本番デプロイ・migrationは引き続き禁止する。Phase 1Bは別承認を必要とする。

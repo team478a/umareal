@@ -161,6 +161,7 @@
 - 公開済みAIガイドは追記専用versionとし、結果確認後も上書きしない。訂正と振り返りは別versionで残す。
 - JRA-VAN等に由来するデータは、商用表示、派生利用、保存、外部AI送信の許諾を項目ごとに確認できるまでAIレースガイドの入力として外部AIへ送らず、AIレースガイドとして会員公開しない。
 - Phase 1Aは方針文書、Domain contract、synthetic testだけを対象とする。DB、API、UI、外部AI/JRA-VAN通信、本番migration、デプロイは含めない。
+- JRA-VAN未接続の初期運用では、登録済みRace/RaceEntryだけを固定テンプレートで整理するBasic Guideを利用できる。外部AI通信、予測、三国谷氏コメントの加工、自動公開は行わず、管理者が既存workflowで確認してから追記専用versionとして公開する。
 
 ## 3. 会員区分と料金
 

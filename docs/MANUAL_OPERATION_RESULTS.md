@@ -91,11 +91,14 @@ RaceEntry（全出走馬）とAssessment/Prediction mark（三国谷氏の評価
 
 ## 今回未実装
 
-- AIを使わないBasic Guideの固定template renderer。
 - 三国谷氏コメントのAI整理。ORIGINAL/AI_DRAFT/APPROVEDと送信許諾の追加設計が必要。
 - 暫定Horseと正式external identityを人が照合・統合する管理UI。
 - 正式外部ProviderのライブAdapter。
 - リアルタイムオッズ、血統、調教、勝率、買い目、自動公開。
+
+## 追補: Phase 3 Basic Guide
+
+外部通信を行わない`template` transportを追加した。登録済みRace/RaceEntryだけからレース概要、出走馬一覧、詳細不足、一般的なパドック確認項目を決定的に生成し、既存の検証・承認・追記専用公開へ接続する。会員画面では固定テンプレートであることを明示する。詳細は`docs/MANUAL_BASIC_GUIDE.md`を参照。
 
 ## 判定
 

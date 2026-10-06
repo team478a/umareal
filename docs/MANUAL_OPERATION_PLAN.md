@@ -18,10 +18,12 @@
 - 同名候補を`POSSIBLE_DUPLICATE`として返し、自動mergeしない。
 - 詳細未登録を画面で「未確認」と表示し、後から既存詳細編集で補完できるようにする。
 
-## Phase 3: Basic Guide（今回は安全境界のみ）
+## Phase 3: Basic Guide（実装済み）
 
 - 手動Entryの詳細不足を`INSUFFICIENT_DATA`として扱い、架空の値を生成しない。
-- AIを使わない固定template rendererは別のreviewable phaseで検討する。
+- `template` transportで、登録済みRace/RaceEntryだけを固定文へ変換する。
+- 外部AI通信なしで、既存の生成・検証・人による確認・追記専用公開flowを再利用する。
+- 会員画面では固定テンプレートであることと、予測・買い目ではないことを明示する。
 - 三国谷氏コメントの整理は、ORIGINAL/AI_DRAFT/APPROVED、License Gate、人の承認設計が確定するまで実装しない。
 - AIの勝率、印、危険馬、買い目、自動公開は実装しない。
 

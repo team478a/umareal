@@ -117,8 +117,33 @@ describe('AI race guide Phase 1A contract', () => {
 
   it('keeps every feature flag off by default and rejects disabled transport', async () => {
     expect(resolveAiRaceGuideRuntime({})).toEqual({ enabled: false, generationEnabled: false, publicationEnabled: false, transport: 'disabled' });
+    expect(resolveAiRaceGuideRuntime({ AI_RACE_GUIDE_TRANSPORT: 'template' }).transport).toBe('template');
     expect(resolveAiRaceGuideRuntime({ AI_RACE_GUIDE_ENABLED: 'true', AI_RACE_GUIDE_GENERATION_ENABLED: 'false', AI_RACE_GUIDE_PUBLICATION_ENABLED: 'true', AI_RACE_GUIDE_TRANSPORT: 'unknown' })).toEqual({ enabled: true, generationEnabled: false, publicationEnabled: true, transport: 'disabled' });
     await expect(createAiRaceGuideNarrativeProvider('disabled').generate(aiRaceGuideStructuredInputSchema.parse(input()))).rejects.toThrow('AI_RACE_GUIDE_TRANSPORT_DISABLED');
+  });
+
+  it('renders a deterministic network-free Basic Guide from registered facts only', async () => {
+    const templateInput = aiRaceGuideStructuredInputSchema.parse(input({
+      processingMode: 'DETERMINISTIC_TEMPLATE',
+      facts: [
+        { ...fact, value: { venue: '東京', raceNumber: 9, raceName: '手動運用試験', surface: 'TURF', distance: 1600, fieldSize: 1 } },
+        { factId: 'f-entry', category: 'ATTENTION_MATERIAL', entryId, state: 'KNOWN', value: { number: 1, horseName: 'テストホース', status: 'ACTIVE' }, evidenceIds: [evidence.evidenceId] },
+        { factId: 'f-entry-details', category: 'CAUTION_FACTOR', entryId, state: 'INSUFFICIENT_DATA', reasonCode: 'ENTRY_DETAILS_NOT_REGISTERED', evidenceIds: [evidence.evidenceId] },
+        { factId: 'f-paddock', category: 'PADDOCK_CHECK_POINT', state: 'KNOWN', value: { checkItems: ['歩様', '落ち着き', '発汗'], automaticPaddockJudgement: false }, evidenceIds: [evidence.evidenceId] }
+      ]
+    }));
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (() => { calls += 1; throw new Error('network forbidden'); }) as typeof fetch;
+    try {
+      const provider = createAiRaceGuideNarrativeProvider('template');
+      const output = await provider.generate(templateInput);
+      expect(output).toEqual(await provider.generate(templateInput));
+      expect(validateAiRaceGuideGeneratedOutput(templateInput, output)).toMatchObject({ valid: true });
+      expect(JSON.stringify(output)).toContain('データ不足を成績不振とは扱いません');
+      expect(JSON.stringify(output)).not.toMatch(/本命|勝率|買い目|三国谷/u);
+      expect(calls).toBe(0);
+    } finally { globalThis.fetch = originalFetch; }
   });
 
   it('uses a deterministic network-free test provider', async () => {

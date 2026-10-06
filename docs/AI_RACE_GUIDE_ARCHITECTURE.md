@@ -271,6 +271,8 @@ feature flag初期値:
 - `AI_RACE_GUIDE_PUBLICATION_ENABLED=false`
 - `AI_RACE_GUIDE_TRANSPORT=disabled`
 
+`TRANSPORT=template`はJRA-VAN未接続のBasic Guide用であり、登録済みのRace/RaceEntry Factを固定テンプレートへ変換する。外部通信・予測・自動公開は行わない。`test`は非本番のsynthetic検証専用、`disabled`は生成拒否とする。
+
 生成、公開、表示を別々に停止できるようにする。
 
 ## 12. セキュリティ・運用

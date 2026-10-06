@@ -42,20 +42,20 @@ type FixtureRace = {
 
 @Injectable()
 export class AiRaceGuideService {
-  readonly logicVersion = 'synthetic-fixture-rules-v1';
-  readonly promptVersion = 'synthetic-narrative-v1';
-  readonly sourceVersion = 'synthetic-fixture-v1';
+  readonly logicVersion = 'basic-guide-rules-v1';
+  readonly promptVersion = 'basic-guide-template-v1';
+  readonly sourceVersion = 'umareal-operational-snapshot-v1';
 
-  buildInput(race: FixtureRace, dataCutoffAt = new Date()): AiRaceGuideStructuredInput {
+  buildInput(race: FixtureRace, dataCutoffAt = new Date(), transport: AiRaceGuideTransport = 'template'): AiRaceGuideStructuredInput {
     const observedAt = dataCutoffAt.toISOString();
-    const raceSourceId = 'source:synthetic-race';
-    const entrySourceId = 'source:synthetic-entries';
+    const raceSourceId = 'source:umareal-race';
+    const entrySourceId = 'source:umareal-entries';
     const raceEvidenceId = `evidence:race:${race.id}`;
     const entries = race.entries.map(entry => ({ entryId: entry.id, horseId: entry.horseId, number: entry.number, horseName: entry.horseName }));
     const input = {
       formatVersion: 1 as const,
       kind: 'PRE_RACE' as const,
-      processingMode: 'DETERMINISTIC_TEST' as const,
+      processingMode: transport === 'test' ? 'DETERMINISTIC_TEST' as const : 'DETERMINISTIC_TEMPLATE' as const,
       raceId: race.id,
       raceDate: race.raceDate,
       dataCutoffAt: observedAt,
@@ -64,8 +64,8 @@ export class AiRaceGuideService {
       sourceVersion: this.sourceVersion,
       entries,
       sources: [
-        { sourceId: raceSourceId, kind: 'RACE' as const, sourceVersion: this.sourceVersion, licenseDecision: 'APPROVED' as const, allowedUses: ['GUIDE_GENERATION', 'MEMBER_DISPLAY'] as const },
-        { sourceId: entrySourceId, kind: 'RACE_ENTRY' as const, sourceVersion: this.sourceVersion, licenseDecision: 'APPROVED' as const, allowedUses: ['GUIDE_GENERATION', 'MEMBER_DISPLAY'] as const }
+        { sourceId: raceSourceId, kind: 'RACE' as const, sourceProvider: 'UMAREAL', sourceVersion: this.sourceVersion, licenseDecision: 'APPROVED' as const, allowedUses: ['GUIDE_GENERATION', 'MEMBER_DISPLAY'] as const },
+        { sourceId: entrySourceId, kind: 'RACE_ENTRY' as const, sourceProvider: 'UMAREAL', sourceVersion: this.sourceVersion, licenseDecision: 'APPROVED' as const, allowedUses: ['GUIDE_GENERATION', 'MEMBER_DISPLAY'] as const }
       ],
       evidence: [
         { evidenceId: raceEvidenceId, sourceId: raceSourceId, sourceRecordId: race.id, sourceVersion: this.sourceVersion, observedAt },
@@ -93,33 +93,32 @@ export class AiRaceGuideService {
           },
           evidenceIds: [raceEvidenceId]
         },
-        ...race.entries.map(entry => {
+        ...race.entries.map(entry => ({
+          factId: `fact:entry:${entry.id}`,
+          category: 'ATTENTION_MATERIAL' as const,
+          entryId: entry.id,
+          state: 'KNOWN' as const,
+          value: { number: entry.number, horseName: entry.horseName, status: entry.status },
+          evidenceIds: [`evidence:entry:${entry.id}`]
+        })),
+        ...race.entries.flatMap(entry => {
           const detailsComplete = entry.gate !== null && entry.sex !== null && entry.age !== null && entry.carriedWeight !== null && entry.jockey !== null && entry.trainer !== null;
-          return detailsComplete ? {
-            factId: `fact:entry:${entry.id}`,
-            category: 'ATTENTION_MATERIAL' as const,
-            entryId: entry.id,
-            state: 'KNOWN' as const,
-            value: {
-              number: entry.number,
-              gate: entry.gate,
-              sex: entry.sex,
-              age: entry.age,
-              carriedWeight: Number(entry.carriedWeight!.toString()),
-              jockey: entry.jockey,
-              trainer: entry.trainer,
-              status: entry.status
-            },
-            evidenceIds: [`evidence:entry:${entry.id}`]
-          } : {
-            factId: `fact:entry:${entry.id}`,
-            category: 'ATTENTION_MATERIAL' as const,
+          return detailsComplete ? [] : [{
+            factId: `fact:entry-details:${entry.id}`,
+            category: 'CAUTION_FACTOR' as const,
             entryId: entry.id,
             state: 'INSUFFICIENT_DATA' as const,
             reasonCode: 'ENTRY_DETAILS_NOT_REGISTERED',
             evidenceIds: [`evidence:entry:${entry.id}`]
-          };
-        })
+          }];
+        }),
+        {
+          factId: `fact:paddock-check:${race.id}`,
+          category: 'PADDOCK_CHECK_POINT' as const,
+          state: 'KNOWN' as const,
+          value: { checkItems: ['歩様', '落ち着き', '発汗'], automaticPaddockJudgement: false },
+          evidenceIds: [raceEvidenceId]
+        }
       ]
     };
     return aiRaceGuideStructuredInputSchema.parse(input);
@@ -129,8 +128,9 @@ export class AiRaceGuideService {
     return hashToken(canonicalizeAiRaceGuideInput(input));
   }
 
-  generate(transport: AiRaceGuideTransport, input: AiRaceGuideStructuredInput) {
-    return createAiRaceGuideNarrativeProvider(transport).generate(input);
+  async generate(transport: AiRaceGuideTransport, input: AiRaceGuideStructuredInput) {
+    const provider = createAiRaceGuideNarrativeProvider(transport);
+    return { provider: provider.name, modelVersion: provider.modelVersion, output: await provider.generate(input) };
   }
 
   preview(outputValue: unknown): AiRaceGuideGeneratedOutput {
