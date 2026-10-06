@@ -41,6 +41,7 @@ export * from './account';
 export * from './account-closure';
 export * from './member-journey';
 export * from './admin-users';
+export * from './admin-audit';
 export * from './admin-continuity';
 export * from './content-access';
 export * from './content';

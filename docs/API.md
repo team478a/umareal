@@ -59,7 +59,7 @@
 | POST | /billing/subscriptions/:id/resume | 本人の月額解約予約取消。Stripe契約は外部API成功後にローカルへ反映 |
 | POST | /billing/portal | 本人の有効なStripe月額契約から、支払方法・請求情報を変更するStripe Customer Portal URLを発行 |
 | GET | /admin/users | ADMIN+AAL2。page/limit |
-| GET | /admin/audit | ADMIN+AAL2。page/limit |
+| GET | /admin/audit | ADMIN+AAL2。page/limit、JST日付のfrom/to（最大93日）、action、targetType、requestId。担当者表示名を含む安全な固定項目だけを返し、actorIdとdetailsは返さない |
 | GET | /admin/staff | ADMIN+AAL2。確認済みの会員・予想担当・編集担当・レース担当と、予想担当の今後の担当レース数・有効なWIN5担当数を返す。秘密情報は返さない |
 | PATCH | /admin/staff/:userId/role | ADMIN+AAL2。expectedRole、変更後ロール、対象メールの再入力、理由を必須とし、MEMBER/EXPERT/EDITOR/OPERATOR間で変更する。成功時はローカルセッションを失効し監査へ追記。担当中EXPERTの解除とADMIN変更は拒否 |
 | PATCH | /admin/staff/:userId/responsibilities | ADMIN+AAL2。移管先の有効なEXPERT、画面取得時のレース/WIN5担当件数、移管元メールの再入力、理由を必須とし、今後の未終了レースとJST当日以降の有効なWIN5担当を一括移管。レース・WIN5管理ロック内で件数を再検証し監査へ追記 |
