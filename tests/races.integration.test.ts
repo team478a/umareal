@@ -94,6 +94,23 @@ describe('race management and transactional CSV imports', () => {
     expect(duplicate.status).toBe(201); expect(duplicate.body.identity).toMatchObject({ status: 'POSSIBLE_DUPLICATE', duplicateCandidateCount: 1 });
     expect(duplicate.body.entry.horseId).not.toBe(saved.horseId);
     expect(await db.auditLog.count({ where: { targetId: { in: [first.body.entry.id, duplicate.body.entry.id] }, action: 'MANUAL_ENTRY_CREATE' } })).toBe(2);
+
+    const review = await admin.call('admin/horse-identities/review?limit=50');
+    expect(review.status).toBe(200);
+    expect(review.body.items.find((item: { id: string }) => item.id === duplicate.body.identity.id)).toMatchObject({
+      observedName: sharedName,
+      provisionalHorse: { id: duplicate.body.entry.horseId, entryCount: 1 },
+      candidates: expect.arrayContaining([expect.objectContaining({ id: saved.horseId, entryCount: 1 })])
+    });
+    const resolved = await admin.call(`admin/horse-identities/${duplicate.body.identity.id}/resolve`, 'POST', { decision: 'MATCH_EXISTING', resolvedHorseId: saved.horseId, reason: '同一馬であることを人が確認' }, undefined, headers());
+    expect(resolved).toMatchObject({ status: 201, body: { matchStatus: 'MATCHED', horseId: saved.horseId } });
+    expect(await db.horseExternalIdentity.findUniqueOrThrow({ where: { id: duplicate.body.identity.id } })).toMatchObject({ matchStatus: 'MATCHED', horseId: saved.horseId });
+    expect((await db.raceEntry.findUniqueOrThrow({ where: { id: duplicate.body.entry.id } })).horseId).toBe(duplicate.body.entry.horseId);
+    expect(await db.auditLog.count({ where: { targetId: duplicate.body.identity.id, action: 'HORSE_IDENTITY_RESOLVE' } })).toBe(1);
+
+    const distinct = await admin.call(`admin/horse-identities/${first.body.identity.id}/resolve`, 'POST', { decision: 'CONFIRM_DISTINCT', resolvedHorseId: saved.horseId, reason: '別馬であることを人が確認' }, undefined, headers());
+    expect(distinct).toMatchObject({ status: 201, body: { matchStatus: 'MATCHED', horseId: saved.horseId } });
+    expect((await admin.call(`admin/horse-identities/${first.body.identity.id}/resolve`, 'POST', { decision: 'CONFIRM_DISTINCT', resolvedHorseId: saved.horseId, reason: '二重確認' }, undefined, headers())).body.code).toBe('HORSE_IDENTITY_ALREADY_RESOLVED');
   });
   it('reports invalid CSV and previews without mutation; concurrent confirmation applies once', async () => {
     const rows = [entryInput(2), entryInput(3)];

@@ -21,6 +21,43 @@ export const manualEntryInputSchema = z.object({
 }).strict();
 export type ManualEntryInput = z.infer<typeof manualEntryInputSchema>;
 
+export const horseIdentityResolutionInputSchema = z.object({
+  decision: z.enum(['MATCH_EXISTING', 'CONFIRM_DISTINCT']),
+  resolvedHorseId: z.string().uuid(),
+  reason: z.string().trim().min(1).max(500)
+}).strict();
+export type HorseIdentityResolutionInput = z.infer<typeof horseIdentityResolutionInputSchema>;
+
+const horseIdentityReviewHorseSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1),
+  entryCount: z.number().int().nonnegative()
+}).strict();
+
+export const horseIdentityReviewResponseSchema = z.object({
+  items: z.array(z.object({
+    id: z.string().uuid(),
+    provider: z.string().min(1),
+    observedName: z.string().min(1),
+    matchStatus: z.enum(['POSSIBLE_DUPLICATE', 'UNRESOLVED']),
+    createdAt: z.string().datetime({ offset: true }),
+    provisionalHorse: horseIdentityReviewHorseSchema,
+    candidates: z.array(horseIdentityReviewHorseSchema)
+  }).strict()),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  limit: z.number().int().positive()
+}).strict();
+export type HorseIdentityReviewResponse = z.infer<typeof horseIdentityReviewResponseSchema>;
+
+export const horseIdentityResolutionResponseSchema = z.object({
+  id: z.string().uuid(),
+  decision: z.enum(['MATCH_EXISTING', 'CONFIRM_DISTINCT']),
+  horseId: z.string().uuid(),
+  matchStatus: z.literal('MATCHED')
+}).strict();
+export type HorseIdentityResolutionResponse = z.infer<typeof horseIdentityResolutionResponseSchema>;
+
 export const raceDataStatusSchema = z.object({
   mode: raceDataModeSchema,
   label: z.string(),

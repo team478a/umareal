@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req } from '@nestjs/common';
-import { canManage, CsvRaceDataProvider, dateSchema, entryInputSchema, jraVanBundleFormatVersion, jstDate, manualEntryInputSchema, parseJraVanRaceBundle, raceDataModeLabels, raceDaySchema, raceInputSchema, requiresMfa, resolveRaceDataMode, venues } from '@keiba/domain';
+import { canManage, CsvRaceDataProvider, dateSchema, entryInputSchema, horseIdentityResolutionInputSchema, horseIdentityResolutionResponseSchema, horseIdentityReviewResponseSchema, jraVanBundleFormatVersion, jstDate, manualEntryInputSchema, parseJraVanRaceBundle, raceDataModeLabels, raceDaySchema, raceInputSchema, requiresMfa, resolveRaceDataMode, venues } from '@keiba/domain';
 import type { EntryInput, ImportKind, RaceInput } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -43,6 +43,50 @@ export class RacesController {
   private async ensureCsvEnabled(tx: Tx) {
     const settings = await tx.systemSetting.findUnique({ where: { id: 'global' }, select: { csvImportEnabled: true } });
     if (settings && !settings.csvImportEnabled) throw new ForbiddenException({ code: 'CSV_IMPORT_STOPPED', message: '管理設定によりCSV取込を停止しています。' });
+  }
+  @Get('horse-identities/review') async horseIdentities(@Req() req: AppRequest, @Query() query: unknown) {
+    await this.staff(req); const { page, limit } = pageSchema.parse(query);
+    const where = { provider: 'MANUAL', matchStatus: { in: ['POSSIBLE_DUPLICATE', 'UNRESOLVED'] } };
+    const [identities, total] = await this.auth.db.$transaction([
+      this.auth.db.horseExternalIdentity.findMany({
+        where, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], skip: (page - 1) * limit, take: limit,
+        include: { horse: { include: { _count: { select: { entries: true } } } } }
+      }),
+      this.auth.db.horseExternalIdentity.count({ where })
+    ]);
+    const items = await Promise.all(identities.map(async identity => {
+      if (!identity.horse) throw new ConflictException({ code: 'PROVISIONAL_HORSE_MISSING', message: '暫定馬の参照がありません。データを確認してください。' });
+      const candidates = await this.auth.db.horse.findMany({
+        where: { name: identity.observedName, id: { not: identity.horse.id } },
+        orderBy: { id: 'asc' }, take: 20, include: { _count: { select: { entries: true } } }
+      });
+      return {
+        id: identity.id, provider: identity.provider, observedName: identity.observedName, matchStatus: identity.matchStatus, createdAt: identity.createdAt.toISOString(),
+        provisionalHorse: { id: identity.horse.id, name: identity.horse.name, entryCount: identity.horse._count.entries },
+        candidates: candidates.map(candidate => ({ id: candidate.id, name: candidate.name, entryCount: candidate._count.entries }))
+      };
+    }));
+    return horseIdentityReviewResponseSchema.parse({ items, total, page, limit });
+  }
+  @Post('horse-identities/:id/resolve') async resolveHorseIdentity(@Req() req: AppRequest, @Param('id') id: string, @Body() body: unknown) {
+    await this.staff(req); z.string().uuid().parse(id); const input = horseIdentityResolutionInputSchema.parse(body);
+    return this.mutate(req, `horse-identity:${id}`, body, async tx => {
+      const identity = await tx.horseExternalIdentity.findUnique({ where: { id }, include: { horse: true } });
+      if (!identity || identity.provider !== 'MANUAL' || !identity.horse) throw new NotFoundException();
+      if (identity.matchStatus === 'MATCHED') throw new ConflictException({ code: 'HORSE_IDENTITY_ALREADY_RESOLVED', message: 'この暫定Identityは確認済みです。' });
+      if (input.decision === 'CONFIRM_DISTINCT' && input.resolvedHorseId !== identity.horse.id) throw new BadRequestException({ code: 'INVALID_DISTINCT_HORSE', message: '別馬として確定する場合は暫定馬を選択してください。' });
+      const target = await tx.horse.findUnique({ where: { id: input.resolvedHorseId }, select: { id: true, name: true } });
+      if (!target) throw new BadRequestException({ code: 'HORSE_NOT_FOUND', message: '紐付け先の馬が見つかりません。' });
+      if (input.decision === 'MATCH_EXISTING' && (target.id === identity.horse.id || target.name !== identity.observedName)) throw new BadRequestException({ code: 'INVALID_HORSE_IDENTITY_MATCH', message: '同名の既存馬だけを紐付け先に選択できます。' });
+      const updated = await tx.horseExternalIdentity.update({ where: { id }, data: { horseId: target.id, matchStatus: 'MATCHED', lastObservedAt: new Date(), updatedAt: new Date() } });
+      await this.log(tx, req, 'HORSE_IDENTITY_RESOLVE', 'HORSE_EXTERNAL_IDENTITY', id, input.reason, {
+        decision: input.decision,
+        before: { horseId: identity.horse.id, horseName: identity.horse.name, matchStatus: identity.matchStatus },
+        after: { horseId: target.id, horseName: target.name, matchStatus: updated.matchStatus },
+        raceEntriesRewritten: false
+      });
+      return horseIdentityResolutionResponseSchema.parse({ id: updated.id, decision: input.decision, horseId: updated.horseId, matchStatus: updated.matchStatus });
+    });
   }
   @Get('race-data-status') async dataStatus(@Req() req: AppRequest) {
     await this.staff(req);
