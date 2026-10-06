@@ -98,6 +98,7 @@ DB/API結合とE2Eは同じDBの全体設定やシングルトン行を扱うた
 - 管理者ディレクトリ読み取りpilot: `GET /admin/users`と`GET /admin/audit`の限定select、ページング、監査検索、担当者表示名解決、共有Contractへの投影を`AdminDirectoryQueryService`へ分離する。ControllerにはADMIN+AAL2認可と入力検証を残し、API URL・検索条件・応答項目・並び順・DB schemaは変更しない。監査ログの任意JSON `details`はDB取得対象からも除外する。
 - 管理者退会記録読み取りpilot: `GET /admin/account-closures`の限定select、ページング、状態投影を既存`AccountClosureService`へ分離する。ControllerにはADMIN+AAL2認可と入力検証を残し、API URL・応答項目・並び順・保持方針・退会処理・DB schemaは変更しない。認証・MFA・決済等の一覧表示に不要な会員情報は取得しない。
 - 管理ダッシュボード集計pilot: `GET /admin/summary`の会員・公開運用件数、登録ファネル、30日流入内訳を`AdminSummaryQueryService`へ分離する。ControllerにはADMIN/OPERATORの既存認可を残し、期間境界、集計条件、応答Contract、画面、DB schemaは変更しない。流入管理とCSVが使用する同一内訳計算も同サービスへ集約する。
+- 当日運用ボード読み取りpilot: `GET /admin/operations`のレース・担当・評価完了数・告知・予想・通知・結果の限定取得と、警告・運用手順・要確認項目の決定的投影を`AdminOperationsQueryService`へ分離する。ControllerにはADMIN/OPERATOR認可と対象日検証を残し、判定順、文言、API、画面、DB schemaは変更しない。
 
 ### MA-005 DBアクセス境界（後続PR候補）
 

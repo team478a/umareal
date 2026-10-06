@@ -1259,3 +1259,9 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 - `GET /admin/summary`の会員数、閲覧権限、レース、監査、通知、公開待ち、結果未確定、登録ファネル、30日流入内訳の読み取りを`AdminSummaryQueryService`へ移す。ControllerにはADMIN/OPERATORの既存認可を残す。
 - 30日は実行時刻から固定秒数で遡る既存境界を維持し、流入内訳は最大20件、登録数・有料化数・source名の既存順序を維持する。流入管理画面とCSV出力も同じ内訳計算を再利用する。
 - 個別会員、メール、支払ID、監査本文、設定secretは取得・返却しない。API URL、応答Contract、画面、DB schemaを変更せず、本番デプロイ・migrationは行わない。
+
+## 当日運用ボードQuery Service分離（2026-10-06）
+
+- `GET /admin/operations`のDB取得、評価完了数、警告、6段階の運用手順、要確認項目、事前準備状態を`AdminOperationsQueryService`へ移す。ControllerにはADMIN/OPERATORの既存認可と対象日検証を残す。
+- Race、担当者の表示名・有効状態、Assessmentの完了判定用content、告知・予想・配送状態、結果版、必要なSystemSettingだけをselectする。馬名、会員連絡先、配送宛先、LINE秘密値は応答へ含めない。
+- 判定順、警告文、LINE利用可否、締切状態、API URL、応答Contract、管理画面、DB schemaを変更しない。本番デプロイ・migrationは行わない。
