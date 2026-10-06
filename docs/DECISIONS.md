@@ -1265,3 +1265,9 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 - `GET /admin/operations`のDB取得、評価完了数、警告、6段階の運用手順、要確認項目、事前準備状態を`AdminOperationsQueryService`へ移す。ControllerにはADMIN/OPERATORの既存認可と対象日検証を残す。
 - Race、担当者の表示名・有効状態、Assessmentの完了判定用content、告知・予想・配送状態、結果版、必要なSystemSettingだけをselectする。馬名、会員連絡先、配送宛先、LINE秘密値は応答へ含めない。
 - 判定順、警告文、LINE利用可否、締切状態、API URL、応答Contract、管理画面、DB schemaを変更しない。本番デプロイ・migrationは行わない。
+
+## 公開レース閲覧Query Service分離（2026-10-06）
+
+- `GET /races`と`GET /announcements`のDB問合せと公開用投影を`PublicRaceQueryService`へ移し、Controllerには既存の検索入力Contract検証を残す。
+- レース一覧は公開応答に必要なレース基本情報と告知・予想・結果の最新公開メタデータだけをselectする。告知一覧も告知ID、版、公開日時とレース基本情報だけを取得し、理由、公開者、担当者、出走馬、予想本文を取得・返却しない。
+- 既定JST日付、最大93日の期間、検索条件、並び順、ページング、告知の6時間境界・レース単位重複排除・最大10件、API URL、画面、DB schemaを変更しない。本番デプロイ・migrationは行わない。
