@@ -10,7 +10,7 @@ import cookieParser from 'cookie-parser';
 import { rateLimit } from 'express-rate-limit';
 import { ZodError } from 'zod';
 import { databaseRuntimeAccessRestricted, loadMailConfig, Prisma } from '@keiba/db';
-import { launchCapabilities, legalDocumentReleaseErrors, lineNotificationRuntimeModeAllowed, requiresPublishedLegalDocuments, resolveLaunchMode } from '@keiba/domain';
+import { launchCapabilities, legalDocumentReleaseErrors, lineNotificationRuntimeModeAllowed, requiresPublishedLegalDocuments, resolveLaunchMode, resolveRaceDataMode } from '@keiba/domain';
 import { AppController } from './app.controller';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
@@ -98,6 +98,7 @@ class AppModule {}
 
 async function main() {
   const provider = process.env.AUTH_PROVIDER;
+  resolveRaceDataMode(process.env.RACE_DATA_MODE);
   if (process.env.NODE_ENV === 'production' && !process.env.LAUNCH_MODE) throw new Error('Set LAUNCH_MODE explicitly in production');
   const launchMode = resolveLaunchMode(process.env.LAUNCH_MODE);
   const capabilities = launchCapabilities(launchMode);

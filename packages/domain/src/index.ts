@@ -4,6 +4,7 @@ import { consentVersions } from './legal';
 import { memberReferralCodeInputSchema } from './referrals';
 import { planCanReadContent } from './content-access';
 export * from './races';
+export * from './race-data-source';
 export * from './assessments';
 export * from './predictions';
 export * from './race-paper';

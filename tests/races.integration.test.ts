@@ -73,6 +73,28 @@ describe('race management and transactional CSV imports', () => {
     const audit = await db.auditLog.findMany({ where: { targetId: added.body.id, action: 'ENTRY_SAVE' } });
     expect(audit).toHaveLength(2);
   });
+  it('treats no provider configuration as normal manual operation and creates provisional horses from number and name', async () => {
+    const previousMode = process.env.RACE_DATA_MODE; delete process.env.RACE_DATA_MODE;
+    const status = await admin.call('admin/race-data-status');
+    if (previousMode === undefined) delete process.env.RACE_DATA_MODE; else process.env.RACE_DATA_MODE = previousMode;
+    expect(status).toMatchObject({ status: 200, body: { mode: 'MANUAL', label: '手動運用', operationalStatus: 'NORMAL', externalIntegration: 'NOT_USED' } });
+
+    const manualRaceResponse = await admin.call('admin/races', 'POST', { race: raceInput(2), reason: '手動運用試験レース' }, undefined, headers());
+    expect(manualRaceResponse.status).toBe(201); const manualRaceId = manualRaceResponse.body.id as string; const sharedName = `同名候補-${randomUUID().slice(0, 8)}`;
+    let race = await db.race.findUniqueOrThrow({ where: { id: manualRaceId } });
+    const first = await admin.call(`admin/races/${manualRaceId}/entries/manual`, 'POST', { entry: { number: 16, horseName: sharedName }, revision: race.revision, reason: '初期運用の簡易登録' }, undefined, headers());
+    expect(first.status).toBe(201); expect(first.body.identity).toMatchObject({ provider: 'MANUAL', status: 'UNRESOLVED', duplicateCandidateCount: 0 });
+    const saved = await db.raceEntry.findUniqueOrThrow({ where: { id: first.body.entry.id } });
+    expect(saved).toMatchObject({ number: 16, horseName: sharedName, gate: null, sex: null, age: null, carriedWeight: null, jockey: null, trainer: null });
+    const identity = await db.horseExternalIdentity.findUniqueOrThrow({ where: { id: first.body.identity.id } });
+    expect(identity).toMatchObject({ horseId: saved.horseId, provider: 'MANUAL', sourceVersion: 'MANUAL_OPERATION_V1', matchStatus: 'UNRESOLVED' });
+
+    race = await db.race.findUniqueOrThrow({ where: { id: manualRaceId } });
+    const duplicate = await admin.call(`admin/races/${manualRaceId}/entries/manual`, 'POST', { entry: { number: 17, horseName: sharedName }, revision: race.revision, reason: '同名でも自動統合しない確認' }, undefined, headers());
+    expect(duplicate.status).toBe(201); expect(duplicate.body.identity).toMatchObject({ status: 'POSSIBLE_DUPLICATE', duplicateCandidateCount: 1 });
+    expect(duplicate.body.entry.horseId).not.toBe(saved.horseId);
+    expect(await db.auditLog.count({ where: { targetId: { in: [first.body.entry.id, duplicate.body.entry.id] }, action: 'MANUAL_ENTRY_CREATE' } })).toBe(2);
+  });
   it('reports invalid CSV and previews without mutation; concurrent confirmation applies once', async () => {
     const rows = [entryInput(2), entryInput(3)];
     const bad = await preview('entries', [rows[0], { ...rows[1], number: 2 }], raceId);

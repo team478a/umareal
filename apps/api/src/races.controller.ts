@@ -1,8 +1,9 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req } from '@nestjs/common';
-import { canManage, CsvRaceDataProvider, dateSchema, entryInputSchema, jraVanBundleFormatVersion, jstDate, parseJraVanRaceBundle, raceDaySchema, raceInputSchema, requiresMfa, venues } from '@keiba/domain';
+import { canManage, CsvRaceDataProvider, dateSchema, entryInputSchema, jraVanBundleFormatVersion, jstDate, manualEntryInputSchema, parseJraVanRaceBundle, raceDataModeLabels, raceDaySchema, raceInputSchema, requiresMfa, resolveRaceDataMode, venues } from '@keiba/domain';
 import type { EntryInput, ImportKind, RaceInput } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
+import { randomUUID } from 'node:crypto';
 import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
 import { hashToken } from './security';
@@ -42,6 +43,11 @@ export class RacesController {
   private async ensureCsvEnabled(tx: Tx) {
     const settings = await tx.systemSetting.findUnique({ where: { id: 'global' }, select: { csvImportEnabled: true } });
     if (settings && !settings.csvImportEnabled) throw new ForbiddenException({ code: 'CSV_IMPORT_STOPPED', message: '管理設定によりCSV取込を停止しています。' });
+  }
+  @Get('race-data-status') async dataStatus(@Req() req: AppRequest) {
+    await this.staff(req);
+    const mode = resolveRaceDataMode(process.env.RACE_DATA_MODE);
+    return { mode, label: raceDataModeLabels[mode], operationalStatus: 'NORMAL' as const, externalIntegration: ['JRA_VAN', 'OTHER_PROVIDER'].includes(mode) ? 'CONFIGURED_EXTERNALLY' as const : 'NOT_USED' as const };
   }
   private log(tx: Tx, req: AppRequest, action: string, targetType: string, targetId: string, reason: string, details: unknown) {
     return tx.auditLog.create({ data: { actorId: req.auth!.id, actorRole: req.auth!.role, action, targetType, targetId, reason, details: json(details), requestId: req.requestId } });
@@ -155,6 +161,27 @@ export class RacesController {
       const saved = await this.saveEntry(tx, id, entry);
       await tx.race.update({ where: { id }, data: { revision: { increment: 1 } } });
       await this.log(tx, req, 'ENTRY_SAVE', 'RACE_ENTRY', saved.id, reason, { before: before.entries.find(e => e.number === entry.number) ?? null, after: saved }); return saved;
+    });
+  }
+  @Post('races/:id/entries/manual') async manualEntry(@Req() req: AppRequest, @Param('id') id: string, @Body() body: unknown) {
+    await this.staff(req); z.string().uuid().parse(id);
+    const { entry, revision, reason } = z.object({ entry: manualEntryInputSchema, revision: z.number().int().positive(), reason: reasonSchema }).strict().parse(body);
+    return this.mutate(req, `manual-entry:${id}`, body, async tx => {
+      const before = await tx.race.findUnique({ where: { id }, include: fullRace });
+      if (!before) throw new NotFoundException();
+      if (before.revision !== revision) throw new ConflictException({ code: 'STALE_REVISION', message: '他の操作で変更されました。再読み込みしてください。' });
+      if (before.entries.some(item => item.number === entry.number)) throw new ConflictException({ code: 'ENTRY_ALREADY_EXISTS', message: 'この馬番は登録済みです。出走馬一覧の編集から変更してください。' });
+      const duplicateCandidates = await tx.horse.findMany({ where: { name: entry.horseName }, select: { id: true }, take: 20 });
+      const horse = await tx.horse.create({ data: { id: randomUUID(), name: entry.horseName } });
+      const now = new Date();
+      const identity = await tx.horseExternalIdentity.create({ data: {
+        horseId: horse.id, provider: 'MANUAL', externalKeyHash: hashToken(`MANUAL\0${randomUUID()}`), sourceVersion: 'MANUAL_OPERATION_V1', observedName: entry.horseName,
+        matchStatus: duplicateCandidates.length ? 'POSSIBLE_DUPLICATE' : 'UNRESOLVED', firstObservedAt: now, lastObservedAt: now
+      } });
+      const saved = await tx.raceEntry.create({ data: { raceId: id, horseId: horse.id, number: entry.number, horseName: entry.horseName, gate: null, sex: null, age: null, carriedWeight: null, jockey: null, trainer: null, winOdds: null, popularity: null, status: 'ACTIVE' } });
+      await tx.race.update({ where: { id }, data: { revision: { increment: 1 } } });
+      await this.log(tx, req, 'MANUAL_ENTRY_CREATE', 'RACE_ENTRY', saved.id, reason, { after: saved, identityId: identity.id, identityProvider: identity.provider, identityStatus: identity.matchStatus, duplicateCandidateHorseIds: duplicateCandidates.map(candidate => candidate.id) });
+      return { entry: saved, identity: { id: identity.id, provider: identity.provider, status: identity.matchStatus, duplicateCandidateCount: duplicateCandidates.length } };
     });
   }
   private async snapshot(tx: Tx, kind: ImportKind, rows: Rows, raceId?: string) {
