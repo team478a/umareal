@@ -80,7 +80,7 @@
 | POST | /webhooks/resend | Resend署名必須。バウンス・苦情・配信抑止を追記記録し、照合会員の公開通知メールを停止 |
 | POST | /webhooks/line | LINE署名必須。follow/unfollowを冪等受付し、連携済みアカウントの通知可否を更新 |
 | POST | /auth/line/start | REGISTER、LOGIN、LINKのstate・nonce・PKCE付きOAuthフローを開始。REGISTERのみ任意のacquisitionをサーバー内フローへ固定 |
-| GET | /auth/line/callback | code/stateを使い切り、ID tokenを検証して15分の登録grant発行、連携、またはログイン。新規LINE登録はLINE Login APIでリンク済み公式アカウントの友だち状態も確認し、未追加・ブロック中はシステム会員登録へ進めない。LOGINで未登録・未連携の場合は許可済みreturnToを保持してログイン画面へ戻す。LINKで別会員に連携済みの場合もJSONエラーを表示せず、現在のセッションを維持してマイページの案内へ戻す |
+| GET | /auth/line/callback | code/stateを使い切り、ID tokenを検証して15分の登録grant発行、連携、またはログイン。新規LINE登録はLINE Login APIでリンク済み公式アカウントの友だち状態も確認し、未追加・ブロック中はシステム会員登録へ進めない。LOGINで未登録・未連携の場合は許可済みreturnToを保持してログイン画面へ戻す。退会・利用停止・解除済みtombstoneに紐づくLINEのREGISTER/LOGINは重複会員を作らず、JSONエラーではなく運営確認の案内へ戻す。LINKで別会員に連携済みの場合もJSONエラーを表示せず、現在のセッションを維持してマイページの案内へ戻す |
 | POST | /auth/line/register | 登録grant、表示名、成人・文書同意を使い無料会員とセッションを作成 |
 | POST | /auth/line/unlink | 本人のLINE連携を履歴付きで解除。確認済み予備メール・パスワード必須 |
 | GET | /admin/results/races | ADMIN+AAL2/OPERATOR。発走済み・予想公開済みの結果対象一覧 |

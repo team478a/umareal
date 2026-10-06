@@ -40,7 +40,7 @@ export class LineLoginController {
         const session = await this.auth.db.$transaction(async tx => { await this.auth.audit(tx, req, 'LINE_LOGIN', account.user.id, '登録済みLINEアカウントでログイン', { subjectHash }); return this.auth.session(tx, account.user.id); });
         this.sessions.setLocalSession(res, session); return res.redirect(303, `${process.env.APP_BASE_URL}/account?line=login`);
       }
-      if (account) throw new ConflictException({ code: 'LINE_ACCOUNT_UNAVAILABLE', message: 'このLINEアカウントは再登録できません。' });
+      if (account) return res.redirect(303, `${process.env.APP_BASE_URL}/login?line=account-unavailable`);
       if (!identity.friend) {
         const registrationUrl = new URL('/register', process.env.APP_BASE_URL);
         registrationUrl.searchParams.set('entry', 'line');
@@ -76,6 +76,7 @@ export class LineLoginController {
       return res.redirect(303, `${process.env.APP_BASE_URL}/account?line=linked`);
     }
     const account = await this.auth.db.lineAccount.findUnique({ where: { subject: identity.subject }, include: { user: true } });
+    if (account?.user.disabledAt) return res.redirect(303, `${process.env.APP_BASE_URL}/login?line=account-unavailable`);
     if (!account || account.unlinkedAt) {
       const returnPath = lineLoginReturnPathSchema.safeParse(flow.returnPath);
       const loginUrl = new URL('/login', process.env.APP_BASE_URL);
@@ -83,7 +84,6 @@ export class LineLoginController {
       if (returnPath.success) loginUrl.searchParams.set('returnTo', returnPath.data);
       return res.redirect(303, loginUrl.toString());
     }
-    if (account.user.disabledAt) throw new UnauthorizedException({ code: 'LINE_ACCOUNT_UNAVAILABLE', message: 'このアカウントではログインできません。' });
     req.auth = { id: account.user.id, role: account.user.role, aal: 1, user: account.user };
     const token = await this.auth.db.$transaction(async tx => {
       await this.auth.audit(tx, req, 'LINE_LOGIN', account.user.id, 'LINEログイン', { subjectHash });

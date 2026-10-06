@@ -168,13 +168,15 @@ function AuthForm({ path, onSuccess, lineEnabled, localOnly, registrationEnabled
   const captchaCallback = useCallback((token: string | null) => setCaptchaToken(token), []);
   const lineNotLinked = path === '/login' && search.get('line') === 'not-linked';
   const lineAlreadyLinked = path === '/login' && search.get('line') === 'already-linked';
+  const lineAccountUnavailable = path === '/login' && search.get('line') === 'account-unavailable';
   useEffect(() => {
     if (path !== '/login') return;
     if (search.get('closed') === '1') setMessage('退会手続きが完了し、すべての端末からログアウトしました。');
+    else if (lineAccountUnavailable) setMessage('このLINEは既存または退会済みの会員情報に紐づいているため、新しい会員として再登録できません。');
     else if (lineAlreadyLinked) setMessage('元の会員を確認するため、下の「LINEでログイン」を押してください。会員情報をまとめたい場合は、ログイン後にお問い合わせください。');
     else if (lineNotLinked) setMessage('このLINEではログイン登録がまだ完了していません。初めての方は無料会員登録へ進んでください。メールで登録済みの方は、メールでログイン後にマイページからLINEを連携できます。');
     else setMessage('');
-  }, [lineAlreadyLinked, lineNotLinked, path, search]);
+  }, [lineAccountUnavailable, lineAlreadyLinked, lineNotLinked, path, search]);
   const acquisition = useMemo(() => registration ? { source: search.get('utm_source') || undefined, medium: search.get('utm_medium') || undefined, campaign: search.get('utm_campaign') || undefined, content: search.get('utm_content') || undefined, term: search.get('utm_term') || undefined, referralCode: search.get('ref') || undefined, landingPath: '/register' } : undefined, [registration, search]);
   const memberReferralCode = registration ? search.get('invite') || undefined : undefined;
   const directLineEntry = registration && lineEnabled && search.get('entry') === 'line';
@@ -218,6 +220,7 @@ function AuthForm({ path, onSuccess, lineEnabled, localOnly, registrationEnabled
       <div className="auth-switch">すでに登録済みの方は <Link href="/login">ログイン</Link></div>
     </div> : <form onSubmit={submit}>
       <Notice text={error} error /><Notice text={message} />
+      {lineAccountUnavailable && <div className="notice error" role="alert"><strong>退会後の再利用には運営の確認が必要です。</strong><br />別のLINEやメールで登録し直さず、公式LINEのトークへ戻って「退会後の再登録」とお知らせください。登録時の表示名、退会したおおよその日時、利用したい紹介コードをお伝えください。パスワードや認証コードは送らないでください。紹介コードは自動では後付けされず、重複・自己紹介に該当しないか運営が確認します。</div>}
       {lineNotLinked && registrationEnabled && <Link className="button line-button full" href="/register">LINE無料登録へ<ArrowRight size={17} /></Link>}
       {registration && lineEnabled && <button type="button" className="text-link registration-method-back" onClick={() => { setError(''); setMessage(''); setRegistrationMethod('CHOICE'); }}>登録方法を選び直す</button>}
       {registration && <label className="field">表示名<input name="displayName" autoComplete="nickname" maxLength={60} required placeholder="例：山田 太郎" /></label>}
