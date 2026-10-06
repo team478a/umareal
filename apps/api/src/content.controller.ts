@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req, UnauthorizedException } from '@nestjs/common';
 import { Prisma } from '@keiba/db';
-import { adminContentHorseOptionsResponseSchema, adminContentItemResponseSchema, adminContentListResponseSchema, adminContentMutationResponseSchema, adminContentRaceOptionsResponseSchema, canManage, canReadPrediction, contentDraftSchema, contentPublishSchema, contentSaveSchema, contentScheduleSchema, contentStateChangeSchema, dateSchema, jstDate, parseContentAccessPolicy, publicContentDetailResponseSchema, publicContentListResponseSchema, publicRaceRelatedContentResponseSchema } from '@keiba/domain';
+import { adminContentHorseOptionsResponseSchema, adminContentItemResponseSchema, adminContentListResponseSchema, adminContentMutationResponseSchema, adminContentRaceOptionsResponseSchema, canManage, canReadPrediction, contentDraftSchema, contentPublishSchema, contentSaveSchema, contentScheduleSchema, contentStateChangeSchema, dateSchema, jstDate, parseContentAccessPolicy, publicContentDetailResponseSchema, publicContentListResponseSchema, publicHorseRelatedContentResponseSchema, publicRaceRelatedContentResponseSchema } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
 import type { AppRequest, AuthContext } from './context';
@@ -265,5 +265,22 @@ export class ContentController {
       ORDER BY latest."publishedAt" DESC, ci.id DESC LIMIT 20`;
     const rows = await Promise.all(items.map(async version => ({ ...publicMetadata(version.contentId, version), locked: !await this.access(actor, version) })));
     return publicRaceRelatedContentResponseSchema.parse({ items: rows });
+  }
+
+  @Get('horses/:horseId/content') async relatedToHorse(@Req() req: AppRequest, @Param('horseId') horseId: string) {
+    z.string().uuid().parse(horseId); const actor = await this.optionalActor(req);
+    const horse = await this.auth.db.horse.findUnique({ where: { id: horseId }, select: { id: true, name: true } });
+    if (!horse) throw new NotFoundException();
+    const items = await this.auth.db.$queryRaw<PublicVersionRow[]>`
+      WITH latest AS (
+        SELECT DISTINCT ON (v."contentId") v."contentId", v.version, v.kind, v.title, v.summary, v."thumbnailUrl", v.category, v.tags, v."relatedHorseIds", v.visibility, v."publishedAt"
+        FROM content_versions v ORDER BY v."contentId", v.version DESC
+      )
+      SELECT ci.id AS "contentId", latest.version, latest.kind, latest.title, latest.summary, latest."thumbnailUrl", latest.category, latest.tags, latest.visibility, latest."publishedAt"
+      FROM content_items ci JOIN latest ON latest."contentId" = ci.id
+      WHERE ci."isVisible" = true AND latest."relatedHorseIds" @> ARRAY[${horseId}::uuid]
+      ORDER BY latest."publishedAt" DESC, ci.id DESC LIMIT 20`;
+    const rows = await Promise.all(items.map(async version => ({ ...publicMetadata(version.contentId, version), locked: !await this.access(actor, version) })));
+    return publicHorseRelatedContentResponseSchema.parse({ horse, items: rows });
   }
 }

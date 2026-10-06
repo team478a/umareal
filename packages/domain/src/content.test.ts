@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adminContentItemResponseSchema, contentDraftSchema, publicContentDetailResponseSchema, publicContentListResponseSchema } from './content';
+import { adminContentItemResponseSchema, contentDraftSchema, publicContentDetailResponseSchema, publicContentListResponseSchema, publicHorseRelatedContentResponseSchema } from './content';
 
 const id = '11111111-1111-4111-8111-111111111111';
 const draft = { kind: 'ARTICLE' as const, title: '秋競馬の見どころ', summary: '開催の注目点を紹介します。', body: '会員向けの本文です。', thumbnailUrl: null, mediaUrl: null, category: '読みもの', tags: ['秋競馬'], relatedRaceIds: [], relatedHorseIds: [], visibility: 'PUBLIC' as const };
@@ -28,5 +28,7 @@ describe('content CMS contracts', () => {
     const list = publicContentListResponseSchema.parse({ items: [{ ...metadata, locked: false }], total: 1, page: 1, limit: 20, filters: { kind: 'ALL', category: null, categories: ['読みもの'] } });
     expect(list.items[0].title).toBe(draft.title);
     expect(publicContentListResponseSchema.safeParse({ ...list, items: [{ ...list.items[0], body: draft.body }] }).success).toBe(false);
+    expect(publicHorseRelatedContentResponseSchema.parse({ horse: { id, name: '関連馬' }, items: [{ ...metadata, locked: false }] }).horse.name).toBe('関連馬');
+    expect(publicHorseRelatedContentResponseSchema.safeParse({ horse: { id, name: '関連馬', privateNote: '非公開' }, items: [] }).success).toBe(false);
   });
 });

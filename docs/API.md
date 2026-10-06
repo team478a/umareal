@@ -252,6 +252,7 @@ StripeもSecret keyとWebhook secretは同じ暗号化方式で保存し、設�
 | GET | /content | 公開中のコンテンツ一覧。閲覧権のない有料コンテンツはメタデータのみ |
 | GET | /content/:id | 最新公開版。関連レースと関連馬名は公開メタデータとして返し、本文とメディアURLは権限判定後だけ返す |
 | GET | /races/:raceId/content | そのレースに関連する最新の公開中コンテンツを最大20件返す |
+| GET | /horses/:horseId/content | Horse名と、そのHorseに関連する最新の公開中コンテンツを最大20件返す。本文・メディアURLは含めない |
 
 ## レース管理
 
