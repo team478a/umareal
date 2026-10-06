@@ -66,8 +66,44 @@ export const adminLocalRestoreAttestationResponseSchema = z.object({
   latest: adminLocalRestoreAttestationSchema.nullable()
 }).strict();
 
+const productionBackupEvidenceReferenceSchema = z.string().trim().min(1).max(100).regex(
+  /^[A-Za-z0-9][A-Za-z0-9._/-]*$/,
+  '証跡参照は英数字、ハイフン、アンダースコア、ピリオド、スラッシュだけで入力してください。'
+);
+
+export const adminProductionBackupAttestationInputSchema = z.object({
+  provider: z.string().trim().min(2).max(100),
+  encryptedAtRest: z.literal(true),
+  separateFailureDomain: z.literal(true),
+  automatedBackups: z.literal(true),
+  retentionDays: z.number().int().min(1).max(3650),
+  retentionGenerations: z.number().int().min(2).max(1000),
+  rpoMinutes: z.number().int().min(1).max(10080),
+  rtoMinutes: z.number().int().min(1).max(10080),
+  responsibleRole: z.string().trim().min(1).max(100),
+  restoreTestedAt: readinessDateTimeSchema,
+  nextReviewAt: readinessDateTimeSchema,
+  evidenceReference: productionBackupEvidenceReferenceSchema,
+  reason: z.string().trim().min(1).max(500)
+}).strict();
+
+export const adminProductionBackupAttestationSchema = adminProductionBackupAttestationInputSchema.omit({ reason: true }).extend({
+  id: z.string().uuid(),
+  recordedAt: readinessDateTimeSchema,
+  recordedBy: z.object({ id: z.string().uuid(), displayName: z.string().min(1) }).strict(),
+  reason: z.string().min(1),
+  reviewStatus: z.enum(['CURRENT', 'EXPIRED'])
+}).strict();
+
+export const adminProductionBackupAttestationResponseSchema = z.object({
+  latest: adminProductionBackupAttestationSchema.nullable()
+}).strict();
+
 export type AdminReadinessCheck = z.infer<typeof adminReadinessCheckSchema>;
 export type AdminReadinessResponse = z.infer<typeof adminReadinessResponseSchema>;
 export type AdminLocalRestoreAttestationInput = z.infer<typeof adminLocalRestoreAttestationInputSchema>;
 export type AdminLocalRestoreAttestation = z.infer<typeof adminLocalRestoreAttestationSchema>;
 export type AdminLocalRestoreAttestationResponse = z.infer<typeof adminLocalRestoreAttestationResponseSchema>;
+export type AdminProductionBackupAttestationInput = z.infer<typeof adminProductionBackupAttestationInputSchema>;
+export type AdminProductionBackupAttestation = z.infer<typeof adminProductionBackupAttestationSchema>;
+export type AdminProductionBackupAttestationResponse = z.infer<typeof adminProductionBackupAttestationResponseSchema>;

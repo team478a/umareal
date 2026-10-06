@@ -33,7 +33,7 @@
 | /admin/settings | ADMINはTurnstile・メール・LINE・Stripe資格情報、3プランの料金と販売可否、通知再試行方針、予想の訂正・延期公開ルール、緊急停止を変更し、再配備が必要な基盤設定の状態を確認。OPERATORは秘密値と入力値を除く稼働・接続・公開ルール・配備状態だけを閲覧 | ADMIN+AAL2で変更。OPERATORは読取専用 |
 | /admin/notifications | 予想公開・評価結果の配送状態、試行履歴、状態・チャネル・レースの絞り込み、理由付き再送、Resend配信拒否履歴と停止解除 | ADMIN+AAL2/OPERATOR（停止解除はADMIN+AAL2） |
 | /admin/incidents | 公開・取込・通知の停止、通知遅延・失敗・停滞、お問い合わせ期限接近・超過、問い合わせ管理への導線、外部アラート履歴、初動から復旧までの手順、会員向け案内文案 | ADMIN+AAL2/OPERATOR |
-| /admin/backups | 最終バックアップ・隔離復元結果、ハッシュ、件数照合、実施手順 | ADMIN+AAL2 |
+| /admin/backups | 最終バックアップ・隔離復元結果、ハッシュ、件数照合、本番バックアップ運用の監査付き確認記録 | ADMIN+AAL2 |
 | /admin/readiness | 本番準備の確認済み・要対応・人による確認、根拠と対応先 | ADMIN+AAL2 |
 | /admin/account-closures | 退会処理済み会員、利用停止日時、退会理由、保持方針 | ADMIN+AAL2 |
 | /admin/referrals | 紹介成立・紹介者・マイルストーン達成・特典付与/使用集計、紹介者別状況、紹介詳細、理由必須の不正紹介無効化 | ADMIN+AAL2 |

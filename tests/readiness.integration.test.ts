@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { adminLocalRestoreAttestationResponseSchema, adminReadinessResponseSchema } from '../packages/domain/src';
+import { adminLocalRestoreAttestationResponseSchema, adminProductionBackupAttestationResponseSchema, adminReadinessResponseSchema } from '../packages/domain/src';
 import { account, Client, db } from './helpers';
 
 afterAll(() => db.$disconnect());
@@ -78,5 +78,44 @@ describe('production readiness', () => {
     const operator = new Client(); await operator.login(await account('OPERATOR')); await operator.mfa();
     expect((await operator.call('admin/readiness/local-restore-attestation')).status).toBe(403);
     expect((await operator.call('admin/readiness/local-restore-attestation', 'POST', { verification, reason: '権限なし' })).status).toBe(403);
+  });
+
+  it('records production backup controls as manual, append-only evidence', async () => {
+    const fixture = await account('ADMIN');
+    const admin = new Client(); await admin.login(fixture);
+    const input = {
+      provider: 'Managed PostgreSQL', encryptedAtRest: true, separateFailureDomain: true, automatedBackups: true,
+      retentionDays: 30, retentionGenerations: 14, rpoMinutes: 60, rtoMinutes: 240, responsibleRole: '運用責任者',
+      restoreTestedAt: new Date(Date.now() - 86400000).toISOString(), nextReviewAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+      evidenceReference: 'ops/backup-review-integration', reason: '本番公開前の運用確認'
+    };
+    expect((await admin.call('admin/readiness/production-backup-attestation', 'POST', input)).status).toBe(403);
+    await admin.mfa();
+    expect((await admin.call('admin/readiness/production-backup-attestation', 'POST', input, 'https://evil.example')).status).toBe(403);
+
+    const created = await admin.call('admin/readiness/production-backup-attestation', 'POST', input);
+    expect(created.status).toBe(201);
+    const parsed = adminProductionBackupAttestationResponseSchema.parse(created.body);
+    expect(parsed.latest).toMatchObject({ provider: input.provider, recordedBy: { id: fixture.user.id, displayName: fixture.user.displayName }, reviewStatus: 'CURRENT' });
+    expect(JSON.stringify(parsed)).not.toMatch(/databaseUrl|secret|token|https:/i);
+
+    const fetched = await admin.call('admin/readiness/production-backup-attestation');
+    expect(adminProductionBackupAttestationResponseSchema.parse(fetched.body).latest?.id).toBe(parsed.latest?.id);
+    expect(await db.auditLog.findUnique({ where: { id: parsed.latest!.id }, select: { action: true, targetType: true, targetId: true, reason: true } })).toEqual({ action: 'PRODUCTION_BACKUP_ATTESTED', targetType: 'READINESS_CHECK', targetId: 'PRODUCTION_BACKUP', reason: input.reason });
+
+    const readiness = adminReadinessResponseSchema.parse((await admin.call('admin/readiness')).body);
+    const productionBackup = readiness.checks.find(item => item.code === 'PRODUCTION_BACKUP');
+    expect(productionBackup).toMatchObject({ status: 'MANUAL' });
+    expect(productionBackup?.evidence).toContain('外部基盤の自動検証ではありません');
+
+    const futureRestore = await admin.call('admin/readiness/production-backup-attestation', 'POST', { ...input, restoreTestedAt: new Date(Date.now() + 3600000).toISOString() });
+    expect(futureRestore.body.code).toBe('BACKUP_RESTORE_TEST_IN_FUTURE');
+    const expired = await admin.call('admin/readiness/production-backup-attestation', 'POST', { ...input, nextReviewAt: new Date(Date.now() - 1000).toISOString() });
+    expect(expired.body.code).toBe('BACKUP_REVIEW_EXPIRED');
+    expect((await admin.call('admin/readiness/production-backup-attestation', 'POST', { ...input, evidenceReference: 'https://example.test/?token=secret' })).status).toBe(400);
+
+    const operator = new Client(); await operator.login(await account('OPERATOR')); await operator.mfa();
+    expect((await operator.call('admin/readiness/production-backup-attestation')).status).toBe(403);
+    expect((await operator.call('admin/readiness/production-backup-attestation', 'POST', input)).status).toBe(403);
   });
 });

@@ -14,6 +14,8 @@
 
 `GET /api/v1/admin/readiness/local-restore-attestation` と `POST /api/v1/admin/readiness/local-restore-attestation` はADMIN+AAL2専用である。POSTは`pnpm db:backup:verify`が生成した成功JSON、記録理由、7日以内の実行日時、現在の適用済みmigration数、12件の履歴保護トリガーを検証し、既存のappend-only監査履歴へ記録する。バックアップ本体、絶対パス、DB資格情報は受け取らない。記録後も本番サーバーで復元を再現したとは表示しない。
 
+`GET /api/v1/admin/readiness/production-backup-attestation` と `POST /api/v1/admin/readiness/production-backup-attestation` もADMIN+AAL2専用である。管理者は外部基盤の暗号化、別障害領域、自動取得、保持日数・世代、RPO/RTO、責任区分、復元試験日、次回確認日を確認し、秘密値を含まない証跡参照と理由を追記記録する。記録が有効でもReadinessは`MANUAL`を維持し、外部基盤の自動検証や公開承認とは表示しない。
+
 ## 制限
 
 設定済みという表示はライブ疎通の成功を意味しない。正式文書、データ利用許諾、外部決済、実Supabase、LINEとメールの実送信、外部監視、本番バックアップは別作業で確認する。画面の自動判定だけで本番公開を承認しない。

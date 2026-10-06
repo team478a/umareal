@@ -173,8 +173,13 @@ test('administrator must complete MFA before viewing member management', async (
   await expect(page.getByRole('heading', { name: '検証内容', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '開発端末の復元結果を記録', exact: true })).toBeVisible();
   await expect(page.getByLabel('復元確認結果（JSON）')).toBeVisible();
-  await expect(page.getByLabel('記録理由')).toBeVisible();
+  await expect(page.getByLabel('記録理由', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '監査履歴へ記録', exact: true })).toBeDisabled();
+  await expect(page.getByRole('heading', { name: '本番バックアップ運用を記録', exact: true })).toBeVisible();
+  await expect(page.getByLabel('バックアップ提供元')).toBeVisible();
+  await expect(page.getByLabel('証跡参照番号')).toBeVisible();
+  await expect(page.getByLabel('運用確認の記録理由')).toBeVisible();
+  await expect(page.getByRole('button', { name: '運用確認を記録', exact: true })).toBeDisabled();
   await expect(page.locator('section').filter({ has: page.getByRole('heading', { name: '検証内容', exact: true }) }).getByText('pnpm db:backup:verify', { exact: true })).toBeVisible();
   await expect(page.getByLabel('バックアップ検証結果')).toContainText(/復元確認済み|復元確認に失敗|復元確認は未実施/);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
