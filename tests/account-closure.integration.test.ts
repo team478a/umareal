@@ -40,6 +40,8 @@ describe('account closure and retained history', () => {
     await expect(db.accountClosure.delete({ where: { id: closure.id } })).rejects.toThrow();
 
     const admin = new Client(); await admin.login(await account('ADMIN'));
+    const restoreBody = { expectedDisabledAt: user.disabledAt!.toISOString(), confirmation: fixture.user.displayName, reason: '本人確認後に元の会員だけを復旧する結合試験' };
+    expect((await admin.call(`admin/account-closures/${closure.id}/restore`, 'POST', restoreBody, undefined, { 'Idempotency-Key': randomUUID() })).status).toBe(403);
     expect((await admin.call('admin/account-closures')).status).toBe(403); await admin.mfa();
     const records = await admin.call('admin/account-closures'); expect(records.status).toBe(200);
     expect(records.body.items).toEqual(expect.arrayContaining([expect.objectContaining({ id: closure.id, status: 'CLOSED', retentionPolicyVersion: eligibility.body.retentionPolicyVersion })]));
@@ -48,6 +50,27 @@ describe('account closure and retained history', () => {
     expect(Object.keys(record).sort()).toEqual(['accessRevokedAt', 'id', 'reasonCode', 'requestedAt', 'retentionPolicyVersion', 'status', 'user'].sort());
     expect(Object.keys(record.user).sort()).toEqual(['disabledAt', 'displayName', 'email', 'id', 'registrationMethod'].sort());
     expect(JSON.stringify(records.body)).not.toMatch(/passwordHash|mfaSecret|tokenHash/);
+
+    const wrongConfirmation = await admin.call(`admin/account-closures/${closure.id}/restore`, 'POST', { ...restoreBody, confirmation: '別の会員' }, undefined, { 'Idempotency-Key': randomUUID() });
+    expect(wrongConfirmation).toMatchObject({ status: 400, body: { code: 'ACCOUNT_RESTORE_CONFIRMATION_MISMATCH' } });
+    const restoreKey = randomUUID();
+    const restored = await admin.call(`admin/account-closures/${closure.id}/restore`, 'POST', restoreBody, undefined, { 'Idempotency-Key': restoreKey });
+    expect(restored).toMatchObject({ status: 201, body: { closureId: closure.id, lineLoginRestored: true, notificationsRemainDisabled: true, entitlementsRestored: false, referralChanged: false } });
+    expect(Object.keys(restored.body).sort()).toEqual(['closureId', 'entitlementsRestored', 'lineLoginRestored', 'notificationsRemainDisabled', 'referralChanged', 'restoredAt'].sort());
+    expect((await admin.call(`admin/account-closures/${closure.id}/restore`, 'POST', restoreBody, undefined, { 'Idempotency-Key': restoreKey })).body).toEqual(restored.body);
+    expect((await admin.call(`admin/account-closures/${closure.id}/restore`, 'POST', restoreBody, undefined, { 'Idempotency-Key': randomUUID() })).body.code).toBe('ACCOUNT_ALREADY_RESTORED');
+
+    const [restoredUser, restoredLine, restoredPreferences, preservedClosure, preservedEntitlement, restoreAudit] = await Promise.all([
+      db.user.findUniqueOrThrow({ where: { id: fixture.user.id } }), db.lineAccount.findUniqueOrThrow({ where: { userId: fixture.user.id } }),
+      db.notificationPreference.findUniqueOrThrow({ where: { userId: fixture.user.id } }), db.accountClosure.findUniqueOrThrow({ where: { id: closure.id } }),
+      db.entitlement.findUniqueOrThrow({ where: { id: entitlement.id } }), db.auditLog.findFirstOrThrow({ where: { targetId: fixture.user.id, action: 'ACCOUNT_RESTORED' } })
+    ]);
+    expect(restoredUser.disabledAt).toBeNull(); expect(restoredLine.unlinkedAt).toBeNull(); expect(restoredLine.notificationDisabledAt).not.toBeNull();
+    expect(restoredPreferences).toMatchObject({ predictions: false, changes: false, articles: false, billing: false });
+    expect(preservedClosure.id).toBe(closure.id); expect(preservedEntitlement.revokedAt).not.toBeNull(); expect(restoreAudit.details).toMatchObject({ closureId: closure.id, referralChanged: false });
+    expect((await new Client().login(fixture)).status).toBe(201);
+    const afterRestore = await admin.call('admin/account-closures');
+    expect(afterRestore.body.items).toEqual(expect.arrayContaining([expect.objectContaining({ id: closure.id, status: 'RESTORED', user: expect.objectContaining({ disabledAt: null }) })]));
   });
 
   it('does not close a member while paid access is still active', async () => {

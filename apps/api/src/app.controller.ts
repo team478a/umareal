@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAuditQuerySchema, adminBackupStatusResponseSchema, adminLocalRestoreAttestationInputSchema, adminLocalRestoreAttestationResponseSchema, adminProductionBackupAttestationInputSchema, adminProductionBackupAttestationResponseSchema, adminReadinessResponseSchema, adminRetentionPolicyInputSchema, adminRetentionPolicyResponseSchema, adminRetentionPolicySchema, adminRetentionPreviewResponseSchema, canEditRace, canManage, deploymentConsistency, jstDate, memberJourneyEventSchema, preferencesSchema, publicDeploymentRelease, publicRaceListQuerySchema, requiresMfa, workerHeartbeatStatus } from '@keiba/domain';
+import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAccountRestoreInputSchema, adminAccountRestoreResponseSchema, adminAuditQuerySchema, adminBackupStatusResponseSchema, adminLocalRestoreAttestationInputSchema, adminLocalRestoreAttestationResponseSchema, adminProductionBackupAttestationInputSchema, adminProductionBackupAttestationResponseSchema, adminReadinessResponseSchema, adminRetentionPolicyInputSchema, adminRetentionPolicyResponseSchema, adminRetentionPolicySchema, adminRetentionPreviewResponseSchema, canEditRace, canManage, deploymentConsistency, jstDate, memberJourneyEventSchema, preferencesSchema, publicDeploymentRelease, publicRaceListQuerySchema, requiresMfa, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -220,6 +220,13 @@ export class AppController {
     const actor = await this.staff(req, ['ADMIN']);
     const input = adminRetentionPolicyInputSchema.parse(body);
     return adminRetentionPolicySchema.parse(await this.accountClosure.approveRetentionPolicy(input, actor, req));
+  }
+  @Post('admin/account-closures/:closureId/restore') async restoreClosedAccount(@Param('closureId') closureId: string, @Body() body: unknown, @Req() req: AppRequest) {
+    const actor = await this.staff(req, ['ADMIN']);
+    z.string().uuid().parse(closureId);
+    const input = adminAccountRestoreInputSchema.parse(body);
+    const idempotencyKey = z.string().uuid().parse(req.headers['idempotency-key']);
+    return adminAccountRestoreResponseSchema.parse(await this.accountClosure.restore(closureId, actor.id, input, idempotencyKey, req));
   }
   @Get('admin/users') async users(@Req() req: AppRequest, @Query() query: unknown) {
     await this.staff(req, ['ADMIN']);

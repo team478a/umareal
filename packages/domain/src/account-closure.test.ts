@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, adminAccountClosuresResponseSchema, adminRetentionPolicyInputSchema, adminRetentionPolicyResponseSchema, adminRetentionPreviewResponseSchema } from './account-closure';
+import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, adminAccountClosuresResponseSchema, adminAccountRestoreInputSchema, adminAccountRestoreResponseSchema, adminRetentionPolicyInputSchema, adminRetentionPolicyResponseSchema, adminRetentionPreviewResponseSchema } from './account-closure';
 
 const response = {
   eligible: false,
@@ -119,5 +119,22 @@ describe('administrator account closures response contract', () => {
       items: [{ ...list.items[0], user: { ...list.items[0].user, passwordHash: 'secret' } }]
     }).success).toBe(false);
     expect(adminAccountClosuresResponseSchema.safeParse({ ...list, auditLog: [] }).success).toBe(false);
+  });
+});
+
+describe('administrator closed-account restoration contract', () => {
+  it('requires a fresh timestamp, exact display-name confirmation and a meaningful reason', () => {
+    const input = { expectedDisabledAt: '2026-10-07T00:00:00.000Z', confirmation: '退会済み会員', reason: '本人確認後に元の会員だけを復旧するため' };
+    expect(adminAccountRestoreInputSchema.parse(input)).toEqual(input);
+    expect(adminAccountRestoreInputSchema.safeParse({ ...input, reason: '短い' }).success).toBe(false);
+    expect(adminAccountRestoreInputSchema.safeParse({ ...input, referralCode: 'SHOULD_NOT_CHANGE' }).success).toBe(false);
+  });
+
+  it('makes the preserved boundaries explicit in the response', () => {
+    const parsed = adminAccountRestoreResponseSchema.parse({
+      closureId: '11111111-1111-4111-8111-111111111111', restoredAt: new Date('2026-10-07T01:00:00.000Z'), lineLoginRestored: true,
+      notificationsRemainDisabled: true, entitlementsRestored: false, referralChanged: false
+    });
+    expect(parsed).toMatchObject({ notificationsRemainDisabled: true, entitlementsRestored: false, referralChanged: false });
   });
 });

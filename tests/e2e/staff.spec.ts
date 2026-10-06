@@ -44,6 +44,11 @@ test('administrator must complete MFA before viewing member management', async (
   const fixture = await account('ADMIN');
   const attributedMember = await account();
   await db.memberAcquisition.create({ data: { userId: attributedMember.user.id, source: 'staff-e2e', medium: 'browser', campaign: 'dashboard' } });
+  const closedMember = await account(); const closedAt = new Date(); const restoreDisplayName = `復旧確認-${randomUUID().slice(0, 8)}`;
+  await db.user.update({ where: { id: closedMember.user.id }, data: { displayName: restoreDisplayName, disabledAt: closedAt } });
+  await db.lineAccount.create({ data: { userId: closedMember.user.id, subject: `staff-restore-${randomUUID()}`, unlinkedAt: closedAt, notificationDisabledAt: closedAt } });
+  await db.notificationPreference.update({ where: { userId: closedMember.user.id }, data: { predictions: false, changes: false, articles: false, billing: false } });
+  await db.accountClosure.create({ data: { userId: closedMember.user.id, reasonCode: 'OTHER', requestedAt: closedAt, accessRevokedAt: closedAt, retentionPolicyVersion: 'development-v1' } });
   const raceDate = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' });
   const operationsRace = await db.race.create({ data: { raceDate, venue: `運用画面-${randomUUID().slice(0, 6)}`, number: 9, name: `開催日運用-${randomUUID().slice(0, 6)}`, startsAt: new Date(Date.now() + 3600000), assignments: { create: { userId: fixture.user.id } } } });
   await db.raceEntry.create({ data: { race: { connect: { id: operationsRace.id } }, horse: { create: { id: randomUUID(), name: '運用画面試験馬' } }, number: 1, gate: 1, horseName: '運用画面試験馬', sex: 'MALE', age: 3, carriedWeight: 57, jockey: '試験騎手', trainer: '試験調教師' } });
@@ -190,6 +195,15 @@ test('administrator must complete MFA before viewing member management', async (
   await expect(page.getByLabel('方針version')).toBeVisible();
   await expect(page.getByRole('button', { name: '正式方針を承認記録', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '処理済み一覧', exact: true })).toBeVisible();
+  const restoreRow = page.locator('article.closure-row').filter({ hasText: restoreDisplayName });
+  await expect(restoreRow.getByText('停止済み', { exact: true })).toBeVisible();
+  await restoreRow.getByLabel('確認のため表示名を入力').fill(restoreDisplayName);
+  await restoreRow.getByLabel('復旧理由').fill('本人確認済みの元アカウントを復旧するE2E試験');
+  await restoreRow.getByRole('button', { name: '元のアカウントを復旧', exact: true }).click();
+  await expect(page.locator('.notice.success')).toContainText('同じLINEからログインできます');
+  await expect(restoreRow.getByText('復旧済み', { exact: true })).toBeVisible();
+  expect((await db.user.findUniqueOrThrow({ where: { id: closedMember.user.id } })).disabledAt).toBeNull();
+  expect((await db.lineAccount.findUniqueOrThrow({ where: { userId: closedMember.user.id } })).notificationDisabledAt).not.toBeNull();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.goto('/admin/billing');
   await expect(page.getByRole('heading', { name: '契約・請求管理', exact: true })).toBeVisible();
