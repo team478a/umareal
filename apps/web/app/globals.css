@@ -676,6 +676,13 @@ td { padding:17px 24px; border-top:1px solid var(--line); }
 .notification-counts { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; margin-bottom:22px; }
 .filter-row { display:flex; gap:8px; flex-wrap:wrap; margin:-10px 0 22px; }
 .filter-row .selected { border-color:var(--green); background:#edf6f0; }
+.audit-filters { padding:22px 26px; }
+.audit-filter-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; }
+.audit-request-filter { grid-column:span 2; }
+.audit-safe-note { display:flex; align-items:center; gap:6px; color:var(--muted); font-size:13px; }
+.audit-table td strong,.audit-table td small { display:block; }
+.audit-table td small { margin-top:4px; color:var(--muted); }
+@media(max-width:750px) { .audit-filter-grid { grid-template-columns:1fr; } .audit-request-filter { grid-column:auto; } .audit-filters { padding:19px 20px; } .audit-filters .form-actions { display:grid; grid-template-columns:1fr; } .audit-safe-note { width:100%; } }
 .webhook-health { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); padding:20px 24px; gap:20px; }
 .webhook-health>div { display:grid; gap:4px; }
 .webhook-health span,.webhook-health small { color:var(--muted); font-size:12px; }

@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAccountClosuresResponseSchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminLocalRestoreAttestationInputSchema, adminLocalRestoreAttestationResponseSchema, adminOperationsRaceSchema, adminOperationsResponseSchema, adminProductionBackupAttestationInputSchema, adminProductionBackupAttestationResponseSchema, adminReadinessResponseSchema, adminRetentionPolicyInputSchema, adminRetentionPolicyResponseSchema, adminRetentionPolicySchema, adminRetentionPreviewResponseSchema, adminSummaryResponseSchema, adminUsersResponseSchema, assessmentSchema, buildAdminOperationsAttention, canEditRace, canManage, deploymentConsistency, expertRaceListResponseSchema, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceAnnouncementsResponseSchema, publicRaceListQuerySchema, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
+import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAccountClosuresResponseSchema, adminAcquisitionReportResponseSchema, adminAuditQuerySchema, adminAuditResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminLocalRestoreAttestationInputSchema, adminLocalRestoreAttestationResponseSchema, adminOperationsRaceSchema, adminOperationsResponseSchema, adminProductionBackupAttestationInputSchema, adminProductionBackupAttestationResponseSchema, adminReadinessResponseSchema, adminRetentionPolicyInputSchema, adminRetentionPolicyResponseSchema, adminRetentionPolicySchema, adminRetentionPreviewResponseSchema, adminSummaryResponseSchema, adminUsersResponseSchema, assessmentSchema, buildAdminOperationsAttention, canEditRace, canManage, deploymentConsistency, expertRaceListResponseSchema, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceAnnouncementsResponseSchema, publicRaceListQuerySchema, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -407,11 +407,28 @@ export class AppController {
   }
   @Get('admin/audit') async audit(@Req() req: AppRequest, @Query() query: unknown) {
     await this.staff(req, ['ADMIN']);
-    const { page, limit } = pagination.parse(query);
-    const [items, total] = await this.auth.db.$transaction([
-      this.auth.db.auditLog.findMany({ orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], skip: (page - 1) * limit, take: limit }), this.auth.db.auditLog.count()
+    const { page, limit, from, to, action, targetType, requestId } = adminAuditQuerySchema.parse(query);
+    const createdAt = from || to ? {
+      ...(from ? { gte: new Date(`${from}T00:00:00+09:00`) } : {}),
+      ...(to ? { lt: new Date(new Date(`${to}T00:00:00+09:00`).getTime() + 86_400_000) } : {})
+    } : undefined;
+    const where: Prisma.AuditLogWhereInput = {
+      ...(createdAt ? { createdAt } : {}),
+      ...(action ? { action: { contains: action, mode: 'insensitive' } } : {}),
+      ...(targetType ? { targetType: { contains: targetType, mode: 'insensitive' } } : {}),
+      ...(requestId ? { requestId } : {})
+    };
+    const [audits, total] = await this.auth.db.$transaction([
+      this.auth.db.auditLog.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], skip: (page - 1) * limit, take: limit }), this.auth.db.auditLog.count({ where })
     ]);
-    return { items, total, page, limit };
+    const actorIds = [...new Set(audits.flatMap(audit => audit.actorId ? [audit.actorId] : []))];
+    const actors = actorIds.length ? await this.auth.db.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, displayName: true } }) : [];
+    const actorNames = new Map(actors.map(actor => [actor.id, actor.displayName]));
+    return adminAuditResponseSchema.parse({
+      items: audits.map(audit => ({ id: audit.id, action: audit.action, targetType: audit.targetType, targetId: audit.targetId, reason: audit.reason, actorRole: audit.actorRole, actorDisplayName: audit.actorId ? actorNames.get(audit.actorId) ?? null : null, createdAt: audit.createdAt, requestId: audit.requestId })),
+      total, page, limit,
+      filters: { from: from ?? null, to: to ?? null, action: action ?? null, targetType: targetType ?? null, requestId: requestId ?? null }
+    });
   }
   @Post('admin/users/:userId/entitlements') async grant(@Param('userId') userId: string, @Body() body: unknown, @Req() req: AppRequest) {
     const actor = await this.staff(req, ['ADMIN']);
