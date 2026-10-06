@@ -15,21 +15,30 @@ describe('public race discovery', () => {
     const freeRace = await db.race.create({ data: { raceDate: date, venue: `一覧A${suffix}`, number: 1, name: `無料一覧${suffix}`, startsAt: new Date(`${date}T10:00:00+09:00`) } });
     const paidRace = await db.race.create({ data: { raceDate: date, venue: `一覧B${suffix}`, number: 2, name: `有料一覧${suffix}`, startsAt: new Date(`${date}T11:00:00+09:00`) } });
     const announcedRace = await db.race.create({ data: { raceDate: date, venue: `一覧A${suffix}`, number: 3, name: `告知一覧${suffix}`, startsAt: new Date(`${date}T12:00:00+09:00`) } });
+    const horse = await db.horse.create({ data: { id: randomUUID(), name: `検索馬${suffix}` } });
+    await db.raceEntry.create({ data: { raceId: paidRace.id, horseId: horse.id, number: 1, gate: 1, horseName: horse.name, sex: 'MALE', age: 4, carriedWeight: 57, jockey: '検索騎手', trainer: '検索調教師' } });
     for (const [race, visibility, secret] of [[freeRace, 'FREE', '無料の秘密本文'], [paidRace, 'PAID', '有料の秘密本文']] as const) {
       const prediction = await db.prediction.create({ data: { raceId: race.id, draft: {}, revision: 1, updatedBy: publisher.user.id } });
-      await db.predictionVersion.create({ data: { predictionId: prediction.id, version: 1, status: 'PUBLISHED', visibility, confidence: 'S', stance: 'SKIP', summary: secret, estimatedTotalYen: 0, contentSnapshot: { secret }, assessmentSnapshot: {}, publisherId: publisher.user.id, deadlineAt: race.startsAt } });
+      await db.predictionVersion.create({ data: { predictionId: prediction.id, version: 1, status: 'PUBLISHED', visibility, confidence: 'S', formatVersion: 'HORSE_EVALUATION_V1', summary: secret, contentSnapshot: { secret }, assessmentSnapshot: {}, publisherId: publisher.user.id, deadlineAt: race.startsAt } });
     }
+    await db.raceResultVersion.create({ data: { raceId: paidRace.id, version: 1, sourceRevision: 1, ruleVersion: 'HORSE_EVALUATION_V1', entriesSnapshot: [], payoutsSnapshot: [], reason: '一覧検索の結果確認', confirmedBy: publisher.user.id } });
     await db.raceAnnouncement.create({ data: { raceId: announcedRace.id, version: 1, publishedBy: publisher.user.id, reason: '一覧の告知試験' } });
 
     const client = new Client(); const all = await client.call(`races?date=${date}&limit=50`);
     expect(all.status).toBe(200); const allBody = publicRaceListResponseSchema.parse(all.body); expect(allBody.total).toBeGreaterThanOrEqual(3); expect(allBody.filters.venues).toEqual(expect.arrayContaining([`一覧A${suffix}`, `一覧B${suffix}`]));
     expect(allBody.items.map(race => race.id)).toEqual(expect.arrayContaining([freeRace.id, paidRace.id, announcedRace.id]));
     expect(allBody.items.find(race => race.id === paidRace.id)?.latestPrediction).toMatchObject({ visibility: 'PAID', version: 1 });
+    expect(allBody.items.find(race => race.id === paidRace.id)?.latestResult).toMatchObject({ version: 1, raceCanceled: false });
     expect(JSON.stringify(allBody)).not.toMatch(/無料の秘密本文|有料の秘密本文|contentSnapshot|confidence|summary|assessmentSnapshot|marks|bets/i);
     expect((await client.call(`races?date=${date}&publication=PUBLISHED`)).body.items.map((race: { id: string }) => race.id)).toEqual(expect.arrayContaining([freeRace.id, paidRace.id]));
     expect((await client.call(`races?date=${date}&publication=UNPUBLISHED`)).body.items.map((race: { id: string }) => race.id)).toContain(announcedRace.id);
     expect((await client.call(`races?date=${date}&publication=ANNOUNCED`)).body.items.map((race: { id: string }) => race.id)).toContain(announcedRace.id);
     expect((await client.call(`races?date=${date}&venue=${encodeURIComponent(`一覧B${suffix}`)}`)).body.items.map((race: { id: string }) => race.id)).toEqual([paidRace.id]);
+    const range = publicRaceListResponseSchema.parse((await client.call(`races?dateFrom=${date}&dateTo=${date}&publication=PUBLISHED&result=CONFIRMED&keyword=${encodeURIComponent(horse.name)}`)).body);
+    expect(range.filters).toMatchObject({ date: null, dateFrom: date, dateTo: date, result: 'CONFIRMED', keyword: horse.name });
+    expect(range.items.map(race => race.id)).toEqual([paidRace.id]);
+    expect((await client.call(`races?dateFrom=${date}&dateTo=${date}&result=PENDING`)).body.items.map((race: { id: string }) => race.id)).toEqual(expect.arrayContaining([freeRace.id, announcedRace.id]));
     expect((await client.call(`races?date=${date}&publication=SECRET`)).status).toBe(400);
+    expect((await client.call('races?dateFrom=2026-01-01&dateTo=2026-12-31')).status).toBe(400);
   });
 });

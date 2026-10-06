@@ -31,8 +31,28 @@ export const entryInputSchema = z.object({
 export type RaceInput = z.infer<typeof raceInputSchema>;
 export type EntryInput = z.infer<typeof entryInputSchema>;
 
-export const publicRaceListResponseSchema = z.object({
-  items: z.array(z.object({
+export const publicRaceListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).max(10000).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  date: dateSchema.optional(),
+  dateFrom: dateSchema.optional(),
+  dateTo: dateSchema.optional(),
+  publication: z.enum(['ALL', 'ANNOUNCED', 'PUBLISHED', 'UNPUBLISHED']).default('ALL'),
+  result: z.enum(['ALL', 'CONFIRMED', 'PENDING']).default('ALL'),
+  venue: z.string().trim().min(1).max(60).optional(),
+  keyword: z.string().trim().min(1).max(80).optional()
+}).strict().superRefine((value, context) => {
+  if (value.date && (value.dateFrom || value.dateTo)) context.addIssue({ code: 'custom', path: ['date'], message: '開催日指定と期間指定は同時に使用できません。' });
+  if (!!value.dateFrom !== !!value.dateTo) context.addIssue({ code: 'custom', path: ['dateFrom'], message: '期間の開始日と終了日を両方指定してください。' });
+  if (value.dateFrom && value.dateTo) {
+    const from = new Date(`${value.dateFrom}T00:00:00Z`).getTime();
+    const to = new Date(`${value.dateTo}T00:00:00Z`).getTime();
+    if (from > to) context.addIssue({ code: 'custom', path: ['dateTo'], message: '終了日は開始日以降を指定してください。' });
+    if ((to - from) / 86400000 > 92) context.addIssue({ code: 'custom', path: ['dateTo'], message: '検索期間は93日以内にしてください。' });
+  }
+});
+
+const publicRaceListItemSchema = z.object({
     id: z.string().uuid(),
     raceDate: dateSchema,
     venue: z.string(),
@@ -57,19 +77,32 @@ export const publicRaceListResponseSchema = z.object({
       status: z.enum(['PUBLISHED', 'CORRECTED']),
       visibility: z.enum(['FREE', 'PAID']),
       publishedAt: raceDiscoveryDateTimeSchema
+    }).strict().nullable(),
+    latestResult: z.object({
+      version: z.number().int().positive(),
+      raceCanceled: z.boolean(),
+      confirmedAt: raceDiscoveryDateTimeSchema
     }).strict().nullable()
-  }).strict()),
+  }).strict();
+
+export const publicRaceListResponseSchema = z.object({
+  items: z.array(publicRaceListItemSchema),
   total: z.number().int().nonnegative(),
   page: z.number().int().positive(),
   limit: z.number().int().min(1).max(50),
   filters: z.object({
-    date: dateSchema,
+    date: dateSchema.nullable(),
+    dateFrom: dateSchema,
+    dateTo: dateSchema,
     publication: z.enum(['ALL', 'ANNOUNCED', 'PUBLISHED', 'UNPUBLISHED']),
+    result: z.enum(['ALL', 'CONFIRMED', 'PENDING']),
     venue: z.string().nullable(),
+    keyword: z.string().nullable(),
     venues: z.array(z.string())
   }).strict()
 }).strict();
 
+export type PublicRaceListQuery = z.infer<typeof publicRaceListQuerySchema>;
 export type PublicRaceListResponse = z.infer<typeof publicRaceListResponseSchema>;
 
 export const expertRaceListResponseSchema = z.object({
