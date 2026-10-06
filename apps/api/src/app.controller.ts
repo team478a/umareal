@@ -5,7 +5,7 @@ import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
-import { hashToken, verifyPassword } from './security';
+import { verifyPassword } from './security';
 import { Prisma } from '@keiba/db';
 import { ReadinessService } from './readiness.service';
 import { AuthSessionService } from './auth-session.service';
@@ -19,6 +19,7 @@ import { ExpertRaceQueryService } from './expert-race-query.service';
 import { AdminGrowthQueryService } from './admin-growth-query.service';
 import { AdminIncidentQueryService } from './admin-incident-query.service';
 import { MemberAccountCommandService } from './member-account-command.service';
+import { AdminEntitlementService } from './admin-entitlement.service';
 
 const pagination = z.object({ page: z.coerce.number().int().min(1).max(10000).default(1), limit: z.coerce.number().int().min(1).max(50).default(20) });
 const onboardingFunnelQuerySchema = z.object({ days: z.coerce.number().int().min(1).max(365).default(30), source: z.string().trim().min(1).max(100).optional() }).strict();
@@ -42,7 +43,8 @@ export class AppController {
     @Inject(ExpertRaceQueryService) private readonly expertRaceQuery: ExpertRaceQueryService,
     @Inject(AdminGrowthQueryService) private readonly adminGrowthQuery: AdminGrowthQueryService,
     @Inject(AdminIncidentQueryService) private readonly adminIncidentQuery: AdminIncidentQueryService,
-    @Inject(MemberAccountCommandService) private readonly memberAccountCommand: MemberAccountCommandService
+    @Inject(MemberAccountCommandService) private readonly memberAccountCommand: MemberAccountCommandService,
+    @Inject(AdminEntitlementService) private readonly adminEntitlement: AdminEntitlementService
   ) {}
   @Get('health') async health() {
     const now = new Date();
@@ -233,23 +235,7 @@ export class AppController {
     z.string().uuid().parse(userId);
     const input = z.object({ startsAt: z.string().datetime({ offset: true }), endsAt: z.string().datetime({ offset: true }), reason: z.string().trim().min(1).max(500), planCode: z.literal('MANUAL') }).strict().refine(v => new Date(v.endsAt) > new Date(v.startsAt), { message: '終了日時は開始日時より後にしてください。' }).parse(body);
     const header = z.string().uuid().parse(req.headers['idempotency-key']);
-    const key = `grant:${actor.id}:${header}`;
-    const requestHash = hashToken(JSON.stringify({ userId, ...input }));
-    try {
-      return await this.auth.db.$transaction(async tx => {
-        await tx.idempotencyKey.create({ data: { key, requestHash, response: {} } });
-        const grant = await tx.entitlement.create({ data: { ...input, userId, grantedBy: actor.id } });
-        await this.auth.audit(tx, req, 'ENTITLEMENT_GRANT', userId, input.reason, { entitlementId: grant.id, ...input });
-        const response = { id: grant.id };
-        await tx.idempotencyKey.update({ where: { key }, data: { response } });
-        return response;
-      });
-    } catch (error) {
-      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
-      const previous = await this.auth.db.idempotencyKey.findUnique({ where: { key } });
-      if (!previous || previous.requestHash !== requestHash) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: '同じリクエストキーが異なる内容で使用されています。' });
-      return previous.response;
-    }
+    return this.adminEntitlement.grant(userId, actor.id, input, header, req);
   }
   private async staff(req: AppRequest, roles: Role[]) {
     const identity = await this.auth.authenticate(req);
