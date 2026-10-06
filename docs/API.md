@@ -20,8 +20,7 @@
 | PATCH | /me/preferences | 本人。emailEnabled/predictions/changes/articles/billing（boolean）。配信拒否検出後のemailEnabled再開は拒否 |
 | GET | /me/notifications | 本人。会員登録後に発生した対象レース告知、WIN5紙面公開案内、閲覧権限内の予想公開履歴、通常レース・WIN5の評価結果確定履歴、本人の一般問い合わせへの回答通知。結果通知は概要と詳細ページURLだけを返す。問い合わせ回答は本人だけに件名と`/support`導線を返す。`page`、`limit`、`unread` |
 | POST | /me/notifications/:eventId/read | 本人。閲覧可能なお知らせを冪等に既読化 |
-| GET | /races | 全員。`date`、`venue`、`publication=ALL\|ANNOUNCED\|PUBLISHED\|UNPUBLISHED`、ページネーション。予想本文を含めない |
-| GET | /races | 公開情報のみ、date（既定JST当日）、page/limit（既定1/20、最大50） |
+| GET | /races | 全員。単日`date`（既定JST当日）または93日以内の`dateFrom`/`dateTo`、`keyword`（レース名・馬名）、`venue`、`publication=ALL\|ANNOUNCED\|PUBLISHED\|UNPUBLISHED`、`result=ALL\|CONFIRMED\|PENDING`、page/limit（既定1/20、最大50）。最新予想・結果の公開メタデータだけを返し、予想本文、印、評価、結果内容を含めない |
 | GET | /announcements | 今後の対象レース告知。レースごとの最新版を最大10件返す |
 | GET | /expert/races | EXPERT+AAL2（担当のみ）、OPERATOR+AAL2またはADMIN+AAL2（全レース）。最大50件の初期一覧 |
 | GET | /expert/races/:raceId/workspace | 担当EXPERT+AAL2、OPERATOR+AAL2またはADMIN+AAL2。入力は無効 |

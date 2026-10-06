@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
-import { CsvRaceDataProvider, dateSchema, entryHeaders, expertRaceListResponseSchema, parseCsv, parseJraVanRaceBundle, parseQuickRaceList, publicRaceAnnouncementsResponseSchema, publicRaceListResponseSchema, raceHeaders, raceInputSchema, serializeRaceCsv } from './races';
+import { CsvRaceDataProvider, dateSchema, entryHeaders, expertRaceListResponseSchema, parseCsv, parseJraVanRaceBundle, parseQuickRaceList, publicRaceAnnouncementsResponseSchema, publicRaceListQuerySchema, publicRaceListResponseSchema, raceHeaders, raceInputSchema, serializeRaceCsv } from './races';
 const provider = new CsvRaceDataProvider();
 const race = '2099-01-10,東京,1,"名前,引用",未勝利,1600,TURF,LEFT,2099-01-10T10:00:00+09:00,GOOD,晴,SCHEDULED,';
 describe('CSV validation before mutations', () => {
@@ -108,16 +108,24 @@ describe('CSV validation before mutations', () => {
         startsAt: new Date('2026-09-27T06:00:00.000Z'), status: 'SCHEDULED' as const, raceDayId: null,
         raceClass: 'G1', distance: 2000, surface: 'TURF', direction: 'RIGHT', going: 'GOOD', weather: '晴', revision: 1,
         latestAnnouncement: { version: 1, publishedAt: new Date('2026-09-26T06:00:00.000Z') },
-        latestPrediction: { version: 2, status: 'CORRECTED' as const, visibility: 'PAID' as const, publishedAt: new Date('2026-09-27T05:00:00.000Z') }
+        latestPrediction: { version: 2, status: 'CORRECTED' as const, visibility: 'PAID' as const, publishedAt: new Date('2026-09-27T05:00:00.000Z') },
+        latestResult: { version: 1, raceCanceled: false, confirmedAt: new Date('2026-09-27T08:00:00.000Z') }
       }],
       total: 1, page: 1, limit: 20,
-      filters: { date: '2026-09-27', publication: 'ALL' as const, venue: null, venues: ['中山'] }
+      filters: { date: '2026-09-27', dateFrom: '2026-09-27', dateTo: '2026-09-27', publication: 'ALL' as const, result: 'ALL' as const, venue: null, keyword: null, venues: ['中山'] }
     };
     const parsed = publicRaceListResponseSchema.parse(response);
     expect(parsed.items[0]?.startsAt).toBe('2026-09-27T06:00:00.000Z');
     expect(parsed.items[0]?.latestPrediction?.publishedAt).toBe('2026-09-27T05:00:00.000Z');
+    expect(parsed.items[0]?.latestResult?.confirmedAt).toBe('2026-09-27T08:00:00.000Z');
     expect(publicRaceListResponseSchema.safeParse({ ...response, items: [{ ...response.items[0], contentSnapshot: { secret: true } }] }).success).toBe(false);
     expect(publicRaceListResponseSchema.safeParse({ ...response, items: [{ ...response.items[0], assignments: [{ userId: raceId }] }] }).success).toBe(false);
+  });
+  it('limits archive searches to a complete 93-day range', () => {
+    expect(publicRaceListQuerySchema.parse({ dateFrom: '2026-07-02', dateTo: '2026-10-02', keyword: '秋華賞' })).toMatchObject({ result: 'ALL', publication: 'ALL' });
+    expect(publicRaceListQuerySchema.safeParse({ date: '2026-10-02', dateFrom: '2026-09-01', dateTo: '2026-10-02' }).success).toBe(false);
+    expect(publicRaceListQuerySchema.safeParse({ dateFrom: '2026-10-02' }).success).toBe(false);
+    expect(publicRaceListQuerySchema.safeParse({ dateFrom: '2026-01-01', dateTo: '2026-10-02' }).success).toBe(false);
   });
   it('normalizes public announcements without exposing internal announcement or race data', () => {
     const id = '11111111-1111-4111-8111-111111111111';

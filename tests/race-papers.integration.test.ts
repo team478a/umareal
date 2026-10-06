@@ -197,6 +197,11 @@ describe('regular race paper publication and access', () => {
     const sent: string[] = [];
     const transport: NotificationTransport = { async send(input) { if (input.recipient === subject || input.recipient === member.owner.user.email) sent.push(input.message.text); return { kind: 'SENT', providerMessageId: `paper-${input.retryKey}` }; } };
     await runNotificationBatch({ db, transport, eventId: event.id, limit: 200 });
+    for (let batch = 0; batch < 20; batch++) {
+      const pending = await db.notificationDelivery.count({ where: { eventId: event.id, channel: 'LINE', status: 'QUEUED', nextAttemptAt: { lte: new Date() } } });
+      if (!pending) break;
+      await runNotificationBatch({ db, transport, eventId: event.id, limit: 200 });
+    }
     const line = await db.notificationDelivery.findUniqueOrThrow({ where: { eventId_userId_channel: { eventId: event.id, userId: member.owner.user.id, channel: 'LINE' } } });
     if (!line.attemptCount) { await db.notificationDelivery.update({ where: { id: line.id }, data: { nextAttemptAt: new Date(0) } }); await runNotificationBatch({ db, transport, eventId: event.id, limit: 200 }); }
     // Existing suites can produce many eligible emails. Target the test email deterministically.

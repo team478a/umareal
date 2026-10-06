@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAccountClosuresResponseSchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminLocalRestoreAttestationInputSchema, adminLocalRestoreAttestationResponseSchema, adminOperationsRaceSchema, adminOperationsResponseSchema, adminProductionBackupAttestationInputSchema, adminProductionBackupAttestationResponseSchema, adminReadinessResponseSchema, adminRetentionPolicyInputSchema, adminRetentionPolicyResponseSchema, adminRetentionPolicySchema, adminRetentionPreviewResponseSchema, adminSummaryResponseSchema, adminUsersResponseSchema, assessmentSchema, buildAdminOperationsAttention, canEditRace, canManage, deploymentConsistency, expertRaceListResponseSchema, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceAnnouncementsResponseSchema, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
+import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAccountClosuresResponseSchema, adminAcquisitionReportResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminLocalRestoreAttestationInputSchema, adminLocalRestoreAttestationResponseSchema, adminOperationsRaceSchema, adminOperationsResponseSchema, adminProductionBackupAttestationInputSchema, adminProductionBackupAttestationResponseSchema, adminReadinessResponseSchema, adminRetentionPolicyInputSchema, adminRetentionPolicyResponseSchema, adminRetentionPolicySchema, adminRetentionPreviewResponseSchema, adminSummaryResponseSchema, adminUsersResponseSchema, assessmentSchema, buildAdminOperationsAttention, canEditRace, canManage, deploymentConsistency, expertRaceListResponseSchema, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceAnnouncementsResponseSchema, publicRaceListQuerySchema, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -94,15 +94,27 @@ export class AppController {
     return memberJourneyResponseSchema.parse({ ...event, recorded: true });
   }
   @Get('races') async races(@Query() query: unknown) {
-    const { page, limit, date, publication, venue } = pagination.extend({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).default(jstDate(new Date())), publication: z.enum(['ALL', 'ANNOUNCED', 'PUBLISHED', 'UNPUBLISHED']).default('ALL'), venue: z.string().trim().min(1).max(60).optional() }).parse(query);
-    const where: Prisma.RaceWhereInput = { raceDate: date, ...(venue ? { venue } : {}), ...(publication === 'ANNOUNCED' ? { announcements: { some: {} } } : publication === 'PUBLISHED' ? { prediction: { versions: { some: {} } } } : publication === 'UNPUBLISHED' ? { OR: [{ prediction: null }, { prediction: { versions: { none: {} } } }] } : {}) };
+    const parsed = publicRaceListQuerySchema.parse(query);
+    const date = parsed.date ?? (!parsed.dateFrom ? jstDate(new Date()) : undefined);
+    const dateFrom = parsed.dateFrom ?? date!;
+    const dateTo = parsed.dateTo ?? date!;
+    const { page, limit, publication, result, venue, keyword } = parsed;
+    const conditions: Prisma.RaceWhereInput[] = [
+      { raceDate: date ? date : { gte: dateFrom, lte: dateTo } },
+      ...(venue ? [{ venue }] : []),
+      ...(keyword ? [{ OR: [{ name: { contains: keyword, mode: 'insensitive' as const } }, { entries: { some: { horseName: { contains: keyword, mode: 'insensitive' as const } } } }] }] : []),
+      ...(publication === 'ANNOUNCED' ? [{ announcements: { some: {} } }] : publication === 'PUBLISHED' ? [{ prediction: { versions: { some: {} } } }] : publication === 'UNPUBLISHED' ? [{ OR: [{ prediction: null }, { prediction: { versions: { none: {} } } }] }] : []),
+      ...(result === 'CONFIRMED' ? [{ resultVersions: { some: {} } }] : result === 'PENDING' ? [{ resultVersions: { none: {} } }] : [])
+    ];
+    const where: Prisma.RaceWhereInput = { AND: conditions };
+    const venueWhere: Prisma.RaceWhereInput = { raceDate: date ? date : { gte: dateFrom, lte: dateTo } };
     const [rows, total, venueRows] = await this.auth.db.$transaction([
-      this.auth.db.race.findMany({ where, orderBy: [{ startsAt: 'asc' }, { id: 'asc' }], skip: (page - 1) * limit, take: limit, include: { announcements: { orderBy: { version: 'desc' }, take: 1, select: { version: true, publishedAt: true } }, prediction: { select: { versions: { orderBy: { version: 'desc' }, take: 1, select: { version: true, status: true, visibility: true, publishedAt: true } } } } } }),
+      this.auth.db.race.findMany({ where, orderBy: date ? [{ startsAt: 'asc' }, { id: 'asc' }] : [{ raceDate: 'desc' }, { startsAt: 'desc' }, { id: 'asc' }], skip: (page - 1) * limit, take: limit, include: { announcements: { orderBy: { version: 'desc' }, take: 1, select: { version: true, publishedAt: true } }, prediction: { select: { versions: { orderBy: { version: 'desc' }, take: 1, select: { version: true, status: true, visibility: true, publishedAt: true } } } }, resultVersions: { orderBy: { version: 'desc' }, take: 1, select: { version: true, raceCanceled: true, confirmedAt: true } } } }),
       this.auth.db.race.count({ where }),
-      this.auth.db.race.findMany({ where: { raceDate: date }, distinct: ['venue'], select: { venue: true }, orderBy: { venue: 'asc' } })
+      this.auth.db.race.findMany({ where: venueWhere, distinct: ['venue'], select: { venue: true }, orderBy: { venue: 'asc' } })
     ]);
-    const items = rows.map(({ announcements, prediction, ...race }) => ({ ...race, latestAnnouncement: announcements[0] ?? null, latestPrediction: prediction?.versions[0] ?? null }));
-    return publicRaceListResponseSchema.parse({ items, total, page, limit, filters: { date, publication, venue: venue ?? null, venues: venueRows.map(item => item.venue) } });
+    const items = rows.map(({ announcements, prediction, resultVersions, ...race }) => ({ ...race, latestAnnouncement: announcements[0] ?? null, latestPrediction: prediction?.versions[0] ?? null, latestResult: resultVersions[0] ?? null }));
+    return publicRaceListResponseSchema.parse({ items, total, page, limit, filters: { date: date ?? null, dateFrom, dateTo, publication, result, venue: venue ?? null, keyword: keyword ?? null, venues: venueRows.map(item => item.venue) } });
   }
   @Get('announcements') async announcements() {
     const now = new Date();
