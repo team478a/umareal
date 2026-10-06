@@ -1,8 +1,9 @@
-import { ConflictException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@keiba/db';
-import { adminAccountClosuresResponseSchema, adminRetentionPolicySchema, type AdminAccountClosuresResponse, type AdminRetentionPolicy, type AdminRetentionPolicyInput } from '@keiba/domain';
+import { adminAccountClosuresResponseSchema, adminAccountRestoreResponseSchema, adminRetentionPolicySchema, type AdminAccountClosuresResponse, type AdminAccountRestoreInput, type AdminAccountRestoreResponse, type AdminRetentionPolicy, type AdminRetentionPolicyInput } from '@keiba/domain';
 import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
+import { hashToken } from './security';
 
 export type AccountClosureReason = 'SERVICE_NO_LONGER_NEEDED' | 'PRICE' | 'CONTENT' | 'OTHER';
 
@@ -43,7 +44,7 @@ export class AccountClosureService {
     return adminAccountClosuresResponseSchema.parse({
       items: items.map(item => ({
         ...item,
-        status: item.user.disabledAt ? 'CLOSED' : 'REVIEW_REQUIRED',
+        status: item.user.disabledAt ? 'CLOSED' : 'RESTORED',
       })),
       total,
       page,
@@ -198,5 +199,49 @@ export class AccountClosureService {
       return { closedAt: closure.accessRevokedAt, alreadyClosed: false };
     });
     return { ...result, retainedHistory: true };
+  }
+
+  async restore(closureId: string, actorId: string, input: AdminAccountRestoreInput, idempotencyHeader: string, req: AppRequest): Promise<AdminAccountRestoreResponse> {
+    const key = `account-restore:${actorId}:${idempotencyHeader}`;
+    const requestHash = hashToken(JSON.stringify({ closureId, ...input }));
+    return this.auth.db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`account-restore:${closureId}`}))::text`;
+      const previous = await tx.idempotencyKey.findUnique({ where: { key } });
+      if (previous) {
+        if (previous.requestHash !== requestHash) throw new ConflictException({ code: 'IDEMPOTENCY_KEY_REUSED', message: '同じ操作キーを異なる復旧内容には使用できません。' });
+        return adminAccountRestoreResponseSchema.parse(previous.response);
+      }
+      const closure = await tx.accountClosure.findUnique({
+        where: { id: closureId },
+        select: { id: true, user: { select: { id: true, displayName: true, role: true, disabledAt: true, lineAccount: { select: { id: true } } } } }
+      });
+      if (!closure) throw new NotFoundException({ code: 'ACCOUNT_CLOSURE_NOT_FOUND', message: '対象の退会記録を確認できません。' });
+      if (closure.user.role !== 'MEMBER') throw new ConflictException({ code: 'ACCOUNT_RESTORE_ROLE_INVALID', message: '一般会員以外はこの画面から復旧できません。' });
+      if (!closure.user.disabledAt) throw new ConflictException({ code: 'ACCOUNT_ALREADY_RESTORED', message: 'このアカウントはすでに復旧されています。' });
+      if (closure.user.displayName !== input.confirmation) throw new BadRequestException({ code: 'ACCOUNT_RESTORE_CONFIRMATION_MISMATCH', message: '確認用の表示名が一致しません。' });
+      if (closure.user.disabledAt.toISOString() !== new Date(input.expectedDisabledAt).toISOString()) throw new ConflictException({ code: 'ACCOUNT_RESTORE_STALE', message: 'アカウント状態が更新されています。再読込して確認してください。' });
+
+      const restoredAt = new Date();
+      await tx.user.update({ where: { id: closure.user.id }, data: { disabledAt: null } });
+      const lineLoginRestored = closure.user.lineAccount !== null;
+      if (lineLoginRestored) await tx.lineAccount.update({ where: { userId: closure.user.id }, data: { unlinkedAt: null } });
+      const response = adminAccountRestoreResponseSchema.parse({
+        closureId: closure.id,
+        restoredAt,
+        lineLoginRestored,
+        notificationsRemainDisabled: true,
+        entitlementsRestored: false,
+        referralChanged: false
+      });
+      await this.auth.audit(tx, req, 'ACCOUNT_RESTORED', closure.user.id, input.reason, {
+        closureId: closure.id,
+        lineLoginRestored,
+        notificationsRemainDisabled: true,
+        entitlementsRestored: false,
+        referralChanged: false
+      }, 'ACCOUNT_CLOSURE');
+      await tx.idempotencyKey.create({ data: { key, requestHash, response } });
+      return response;
+    });
   }
 }

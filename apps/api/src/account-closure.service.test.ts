@@ -86,6 +86,36 @@ describe('AccountClosureService', () => {
     expect(result.items[0].user).not.toHaveProperty('mfaSecret');
   });
 
+  it('restores only the original member login while preserving notification, entitlement and referral boundaries', async () => {
+    const closureId = '22222222-2222-4222-8222-222222222222';
+    const disabledAt = new Date('2027-03-01T03:00:00.000Z');
+    const userUpdate = vi.fn().mockResolvedValue({});
+    const lineUpdate = vi.fn().mockResolvedValue({});
+    const idempotencyCreate = vi.fn().mockResolvedValue({});
+    const audit = vi.fn().mockResolvedValue({});
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([]),
+      idempotencyKey: { findUnique: vi.fn().mockResolvedValue(null), create: idempotencyCreate },
+      accountClosure: { findUnique: vi.fn().mockResolvedValue({ id: closureId, user: { id: userId, displayName: '退会会員', role: 'MEMBER', disabledAt, lineAccount: { id: 'line-account' } } }) },
+      user: { update: userUpdate },
+      lineAccount: { update: lineUpdate }
+    };
+    const service = new AccountClosureService({ db: { $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)) }, audit } as unknown as AuthService);
+
+    const result = await service.restore(closureId, '33333333-3333-4333-8333-333333333333', {
+      expectedDisabledAt: disabledAt.toISOString(), confirmation: '退会会員', reason: '本人確認後に元の会員だけを復旧するため'
+    }, '44444444-4444-4444-8444-444444444444', req);
+
+    expect(result).toMatchObject({ closureId, lineLoginRestored: true, notificationsRemainDisabled: true, entitlementsRestored: false, referralChanged: false });
+    expect(userUpdate).toHaveBeenCalledWith({ where: { id: userId }, data: { disabledAt: null } });
+    expect(lineUpdate).toHaveBeenCalledWith({ where: { userId }, data: { unlinkedAt: null } });
+    expect(audit).toHaveBeenCalledWith(tx, req, 'ACCOUNT_RESTORED', userId, '本人確認後に元の会員だけを復旧するため', expect.objectContaining({ closureId, referralChanged: false }), 'ACCOUNT_CLOSURE');
+    expect(idempotencyCreate).toHaveBeenCalledOnce();
+    expect(tx).not.toHaveProperty('entitlement');
+    expect(tx).not.toHaveProperty('referral');
+    expect(tx).not.toHaveProperty('notificationPreference');
+  });
+
   it('returns the existing eligibility response when no active billing blocks closure', async () => {
     const subscription = vi.fn().mockResolvedValue(null);
     const dayPass = vi.fn().mockResolvedValue(null);
