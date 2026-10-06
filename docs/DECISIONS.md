@@ -1277,3 +1277,9 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 - `GET /expert/races`と`GET /expert/races/:raceId/workspace`のDB問合せと画面向け投影を`ExpertRaceQueryService`へ分離し、Controllerには既存の認証、ロール、AAL2、担当レース判定を残す。
 - 一覧はレース基本情報だけを明示的にselectし、EXPERTは担当レースのみ、OPERATORとADMINは最大50件を発走時刻順で取得する。作業画面は認可判定に必要な担当者IDを内部contextとして分離し、公開応答へ担当、内部revision、出走馬、評価・予想本文を含めない。
 - API URL、応答内容、並び順、画面、DB schemaを変更しない。本番デプロイ・migrationは行わない。
+
+## 管理者向け集客・障害Query Service分離（2026-10-06）
+
+- `GET /admin/acquisition`、`GET /admin/onboarding-funnel`と集客CSV用の集計取得を`AdminGrowthQueryService`へ分離する。Controllerには既存のADMIN+AAL2認可、入力Contract検証、CSV整形とキャンペーン作成操作を残す。
+- `GET /admin/incidents`の設定・配送・Webhook取得と障害判定を`AdminIncidentQueryService`へ分離する。Controllerには既存のADMIN/OPERATOR認可を残し、秘密値は設定充足判定だけに使用して応答へ含めない。
+- 集計期間、閾値、表示文、公開メッセージ、並び順、API URL、応答Contract、画面、DB schemaを変更しない。本番デプロイ・migrationは行わない。
