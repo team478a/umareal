@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAccountClosuresResponseSchema, adminAcquisitionReportResponseSchema, adminAuditQuerySchema, adminAuditResponseSchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminLocalRestoreAttestationInputSchema, adminLocalRestoreAttestationResponseSchema, adminOperationsRaceSchema, adminOperationsResponseSchema, adminProductionBackupAttestationInputSchema, adminProductionBackupAttestationResponseSchema, adminReadinessResponseSchema, adminRetentionPolicyInputSchema, adminRetentionPolicyResponseSchema, adminRetentionPolicySchema, adminRetentionPreviewResponseSchema, adminSummaryResponseSchema, adminUsersResponseSchema, assessmentSchema, buildAdminOperationsAttention, canEditRace, canManage, deploymentConsistency, expertRaceListResponseSchema, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceAnnouncementsResponseSchema, publicRaceListQuerySchema, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
+import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAccountClosuresResponseSchema, adminAcquisitionReportResponseSchema, adminAuditQuerySchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminLocalRestoreAttestationInputSchema, adminLocalRestoreAttestationResponseSchema, adminOperationsRaceSchema, adminOperationsResponseSchema, adminProductionBackupAttestationInputSchema, adminProductionBackupAttestationResponseSchema, adminReadinessResponseSchema, adminRetentionPolicyInputSchema, adminRetentionPolicyResponseSchema, adminRetentionPolicySchema, adminRetentionPreviewResponseSchema, adminSummaryResponseSchema, assessmentSchema, buildAdminOperationsAttention, canEditRace, canManage, deploymentConsistency, expertRaceListResponseSchema, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceAnnouncementsResponseSchema, publicRaceListQuerySchema, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -12,6 +12,7 @@ import { AuthSessionService } from './auth-session.service';
 import { MemberAccountQueryService } from './member-account-query.service';
 import { AccountClosureService } from './account-closure.service';
 import { lineNotificationState } from './line-notification-policy';
+import { AdminDirectoryQueryService } from './admin-directory-query.service';
 
 const pagination = z.object({ page: z.coerce.number().int().min(1).max(10000).default(1), limit: z.coerce.number().int().min(1).max(50).default(20) });
 const onboardingFunnelQuerySchema = z.object({ days: z.coerce.number().int().min(1).max(365).default(30), source: z.string().trim().min(1).max(100).optional() }).strict();
@@ -27,7 +28,8 @@ export class AppController {
     @Inject(ReadinessService) private readonly readinessQuery: ReadinessService,
     @Inject(AuthSessionService) private readonly sessions: AuthSessionService,
     @Inject(MemberAccountQueryService) private readonly memberAccountQuery: MemberAccountQueryService,
-    @Inject(AccountClosureService) private readonly accountClosure: AccountClosureService
+    @Inject(AccountClosureService) private readonly accountClosure: AccountClosureService,
+    @Inject(AdminDirectoryQueryService) private readonly adminDirectoryQuery: AdminDirectoryQueryService
   ) {}
   @Get('health') async health() {
     const now = new Date();
@@ -400,35 +402,11 @@ export class AppController {
   @Get('admin/users') async users(@Req() req: AppRequest, @Query() query: unknown) {
     await this.staff(req, ['ADMIN']);
     const { page, limit } = pagination.parse(query);
-    const [items, total] = await this.auth.db.$transaction([
-      this.auth.db.user.findMany({ select: { id: true, email: true, emailVerifiedAt: true, registrationMethod: true, lineAccount: { select: { unlinkedAt: true } }, displayName: true, role: true, createdAt: true }, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], skip: (page - 1) * limit, take: limit }), this.auth.db.user.count()
-    ]);
-    return adminUsersResponseSchema.parse({ items, total, page, limit });
+    return this.adminDirectoryQuery.users(page, limit);
   }
   @Get('admin/audit') async audit(@Req() req: AppRequest, @Query() query: unknown) {
     await this.staff(req, ['ADMIN']);
-    const { page, limit, from, to, action, targetType, requestId } = adminAuditQuerySchema.parse(query);
-    const createdAt = from || to ? {
-      ...(from ? { gte: new Date(`${from}T00:00:00+09:00`) } : {}),
-      ...(to ? { lt: new Date(new Date(`${to}T00:00:00+09:00`).getTime() + 86_400_000) } : {})
-    } : undefined;
-    const where: Prisma.AuditLogWhereInput = {
-      ...(createdAt ? { createdAt } : {}),
-      ...(action ? { action: { contains: action, mode: 'insensitive' } } : {}),
-      ...(targetType ? { targetType: { contains: targetType, mode: 'insensitive' } } : {}),
-      ...(requestId ? { requestId } : {})
-    };
-    const [audits, total] = await this.auth.db.$transaction([
-      this.auth.db.auditLog.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], skip: (page - 1) * limit, take: limit }), this.auth.db.auditLog.count({ where })
-    ]);
-    const actorIds = [...new Set(audits.flatMap(audit => audit.actorId ? [audit.actorId] : []))];
-    const actors = actorIds.length ? await this.auth.db.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, displayName: true } }) : [];
-    const actorNames = new Map(actors.map(actor => [actor.id, actor.displayName]));
-    return adminAuditResponseSchema.parse({
-      items: audits.map(audit => ({ id: audit.id, action: audit.action, targetType: audit.targetType, targetId: audit.targetId, reason: audit.reason, actorRole: audit.actorRole, actorDisplayName: audit.actorId ? actorNames.get(audit.actorId) ?? null : null, createdAt: audit.createdAt, requestId: audit.requestId })),
-      total, page, limit,
-      filters: { from: from ?? null, to: to ?? null, action: action ?? null, targetType: targetType ?? null, requestId: requestId ?? null }
-    });
+    return this.adminDirectoryQuery.audit(adminAuditQuerySchema.parse(query));
   }
   @Post('admin/users/:userId/entitlements') async grant(@Param('userId') userId: string, @Body() body: unknown, @Req() req: AppRequest) {
     const actor = await this.staff(req, ['ADMIN']);

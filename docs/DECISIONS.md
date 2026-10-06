@@ -1241,3 +1241,9 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 - 全体の操作履歴は`ADMIN+AAL2`だけが閲覧でき、JST期間（最大93日）、操作、対象種別、リクエストIDで検索できるようにする。既存の追記専用`AuditLog`を正本とし、検索のためのDB変更は行わない。
 - APIは操作、対象、理由、担当者の表示名・記録時ロール、JST表示可能な日時、リクエストIDだけを返す。内部主体IDである`actorId`と任意JSONの`details`は、秘密情報や不要な内部構造の漏えいを防ぐため返さない。
 - リクエストIDは障害調査の相関を誤らないよう完全一致、操作と対象種別は部分一致とする。監査ログの更新・削除、CSV出力、会員情報との横断検索、本番配備は本区間に含めない。
+
+## 管理者ディレクトリQuery Service分離（2026-10-06）
+
+- `GET /admin/users`と`GET /admin/audit`のDB問合せ・安全な応答投影を`AdminDirectoryQueryService`へ分離し、Controllerには既存のADMIN+AAL2認可と共有入力Contract検証を残す。
+- 会員一覧は既存表示項目だけをselectし、認証subject、password hash、MFA secret等を取得・返却しない。操作履歴は表示に必要な項目と担当者解決用`actorId`だけをselectし、任意JSON `details`を取得しない。
+- API URL、ページング、JST期間、検索条件、並び順、応答Contract、画面、DB schemaを変更しない。本番デプロイ・migrationは行わない。
