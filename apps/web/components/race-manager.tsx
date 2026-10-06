@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
 import { ArrowRight, Eye, FileUp, Plus, RefreshCw } from 'lucide-react';
-import { entryHeaders, entryStatuses, jstDate, parseQuickRaceList, raceHeaders, raceStatuses, serializeRaceCsv, venues, type EntryInput, type HorseIdentityReviewResponse, type ImportKind, type RaceAnnouncementNotificationPreviewResponse, type RaceDataStatus, type RaceInput } from '@keiba/domain';
+import { entryHeaders, entryStatuses, jstDate, parseQuickRaceList, raceHeaders, raceStatuses, serializeRaceCsv, venues, type EntryInput, type HorseIdentityHistoryResponse, type HorseIdentityReviewResponse, type ImportKind, type RaceAnnouncementNotificationPreviewResponse, type RaceDataStatus, type RaceInput, type RaceOperationHistoryResponse } from '@keiba/domain';
 import { NotificationPreview } from './notification-preview';
 
 type Entry = Omit<EntryInput, 'gate' | 'sex' | 'age' | 'carriedWeight' | 'jockey' | 'trainer' | 'winOdds'> & { id: string; gate: number | null; sex: EntryInput['sex'] | null; age: number | null; carriedWeight: string | number | null; jockey: string | null; trainer: string | null; winOdds: string | number | null };
@@ -37,7 +37,7 @@ function Field({ name, label, value, type = 'text', required = true, options, st
   return <label className="field"><span id={labelId}>{label ?? labels[name]}</span>{options ? <select aria-labelledby={labelId} name={name} defaultValue={value ?? ''} required={required}>{Object.entries(options).map(([key, text]) => <option key={key} value={key}>{text}</option>)}</select> : <input aria-labelledby={labelId} name={name} defaultValue={value ?? ''} type={type} required={required} step={step} maxLength={type === 'text' ? 100 : undefined} />}</label>;
 }
 
-export function RaceManager() {
+export function RaceManager({ canCorrectIdentity = false }: { canCorrectIdentity?: boolean }) {
   const [date, setDate] = useState(jstDate(new Date())); const [days, setDays] = useState<Day[]>([]); const [dayPage, setDayPage] = useState(1); const [dayTotal, setDayTotal] = useState(0);
   const [races, setRaces] = useState<Race[]>([]); const [experts, setExperts] = useState<Expert[]>([]); const [page, setPage] = useState(1); const [total, setTotal] = useState(0);
   const [selected, setSelected] = useState<Race | null>(null); const [editing, setEditing] = useState(false); const [entry, setEntry] = useState<Entry | null>(null);
@@ -63,6 +63,7 @@ export function RaceManager() {
     <ErrorMessage error={error} />{message && <div className="notice" role="status">{message}</div>}
     {dataStatus && <section className="panel"><div className="panel-heading"><div><span className="eyebrow">DATA SOURCE</span><h2>データ取得方式</h2></div><span className="status-tag">正常</span></div><div className="panel-body"><p><strong>{dataStatus.label}</strong></p><p className="muted form-note">{dataStatus.externalIntegration === 'NOT_USED' ? '外部データ連携は使用していません。レース・出走馬・結果を管理画面またはCSVから登録できます。' : '外部Providerのデータも、確認・プレビュー後にUMAREAL標準データへ取り込みます。'}</p></div></section>}
     <HorseIdentityReview />
+    <HorseIdentityHistory canCorrect={canCorrectIdentity} />
     <QuickRaceRegistration initialDate={date} onConfirmed={async targetDate => { setDate(targetDate); setPage(1); setEditing(false); setSelected(null); if (targetDate === date) await load(); }} />
     <section className="panel"><div className="panel-heading"><h2>開催日</h2></div><form onSubmit={saveDay} className="panel-body"><div className="race-form-grid"><Field name="raceDate" type="date" value={date} /><Field name="venue" value="東京" options={Object.fromEntries(venues.map(v => [v, v]))} /><Field name="reason" label="開催日の登録理由" /><div className="field-action"><button className="button" disabled={busy}><Plus size={16} />開催日を登録</button></div></div></form>
       <div className="day-list">{days.map(day => <button key={day.id} className={`day-chip ${day.raceDate === date ? 'selected' : ''}`} onClick={() => { setDate(day.raceDate); setPage(1); setEditing(false); setSelected(null); }}>{day.raceDate} · {day.venue}<small>{day._count.races} レース</small></button>)}</div><Pager page={dayPage} total={dayTotal} setPage={setDayPage} />
@@ -76,10 +77,29 @@ export function RaceManager() {
       <QuickManualEntry race={selected} onSaved={async warning => { await open(selected.id); await load(); setMessage(warning || '出走馬を簡易登録しました。詳細情報は後から補完できます。'); }} />
       <div className="table-scroll"><table className="race-data-table"><thead><tr><th>馬番 / 枠</th><th>馬名</th><th>性齢 / 斤量</th><th>騎手</th><th>状態</th><th>操作</th></tr></thead><tbody>{selected.entries?.map(e => <tr key={e.id}><td>{e.number} / {e.gate ?? '未確認'}</td><td>{e.horseName}</td><td>{e.sex && e.age !== null ? `${choices.sex[e.sex]}${e.age}` : '未確認'} · {e.carriedWeight !== null ? `${e.carriedWeight}kg` : '未確認'}</td><td>{e.jockey ?? '未確認'}</td><td>{e.status === 'ACTIVE' ? '出走予定' : choices.status[e.status]}</td><td><button className="button secondary small" onClick={() => setEntry(e)}>編集</button></td></tr>)}</tbody></table></div>
       <EntryEditor key={`${selected.id}-${selected.revision}-${entry?.id ?? 'new'}`} race={selected} entry={entry} onSaved={async () => { await open(selected.id); await load(); setMessage('出走馬を保存しました。'); }} />
+      <RaceOperationHistory raceId={selected.id} />
     </section>}
     <JraVanBundleImport manualMode={dataStatus?.mode === 'MANUAL'} onConfirmed={async targetDate => { setDate(targetDate); setPage(1); setEditing(false); setSelected(null); await load(); }} />
     <CsvImport key={selected?.id ?? 'races'} race={selected} onConfirmed={async () => { await load(); if (selected) await open(selected.id); }} />
   </>;
+}
+
+const operationLabels: Record<string, string> = {
+  RACE_CREATE: 'レース作成', RACE_UPDATE: 'レース更新', ENTRY_SAVE: '出走馬保存', MANUAL_ENTRY_CREATE: '出走馬簡易登録',
+  RACE_ANNOUNCE: '対象レース告知', ASSESSMENT_SAVE: 'パドック評価保存', PREDICTION_DRAFT_SAVE: '予想下書き保存',
+  PREDICTION_PUBLISH: '予想公開', PREDICTION_CORRECT: '予想訂正版公開', RACE_RESULT_DRAFT_SAVE: '結果下書き保存',
+  RACE_RESULT_CONFIRM: '結果確定', RACE_RESULT_CSV_IMPORT_CONFIRMED: '結果CSV取込', AI_GUIDE_GENERATION_REQUEST: 'AIガイド生成',
+  AI_GUIDE_APPROVE: 'AIガイド承認', AI_GUIDE_PUBLISH: 'AIガイド公開', AI_GUIDE_CORRECTION_PUBLISH: 'AIガイド訂正版公開'
+};
+
+function RaceOperationHistory({ raceId }: { raceId: string }) {
+  const [value, setValue] = useState<RaceOperationHistoryResponse | null>(null); const [page, setPage] = useState(1); const [error, setError] = useState('');
+  useEffect(() => { setPage(1); }, [raceId]);
+  useEffect(() => { request<RaceOperationHistoryResponse>(`races/${raceId}/history?page=${page}&limit=20`).then(setValue).catch(e => setError((e as Error).message)); }, [raceId, page]);
+  return <div className="panel-body"><div className="panel-heading"><div><span className="eyebrow">AUDIT TRAIL</span><h3>このレースの操作履歴</h3></div></div><ErrorMessage error={error} />
+    {value?.items.length ? <div className="table-scroll"><table className="race-data-table"><thead><tr><th>操作 / 取得方式</th><th>担当者</th><th>理由</th><th>日時（JST）</th></tr></thead><tbody>{value.items.map(item => <tr key={item.id}><td>{operationLabels[item.action] ?? item.action}<small>{item.sourceType} · {item.targetType}</small></td><td>{item.actorDisplayName ?? 'システム'}<small>{item.actorRole ?? 'SYSTEM'}</small></td><td>{item.reason}</td><td>{new Date(item.createdAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}</td></tr>)}</tbody></table></div> : <p className="muted form-note">操作履歴はまだありません。</p>}
+    {value && <Pager page={page} total={value.total} setPage={setPage} limit={value.limit} />}
+  </div>;
 }
 
 function HorseIdentityReview() {
@@ -113,6 +133,36 @@ function HorseIdentityReview() {
     </div>) : <div className="empty"><h3>確認待ちの暫定馬はありません</h3><p>簡易登録した馬はここで確認できます。</p></div>}
     {value && <Pager page={page} total={value.total} setPage={setPage} limit={value.limit} />}
   </div></section>;
+}
+
+function HorseIdentityHistory({ canCorrect }: { canCorrect: boolean }) {
+  const [value, setValue] = useState<HorseIdentityHistoryResponse | null>(null); const [page, setPage] = useState(1);
+  const [reasons, setReasons] = useState<Record<string, string>>({}); const [targets, setTargets] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(''); const [error, setError] = useState(''); const [message, setMessage] = useState('');
+  const load = useCallback(async () => {
+    try { setValue(await request<HorseIdentityHistoryResponse>(`horse-identities/history?page=${page}&limit=20`)); }
+    catch (e) { setError((e as Error).message); }
+  }, [page]);
+  useEffect(() => { void load(); }, [load]);
+  async function correct(identity: HorseIdentityHistoryResponse['items'][number]) {
+    const reason = reasons[identity.id]?.trim(); const resolvedHorseId = targets[identity.id] ?? identity.candidates[0]?.id;
+    if (!reason) { setError('Identityの訂正理由を入力してください。'); return; }
+    if (!resolvedHorseId) { setError('訂正先の同名馬を選択してください。'); return; }
+    setBusy(identity.id); setError(''); setMessage('');
+    try {
+      await request(`horse-identities/${identity.id}/correct`, 'POST', { resolvedHorseId, expectedHorseId: identity.currentHorse.id, expectedUpdatedAt: identity.updatedAt, reason });
+      setReasons({ ...reasons, [identity.id]: '' }); setMessage(`${identity.observedName}のIdentityを訂正し、以前の判断を履歴に残しました。`); await load();
+    } catch (e) { setError((e as Error).message); } finally { setBusy(''); }
+  }
+  return <details className="panel"><summary className="panel-heading"><div><span className="eyebrow">IDENTITY HISTORY</span><h2>確認済みIdentityと訂正</h2></div><span className="status-tag">確認済み {value?.total ?? 0}件</span></summary><div className="panel-body">
+    <p className="muted form-note">確定済みの紐付けと判断履歴を確認できます。訂正しても、過去の出走馬・予想・結果・監査ログは書き換えません。</p><ErrorMessage error={error} />{message && <div className="notice" role="status">{message}</div>}
+    {value?.items.length ? value.items.map(identity => <div className="identity-review-item" key={identity.id}><h3>{identity.observedName}</h3><p>現在の紐付け: <code>{identity.currentHorse.id}</code> · 使用レース {identity.currentHorse.entryCount}件</p>
+      <ul>{identity.history.map(item => <li key={item.id}>{new Date(item.createdAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })} · {item.actorDisplayName ?? 'システム'}（{item.actorRole ?? 'SYSTEM'}）· {item.action === 'HORSE_IDENTITY_CORRECT' ? '訂正' : '初回確認'} · {item.reason}</li>)}</ul>
+      {canCorrect && identity.candidates.length > 0 && <><label className="field">訂正先の同名馬<select aria-label={`${identity.observedName}のIdentity訂正先`} value={targets[identity.id] ?? identity.candidates[0].id} onChange={event => setTargets({ ...targets, [identity.id]: event.target.value })}>{identity.candidates.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.name} · 使用レース{candidate.entryCount}件 · {candidate.id}</option>)}</select></label><label className="field">訂正理由<input aria-label={`${identity.observedName}のIdentity訂正理由`} value={reasons[identity.id] ?? ''} maxLength={500} onChange={event => setReasons({ ...reasons, [identity.id]: event.target.value })} /></label><button className="button secondary" disabled={busy === identity.id} onClick={() => void correct(identity)}>履歴を残して訂正</button></>}
+      {canCorrect && identity.candidates.length === 0 && <p className="muted form-note">訂正先にできる同名馬はありません。</p>}
+    </div>) : <p className="muted form-note">確認済みIdentityはまだありません。</p>}
+    {value && <Pager page={page} total={value.total} setPage={setPage} limit={value.limit} />}
+  </div></details>;
 }
 
 function QuickManualEntry({ race, onSaved }: { race: Race; onSaved: (message?: string) => Promise<void> }) {
