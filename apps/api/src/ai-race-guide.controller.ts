@@ -117,7 +117,8 @@ export class AiRaceGuideController {
   private async generate(tx: Tx, req: AppRequest, actor: AuthContext, raceId: string, input: z.infer<typeof aiRaceGuideGenerationRequestSchema>, correction: boolean) {
     const runtime = this.ensureVisible();
     if (!runtime.generationEnabled) throw new ForbiddenException({ code: 'AI_GUIDE_GENERATION_DISABLED', message: 'AIレースガイド生成は停止中です。' });
-    if (runtime.transport !== 'test' || process.env.NODE_ENV === 'production') throw new ForbiddenException({ code: 'AI_GUIDE_TEST_PROVIDER_UNAVAILABLE', message: 'synthetic test providerはこの環境では使用できません。' });
+    if (runtime.transport === 'disabled') throw new ForbiddenException({ code: 'AI_GUIDE_TRANSPORT_DISABLED', message: 'レースガイド生成は停止中です。' });
+    if (runtime.transport === 'test' && process.env.NODE_ENV === 'production') throw new ForbiddenException({ code: 'AI_GUIDE_TEST_PROVIDER_UNAVAILABLE', message: 'synthetic test providerは本番環境では使用できません。' });
     const key = `ai-guide:${correction ? 'correction' : 'generation'}:${actor.id}:${raceId}:${input.mutationId}`;
     const requestHash = hashToken(JSON.stringify(input));
     const prior = await this.priorIdempotent(tx, key, requestHash);
@@ -129,21 +130,24 @@ export class AiRaceGuideController {
     if (correction && !guide?.versions.length) throw new ConflictException({ code: 'AI_GUIDE_CORRECTION_NOT_AVAILABLE', message: '公開済みガイドがありません。' });
     if (!guide) guide = await tx.aiRaceGuide.create({ data: { raceId, status: 'DATA_PENDING', revision: 1 }, include: { versions: { take: 1 } } });
     const attemptNo = (await tx.aiRaceGuideGeneration.aggregate({ where: { guideId: guide.id }, _max: { attemptNo: true } }))._max.attemptNo ?? 0;
-    const structuredInput = this.guides.buildInput(race);
+    const structuredInput = this.guides.buildInput(race, new Date(), runtime.transport);
     let output: unknown = null;
     let validationStatus = 'FAILED';
     let validationErrors: string[] = [];
     let failureCode: string | null = null;
-    const provider = runtime.transport;
-    const modelVersion = 'deterministic-test-v1';
+    let provider: string = runtime.transport;
+    let modelVersion = runtime.transport === 'template' ? 'deterministic-template-v1' : 'deterministic-test-v1';
     try {
-      output = await this.guides.generate(provider, structuredInput);
+      const generated = await this.guides.generate(runtime.transport, structuredInput);
+      provider = generated.provider;
+      modelVersion = generated.modelVersion;
+      output = generated.output;
       const result = validateAiRaceGuideGeneratedOutput(structuredInput, output);
       if (result.valid) { output = result.output; validationStatus = 'VALID'; }
       else { validationStatus = 'INVALID'; validationErrors = result.issues; }
     } catch {
-      failureCode = 'TEST_PROVIDER_FAILED';
-      validationErrors = ['synthetic test providerで生成できませんでした。'];
+      failureCode = 'GUIDE_PROVIDER_FAILED';
+      validationErrors = ['レースガイドを生成できませんでした。'];
     }
     const generation = await tx.aiRaceGuideGeneration.create({ data: {
       guideId: guide.id,

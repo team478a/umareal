@@ -80,7 +80,7 @@ export const aiRaceGuideFactSchema = z.discriminatedUnion('state', [knownFact, u
 export const aiRaceGuideStructuredInputSchema = z.object({
   formatVersion: z.literal(1),
   kind: z.literal('PRE_RACE'),
-  processingMode: z.enum(['DETERMINISTIC_TEST', 'EXTERNAL_LLM']),
+  processingMode: z.enum(['DETERMINISTIC_TEST', 'DETERMINISTIC_TEMPLATE', 'EXTERNAL_LLM']),
   raceId: z.string().uuid(),
   raceDate: dateSchema,
   dataCutoffAt: dateTime,
@@ -185,7 +185,7 @@ export function validateAiRaceGuideGeneratedOutput(inputValue: unknown, outputVa
 }
 
 export const aiRaceGuideStatuses = ['DATA_PENDING', 'QUEUED', 'GENERATING', 'VALIDATING', 'REVIEW_REQUIRED', 'READY', 'PUBLISHED', 'FAILED', 'STALE'] as const;
-export const aiRaceGuideTransportSchema = z.enum(['disabled', 'test']);
+export const aiRaceGuideTransportSchema = z.enum(['disabled', 'test', 'template']);
 export type AiRaceGuideTransport = z.infer<typeof aiRaceGuideTransportSchema>;
 export type AiRaceGuideRuntime = { enabled: boolean; generationEnabled: boolean; publicationEnabled: boolean; transport: AiRaceGuideTransport };
 export function resolveAiRaceGuideRuntime(env: Record<string, string | undefined>): AiRaceGuideRuntime {
@@ -199,7 +199,7 @@ export function resolveAiRaceGuideRuntime(env: Record<string, string | undefined
 }
 
 export interface AiRaceGuideNarrativeProvider {
-  readonly name: 'test' | 'disabled';
+  readonly name: AiRaceGuideTransport;
   readonly modelVersion: string;
   generate(input: AiRaceGuideStructuredInput): Promise<AiRaceGuideGeneratedOutput>;
 }
@@ -242,8 +242,81 @@ export class TestAiRaceGuideNarrativeProvider implements AiRaceGuideNarrativePro
   }
 }
 
+function knownFactRecord(fact: z.infer<typeof aiRaceGuideFactSchema> | undefined) {
+  return fact?.state === 'KNOWN' && !Array.isArray(fact.value) && typeof fact.value === 'object' ? fact.value : null;
+}
+
+function surfaceLabel(value: AiRaceGuideJsonValue | undefined) {
+  return value === 'TURF' ? '芝' : value === 'DIRT' ? 'ダート' : '芝・ダート未確認';
+}
+
+const basicGuideOverviewSchema = z.object({
+  venue: z.string().trim().min(1).max(100),
+  raceNumber: z.number().int().min(1).max(12),
+  raceName: z.string().trim().min(1).max(200),
+  surface: jsonValueSchema,
+  distance: jsonValueSchema,
+  fieldSize: z.number().int().min(1).max(18)
+}).passthrough();
+
+export class TemplateAiRaceGuideNarrativeProvider implements AiRaceGuideNarrativeProvider {
+  readonly name = 'template' as const;
+  readonly modelVersion = 'deterministic-template-v1';
+
+  async generate(inputValue: AiRaceGuideStructuredInput): Promise<AiRaceGuideGeneratedOutput> {
+    const input = aiRaceGuideStructuredInputSchema.parse(inputValue);
+    const overviewFact = input.facts.find(fact => fact.category === 'RACE_OVERVIEW');
+    const overviewRecord = knownFactRecord(overviewFact);
+    if (!overviewFact || !overviewRecord) throw new Error('BASIC_GUIDE_RACE_OVERVIEW_MISSING');
+    const overview = basicGuideOverviewSchema.parse(overviewRecord);
+
+    const overviewParts = [
+      `${String(overview.venue)} ${Number(overview.raceNumber)}R「${String(overview.raceName)}」`,
+      `${surfaceLabel(overview.surface)}${typeof overview.distance === 'number' ? `${overview.distance}m` : '・距離未確認'}`,
+      `出走登録${Number(overview.fieldSize)}頭`
+    ];
+    const sections: z.infer<typeof aiRaceGuideGeneratedOutputSchema>['sections'] = [{
+      kind: 'RACE_OVERVIEW',
+      statements: [{ statementId: `statement:${overviewFact.factId}`, text: `${overviewParts.join('、')}です。`, factIds: [overviewFact.factId], entryIds: [] }]
+    }];
+
+    const entryStatements = input.entries.map(entry => {
+      const fact = input.facts.find(item => item.category === 'ATTENTION_MATERIAL' && item.entryId === entry.entryId && item.state === 'KNOWN');
+      if (!fact) throw new Error('BASIC_GUIDE_ENTRY_FACT_MISSING');
+      return { statementId: `statement:${fact.factId}`, text: `${entry.number}番 ${entry.horseName}は出走馬として登録されています。`, factIds: [fact.factId], entryIds: [entry.entryId] };
+    });
+    if (entryStatements.length) sections.push({ kind: 'ATTENTION_MATERIALS', statements: entryStatements });
+
+    const missingStatements = input.facts.filter(fact => fact.category === 'CAUTION_FACTOR' && fact.state === 'INSUFFICIENT_DATA' && fact.entryId).map(fact => {
+      const entry = input.entries.find(item => item.entryId === fact.entryId)!;
+      const basicFact = input.facts.find(item => item.category === 'ATTENTION_MATERIAL' && item.entryId === entry.entryId && item.state === 'KNOWN')!;
+      return {
+        statementId: `statement:${fact.factId}`,
+        text: `${entry.number}番 ${entry.horseName}は性齢・斤量・騎手・調教師などの詳細が未登録です。データ不足を成績不振とは扱いません。`,
+        factIds: [basicFact.factId, fact.factId],
+        entryIds: [entry.entryId]
+      };
+    });
+    if (missingStatements.length) sections.push({ kind: 'CAUTION_FACTORS', statements: missingStatements });
+
+    const paddockFact = input.facts.find(fact => fact.category === 'PADDOCK_CHECK_POINT');
+    if (paddockFact?.state === 'KNOWN') sections.push({
+      kind: 'PADDOCK_CHECK_POINTS',
+      statements: [{
+        statementId: `statement:${paddockFact.factId}`,
+        text: 'パドックでは歩様、落ち着き、発汗など当日の状態を確認してください。ここでは自動判定を行いません。',
+        factIds: [paddockFact.factId],
+        entryIds: []
+      }]
+    });
+    return aiRaceGuideGeneratedOutputSchema.parse({ formatVersion: 1, sections });
+  }
+}
+
 export function createAiRaceGuideNarrativeProvider(transport: AiRaceGuideTransport): AiRaceGuideNarrativeProvider {
-  return transport === 'test' ? new TestAiRaceGuideNarrativeProvider() : new DisabledAiRaceGuideNarrativeProvider();
+  if (transport === 'test') return new TestAiRaceGuideNarrativeProvider();
+  if (transport === 'template') return new TemplateAiRaceGuideNarrativeProvider();
+  return new DisabledAiRaceGuideNarrativeProvider();
 }
 
 const mutationBase = z.object({ revision: z.number().int().nonnegative(), mutationId: z.string().uuid(), reason: z.string().trim().min(1).max(500) }).strict();
@@ -326,6 +399,7 @@ function collectKnownNumbers(facts: z.infer<typeof aiRaceGuideFactSchema>[]) {
   const values = new Set<number>();
   const visit = (value: AiRaceGuideJsonValue): void => {
     if (typeof value === 'number') values.add(value);
+    else if (typeof value === 'string') (value.match(/\d+(?:\.\d+)?/g) ?? []).map(Number).forEach(number => values.add(number));
     else if (Array.isArray(value)) value.forEach(visit);
     else if (value && typeof value === 'object') Object.values(value).forEach(visit);
   };

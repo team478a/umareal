@@ -20,7 +20,7 @@ async function fixture() {
   return { race, admin, adminAccount, member, memberAccount };
 }
 
-describe('AI race guide synthetic generation and publication', () => {
+describe('AI race guide generation and publication', () => {
   it('generates, validates, approves and publishes without exposing paid content to free members', async () => {
     const target = await fixture(); const endpoint = `admin/races/${target.race.id}/ai-guide`;
     const denied = await target.member.call(`${endpoint}/generations`, 'POST', { revision: 0, mutationId: randomUUID(), reason: '権限境界' });
@@ -28,7 +28,8 @@ describe('AI race guide synthetic generation and publication', () => {
     const generated = await target.admin.call(`${endpoint}/generations`, 'POST', { revision: 0, mutationId: randomUUID(), reason: 'synthetic fixture結合試験' });
     expect(generated.status).toBe(201);
     const generatedBody = aiRaceGuideAdminResponseSchema.parse(generated.body);
-    expect(generatedBody).toMatchObject({ runtime: { transport: 'test' }, guide: { status: 'REVIEW_REQUIRED' }, generations: [{ validationStatus: 'VALID', modelProvider: 'test' }] });
+    expect(generatedBody).toMatchObject({ guide: { status: 'REVIEW_REQUIRED' }, generations: [{ validationStatus: 'VALID', modelProvider: generatedBody.runtime.transport }] });
+    expect(generatedBody.runtime.transport).toMatch(/^(test|template)$/);
     expect(JSON.stringify(generatedBody.generations[0].structuredInputSnapshot)).not.toMatch(/assessment|prediction|三国谷/iu);
     const generationId = generatedBody.guide!.latestGenerationId!;
     const approved = await target.admin.call(`${endpoint}/approve`, 'POST', { revision: generatedBody.guide!.revision, generationId, mutationId: randomUUID(), reason: 'FactとEvidenceを確認' });
