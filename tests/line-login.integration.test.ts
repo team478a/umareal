@@ -123,6 +123,38 @@ describe('LINE Login account lifecycle', () => {
     expect(response.headers.get('set-cookie')).toBeNull();
   });
 
+  it('returns a closed LINE account to recovery guidance without creating a duplicate member', async () => {
+    const subject = `U-closed-${randomUUID()}`;
+    const closed = await account();
+    const closedAt = new Date();
+    await db.lineAccount.create({ data: { userId: closed.user.id, subject, unlinkedAt: closedAt, notificationDisabledAt: closedAt } });
+    await db.user.update({ where: { id: closed.user.id }, data: { disabledAt: closedAt } });
+    const usersBefore = await db.user.count();
+
+    const registerClient = new Client();
+    const registerStart = await registerClient.call('auth/line/start', 'POST', { purpose: 'REGISTER', memberReferralCode: 'CLOSEDACCOUNTREFERRAL' });
+    const registerState = new URL(registerStart.body.authorizationUrl).searchParams.get('state')!;
+    const registerResponse = await callback(registerClient, registerState, subject);
+    expect(registerResponse.status).toBe(303);
+    const registerLocation = new URL(registerResponse.headers.get('location')!);
+    expect(registerLocation.pathname).toBe('/login');
+    expect(registerLocation.searchParams.get('line')).toBe('account-unavailable');
+    expect(registerLocation.searchParams.has('invite')).toBe(false);
+    expect(registerResponse.headers.get('set-cookie')).toBeNull();
+    expect(await db.user.count()).toBe(usersBefore);
+    expect(await db.referral.count({ where: { referredUserId: closed.user.id } })).toBe(0);
+
+    const loginClient = new Client();
+    const loginStart = await loginClient.call('auth/line/start', 'POST', { purpose: 'LOGIN' });
+    const loginState = new URL(loginStart.body.authorizationUrl).searchParams.get('state')!;
+    const loginResponse = await callback(loginClient, loginState, subject);
+    expect(loginResponse.status).toBe(303);
+    const loginLocation = new URL(loginResponse.headers.get('location')!);
+    expect(loginLocation.pathname).toBe('/login');
+    expect(loginLocation.searchParams.get('line')).toBe('account-unavailable');
+    expect(loginResponse.headers.get('set-cookie')).toBeNull();
+  });
+
   it('binds a link flow to the starting session and prevents subject reassignment', async () => {
     const ownerFixture = await account(), attackerFixture = await account();
     const owner = new Client(), attacker = new Client(); await owner.login(ownerFixture); await attacker.login(attackerFixture);
