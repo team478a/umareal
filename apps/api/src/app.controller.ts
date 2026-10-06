@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAuditQuerySchema, adminBackupStatusResponseSchema, adminLocalRestoreAttestationInputSchema, adminLocalRestoreAttestationResponseSchema, adminProductionBackupAttestationInputSchema, adminProductionBackupAttestationResponseSchema, adminReadinessResponseSchema, adminRetentionPolicyInputSchema, adminRetentionPolicyResponseSchema, adminRetentionPolicySchema, adminRetentionPreviewResponseSchema, canEditRace, canManage, deploymentConsistency, jstDate, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, preferencesSchema, publicDeploymentRelease, publicRaceListQuerySchema, requiresMfa, workerHeartbeatStatus } from '@keiba/domain';
+import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAuditQuerySchema, adminBackupStatusResponseSchema, adminLocalRestoreAttestationInputSchema, adminLocalRestoreAttestationResponseSchema, adminProductionBackupAttestationInputSchema, adminProductionBackupAttestationResponseSchema, adminReadinessResponseSchema, adminRetentionPolicyInputSchema, adminRetentionPolicyResponseSchema, adminRetentionPolicySchema, adminRetentionPreviewResponseSchema, canEditRace, canManage, deploymentConsistency, jstDate, memberJourneyEventSchema, preferencesSchema, publicDeploymentRelease, publicRaceListQuerySchema, requiresMfa, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -18,6 +18,7 @@ import { PublicRaceQueryService } from './public-race-query.service';
 import { ExpertRaceQueryService } from './expert-race-query.service';
 import { AdminGrowthQueryService } from './admin-growth-query.service';
 import { AdminIncidentQueryService } from './admin-incident-query.service';
+import { MemberAccountCommandService } from './member-account-command.service';
 
 const pagination = z.object({ page: z.coerce.number().int().min(1).max(10000).default(1), limit: z.coerce.number().int().min(1).max(50).default(20) });
 const onboardingFunnelQuerySchema = z.object({ days: z.coerce.number().int().min(1).max(365).default(30), source: z.string().trim().min(1).max(100).optional() }).strict();
@@ -40,7 +41,8 @@ export class AppController {
     @Inject(PublicRaceQueryService) private readonly publicRaceQuery: PublicRaceQueryService,
     @Inject(ExpertRaceQueryService) private readonly expertRaceQuery: ExpertRaceQueryService,
     @Inject(AdminGrowthQueryService) private readonly adminGrowthQuery: AdminGrowthQueryService,
-    @Inject(AdminIncidentQueryService) private readonly adminIncidentQuery: AdminIncidentQueryService
+    @Inject(AdminIncidentQueryService) private readonly adminIncidentQuery: AdminIncidentQueryService,
+    @Inject(MemberAccountCommandService) private readonly memberAccountCommand: MemberAccountCommandService
   ) {}
   @Get('health') async health() {
     const now = new Date();
@@ -71,15 +73,7 @@ export class AppController {
   @Patch('me/preferences') async preferences(@Body() body: unknown, @Req() req: AppRequest) {
     const identity = await this.auth.authenticate(req);
     const input = preferencesSchema.parse(body);
-    const result = await this.auth.db.$transaction(async tx => {
-      const user = await tx.user.findUniqueOrThrow({ where: { id: identity.id }, select: { emailDeliveryDisabledAt: true } });
-      if (input.emailEnabled && user.emailDeliveryDisabledAt) throw new ConflictException({ code: 'EMAIL_DELIVERY_BLOCKED', message: '配信先で受信拒否が確認されたため、メール通知を再開できません。メールアドレスを変更してください。' });
-      const before = await tx.notificationPreference.findUnique({ where: { userId: identity.id } });
-      const next = await tx.notificationPreference.upsert({ where: { userId: identity.id }, create: { userId: identity.id, ...input }, update: input });
-      await this.auth.audit(tx, req, 'PREFERENCES_UPDATE', identity.id, '通知設定の変更', { before, after: input });
-      return { emailEnabled: next.emailEnabled, predictions: next.predictions, changes: next.changes, articles: next.articles, billing: next.billing };
-    });
-    return notificationPreferencesResponseSchema.parse(result);
+    return this.memberAccountCommand.updatePreferences(identity.id, input, req);
   }
   @Get('me/closure') async closureEligibility(@Req() req: AppRequest) {
     const identity = await this.auth.authenticate(req);
@@ -100,11 +94,7 @@ export class AppController {
     const identity = await this.auth.authenticate(req);
     if (identity.role !== 'MEMBER') throw new ForbiddenException({ code: 'MEMBER_REQUIRED', message: '会員向けの操作です。' });
     const { eventType } = memberJourneyEventSchema.parse(body);
-    const event = await this.auth.db.$transaction(async tx => {
-      await this.auth.journey(tx, identity.id, 'FIRST_LOGIN');
-      return this.auth.journey(tx, identity.id, eventType);
-    });
-    return memberJourneyResponseSchema.parse({ ...event, recorded: true });
+    return this.memberAccountCommand.recordJourney(identity.id, eventType);
   }
   @Get('races') async races(@Query() query: unknown) {
     return this.publicRaceQuery.list(publicRaceListQuerySchema.parse(query));
