@@ -58,9 +58,29 @@ export const publicPredictionStatsMetricSchema = z.object({
 const publicPredictionStatsGroupSchema = publicPredictionStatsMetricSchema.extend({
   value: z.string().min(1)
 }).strict();
+export const publicPredictionStatsQuerySchema = z.object({
+  dateFrom: dateSchema.optional(),
+  dateTo: dateSchema.optional(),
+  venue: z.string().trim().min(1).max(100).optional(),
+  surface: z.enum(['TURF', 'DIRT']).optional()
+}).strict().superRefine((value, context) => {
+  if (!!value.dateFrom !== !!value.dateTo) context.addIssue({ code: 'custom', path: ['dateFrom'], message: '期間の開始日と終了日を両方指定してください。' });
+  if (!value.dateFrom || !value.dateTo) return;
+  const from = new Date(`${value.dateFrom}T00:00:00Z`).getTime();
+  const to = new Date(`${value.dateTo}T00:00:00Z`).getTime();
+  if (from > to) context.addIssue({ code: 'custom', path: ['dateTo'], message: '終了日は開始日以降にしてください。' });
+  if ((to - from) / 86_400_000 > 365) context.addIssue({ code: 'custom', path: ['dateTo'], message: '集計期間は366日以内にしてください。' });
+});
+export type PublicPredictionStatsQuery = z.infer<typeof publicPredictionStatsQuerySchema>;
 export const publicPredictionStatsResponseSchema = z.object({
   ruleVersion: z.literal('HORSE_EVALUATION_V1'),
   scope: z.literal('公開版別の馬評価集計'),
+  filters: z.object({
+    dateFrom: dateSchema.nullable(),
+    dateTo: dateSchema.nullable(),
+    venue: z.string().min(1).max(100).nullable(),
+    surface: z.enum(['TURF', 'DIRT']).nullable()
+  }).strict(),
   overall: publicPredictionStatsMetricSchema,
   byConfidence: z.array(publicPredictionStatsGroupSchema),
   byVenue: z.array(publicPredictionStatsGroupSchema),

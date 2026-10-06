@@ -50,7 +50,7 @@ test('publishes a reviewed prediction, requires correction approval, and preserv
   await page.screenshot({ path: testInfo.outputPath('published-prediction.png'), fullPage: true });
   await db.race.update({ where: { id: fixture.race.id }, data: { startsAt: new Date(Date.now() - 60_000) } });
   const keyValue = Number.parseInt(randomUUID().slice(0, 8), 16), resultRaceDate = `${2050 + keyValue % 40}-${String(1 + Math.floor(keyValue / 40) % 12).padStart(2, '0')}-${String(1 + Math.floor(keyValue / 480) % 28).padStart(2, '0')}`;
-  await db.race.update({ where: { id: fixture.race.id }, data: { raceDate: resultRaceDate, venue: '東京', number: 10 } });
+  await db.race.update({ where: { id: fixture.race.id }, data: { raceDate: resultRaceDate, venue: '東京', number: 10, surface: 'TURF' } });
   await page.goto('/admin/results');
   await page.getByLabel('結果CSVの取込元').selectOption('JRA_VAN_BRIDGE_V1');
   const resultCsv = `recordType,raceDate,venueCode,raceNumber,horseNumber,abnormalCode,finishPosition,popularity,finalOdds,raceCanceled\nSE,${resultRaceDate},05,10,1,0,1,1,2.0,false\nSE,${resultRaceDate},05,10,2,0,2,2,3.0,false`;
@@ -80,6 +80,12 @@ test('publishes a reviewed prediction, requires correction approval, and preserv
   const resultNotice = page.locator('article').filter({ hasText: 'パドック直前予想の評価結果が確定しました' });
   await expect(resultNotice).toContainText(fixture.race.name);
   await page.goto('/results'); await expect(page.getByRole('heading', { name: '予想成績' })).toBeVisible();
+  await page.getByLabel('集計開始日').fill(resultRaceDate); await page.getByLabel('集計終了日').fill(resultRaceDate);
+  await page.getByLabel('成績の競馬場').selectOption('東京'); await page.getByLabel('成績の芝・ダート').selectOption('TURF');
+  await page.getByRole('button', { name: '成績を絞り込む' }).click();
+  await expect(page.getByText(`集計条件：${resultRaceDate}〜${resultRaceDate} ／ 東京 ／ 芝`, { exact: false })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '競馬場別' })).toBeVisible(); await expect(page.getByRole('heading', { name: '芝・ダート別' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.goto('/admin/social-shares'); await expect(page.getByRole('heading', { name: 'SNS共有候補' })).toBeVisible();
   const share = page.locator('section.panel').filter({ hasText: fixture.race.name }).first();
   await expect(share).toContainText('本命馬が1着');

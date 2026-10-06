@@ -93,7 +93,7 @@
 | POST | /admin/results/races/:raceId/import/:batchId/confirm | 同じ担当者が確認した差分を理由付きで結果下書きへ反映。結果版・評価・通知は確定しない |
 | POST | /admin/results/races/:raceId/confirm | 結果版と公開予想版別の馬評価結果を同一トランザクションで追記 |
 | GET | /races/:raceId/result | 最新確定結果と公開版別の馬評価結果 |
-| GET | /results/stats | 最新結果版を使った本命馬1着・連対・複勝・見送りの集計 |
+| GET | /results/stats | 最新結果版を使った本命馬1着・連対・複勝・見送りの集計。`dateFrom` / `dateTo`（両方指定、最大366日）、`venue`、`surface=TURF|DIRT`で絞り込み |
 | GET | /billing/plans | 税込価格、販売可否、創設会員残枠。開発条件フラグ付き |
 | GET | /billing/me | 本人の月額契約、1日利用、追記専用支払履歴、Stripe Customer Portal利用可否 |
 | GET | /billing/payments/:id/receipt | 本人所有の成功済みStripe支払。Stripe発行済みのHTTPS領収書・請求書URLだけを返す |
