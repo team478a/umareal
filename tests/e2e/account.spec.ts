@@ -116,7 +116,7 @@ test('homepage navigation and mobile menu remain usable', async ({ page }, testI
   await page.getByRole('button', { name: 'ログアウト', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'おかえりなさい' })).toBeVisible();
   await page.goto('/races');
-  await expect(page.getByRole('heading', { name: 'レース一覧', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'レース・過去予想', exact: true })).toBeVisible();
   await page.getByLabel('競馬場', { exact: true }).selectOption(venue);
   await expect(page.getByRole('heading', { name: raceName, exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
