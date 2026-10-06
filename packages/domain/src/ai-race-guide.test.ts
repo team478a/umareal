@@ -126,7 +126,7 @@ describe('AI race guide Phase 1A contract', () => {
     const templateInput = aiRaceGuideStructuredInputSchema.parse(input({
       processingMode: 'DETERMINISTIC_TEMPLATE',
       facts: [
-        { ...fact, value: { venue: '東京', raceNumber: 9, raceName: '手動運用試験', surface: 'TURF', distance: 1600, fieldSize: 1 } },
+        { ...fact, value: { venue: '東京', raceNumber: 9, raceName: '手動運用試験', startsAt: '2099-10-06T06:00:00.000Z', raceDate: '2099-10-06', startHour: 15, startMinute: 0, status: 'SCHEDULED', surface: 'TURF', distance: 1600, direction: 'LEFT', going: 'GOOD', weather: '晴', fieldSize: 1 } },
         { factId: 'f-entry', category: 'ATTENTION_MATERIAL', entryId, state: 'KNOWN', value: { number: 1, horseName: 'テストホース', status: 'ACTIVE' }, evidenceIds: [evidence.evidenceId] },
         { factId: 'f-entry-details', category: 'CAUTION_FACTOR', entryId, state: 'INSUFFICIENT_DATA', reasonCode: 'ENTRY_DETAILS_NOT_REGISTERED', evidenceIds: [evidence.evidenceId] },
         { factId: 'f-paddock', category: 'PADDOCK_CHECK_POINT', state: 'KNOWN', value: { checkItems: ['歩様', '落ち着き', '発汗'], automaticPaddockJudgement: false }, evidenceIds: [evidence.evidenceId] }
@@ -140,6 +140,9 @@ describe('AI race guide Phase 1A contract', () => {
       const output = await provider.generate(templateInput);
       expect(output).toEqual(await provider.generate(templateInput));
       expect(validateAiRaceGuideGeneratedOutput(templateInput, output)).toMatchObject({ valid: true });
+      expect(JSON.stringify(output)).toContain('2099年10月6日 15時00分発走予定');
+      expect(JSON.stringify(output)).toContain('左回り、馬場状態は良、天候は晴、状態は開催予定');
+      expect(JSON.stringify(output)).toContain('出走予定として登録されています');
       expect(JSON.stringify(output)).toContain('データ不足を成績不振とは扱いません');
       expect(JSON.stringify(output)).not.toMatch(/本命|勝率|買い目|三国谷/u);
       expect(calls).toBe(0);

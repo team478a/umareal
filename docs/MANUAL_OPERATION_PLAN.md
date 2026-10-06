@@ -17,6 +17,8 @@
 - `HorseExternalIdentity(provider=MANUAL)`を作り、暫定Identityを明示する。
 - 同名候補を`POSSIBLE_DUPLICATE`として返し、自動mergeしない。
 - 詳細未登録を画面で「未確認」と表示し、後から既存詳細編集で補完できるようにする。
+- 管理画面で未確認のMANUAL暫定Identityを一覧化し、人が同名の既存馬へ紐付けるか別馬として確定する。
+- Identity確定時もRaceEntry、Assessment、Prediction、公開版、結果は書き換えず、判断理由と前後値を追記専用AuditLogへ保存する。
 
 ## Phase 3: Basic Guide（実装済み）
 
@@ -24,6 +26,7 @@
 - `template` transportで、登録済みRace/RaceEntryだけを固定文へ変換する。
 - 外部AI通信なしで、既存の生成・検証・人による確認・追記専用公開flowを再利用する。
 - 会員画面では固定テンプレートであることと、予測・買い目ではないことを明示する。
+- 登録済みの開催日・発走時刻・回り・馬場状態・天候・レース状態・出走状態を固定テンプレートで表示する。
 - 三国谷氏コメントの整理は、ORIGINAL/AI_DRAFT/APPROVED、License Gate、人の承認設計が確定するまで実装しない。
 - AIの勝率、印、危険馬、買い目、自動公開は実装しない。
 

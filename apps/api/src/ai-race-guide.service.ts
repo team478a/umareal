@@ -42,12 +42,13 @@ type FixtureRace = {
 
 @Injectable()
 export class AiRaceGuideService {
-  readonly logicVersion = 'basic-guide-rules-v1';
-  readonly promptVersion = 'basic-guide-template-v1';
+  readonly logicVersion = 'basic-guide-rules-v2';
+  readonly promptVersion = 'basic-guide-template-v2';
   readonly sourceVersion = 'umareal-operational-snapshot-v1';
 
   buildInput(race: FixtureRace, dataCutoffAt = new Date(), transport: AiRaceGuideTransport = 'template'): AiRaceGuideStructuredInput {
     const observedAt = dataCutoffAt.toISOString();
+    const localStart = new Date(race.startsAt.getTime() + 9 * 60 * 60 * 1000).toISOString();
     const raceSourceId = 'source:umareal-race';
     const entrySourceId = 'source:umareal-entries';
     const raceEvidenceId = `evidence:race:${race.id}`;
@@ -82,6 +83,9 @@ export class AiRaceGuideService {
             raceNumber: race.number,
             raceName: race.name,
             startsAt: race.startsAt.toISOString(),
+            raceDate: race.raceDate,
+            startHour: Number(localStart.slice(11, 13)),
+            startMinute: Number(localStart.slice(14, 16)),
             status: race.status,
             raceClass: race.raceClass ?? 'UNKNOWN',
             distance: race.distance ?? 'UNKNOWN',

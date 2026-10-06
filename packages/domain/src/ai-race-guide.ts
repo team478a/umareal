@@ -254,14 +254,33 @@ const basicGuideOverviewSchema = z.object({
   venue: z.string().trim().min(1).max(100),
   raceNumber: z.number().int().min(1).max(12),
   raceName: z.string().trim().min(1).max(200),
+  startsAt: dateTime.optional(),
+  raceDate: dateSchema.optional(),
+  startHour: z.number().int().min(0).max(23).optional(),
+  startMinute: z.number().int().min(0).max(59).optional(),
+  status: z.string().optional(),
   surface: jsonValueSchema,
   distance: jsonValueSchema,
+  direction: jsonValueSchema.optional(),
+  going: jsonValueSchema.optional(),
+  weather: jsonValueSchema.optional(),
   fieldSize: z.number().int().min(1).max(18)
 }).passthrough();
 
+const basicGuideDirectionLabels: Record<string, string> = { RIGHT: '右回り', LEFT: '左回り', STRAIGHT: '直線' };
+const basicGuideGoingLabels: Record<string, string> = { GOOD: '良', YIELDING: '稍重', SOFT: '重', HEAVY: '不良', UNKNOWN: '未確認' };
+const basicGuideRaceStatusLabels: Record<string, string> = { SCHEDULED: '開催予定', ACTIVE: '進行中', DELAYED: '発走延期', FINISHED: '終了', CANCELLED: '開催中止' };
+const basicGuideEntryStatusLabels: Record<string, string> = { ACTIVE: '出走予定', SCRATCHED: '取消', EXCLUDED: '除外', STOPPED: '競走中止' };
+
+function basicGuideStartLabel(overview: z.infer<typeof basicGuideOverviewSchema>) {
+  if (!overview.raceDate || overview.startHour === undefined || overview.startMinute === undefined) return '発走時刻未確認';
+  const [year, month, day] = overview.raceDate.split('-').map(Number);
+  return `${year}年${month}月${day}日 ${String(overview.startHour).padStart(2, '0')}時${String(overview.startMinute).padStart(2, '0')}分発走予定`;
+}
+
 export class TemplateAiRaceGuideNarrativeProvider implements AiRaceGuideNarrativeProvider {
   readonly name = 'template' as const;
-  readonly modelVersion = 'deterministic-template-v1';
+  readonly modelVersion = 'deterministic-template-v2';
 
   async generate(inputValue: AiRaceGuideStructuredInput): Promise<AiRaceGuideGeneratedOutput> {
     const input = aiRaceGuideStructuredInputSchema.parse(inputValue);
@@ -277,13 +296,22 @@ export class TemplateAiRaceGuideNarrativeProvider implements AiRaceGuideNarrativ
     ];
     const sections: z.infer<typeof aiRaceGuideGeneratedOutputSchema>['sections'] = [{
       kind: 'RACE_OVERVIEW',
-      statements: [{ statementId: `statement:${overviewFact.factId}`, text: `${overviewParts.join('、')}です。`, factIds: [overviewFact.factId], entryIds: [] }]
+      statements: [
+        { statementId: `statement:${overviewFact.factId}`, text: `${overviewParts.join('、')}です。`, factIds: [overviewFact.factId], entryIds: [] },
+        {
+          statementId: `statement:${overviewFact.factId}:conditions`,
+          text: `${basicGuideStartLabel(overview)}、${basicGuideDirectionLabels[String(overview.direction)] ?? '回り未確認'}、馬場状態は${basicGuideGoingLabels[String(overview.going)] ?? '未確認'}、天候は${String(overview.weather ?? '未確認')}、状態は${basicGuideRaceStatusLabels[String(overview.status)] ?? '未確認'}です。`,
+          factIds: [overviewFact.factId], entryIds: []
+        }
+      ]
     }];
 
     const entryStatements = input.entries.map(entry => {
       const fact = input.facts.find(item => item.category === 'ATTENTION_MATERIAL' && item.entryId === entry.entryId && item.state === 'KNOWN');
       if (!fact) throw new Error('BASIC_GUIDE_ENTRY_FACT_MISSING');
-      return { statementId: `statement:${fact.factId}`, text: `${entry.number}番 ${entry.horseName}は出走馬として登録されています。`, factIds: [fact.factId], entryIds: [entry.entryId] };
+      const record = knownFactRecord(fact);
+      const status = basicGuideEntryStatusLabels[String(record?.status)] ?? '状態未確認';
+      return { statementId: `statement:${fact.factId}`, text: `${entry.number}番 ${entry.horseName}は${status}として登録されています。`, factIds: [fact.factId], entryIds: [entry.entryId] };
     });
     if (entryStatements.length) sections.push({ kind: 'ATTENTION_MATERIALS', statements: entryStatements });
 

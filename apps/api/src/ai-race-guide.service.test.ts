@@ -12,5 +12,7 @@ describe('AiRaceGuideService manual entry boundary', () => {
     expect(input.facts.find(fact => fact.category === 'ATTENTION_MATERIAL' && fact.entryId === input.entries[0].entryId)).toEqual(expect.objectContaining({ state: 'KNOWN', value: expect.objectContaining({ number: 1, horseName: '簡易登録馬' }) }));
     expect(input.facts.find(fact => fact.category === 'CAUTION_FACTOR' && fact.entryId === input.entries[0].entryId)).toEqual(expect.objectContaining({ state: 'INSUFFICIENT_DATA', reasonCode: 'ENTRY_DETAILS_NOT_REGISTERED' }));
     expect(JSON.stringify(input)).not.toMatch(/"gate":0|未確認騎手|未確認調教師/);
+    expect(input.logicVersion).toBe('basic-guide-rules-v2');
+    expect(input.promptVersion).toBe('basic-guide-template-v2');
   });
 });
