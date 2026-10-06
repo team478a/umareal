@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAcquisitionReportResponseSchema, adminAuditQuerySchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminLocalRestoreAttestationInputSchema, adminLocalRestoreAttestationResponseSchema, adminOperationsRaceSchema, adminOperationsResponseSchema, adminProductionBackupAttestationInputSchema, adminProductionBackupAttestationResponseSchema, adminReadinessResponseSchema, adminRetentionPolicyInputSchema, adminRetentionPolicyResponseSchema, adminRetentionPolicySchema, adminRetentionPreviewResponseSchema, adminSummaryResponseSchema, assessmentSchema, buildAdminOperationsAttention, canEditRace, canManage, deploymentConsistency, expertRaceListResponseSchema, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceAnnouncementsResponseSchema, publicRaceListQuerySchema, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
+import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAcquisitionReportResponseSchema, adminAuditQuerySchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminLocalRestoreAttestationInputSchema, adminLocalRestoreAttestationResponseSchema, adminOperationsRaceSchema, adminOperationsResponseSchema, adminProductionBackupAttestationInputSchema, adminProductionBackupAttestationResponseSchema, adminReadinessResponseSchema, adminRetentionPolicyInputSchema, adminRetentionPolicyResponseSchema, adminRetentionPolicySchema, adminRetentionPreviewResponseSchema, assessmentSchema, buildAdminOperationsAttention, canEditRace, canManage, deploymentConsistency, expertRaceListResponseSchema, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, paddockComplete, preferencesSchema, publicDeploymentRelease, publicRaceAnnouncementsResponseSchema, publicRaceListQuerySchema, publicRaceListResponseSchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -13,6 +13,7 @@ import { MemberAccountQueryService } from './member-account-query.service';
 import { AccountClosureService } from './account-closure.service';
 import { lineNotificationState } from './line-notification-policy';
 import { AdminDirectoryQueryService } from './admin-directory-query.service';
+import { AdminSummaryQueryService } from './admin-summary-query.service';
 
 const pagination = z.object({ page: z.coerce.number().int().min(1).max(10000).default(1), limit: z.coerce.number().int().min(1).max(50).default(20) });
 const onboardingFunnelQuerySchema = z.object({ days: z.coerce.number().int().min(1).max(365).default(30), source: z.string().trim().min(1).max(100).optional() }).strict();
@@ -29,7 +30,8 @@ export class AppController {
     @Inject(AuthSessionService) private readonly sessions: AuthSessionService,
     @Inject(MemberAccountQueryService) private readonly memberAccountQuery: MemberAccountQueryService,
     @Inject(AccountClosureService) private readonly accountClosure: AccountClosureService,
-    @Inject(AdminDirectoryQueryService) private readonly adminDirectoryQuery: AdminDirectoryQueryService
+    @Inject(AdminDirectoryQueryService) private readonly adminDirectoryQuery: AdminDirectoryQueryService,
+    @Inject(AdminSummaryQueryService) private readonly adminSummaryQuery: AdminSummaryQueryService
   ) {}
   @Get('health') async health() {
     const now = new Date();
@@ -148,22 +150,7 @@ export class AppController {
   }
   @Get('admin/summary') async summary(@Req() req: AppRequest) {
     await this.staff(req, ['ADMIN', 'OPERATOR']);
-    const now = new Date();
-    const cohortStartsAt = new Date(now.getTime() - 30 * 86400000);
-    const [members, entitled, races, auditCount, queuedNotifications, racesNeedingPrediction, resultsPending, settings, funnelAll, funnel30Days, tracking, acquisition30Days, legacyMembers] = await Promise.all([
-      this.auth.db.user.count({ where: { role: 'MEMBER' } }), this.auth.db.user.count({ where: { role: 'MEMBER', entitlements: { some: { revokedAt: null, startsAt: { lte: now }, endsAt: { gt: now } } } } }), this.auth.db.race.count(), this.auth.db.auditLog.count(),
-      this.auth.db.notificationDelivery.count({ where: { status: { in: ['QUEUED', 'SENDING'] } } }),
-      this.auth.db.race.count({ where: { startsAt: { gt: now }, status: { in: ['SCHEDULED', 'ACTIVE', 'DELAYED'] }, OR: [{ prediction: null }, { prediction: { versions: { none: {} } } }] } }),
-      this.auth.db.race.count({ where: { startsAt: { lte: now }, prediction: { versions: { some: {} } }, resultVersions: { none: {} } } }),
-      this.auth.db.systemSetting.findUnique({ where: { id: 'global' }, select: { newRegistrationsEnabled: true, emailNotificationsEnabled: true, predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: true, lineLoginEnabled: true, newPurchasesEnabled: true } }),
-      this.memberFunnel(), this.memberFunnel(cohortStartsAt),
-      this.auth.db.memberJourneyEvent.findFirst({ orderBy: { occurredAt: 'asc' }, select: { occurredAt: true } }),
-      this.acquisitionBreakdown(cohortStartsAt),
-      this.auth.db.user.count({ where: { role: 'MEMBER', acquisition: null } })
-    ]);
-    return adminSummaryResponseSchema.parse({ members, entitled, races, auditCount, queuedNotifications, racesNeedingPrediction, resultsPending, operations: settings,
-      funnel: { all: funnelAll, last30Days: { ...funnel30Days, cohortStartsAt }, trackingStartsAt: tracking?.occurredAt ?? null },
-      acquisition: { last30Days: acquisition30Days.slice(0, 20), cohortStartsAt, legacyMembers } });
+    return this.adminSummaryQuery.get();
   }
   @Get('admin/operations') async operations(@Req() req: AppRequest, @Query() query: unknown) {
     await this.staff(req, ['ADMIN', 'OPERATOR']);
@@ -237,7 +224,7 @@ export class AppController {
     await this.staff(req, ['ADMIN']); const { days } = acquisitionReportQuerySchema.parse(query); const since = new Date(Date.now() - days * 86400000);
     const [campaigns, breakdown, legacyMembers] = await Promise.all([
       this.auth.db.acquisitionCampaign.findMany({ orderBy: { createdAt: 'desc' }, take: 100 }),
-      this.acquisitionBreakdown(since), this.auth.db.user.count({ where: { role: 'MEMBER', acquisition: null } })
+      this.adminSummaryQuery.acquisitionBreakdown(since), this.auth.db.user.count({ where: { role: 'MEMBER', acquisition: null } })
     ]);
     return adminAcquisitionReportResponseSchema.parse({ days, since, legacyMembers, breakdown, campaigns: campaigns.map(campaign => ({ ...campaign, registrationUrl: this.campaignUrl(campaign) })) });
   }
@@ -294,7 +281,7 @@ export class AppController {
     }
   }
   @Get('admin/acquisition/export.csv') async exportAcquisition(@Req() req: AppRequest, @Query() query: unknown, @Res({ passthrough: true }) res: Response) {
-    await this.staff(req, ['ADMIN']); const { days } = acquisitionReportQuerySchema.parse(query); const since = new Date(Date.now() - days * 86400000); const rows = await this.acquisitionBreakdown(since);
+    await this.staff(req, ['ADMIN']); const { days } = acquisitionReportQuerySchema.parse(query); const since = new Date(Date.now() - days * 86400000); const rows = await this.adminSummaryQuery.acquisitionBreakdown(since);
     const header = ['流入元', '媒体', 'キャンペーン', '無料登録数', '有料化数', '有料化率', '集計開始UTC'];
     const body = rows.map(row => [row.source, row.medium ?? '', row.campaign ?? '', row.registered, row.paid, row.registered ? `${Math.round(row.paid / row.registered * 100)}%` : '0%', since.toISOString()]);
     res.type('text/csv; charset=utf-8'); res.setHeader('Content-Disposition', `attachment; filename="acquisition-${days}days.csv"`); res.setHeader('Cache-Control', 'no-store');
@@ -431,29 +418,6 @@ export class AppController {
     const identity = await this.auth.authenticate(req);
     if (!canManage(identity, roles)) throw new ForbiddenException({ code: requiresMfa(identity.role) && identity.aal !== 2 ? 'MFA_REQUIRED' : 'FORBIDDEN', message: 'この操作には権限と、必要な場合は二段階認証が必要です。' });
     return identity;
-  }
-  private async memberFunnel(since?: Date) {
-    const base: Prisma.UserWhereInput = { role: 'MEMBER', ...(since ? { createdAt: { gte: since } } : {}) };
-    const count = (extra: Prisma.UserWhereInput = {}) => this.auth.db.user.count({ where: { AND: [base, extra] } });
-    const [registered, identityReady, lineReady, planViewed, checkoutReviewed, paid] = await Promise.all([
-      count(),
-      count({ OR: [{ emailVerifiedAt: { not: null } }, { registrationMethod: 'LINE' }] }),
-      count({ lineAccount: { is: { unlinkedAt: null, notificationDisabledAt: null } }, preferences: { is: { predictions: true } } }),
-      count({ journeyEvents: { some: { eventType: 'PLAN_VIEWED' } } }),
-      count({ journeyEvents: { some: { eventType: 'CHECKOUT_REVIEWED' } } }),
-      count({ paymentTransactions: { some: { status: 'SUCCEEDED' } } })
-    ]);
-    return { registered, identityReady, lineReady, planViewed, checkoutReviewed, paid };
-  }
-  private async acquisitionBreakdown(since: Date) {
-    const rows = await this.auth.db.memberAcquisition.findMany({ where: { capturedAt: { gte: since } }, select: { source: true, medium: true, campaign: true, user: { select: { paymentTransactions: { where: { status: 'SUCCEEDED' }, select: { id: true }, take: 1 } } } } });
-    const groups = new Map<string, { source: string; medium: string | null; campaign: string | null; registered: number; paid: number }>();
-    for (const row of rows) {
-      const key = JSON.stringify([row.source, row.medium, row.campaign]);
-      const item = groups.get(key) ?? { source: row.source, medium: row.medium, campaign: row.campaign, registered: 0, paid: 0 };
-      item.registered++; if (row.user.paymentTransactions.length) item.paid++; groups.set(key, item);
-    }
-    return [...groups.values()].sort((a, b) => b.registered - a.registered || b.paid - a.paid || a.source.localeCompare(b.source));
   }
   private campaignUrl(campaign: { code: string; source: string; medium: string; content: string | null; landingPath: string; referralCode: string | null }) {
     const url = new URL(campaign.landingPath, process.env.APP_BASE_URL); url.searchParams.set('utm_source', campaign.source); url.searchParams.set('utm_medium', campaign.medium); url.searchParams.set('utm_campaign', campaign.code);
