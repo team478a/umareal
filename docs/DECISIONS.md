@@ -1289,3 +1289,9 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 - `PATCH /me/preferences`の通知設定更新、受信拒否後のメール再開制限、変更前後の監査記録を`MemberAccountCommandService`へ分離する。Controllerには既存の本人認証と入力Contract検証を残す。
 - `POST /me/journey`の初回ログイン補完と会員導線イベントの冪等記録を同サービスへ分離する。ControllerにはMEMBER限定認可と入力Contract検証を残し、`AuthService.journey`の共通保存処理を再利用する。
 - 設定項目、イベント種別、重複防止、監査内容、API URL・応答・エラーコード、画面、DB schemaを変更しない。本番デプロイ・migrationは行わない。
+
+## 管理者による会員権限付与Service分離（2026-10-07）
+
+- `POST /admin/users/:userId/entitlements`の有限期間`MANUAL`権限作成、冪等再送、監査記録を`AdminEntitlementService`へ分離する。Controllerには既存のADMIN+AAL2認可、対象UUID、開始・終了時刻、理由、plan code、Idempotency-Keyの検証を残す。
+- 冪等性keyは管理者とリクエストUUIDの組合せ、request hashは対象会員と入力内容から生成する既存境界を維持する。権限、監査、成功応答の保存は引き続き同一トランザクションで行い、同じkeyの異なる内容は409で拒否する。
+- 無期限付与は許可せず、API URL・応答・エラーコード、管理画面、DB schemaを変更しない。本番デプロイ・migrationは行わない。
