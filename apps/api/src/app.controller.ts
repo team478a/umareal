@@ -1,22 +1,23 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAcquisitionReportResponseSchema, adminAuditQuerySchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminLocalRestoreAttestationInputSchema, adminLocalRestoreAttestationResponseSchema, adminProductionBackupAttestationInputSchema, adminProductionBackupAttestationResponseSchema, adminReadinessResponseSchema, adminRetentionPolicyInputSchema, adminRetentionPolicyResponseSchema, adminRetentionPolicySchema, adminRetentionPreviewResponseSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, preferencesSchema, publicDeploymentRelease, publicRaceListQuerySchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
+import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAuditQuerySchema, adminBackupStatusResponseSchema, adminLocalRestoreAttestationInputSchema, adminLocalRestoreAttestationResponseSchema, adminProductionBackupAttestationInputSchema, adminProductionBackupAttestationResponseSchema, adminReadinessResponseSchema, adminRetentionPolicyInputSchema, adminRetentionPolicyResponseSchema, adminRetentionPolicySchema, adminRetentionPreviewResponseSchema, canEditRace, canManage, deploymentConsistency, jstDate, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, preferencesSchema, publicDeploymentRelease, publicRaceListQuerySchema, requiresMfa, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
 import { hashToken, verifyPassword } from './security';
-import { Prisma, resolveMailConfig } from '@keiba/db';
+import { Prisma } from '@keiba/db';
 import { ReadinessService } from './readiness.service';
 import { AuthSessionService } from './auth-session.service';
 import { MemberAccountQueryService } from './member-account-query.service';
 import { AccountClosureService } from './account-closure.service';
-import { lineNotificationState } from './line-notification-policy';
 import { AdminDirectoryQueryService } from './admin-directory-query.service';
 import { AdminSummaryQueryService } from './admin-summary-query.service';
 import { AdminOperationsQueryService } from './admin-operations-query.service';
 import { PublicRaceQueryService } from './public-race-query.service';
 import { ExpertRaceQueryService } from './expert-race-query.service';
+import { AdminGrowthQueryService } from './admin-growth-query.service';
+import { AdminIncidentQueryService } from './admin-incident-query.service';
 
 const pagination = z.object({ page: z.coerce.number().int().min(1).max(10000).default(1), limit: z.coerce.number().int().min(1).max(50).default(20) });
 const onboardingFunnelQuerySchema = z.object({ days: z.coerce.number().int().min(1).max(365).default(30), source: z.string().trim().min(1).max(100).optional() }).strict();
@@ -37,7 +38,9 @@ export class AppController {
     @Inject(AdminSummaryQueryService) private readonly adminSummaryQuery: AdminSummaryQueryService,
     @Inject(AdminOperationsQueryService) private readonly adminOperationsQuery: AdminOperationsQueryService,
     @Inject(PublicRaceQueryService) private readonly publicRaceQuery: PublicRaceQueryService,
-    @Inject(ExpertRaceQueryService) private readonly expertRaceQuery: ExpertRaceQueryService
+    @Inject(ExpertRaceQueryService) private readonly expertRaceQuery: ExpertRaceQueryService,
+    @Inject(AdminGrowthQueryService) private readonly adminGrowthQuery: AdminGrowthQueryService,
+    @Inject(AdminIncidentQueryService) private readonly adminIncidentQuery: AdminIncidentQueryService
   ) {}
   @Get('health') async health() {
     const now = new Date();
@@ -134,51 +137,13 @@ export class AppController {
     return this.adminOperationsQuery.get(date);
   }
   @Get('admin/acquisition') async acquisition(@Req() req: AppRequest, @Query() query: unknown) {
-    await this.staff(req, ['ADMIN']); const { days } = acquisitionReportQuerySchema.parse(query); const since = new Date(Date.now() - days * 86400000);
-    const [campaigns, breakdown, legacyMembers] = await Promise.all([
-      this.auth.db.acquisitionCampaign.findMany({ orderBy: { createdAt: 'desc' }, take: 100 }),
-      this.adminSummaryQuery.acquisitionBreakdown(since), this.auth.db.user.count({ where: { role: 'MEMBER', acquisition: null } })
-    ]);
-    return adminAcquisitionReportResponseSchema.parse({ days, since, legacyMembers, breakdown, campaigns: campaigns.map(campaign => ({ ...campaign, registrationUrl: this.campaignUrl(campaign) })) });
+    await this.staff(req, ['ADMIN']);
+    const { days } = acquisitionReportQuerySchema.parse(query);
+    return this.adminGrowthQuery.acquisition(days);
   }
   @Get('admin/onboarding-funnel') async onboardingFunnel(@Req() req: AppRequest, @Query() query: unknown) {
     await this.staff(req, ['ADMIN']);
-    const { days, source } = onboardingFunnelQuerySchema.parse(query);
-    const since = new Date(Date.now() - days * 86400000);
-    const where: Prisma.UserWhereInput = {
-      role: 'MEMBER', createdAt: { gte: since },
-      ...(source ? { acquisition: { is: { source } } } : {})
-    };
-    const stageWhere = (extra: Prisma.UserWhereInput = {}) => ({ AND: [where, extra] } satisfies Prisma.UserWhereInput);
-    const count = (extra: Prisma.UserWhereInput = {}) => this.auth.db.user.count({ where: stageWhere(extra) });
-    const identityReadyWhere: Prisma.UserWhereInput = { OR: [{ emailVerifiedAt: { not: null } }, { registrationMethod: 'LINE' }] };
-    const firstLoginWhere: Prisma.UserWhereInput = { AND: [identityReadyWhere, { OR: [{ journeyEvents: { some: { eventType: 'FIRST_LOGIN' } } }, { lineAccount: { isNot: null } }] }] };
-    const lineGuidanceWhere: Prisma.UserWhereInput = { AND: [firstLoginWhere, { OR: [{ journeyEvents: { some: { eventType: 'LINE_GUIDANCE_VIEWED' } } }, { lineAccount: { isNot: null } }] }] };
-    const [registered, identityReady, firstLogin, lineGuidanceViewed, lineReady, paid, sources, tracking] = await Promise.all([
-      count(),
-      count(identityReadyWhere),
-      count(firstLoginWhere),
-      count(lineGuidanceWhere),
-      count({ AND: [lineGuidanceWhere, { lineAccount: { is: { unlinkedAt: null, notificationDisabledAt: null } }, preferences: { is: { predictions: true } } }] }),
-      count({ paymentTransactions: { some: { status: 'SUCCEEDED' } } }),
-      this.auth.db.memberAcquisition.findMany({ where: { user: { role: 'MEMBER' } }, distinct: ['source'], orderBy: { source: 'asc' }, select: { source: true } }),
-      this.auth.db.memberJourneyEvent.findFirst({ where: { eventType: { in: ['FIRST_LOGIN', 'LINE_GUIDANCE_VIEWED'] }, user: { role: 'MEMBER' } }, orderBy: { occurredAt: 'asc' }, select: { occurredAt: true } })
-    ]);
-    const values = [registered, identityReady, firstLogin, lineGuidanceViewed, lineReady];
-    const labels = ['無料登録', '本人確認', '初回ログイン', 'LINE案内到達', 'LINE受信準備'];
-    const stages = values.map((value, index) => ({
-      key: ['REGISTERED', 'IDENTITY_READY', 'FIRST_LOGIN', 'LINE_GUIDANCE_VIEWED', 'LINE_READY'][index],
-      label: labels[index], value,
-      rateFromRegistered: registered ? Math.round(value / registered * 1000) / 10 : 0,
-      dropOffFromPrevious: index === 0 ? 0 : Math.max(0, values[index - 1] - value),
-      rateFromPrevious: index === 0 ? 100 : values[index - 1] ? Math.round(value / values[index - 1] * 1000) / 10 : 0
-    }));
-    return onboardingFunnelResponseSchema.parse({
-      days, since, source: source ?? null, sources: sources.map(item => item.source), stages, paid,
-      lineAvailable: launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).lineNotifications,
-      trackingStartsAt: tracking?.occurredAt ?? null,
-      generatedAt: new Date()
-    });
+    return this.adminGrowthQuery.onboarding(onboardingFunnelQuerySchema.parse(query));
   }
   @Post('admin/acquisition/campaigns') async createAcquisitionCampaign(@Req() req: AppRequest, @Body() body: unknown) {
     const actor = await this.staff(req, ['ADMIN']); const input = acquisitionCampaignCreateSchema.parse(body);
@@ -187,14 +152,14 @@ export class AppController {
         const created = await tx.acquisitionCampaign.create({ data: { name: input.name, code: input.code, source: input.source, medium: input.medium, content: input.content, landingPath: input.landingPath, referralCode: input.referralCode, createdBy: actor.id } });
         await this.auth.audit(tx, req, 'ACQUISITION_CAMPAIGN_CREATE', created.id, input.reason, { code: created.code, source: created.source, medium: created.medium, content: created.content, landingPath: created.landingPath, referralCode: created.referralCode }); return created;
       });
-      return { ...campaign, registrationUrl: this.campaignUrl(campaign) };
+      return { ...campaign, registrationUrl: this.adminGrowthQuery.campaignUrl(campaign) };
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException({ code: 'CAMPAIGN_CODE_EXISTS', message: 'このキャンペーンコードは使用済みです。' });
       throw error;
     }
   }
   @Get('admin/acquisition/export.csv') async exportAcquisition(@Req() req: AppRequest, @Query() query: unknown, @Res({ passthrough: true }) res: Response) {
-    await this.staff(req, ['ADMIN']); const { days } = acquisitionReportQuerySchema.parse(query); const since = new Date(Date.now() - days * 86400000); const rows = await this.adminSummaryQuery.acquisitionBreakdown(since);
+    await this.staff(req, ['ADMIN']); const { days } = acquisitionReportQuerySchema.parse(query); const since = new Date(Date.now() - days * 86400000); const rows = await this.adminGrowthQuery.acquisitionBreakdown(since);
     const header = ['流入元', '媒体', 'キャンペーン', '無料登録数', '有料化数', '有料化率', '集計開始UTC'];
     const body = rows.map(row => [row.source, row.medium ?? '', row.campaign ?? '', row.registered, row.paid, row.registered ? `${Math.round(row.paid / row.registered * 100)}%` : '0%', since.toISOString()]);
     res.type('text/csv; charset=utf-8'); res.setHeader('Content-Disposition', `attachment; filename="acquisition-${days}days.csv"`); res.setHeader('Cache-Control', 'no-store');
@@ -202,38 +167,7 @@ export class AppController {
   }
   @Get('admin/incidents') async incidents(@Req() req: AppRequest) {
     await this.staff(req, ['ADMIN', 'OPERATOR']);
-    const now = new Date(); const delayedAt = new Date(now.getTime() - 60_000); const staleLeaseAt = new Date(now.getTime() - 5 * 60_000); const since = new Date(now.getTime() - 24 * 60 * 60_000);
-    const [settings, failed, delayed, stuck, lastWebhook, unmatchedWebhooks, emailFailures, emailProviderFailures] = await this.auth.db.$transaction([
-      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { emailNotificationsEnabled: true, predictionPublicationEnabled: true, csvImportEnabled: true, lineNotificationsEnabled: true, newPurchasesEnabled: true, maintenanceMessage: true, lineChannelId: true, lineChannelSecretEncrypted: true, lineAccessTokenEncrypted: true, mailApiKeyEncrypted: true, mailWebhookSecretEncrypted: true, mailFrom: true, updatedAt: true } }),
-      this.auth.db.notificationDelivery.count({ where: { status: 'FAILED' } }),
-      this.auth.db.notificationDelivery.count({ where: { status: 'QUEUED', attemptCount: 0, createdAt: { lt: delayedAt }, nextAttemptAt: { lte: now } } }),
-      this.auth.db.notificationDelivery.count({ where: { status: 'SENDING', lockedAt: { lt: staleLeaseAt } } }),
-      this.auth.db.lineWebhookEvent.findFirst({ orderBy: [{ receivedAt: 'desc' }, { id: 'asc' }], select: { receivedAt: true, eventType: true, outcome: true } }),
-      this.auth.db.lineWebhookEvent.count({ where: { receivedAt: { gte: since }, outcome: 'UNMATCHED' } }),
-      this.auth.db.emailWebhookEvent.count({ where: { receivedAt: { gte: since }, eventType: { in: ['email.bounced', 'email.complained', 'email.suppressed'] } } }),
-      this.auth.db.emailWebhookEvent.count({ where: { receivedAt: { gte: since }, eventType: 'email.failed' } })
-    ]);
-    const lineConfigured = ['line', 'test'].includes(process.env.NOTIFICATION_TRANSPORT ?? '') && !!settings.lineChannelId && !!settings.lineChannelSecretEncrypted && !!settings.lineAccessTokenEncrypted;
-    const lineState = lineNotificationState({ available: launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).lineNotifications, enabled: settings.lineNotificationsEnabled, configured: lineConfigured });
-    const mailConfigured = resolveMailConfig(settings).complete;
-    const issues: { code: string; severity: 'CRITICAL' | 'WARNING' | 'INFO'; title: string; detail: string; action: string; href: string }[] = [];
-    if (!settings.predictionPublicationEnabled) issues.push({ code: 'PREDICTION_PAUSED', severity: 'CRITICAL', title: '予想公開が停止中', detail: '新しいプレビュー確認と公開確定が拒否されます。', action: '停止理由を確認し、復旧条件が揃った後に管理者が再開します。', href: '/admin/settings' });
-    if (!settings.emailNotificationsEnabled) issues.push({ code: 'EMAIL_PAUSED', severity: 'CRITICAL', title: 'メール通知が停止中', detail: '確認済みメール会員へのレース告知と公開通知は送信されません。', action: 'メール配信基盤とキューを確認してから管理者が再開します。', href: '/admin/settings' });
-    if (settings.emailNotificationsEnabled && process.env.MAIL_TRANSPORT === 'resend' && !mailConfigured) issues.push({ code: 'EMAIL_CONFIGURATION_MISSING', severity: 'CRITICAL', title: 'メール送信設定が不足', detail: 'Resend API key、送信元、Webhook signing secretのいずれかが未設定・読取不能です。', action: '管理者が資格情報を再設定し、外部疎通は別途確認します。', href: '/admin/settings' });
-    if (lineState.paused) issues.push({ code: 'LINE_PAUSED', severity: 'CRITICAL', title: 'LINE通知が停止中', detail: '公開情報はWebへ残りますが、通知キューは処理されません。', action: 'LINE側とキューを確認してから管理者が通知を再開します。', href: '/admin/settings' });
-    if (lineState.configurationMissing) issues.push({ code: 'LINE_CONFIGURATION_MISSING', severity: 'CRITICAL', title: 'LINE通知設定が不足', detail: 'Channel ID、secret、access tokenのいずれかが未設定です。', action: '管理者が資格情報を再設定し、外部疎通は別途確認します。', href: '/admin/settings' });
-    if (stuck) issues.push({ code: 'DELIVERY_STUCK', severity: 'CRITICAL', title: '送信中の通知が停滞', detail: `5分以上送信中の配送が${stuck}件あります。`, action: 'ワーカー状態を確認します。再起動後は期限切れleaseが自動回収されます。', href: '/admin/notifications' });
-    if (failed) issues.push({ code: 'DELIVERY_FAILED', severity: 'WARNING', title: '未解決の通知失敗', detail: `失敗状態の配送が${failed}件あります。`, action: '失敗理由を確認し、原因解消後に理由付きで再送します。', href: '/admin/notifications' });
-    if (delayed) issues.push({ code: 'DELIVERY_DELAYED', severity: 'WARNING', title: '通知開始が60秒を超過', detail: `初回処理待ちの配送が${delayed}件あります。`, action: 'ワーカー稼働と通知停止設定を確認します。', href: '/admin/notifications' });
-    if (!settings.csvImportEnabled) issues.push({ code: 'CSV_PAUSED', severity: 'WARNING', title: 'CSV取込が停止中', detail: '新しい差分確認と取込確定が拒否されます。', action: '取込元と停止理由を確認し、必要な場合だけ管理者が再開します。', href: '/admin/settings' });
-    if (unmatchedWebhooks) issues.push({ code: 'WEBHOOK_UNMATCHED', severity: 'WARNING', title: '未照合のLINE Webhook', detail: `24時間以内に会員と照合できないWebhookが${unmatchedWebhooks}件あります。`, action: 'Webhook受信履歴とLINE連携状態を確認します。', href: '/admin/notifications' });
-    if (emailFailures) issues.push({ code: 'EMAIL_RECIPIENT_REJECTED', severity: 'WARNING', title: 'メール受信拒否を検出', detail: `24時間以内にバウンス・苦情・配信抑止を${emailFailures}件受信しました。`, action: '停止された会員とイベント履歴を確認します。', href: '/admin/notifications' });
-    if (emailProviderFailures) issues.push({ code: 'EMAIL_PROVIDER_FAILURE', severity: 'CRITICAL', title: 'メール配信基盤の失敗', detail: `24時間以内にResendの配信失敗を${emailProviderFailures}件受信しました。`, action: 'Resendのドメイン、API key、利用上限、障害情報を確認します。', href: '/admin/notifications' });
-    if (settings.maintenanceMessage.trim()) issues.push({ code: 'MAINTENANCE_MESSAGE_ACTIVE', severity: 'INFO', title: 'メンテナンス案内を設定中', detail: settings.maintenanceMessage, action: '案内内容と現在の障害状態が一致しているか確認します。', href: '/admin/settings' });
-    const critical = issues.filter(issue => issue.severity === 'CRITICAL').length; const warning = issues.filter(issue => issue.severity === 'WARNING').length;
-    const status = critical ? 'INCIDENT' : warning ? 'DEGRADED' : 'NORMAL';
-    const publicMessage = !settings.predictionPublicationEnabled ? '現在、予想情報の公開準備を確認しています。公開が通常より遅れる可能性があります。状況が確定次第、Web会員ページでご案内します。' : !settings.emailNotificationsEnabled || lineState.affectsPublicMessage || stuck || failed || delayed || emailProviderFailures ? '現在、通知の配信に遅れが発生しています。公開済みの情報はWeb会員ページでご確認いただけます。復旧後に改めてご案内します。' : '現在、確認されている公開・通知障害はありません。';
-    return adminIncidentResponseSchema.parse({ generatedAt: now, status, counts: { critical, warning, total: issues.length }, issues, publicMessage, monitoring: { failedDeliveries: failed, delayedDeliveries: delayed, stuckDeliveries: stuck, unmatchedWebhooks24h: unmatchedWebhooks, emailRecipientFailures24h: emailFailures, emailProviderFailures24h: emailProviderFailures, lastWebhookAt: lastWebhook?.receivedAt ?? null, lastWebhookOutcome: lastWebhook?.outcome ?? null, settingsUpdatedAt: settings.updatedAt, newPurchasesEnabled: settings.newPurchasesEnabled } });
+    return this.adminIncidentQuery.get();
   }
   @Get('admin/backups/status') async backupStatus(@Req() req: AppRequest) {
     await this.staff(req, ['ADMIN']);
@@ -331,9 +265,5 @@ export class AppController {
     const identity = await this.auth.authenticate(req);
     if (!canManage(identity, roles)) throw new ForbiddenException({ code: requiresMfa(identity.role) && identity.aal !== 2 ? 'MFA_REQUIRED' : 'FORBIDDEN', message: 'この操作には権限と、必要な場合は二段階認証が必要です。' });
     return identity;
-  }
-  private campaignUrl(campaign: { code: string; source: string; medium: string; content: string | null; landingPath: string; referralCode: string | null }) {
-    const url = new URL(campaign.landingPath, process.env.APP_BASE_URL); url.searchParams.set('utm_source', campaign.source); url.searchParams.set('utm_medium', campaign.medium); url.searchParams.set('utm_campaign', campaign.code);
-    if (campaign.content) url.searchParams.set('utm_content', campaign.content); if (campaign.referralCode) url.searchParams.set('ref', campaign.referralCode); return url.toString();
   }
 }
