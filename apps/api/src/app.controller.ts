@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
 import type { Response } from 'express';
-import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAcquisitionReportResponseSchema, adminAuditQuerySchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminLocalRestoreAttestationInputSchema, adminLocalRestoreAttestationResponseSchema, adminProductionBackupAttestationInputSchema, adminProductionBackupAttestationResponseSchema, adminReadinessResponseSchema, adminRetentionPolicyInputSchema, adminRetentionPolicyResponseSchema, adminRetentionPolicySchema, adminRetentionPreviewResponseSchema, canEditRace, canManage, deploymentConsistency, expertRaceListResponseSchema, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, preferencesSchema, publicDeploymentRelease, publicRaceListQuerySchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
+import { accountClosureCompletionResponseSchema, accountClosureEligibilityResponseSchema, acquisitionCampaignCreateSchema, acquisitionReportQuerySchema, adminAcquisitionReportResponseSchema, adminAuditQuerySchema, adminBackupStatusResponseSchema, adminIncidentResponseSchema, adminLocalRestoreAttestationInputSchema, adminLocalRestoreAttestationResponseSchema, adminProductionBackupAttestationInputSchema, adminProductionBackupAttestationResponseSchema, adminReadinessResponseSchema, adminRetentionPolicyInputSchema, adminRetentionPolicyResponseSchema, adminRetentionPolicySchema, adminRetentionPreviewResponseSchema, canEditRace, canManage, deploymentConsistency, jstDate, launchCapabilities, memberJourneyEventSchema, memberJourneyResponseSchema, notificationPreferencesResponseSchema, onboardingFunnelResponseSchema, preferencesSchema, publicDeploymentRelease, publicRaceListQuerySchema, requiresMfa, resolveLaunchMode, workerHeartbeatStatus } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -16,6 +16,7 @@ import { AdminDirectoryQueryService } from './admin-directory-query.service';
 import { AdminSummaryQueryService } from './admin-summary-query.service';
 import { AdminOperationsQueryService } from './admin-operations-query.service';
 import { PublicRaceQueryService } from './public-race-query.service';
+import { ExpertRaceQueryService } from './expert-race-query.service';
 
 const pagination = z.object({ page: z.coerce.number().int().min(1).max(10000).default(1), limit: z.coerce.number().int().min(1).max(50).default(20) });
 const onboardingFunnelQuerySchema = z.object({ days: z.coerce.number().int().min(1).max(365).default(30), source: z.string().trim().min(1).max(100).optional() }).strict();
@@ -35,7 +36,8 @@ export class AppController {
     @Inject(AdminDirectoryQueryService) private readonly adminDirectoryQuery: AdminDirectoryQueryService,
     @Inject(AdminSummaryQueryService) private readonly adminSummaryQuery: AdminSummaryQueryService,
     @Inject(AdminOperationsQueryService) private readonly adminOperationsQuery: AdminOperationsQueryService,
-    @Inject(PublicRaceQueryService) private readonly publicRaceQuery: PublicRaceQueryService
+    @Inject(PublicRaceQueryService) private readonly publicRaceQuery: PublicRaceQueryService,
+    @Inject(ExpertRaceQueryService) private readonly expertRaceQuery: ExpertRaceQueryService
   ) {}
   @Get('health') async health() {
     const now = new Date();
@@ -112,21 +114,15 @@ export class AppController {
     if (!['EXPERT', 'OPERATOR', 'ADMIN'].includes(identity.role) || identity.aal !== 2) {
       throw new ForbiddenException({ code: identity.aal !== 2 && ['EXPERT', 'OPERATOR', 'ADMIN'].includes(identity.role) ? 'MFA_REQUIRED' : 'FORBIDDEN', message: '予想作業には担当権限と二段階認証が必要です。' });
     }
-    const items = await this.auth.db.race.findMany({
-      where: identity.role === 'EXPERT' ? { assignments: { some: { userId: identity.id } } } : {},
-      take: 50,
-      orderBy: { startsAt: 'asc' },
-      select: { id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true, status: true }
-    });
-    return expertRaceListResponseSchema.parse({ items });
+    return this.expertRaceQuery.list({ id: identity.id, role: identity.role });
   }
   @Get('expert/races/:raceId/workspace') async workspace(@Param('raceId') raceId: string, @Req() req: AppRequest) {
     const identity = await this.auth.authenticate(req);
     z.string().uuid().parse(raceId);
-    const race = await this.auth.db.race.findUnique({ where: { id: raceId }, include: { assignments: true } });
-    if (!race) throw new NotFoundException();
-    if (!canEditRace(identity, race.assignments.map(a => a.userId))) throw new ForbiddenException({ code: 'RACE_ACCESS_DENIED', message: '予想権限と二段階認証を確認してください。' });
-    return { race: { id: race.id, name: race.name, startsAt: race.startsAt }, inputEnabled: true };
+    const workspace = await this.expertRaceQuery.workspace(raceId);
+    if (!workspace) throw new NotFoundException();
+    if (!canEditRace(identity, workspace.assignedUserIds)) throw new ForbiddenException({ code: 'RACE_ACCESS_DENIED', message: '予想権限と二段階認証を確認してください。' });
+    return workspace.response;
   }
   @Get('admin/summary') async summary(@Req() req: AppRequest) {
     await this.staff(req, ['ADMIN', 'OPERATOR']);

@@ -1271,3 +1271,9 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 - `GET /races`と`GET /announcements`のDB問合せと公開用投影を`PublicRaceQueryService`へ移し、Controllerには既存の検索入力Contract検証を残す。
 - レース一覧は公開応答に必要なレース基本情報と告知・予想・結果の最新公開メタデータだけをselectする。告知一覧も告知ID、版、公開日時とレース基本情報だけを取得し、理由、公開者、担当者、出走馬、予想本文を取得・返却しない。
 - 既定JST日付、最大93日の期間、検索条件、並び順、ページング、告知の6時間境界・レース単位重複排除・最大10件、API URL、画面、DB schemaを変更しない。本番デプロイ・migrationは行わない。
+
+## 予想担当レース閲覧Query Service分離（2026-10-06）
+
+- `GET /expert/races`と`GET /expert/races/:raceId/workspace`のDB問合せと画面向け投影を`ExpertRaceQueryService`へ分離し、Controllerには既存の認証、ロール、AAL2、担当レース判定を残す。
+- 一覧はレース基本情報だけを明示的にselectし、EXPERTは担当レースのみ、OPERATORとADMINは最大50件を発走時刻順で取得する。作業画面は認可判定に必要な担当者IDを内部contextとして分離し、公開応答へ担当、内部revision、出走馬、評価・予想本文を含めない。
+- API URL、応答内容、並び順、画面、DB schemaを変更しない。本番デプロイ・migrationは行わない。
