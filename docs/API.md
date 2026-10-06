@@ -242,14 +242,15 @@ StripeもSecret keyとWebhook secretは同じ暗号化方式で保存し、設�
 | --- | --- | --- |
 | GET | /admin/content | ADMIN+AAL2またはEDITOR。下書き、公開状態、公開履歴を取得 |
 | GET | /admin/content/races | ADMIN+AAL2またはEDITOR。`date`と任意の`ids`で関連付け候補を取得 |
-| POST | /admin/content/draft | ADMIN+AAL2またはEDITOR。revision、理由、最大10件の`relatedRaceIds`を含む下書きを保存 |
-| POST | /admin/content/:id/publish | 即時公開。公開版と関連レース、通知eventを同一トランザクションで追記 |
+| GET | /admin/content/horses | ADMIN+AAL2またはEDITOR。`query`と任意の`ids`で既存Horseの関連付け候補を取得 |
+| POST | /admin/content/draft | ADMIN+AAL2またはEDITOR。revision、理由、最大10件ずつの`relatedRaceIds`・`relatedHorseIds`を含む下書きを保存 |
+| POST | /admin/content/:id/publish | 即時公開。公開版、関連レース・関連馬、通知eventを同一トランザクションで追記 |
 | POST | /admin/content/:id/schedule | 未来時刻への公開予約。実行時に編集者と下書き版を再確認 |
 | POST | /admin/content/:id/schedule/cancel | 理由付きで公開予約を取消 |
 | POST | /admin/content/:id/archive | 公開終了。公開版と関連先履歴は削除しない |
 | POST | /admin/content/:id/restore | 公開終了後の再編集を開始 |
 | GET | /content | 公開中のコンテンツ一覧。閲覧権のない有料コンテンツはメタデータのみ |
-| GET | /content/:id | 最新公開版。関連レースは公開メタデータとして返し、本文とメディアURLは権限判定後だけ返す |
+| GET | /content/:id | 最新公開版。関連レースと関連馬名は公開メタデータとして返し、本文とメディアURLは権限判定後だけ返す |
 | GET | /races/:raceId/content | そのレースに関連する最新の公開中コンテンツを最大20件返す |
 
 ## レース管理

@@ -1,6 +1,6 @@
 import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req, UnauthorizedException } from '@nestjs/common';
 import { Prisma } from '@keiba/db';
-import { adminContentItemResponseSchema, adminContentListResponseSchema, adminContentMutationResponseSchema, adminContentRaceOptionsResponseSchema, canManage, canReadPrediction, contentDraftSchema, contentPublishSchema, contentSaveSchema, contentScheduleSchema, contentStateChangeSchema, dateSchema, jstDate, parseContentAccessPolicy, publicContentDetailResponseSchema, publicContentListResponseSchema, publicRaceRelatedContentResponseSchema } from '@keiba/domain';
+import { adminContentHorseOptionsResponseSchema, adminContentItemResponseSchema, adminContentListResponseSchema, adminContentMutationResponseSchema, adminContentRaceOptionsResponseSchema, canManage, canReadPrediction, contentDraftSchema, contentPublishSchema, contentSaveSchema, contentScheduleSchema, contentStateChangeSchema, dateSchema, jstDate, parseContentAccessPolicy, publicContentDetailResponseSchema, publicContentListResponseSchema, publicRaceRelatedContentResponseSchema } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
 import type { AppRequest, AuthContext } from './context';
@@ -9,10 +9,10 @@ type Tx = Prisma.TransactionClient;
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const itemSelect = {
   id: true, revision: true, status: true, isVisible: true, kind: true, title: true, summary: true, body: true, thumbnailUrl: true, mediaUrl: true,
-  category: true, tags: true, relatedRaceIds: true, visibility: true, scheduledAt: true, scheduleError: true, createdAt: true, updatedAt: true,
+  category: true, tags: true, relatedRaceIds: true, relatedHorseIds: true, visibility: true, scheduledAt: true, scheduleError: true, createdAt: true, updatedAt: true,
   versions: { orderBy: { version: 'desc' as const }, take: 50, select: { id: true, version: true, kind: true, title: true, summary: true, thumbnailUrl: true, category: true, tags: true, visibility: true, publishedAt: true } }
 };
-const versionSelect = { id: true, version: true, kind: true, title: true, summary: true, thumbnailUrl: true, category: true, tags: true, relatedRaceIds: true, visibility: true, publishedAt: true, snapshot: true } as const;
+const versionSelect = { id: true, version: true, kind: true, title: true, summary: true, thumbnailUrl: true, category: true, tags: true, relatedRaceIds: true, relatedHorseIds: true, visibility: true, publishedAt: true, snapshot: true } as const;
 type PublicVersionRow = { contentId: string; version: number; kind: string; title: string; summary: string; thumbnailUrl: string | null; category: string; tags: string[]; relatedRaceIds: string[]; visibility: string; publishedAt: Date };
 const publicMetadata = (contentId: string, version: Omit<PublicVersionRow, 'contentId'>) => ({ id: contentId, version: version.version, kind: version.kind, title: version.title, summary: version.summary, thumbnailUrl: version.thumbnailUrl, category: version.category, tags: version.tags, visibility: version.visibility, publishedAt: version.publishedAt });
 
@@ -30,14 +30,20 @@ export class ContentController {
     return actor;
   }
 
-  private draft(row: { kind: string; title: string; summary: string; body: string; thumbnailUrl: string | null; mediaUrl: string | null; category: string; tags: string[]; relatedRaceIds: string[]; visibility: string }) {
-    return contentDraftSchema.parse({ kind: row.kind, title: row.title, summary: row.summary, body: row.body, thumbnailUrl: row.thumbnailUrl, mediaUrl: row.mediaUrl, category: row.category, tags: row.tags, relatedRaceIds: row.relatedRaceIds, visibility: row.visibility });
+  private draft(row: { kind: string; title: string; summary: string; body: string; thumbnailUrl: string | null; mediaUrl: string | null; category: string; tags: string[]; relatedRaceIds: string[]; relatedHorseIds: string[]; visibility: string }) {
+    return contentDraftSchema.parse({ kind: row.kind, title: row.title, summary: row.summary, body: row.body, thumbnailUrl: row.thumbnailUrl, mediaUrl: row.mediaUrl, category: row.category, tags: row.tags, relatedRaceIds: row.relatedRaceIds, relatedHorseIds: row.relatedHorseIds, visibility: row.visibility });
   }
 
   private async validateRelatedRaces(tx: Tx, relatedRaceIds: string[]) {
     if (!relatedRaceIds.length) return;
     const count = await tx.race.count({ where: { id: { in: relatedRaceIds } } });
     if (count !== relatedRaceIds.length) throw new ConflictException({ code: 'CONTENT_RACE_NOT_FOUND', message: '選択した関連レースを確認できません。最新のレース一覧から選び直してください。' });
+  }
+
+  private async validateRelatedHorses(tx: Tx, relatedHorseIds: string[]) {
+    if (!relatedHorseIds.length) return;
+    const count = await tx.horse.count({ where: { id: { in: relatedHorseIds } } });
+    if (count !== relatedHorseIds.length) throw new ConflictException({ code: 'CONTENT_HORSE_NOT_FOUND', message: '選択した関連馬を確認できません。最新の馬一覧から選び直してください。' });
   }
 
   private adminItem(row: Prisma.ContentItemGetPayload<{ select: typeof itemSelect }>) {
@@ -66,7 +72,8 @@ export class ContentController {
     if (item.status === 'SCHEDULED') throw new ConflictException({ code: 'CONTENT_SCHEDULED', message: '予約を取り消してから即時公開してください。' });
     const latest = item.versions[0]; const draft = this.draft(item); const nextVersion = (latest?.version ?? 0) + 1;
     await this.validateRelatedRaces(tx, draft.relatedRaceIds);
-    const version = await tx.contentVersion.create({ data: { contentId: item.id, version: nextVersion, kind: draft.kind, title: draft.title, summary: draft.summary, thumbnailUrl: draft.thumbnailUrl, category: draft.category, tags: draft.tags, relatedRaceIds: draft.relatedRaceIds, visibility: draft.visibility, snapshot: json(draft), publishedBy: actor.id } });
+    await this.validateRelatedHorses(tx, draft.relatedHorseIds);
+    const version = await tx.contentVersion.create({ data: { contentId: item.id, version: nextVersion, kind: draft.kind, title: draft.title, summary: draft.summary, thumbnailUrl: draft.thumbnailUrl, category: draft.category, tags: draft.tags, relatedRaceIds: draft.relatedRaceIds, relatedHorseIds: draft.relatedHorseIds, visibility: draft.visibility, snapshot: json(draft), publishedBy: actor.id } });
     await tx.notificationEvent.create({ data: { contentVersionId: version.id, eventType: nextVersion === 1 ? 'CONTENT_PUBLISHED' : 'CONTENT_UPDATED', status: 'QUEUED', payload: json({ contentVersionId: version.id, contentId: item.id }) } });
     const updated = await tx.contentItem.update({ where: { id: item.id }, data: { status: 'PUBLISHED', isVisible: true, revision: { increment: 1 }, scheduledAt: null, scheduledRevision: null, scheduleReason: null, scheduleError: null, updatedBy: actor.id, updatedAt: new Date() } });
     await tx.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: nextVersion === 1 ? 'CONTENT_PUBLISHED' : 'CONTENT_VERSION_PUBLISHED', targetType: 'CONTENT_VERSION', targetId: version.id, reason, details: { contentId: item.id, version: nextVersion, kind: draft.kind, visibility: draft.visibility }, requestId } });
@@ -90,6 +97,21 @@ export class ContentController {
     return adminContentRaceOptionsResponseSchema.parse({ items });
   }
 
+  @Get('admin/content/horses') async horseOptions(@Req() req: AppRequest, @Query() query: unknown) {
+    await this.editor(req);
+    const input = z.object({ query: z.string().trim().max(80).optional(), ids: z.string().trim().max(400).optional() }).strict().parse(query);
+    const ids = input.ids ? input.ids.split(',').filter(Boolean).map(value => z.string().uuid().parse(value)).slice(0, 10) : [];
+    const search = input.query?.trim() ?? '';
+    if (!search && !ids.length) return adminContentHorseOptionsResponseSchema.parse({ items: [] });
+    const [selectedRows, searchRows] = await Promise.all([
+      ids.length ? this.auth.db.horse.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : Promise.resolve([]),
+      search ? this.auth.db.horse.findMany({ where: { name: { contains: search, mode: 'insensitive' }, ...(ids.length ? { id: { notIn: ids } } : {}) }, select: { id: true, name: true }, orderBy: [{ name: 'asc' }, { id: 'asc' }], take: 100 - ids.length }) : Promise.resolve([])
+    ]);
+    const selectedById = new Map(selectedRows.map(horse => [horse.id, horse]));
+    const items = [...ids.flatMap(id => { const horse = selectedById.get(id); return horse ? [horse] : []; }), ...searchRows];
+    return adminContentHorseOptionsResponseSchema.parse({ items });
+  }
+
   @Post('admin/content/draft') async save(@Req() req: AppRequest, @Body() body: unknown) {
     const actor = await this.editor(req); const input = contentSaveSchema.parse(body);
     return this.locked(async tx => {
@@ -99,6 +121,7 @@ export class ContentController {
       if ((current?.revision ?? 0) !== input.revision) throw new ConflictException({ code: 'CONTENT_CONFLICT', message: '別の端末で内容が変更されました。再読み込みしてください。' });
       if (current?.versions.length && current.kind !== input.draft.kind) throw new ConflictException({ code: 'CONTENT_KIND_FROZEN', message: '公開後はコンテンツ種別を変更できません。新しいコンテンツとして作成してください。' });
       await this.validateRelatedRaces(tx, input.draft.relatedRaceIds);
+      await this.validateRelatedHorses(tx, input.draft.relatedHorseIds);
       const values = { ...input.draft, status: 'DRAFT', updatedBy: actor.id, scheduleError: null } as const;
       const item = current
         ? await tx.contentItem.update({ where: { id: input.id }, data: { ...values, revision: { increment: 1 }, updatedAt: new Date() }, select: itemSelect })
@@ -220,9 +243,12 @@ export class ContentController {
     if (!item?.versions[0]) throw new NotFoundException();
     const version = item.versions[0]; const metadata = publicMetadata(item.id, version);
     const relatedRaces = version.relatedRaceIds.length ? await this.auth.db.race.findMany({ where: { id: { in: version.relatedRaceIds } }, select: { id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true }, orderBy: [{ startsAt: 'asc' }, { id: 'asc' }] }) : [];
-    if (!await this.access(actor, version)) return publicContentDetailResponseSchema.parse({ ...metadata, locked: true, relatedRaces });
+    const horseRows = version.relatedHorseIds.length ? await this.auth.db.horse.findMany({ where: { id: { in: version.relatedHorseIds } }, select: { id: true, name: true } }) : [];
+    const horseById = new Map(horseRows.map(horse => [horse.id, horse]));
+    const relatedHorses = version.relatedHorseIds.flatMap(horseId => { const horse = horseById.get(horseId); return horse ? [horse] : []; });
+    if (!await this.access(actor, version)) return publicContentDetailResponseSchema.parse({ ...metadata, locked: true, relatedRaces, relatedHorses });
     const snapshot = contentDraftSchema.parse(version.snapshot);
-    return publicContentDetailResponseSchema.parse({ ...metadata, locked: false, body: snapshot.body, mediaUrl: snapshot.mediaUrl, relatedRaces });
+    return publicContentDetailResponseSchema.parse({ ...metadata, locked: false, body: snapshot.body, mediaUrl: snapshot.mediaUrl, relatedRaces, relatedHorses });
   }
 
   @Get('races/:raceId/content') async relatedToRace(@Req() req: AppRequest, @Param('raceId') raceId: string) {
