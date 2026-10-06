@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { adminResultBatchImportConfirmResponseSchema, adminResultBatchImportPreviewResponseSchema, adminResultConfirmResponseSchema, adminResultDataProvidersResponseSchema, adminResultDraftSaveResponseSchema, adminResultImportHistoryResponseSchema, adminResultRaceDetailResponseSchema, adminResultRaceImportConfirmResponseSchema, adminResultRaceImportPreviewResponseSchema, adminResultRacesResponseSchema, aggregatePerformances, getResultDataProvider, legacyRaceResultInputSchema, parseBatchResultCsv, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, resultDataProviderCatalog, settlePrediction, verifyJraVanResultBundle } from './results';
+import { adminResultBatchImportConfirmResponseSchema, adminResultBatchImportPreviewResponseSchema, adminResultConfirmResponseSchema, adminResultDataProvidersResponseSchema, adminResultDraftSaveResponseSchema, adminResultImportHistoryResponseSchema, adminResultRaceDetailResponseSchema, adminResultRaceImportConfirmResponseSchema, adminResultRaceImportPreviewResponseSchema, adminResultRacesResponseSchema, aggregatePerformances, getResultDataProvider, legacyRaceResultInputSchema, parseBatchResultCsv, parseResultCsv, publicPredictionStatsQuerySchema, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, resultDataProviderCatalog, settlePrediction, verifyJraVanResultBundle } from './results';
 
 const entry = (entryId: string, finishPosition: number) => ({ entryId, status: 'FINISHED' as const, finishPosition, popularity: finishPosition, finalOdds: '2.5' });
 
@@ -40,6 +40,7 @@ describe('public prediction statistics contract', () => {
   const response = {
     ruleVersion: 'HORSE_EVALUATION_V1' as const,
     scope: '公開版別の馬評価集計' as const,
+    filters: { dateFrom: null, dateTo: null, venue: null, surface: null },
     overall: metric,
     byConfidence: [{ value: 'A', ...metric }],
     byVenue: [{ value: '東京', ...metric }],
@@ -49,6 +50,14 @@ describe('public prediction statistics contract', () => {
 
   it('accepts the existing public aggregation shape', () => {
     expect(publicPredictionStatsResponseSchema.parse(response)).toEqual(response);
+  });
+
+  it('accepts bounded filters and rejects incomplete or oversized periods', () => {
+    expect(publicPredictionStatsQuerySchema.parse({ dateFrom: '2026-01-01', dateTo: '2026-12-31', venue: '東京', surface: 'TURF' })).toEqual({ dateFrom: '2026-01-01', dateTo: '2026-12-31', venue: '東京', surface: 'TURF' });
+    expect(publicPredictionStatsQuerySchema.safeParse({ dateFrom: '2026-01-01' }).success).toBe(false);
+    expect(publicPredictionStatsQuerySchema.safeParse({ dateFrom: '2026-12-31', dateTo: '2026-01-01' }).success).toBe(false);
+    expect(publicPredictionStatsQuerySchema.safeParse({ dateFrom: '2025-01-01', dateTo: '2026-01-02' }).success).toBe(false);
+    expect(publicPredictionStatsQuerySchema.safeParse({ surface: 'SAND' }).success).toBe(false);
   });
 
   it('rejects betting, identity and internal result-version fields', () => {

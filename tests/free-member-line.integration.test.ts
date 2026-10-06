@@ -45,8 +45,13 @@ describe('free-member LINE launch boundaries', () => {
       if (input.recipient === `test:free-line:${recipient.user.id}`) messages.push(input.message.text);
       return { kind: 'SENT', providerMessageId: `local-${input.retryKey}` };
     } };
-    await runNotificationBatch({ db, transport, eventId: event.id, limit: 2000 });
-    const delivery = await db.notificationDelivery.findFirstOrThrow({ where: { eventId: event.id, userId: recipient.user.id, channel: 'LINE' } });
+    let delivery = null;
+    for (let batch = 0; batch < 20; batch++) {
+      await runNotificationBatch({ db, transport, eventId: event.id, limit: 200 });
+      delivery = await db.notificationDelivery.findFirst({ where: { eventId: event.id, userId: recipient.user.id, channel: 'LINE' } });
+      if (delivery && !['QUEUED', 'SENDING'].includes(delivery.status)) break;
+    }
+    if (!delivery) throw new Error('対象会員のLINE配送が作成されませんでした。');
     expect(delivery.status).toBe('SENT');
     expect(messages).toHaveLength(1);
     expect(messages[0]).toContain(`/races/${admin.race.id}`);

@@ -21,6 +21,9 @@ function resultBody(entries: { id: string; number: number }[], revision = 0) { r
 describe('immutable results and horse-evaluation performance', () => {
   it('authorizes operations, evaluates frozen marks and preserves corrections', async () => {
     const { fixture, predictionVersionId } = await publishedRace();
+    const dateKey = Number.parseInt(randomUUID().slice(0, 8), 16);
+    const statsRaceDate = `${2050 + dateKey % 40}-${String(1 + Math.floor(dateKey / 40) % 12).padStart(2, '0')}-${String(1 + Math.floor(dateKey / 480) % 28).padStart(2, '0')}`;
+    fixture.race = await db.race.update({ where: { id: fixture.race.id }, data: { raceDate: statsRaceDate, venue: '東京', surface: 'TURF' } });
     const unconfirmedResult = await new Client().call(`races/${fixture.race.id}/result`);
     expect(unconfirmedResult.status).toBe(200);
     expect(publicRaceResultResponseSchema.parse(unconfirmedResult.body)).toEqual({ confirmed: false });
@@ -89,6 +92,14 @@ describe('immutable results and horse-evaluation performance', () => {
     const statsValue = publicPredictionStatsResponseSchema.parse(stats.body);
     expect(statsValue.ruleVersion).toBe('HORSE_EVALUATION_V1'); expect(statsValue.overall.primaryWins).toBeGreaterThanOrEqual(1); expect(statsValue.overall).toMatchObject({ primaryWinRatePercent: 100, primaryTop2RatePercent: 100, primaryTop3RatePercent: 100 });
     expect(JSON.stringify(stats.body)).not.toMatch(/userId|email|confirmedBy|predictionVersionId|payout|stakeYen|returnYen|recovery/i);
+    const filteredStats = await new Client().call(`results/stats?dateFrom=${statsRaceDate}&dateTo=${statsRaceDate}&venue=${encodeURIComponent('東京')}&surface=TURF`);
+    expect(filteredStats.status).toBe(200);
+    const filteredValue = publicPredictionStatsResponseSchema.parse(filteredStats.body);
+    expect(filteredValue.filters).toEqual({ dateFrom: statsRaceDate, dateTo: statsRaceDate, venue: '東京', surface: 'TURF' });
+    expect(filteredValue.overall).toMatchObject({ publishedRaces: 1, primaryWins: 1, primaryWinRatePercent: 100 });
+    expect(filteredValue.byVenue).toEqual([expect.objectContaining({ value: '東京', publishedRaces: 1 })]);
+    expect(filteredValue.bySurface).toEqual([expect.objectContaining({ value: 'TURF', publishedRaces: 1 })]);
+    expect((await new Client().call('results/stats?dateFrom=2026-01-01')).status).toBe(400);
     expect(await db.auditLog.count({ where: { targetId: fixture.race.id, action: 'RACE_RESULT_CONFIRM' } })).toBe(2);
   });
 

@@ -1,5 +1,5 @@
-import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Req } from '@nestjs/common';
-import { adminResultBatchImportConfirmResponseSchema, adminResultBatchImportPreviewResponseSchema, adminResultConfirmResponseSchema, adminResultDataProvidersResponseSchema, adminResultDraftSaveResponseSchema, adminResultImportHistoryResponseSchema, adminResultRaceDetailResponseSchema, adminResultRaceImportConfirmResponseSchema, adminResultRaceImportPreviewResponseSchema, adminResultRacesResponseSchema, aggregatePredictionEvaluations, canManage, dateSchema, evaluatePrediction, getResultDataProvider, parseResultCsv, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, raceResultInputSchema, requiresMfa, resultDataProviderCatalog, resultDataProviderIdSchema, resultEntrySchema, verifyJraVanResultBundle } from '@keiba/domain';
+import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { adminResultBatchImportConfirmResponseSchema, adminResultBatchImportPreviewResponseSchema, adminResultConfirmResponseSchema, adminResultDataProvidersResponseSchema, adminResultDraftSaveResponseSchema, adminResultImportHistoryResponseSchema, adminResultRaceDetailResponseSchema, adminResultRaceImportConfirmResponseSchema, adminResultRaceImportPreviewResponseSchema, adminResultRacesResponseSchema, aggregatePredictionEvaluations, canManage, dateSchema, evaluatePrediction, getResultDataProvider, parseResultCsv, publicPredictionStatsQuerySchema, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, raceResultInputSchema, requiresMfa, resultDataProviderCatalog, resultDataProviderIdSchema, resultEntrySchema, verifyJraVanResultBundle } from '@keiba/domain';
 import type { BatchResultCsvRow, RaceResultInput, ResultEntry, Role } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -468,16 +468,21 @@ export class ResultsController {
   }
 
   @Get('results/stats')
-  async stats() {
-    const versions = await this.auth.db.raceResultVersion.findMany({ orderBy: [{ raceId: 'asc' }, { version: 'desc' }], include: { race: { select: { venue: true, surface: true, raceDate: true } }, predictionEvaluations: { include: { predictionVersion: { select: { confidence: true } } } } } });
+  async stats(@Query() query: unknown) {
+    const filters = publicPredictionStatsQuerySchema.parse(query);
+    const raceWhere: Prisma.RaceWhereInput = {};
+    if (filters.dateFrom && filters.dateTo) raceWhere.raceDate = { gte: filters.dateFrom, lte: filters.dateTo };
+    if (filters.venue) raceWhere.venue = filters.venue;
+    if (filters.surface) raceWhere.surface = filters.surface;
+    const versions = await this.auth.db.raceResultVersion.findMany({ where: { race: raceWhere }, orderBy: [{ raceId: 'asc' }, { version: 'desc' }], include: { race: { select: { venue: true, surface: true, raceDate: true } }, predictionEvaluations: { include: { predictionVersion: { select: { confidence: true } } } } } });
     const latestByRace = new Map<string, typeof versions[number]>();
     for (const value of versions) if (!latestByRace.has(value.raceId)) latestByRace.set(value.raceId, value);
     const items = [...latestByRace.values()].flatMap(value => value.predictionEvaluations.map(evaluation => ({ ...evaluation, status: z.enum(['PRIMARY_WIN', 'PRIMARY_TOP2', 'PRIMARY_TOP3', 'WINNER_IN_RECOMMENDED', 'WINNER_NOT_RECOMMENDED', 'SKIPPED', 'EXCLUDED', 'CANCELED', 'REVIEW_REQUIRED']).parse(evaluation.status), venue: value.race.venue, surface: value.race.surface, month: value.race.raceDate.slice(0, 7), confidence: evaluation.predictionVersion.confidence })));
     const groups = (key: 'venue' | 'surface' | 'month' | 'confidence') => {
       const grouped = new Map<string, typeof items>();
       for (const item of items) { const value = item[key] ?? '未設定'; grouped.set(value, [...(grouped.get(value) ?? []), item]); }
-      return [...grouped].map(([value, rows]) => ({ value, ...aggregatePredictionEvaluations(rows) }));
+      return [...grouped].map(([value, rows]) => ({ value, ...aggregatePredictionEvaluations(rows) })).sort((left, right) => left.value.localeCompare(right.value, 'ja'));
     };
-    return publicPredictionStatsResponseSchema.parse({ ruleVersion: evaluationRuleVersion, scope: '公開版別の馬評価集計', overall: aggregatePredictionEvaluations(items), byConfidence: groups('confidence'), byVenue: groups('venue'), bySurface: groups('surface'), byMonth: groups('month') });
+    return publicPredictionStatsResponseSchema.parse({ ruleVersion: evaluationRuleVersion, scope: '公開版別の馬評価集計', filters: { dateFrom: filters.dateFrom ?? null, dateTo: filters.dateTo ?? null, venue: filters.venue ?? null, surface: filters.surface ?? null }, overall: aggregatePredictionEvaluations(items), byConfidence: groups('confidence'), byVenue: groups('venue'), bySurface: groups('surface'), byMonth: groups('month') });
   }
 }
