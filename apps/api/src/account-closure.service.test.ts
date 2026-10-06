@@ -14,6 +14,78 @@ describe('AccountClosureService', () => {
   });
   afterEach(() => vi.useRealTimers());
 
+  it('lists closure records with the existing projection and a limited database selection', async () => {
+    const closureId = '22222222-2222-4222-8222-222222222222';
+    const requestedAt = new Date('2027-03-01T03:00:00.000Z');
+    const findMany = vi.fn().mockResolvedValue([{
+      id: closureId,
+      reasonCode: 'SERVICE_NO_LONGER_NEEDED',
+      requestedAt,
+      accessRevokedAt: requestedAt,
+      retentionPolicyVersion: 'development-v1',
+      user: {
+        id: userId,
+        displayName: '退会会員',
+        email: 'closed@example.test',
+        registrationMethod: 'EMAIL',
+        disabledAt: requestedAt,
+      },
+    }]);
+    const count = vi.fn().mockResolvedValue(1);
+    const transaction = vi.fn(async values => Promise.all(values));
+    const service = new AccountClosureService({ db: {
+      accountClosure: { findMany, count },
+      $transaction: transaction,
+    } } as unknown as AuthService);
+
+    const result = await service.list(2, 10);
+
+    expect(result).toEqual({
+      items: [{
+        id: closureId,
+        reasonCode: 'SERVICE_NO_LONGER_NEEDED',
+        requestedAt: requestedAt.toISOString(),
+        accessRevokedAt: requestedAt.toISOString(),
+        retentionPolicyVersion: 'development-v1',
+        status: 'CLOSED',
+        user: {
+          id: userId,
+          displayName: '退会会員',
+          email: 'closed@example.test',
+          registrationMethod: 'EMAIL',
+          disabledAt: requestedAt.toISOString(),
+        },
+      }],
+      total: 1,
+      page: 2,
+      limit: 10,
+    });
+    expect(findMany).toHaveBeenCalledWith({
+      select: {
+        id: true,
+        reasonCode: true,
+        requestedAt: true,
+        accessRevokedAt: true,
+        retentionPolicyVersion: true,
+        user: {
+          select: {
+            id: true,
+            displayName: true,
+            email: true,
+            registrationMethod: true,
+            disabledAt: true,
+          },
+        },
+      },
+      orderBy: [{ requestedAt: 'desc' }, { id: 'asc' }],
+      skip: 10,
+      take: 10,
+    });
+    expect(result.items[0].user).not.toHaveProperty('passwordHash');
+    expect(result.items[0].user).not.toHaveProperty('authSubject');
+    expect(result.items[0].user).not.toHaveProperty('mfaSecret');
+  });
+
   it('returns the existing eligibility response when no active billing blocks closure', async () => {
     const subscription = vi.fn().mockResolvedValue(null);
     const dayPass = vi.fn().mockResolvedValue(null);

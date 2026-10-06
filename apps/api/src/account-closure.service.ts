@@ -1,6 +1,6 @@
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import type { Prisma } from '@keiba/db';
-import { adminRetentionPolicySchema, type AdminRetentionPolicy, type AdminRetentionPolicyInput } from '@keiba/domain';
+import { adminAccountClosuresResponseSchema, adminRetentionPolicySchema, type AdminAccountClosuresResponse, type AdminRetentionPolicy, type AdminRetentionPolicyInput } from '@keiba/domain';
 import { AuthService } from './auth.service';
 import type { AppRequest } from './context';
 
@@ -13,6 +13,43 @@ const retentionPolicyAudit = { action: 'DATA_RETENTION_POLICY_APPROVED', targetT
 @Injectable()
 export class AccountClosureService {
   constructor(@Inject(AuthService) private readonly auth: AuthService) {}
+
+  async list(page: number, limit: number): Promise<AdminAccountClosuresResponse> {
+    const [items, total] = await this.auth.db.$transaction([
+      this.auth.db.accountClosure.findMany({
+        select: {
+          id: true,
+          reasonCode: true,
+          requestedAt: true,
+          accessRevokedAt: true,
+          retentionPolicyVersion: true,
+          user: {
+            select: {
+              id: true,
+              displayName: true,
+              email: true,
+              registrationMethod: true,
+              disabledAt: true,
+            },
+          },
+        },
+        orderBy: [{ requestedAt: 'desc' }, { id: 'asc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.auth.db.accountClosure.count(),
+    ]);
+
+    return adminAccountClosuresResponseSchema.parse({
+      items: items.map(item => ({
+        ...item,
+        status: item.user.disabledAt ? 'CLOSED' : 'REVIEW_REQUIRED',
+      })),
+      total,
+      page,
+      limit,
+    });
+  }
 
   private async approvedPolicies(client: Prisma.TransactionClient | AuthService['db'] = this.auth.db): Promise<AdminRetentionPolicy[]> {
     const records = await client.auditLog.findMany({ where: retentionPolicyAudit, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
