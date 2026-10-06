@@ -8,6 +8,7 @@ test.skip(process.env.AI_RACE_GUIDE_ENABLED !== 'true', 'AIレースガイドの
 test('admin publishes a synthetic guide and paddock remains first on desktop and mobile', async ({ page, context }, testInfo) => {
   test.setTimeout(90_000);
   const fixture = await assessmentFixture('ADMIN');
+  fixture.race = await db.race.update({ where: { id: fixture.race.id }, data: { raceDate: '2099-12-31', startsAt: new Date('2099-12-31T06:00:00Z') } });
   await context.addCookies([{ name: 'keiba_session', value: fixture.token, domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
   await page.goto('/admin/ai-race-guides');
   await page.getByLabel('対象レース').selectOption(fixture.race.id);

@@ -12,6 +12,9 @@ test('register a race, import entries with preview, and see it as the assigned e
   await page.context().addCookies([{ name: 'keiba_session', value: client.cookie.split('=')[1], domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
   await page.goto('/admin/races');
   await expect(page.getByRole('heading', { name: 'レース管理', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'データ取得方式', exact: true })).toBeVisible();
+  await expect(page.getByText('手動運用', { exact: true })).toBeVisible();
+  await expect(page.getByText('外部データ連携は使用していません。', { exact: false })).toBeVisible();
   await page.getByLabel('表示する開催日', { exact: true }).fill(day);
   await page.getByRole('button', { name: 'レースを追加' }).click();
   const form = page.locator('form').filter({ has: page.getByRole('button', { name: 'レースを保存' }) });
@@ -31,6 +34,12 @@ test('register a race, import entries with preview, and see it as the assigned e
   await expect(page.getByRole('status')).toContainText('告知しました');
   const createdRace = await db.race.findFirstOrThrow({ where: { name } });
   expect(await db.raceAnnouncement.count({ where: { raceId: createdRace.id } })).toBe(1);
+  const quickEntryForm = page.locator('form').filter({ has: page.getByRole('button', { name: '出走馬を簡易登録' }) });
+  await quickEntryForm.getByLabel('馬名', { exact: true }).fill('簡易登録の試験馬');
+  await quickEntryForm.getByLabel('簡易登録の理由', { exact: true }).fill('馬番と馬名のみで登録');
+  await quickEntryForm.getByRole('button', { name: '出走馬を簡易登録' }).click();
+  await expect(page.getByRole('cell', { name: '簡易登録の試験馬', exact: true })).toBeVisible();
+  await expect(page.getByRole('cell', { name: '未確認', exact: true }).first()).toBeVisible();
   const entryForm = page.locator('form').filter({ has: page.getByRole('button', { name: '出走馬を保存' }) });
   await entryForm.getByLabel('馬名', { exact: true }).fill('手動登録の試験馬');
   await entryForm.getByLabel('騎手', { exact: true }).fill('試験騎手');
@@ -39,7 +48,7 @@ test('register a race, import entries with preview, and see it as the assigned e
   await entryForm.getByRole('button', { name: '出走馬を保存' }).click();
   await expect(page.getByRole('cell', { name: '手動登録の試験馬', exact: true })).toBeVisible();
   const horseId = randomUUID();
-  const csv = `${entryHeaders.join(',')}\n${horseId},2,2,CSV登録の試験馬,FEMALE,3,55,CSV騎手,CSV調教師,4.2,2,ACTIVE`;
+  const csv = `${entryHeaders.join(',')}\n${horseId},3,2,CSV登録の試験馬,FEMALE,3,55,CSV騎手,CSV調教師,4.2,2,ACTIVE`;
   await page.getByLabel('CSVファイル', { exact: true }).setInputFiles({ name: 'entries.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') });
   await page.getByRole('button', { name: '差分を確認', exact: true }).click();
   await expect(page.getByRole('heading', { name: '取込前の確認', exact: true })).toBeVisible();
@@ -53,7 +62,7 @@ test('register a race, import entries with preview, and see it as the assigned e
   await page.getByRole('button', { name: '内容を確認して取り込む' }).click();
   await expect(page.locator('.import-preview')).toHaveCount(0);
   const updated = await db.raceEntry.findFirstOrThrow({ where: { horseId } }); expect(updated.jockey).toBe('変更後の騎手');
-  expect(await db.raceEntry.count({ where: { raceId: updated.raceId } })).toBe(2);
+  expect(await db.raceEntry.count({ where: { raceId: updated.raceId } })).toBe(3);
   await page.screenshot({ path: testInfo.outputPath('race-management.png'), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   const expertClient = new Client(); await expertClient.login(expert); await expertClient.mfa();

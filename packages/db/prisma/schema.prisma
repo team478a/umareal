@@ -837,13 +837,13 @@ model RaceEntry {
   horseId         String                       @db.Uuid
   horse           Horse                        @relation(fields: [horseId], references: [id])
   number          Int
-  gate            Int
+  gate            Int?
   horseName       String
-  sex             String
-  age             Int
-  carriedWeight   Decimal                      @db.Decimal(4, 1)
-  jockey          String
-  trainer         String
+  sex             String?
+  age             Int?
+  carriedWeight   Decimal?                     @db.Decimal(4, 1)
+  jockey          String?
+  trainer         String?
   winOdds         Decimal?                     @db.Decimal(8, 1)
   popularity      Int?
   status          String                       @default("ACTIVE")

@@ -29,13 +29,13 @@ type FixtureRace = {
     id: string;
     horseId: string;
     number: number;
-    gate: number;
+    gate: number | null;
     horseName: string;
-    sex: string;
-    age: number;
-    carriedWeight: { toString(): string };
-    jockey: string;
-    trainer: string;
+    sex: string | null;
+    age: number | null;
+    carriedWeight: { toString(): string } | null;
+    jockey: string | null;
+    trainer: string | null;
     status: string;
   }>;
 };
@@ -93,23 +93,33 @@ export class AiRaceGuideService {
           },
           evidenceIds: [raceEvidenceId]
         },
-        ...race.entries.map(entry => ({
-          factId: `fact:entry:${entry.id}`,
-          category: 'ATTENTION_MATERIAL' as const,
-          entryId: entry.id,
-          state: 'KNOWN' as const,
-          value: {
-            number: entry.number,
-            gate: entry.gate,
-            sex: entry.sex,
-            age: entry.age,
-            carriedWeight: Number(entry.carriedWeight.toString()),
-            jockey: entry.jockey,
-            trainer: entry.trainer,
-            status: entry.status
-          },
-          evidenceIds: [`evidence:entry:${entry.id}`]
-        }))
+        ...race.entries.map(entry => {
+          const detailsComplete = entry.gate !== null && entry.sex !== null && entry.age !== null && entry.carriedWeight !== null && entry.jockey !== null && entry.trainer !== null;
+          return detailsComplete ? {
+            factId: `fact:entry:${entry.id}`,
+            category: 'ATTENTION_MATERIAL' as const,
+            entryId: entry.id,
+            state: 'KNOWN' as const,
+            value: {
+              number: entry.number,
+              gate: entry.gate,
+              sex: entry.sex,
+              age: entry.age,
+              carriedWeight: Number(entry.carriedWeight!.toString()),
+              jockey: entry.jockey,
+              trainer: entry.trainer,
+              status: entry.status
+            },
+            evidenceIds: [`evidence:entry:${entry.id}`]
+          } : {
+            factId: `fact:entry:${entry.id}`,
+            category: 'ATTENTION_MATERIAL' as const,
+            entryId: entry.id,
+            state: 'INSUFFICIENT_DATA' as const,
+            reasonCode: 'ENTRY_DETAILS_NOT_REGISTERED',
+            evidenceIds: [`evidence:entry:${entry.id}`]
+          };
+        })
       ]
     };
     return aiRaceGuideStructuredInputSchema.parse(input);
