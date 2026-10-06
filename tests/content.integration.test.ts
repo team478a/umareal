@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runContentSchedules } from '../apps/worker/src/content-scheduler';
-import { adminContentHorseOptionsResponseSchema, adminContentRaceOptionsResponseSchema, jstDate, publicContentDetailResponseSchema, publicContentListResponseSchema, publicRaceRelatedContentResponseSchema } from '../packages/domain/src';
+import { adminContentHorseOptionsResponseSchema, adminContentRaceOptionsResponseSchema, jstDate, publicContentDetailResponseSchema, publicContentListResponseSchema, publicHorseRelatedContentResponseSchema, publicRaceRelatedContentResponseSchema } from '../packages/domain/src';
 import { account, Client, db } from './helpers';
 
 let originalPolicy: unknown;
@@ -50,6 +50,9 @@ describe('content CMS publication and access', () => {
     expect(webNotices.body.items.find((item: { id: string }) => item.id === publicEvent.id)).toMatchObject({ content: { id: publicId, kind: 'ARTICLE', title: '公開記事', category: '検証記事' }, href: `/content/${publicId}` });
     const guestRead = publicContentDetailResponseSchema.parse((await new Client().call(`content/${publicId}`)).body);
     expect(guestRead).toMatchObject({ locked: false, body: '公開記事の公開本文', relatedRaces: [{ id: relatedRace.id, name: 'CMS関連レース' }], relatedHorses: [{ id: relatedHorse.id, name: relatedHorse.name }] });
+    const horseRelatedBeforeUpdate = publicHorseRelatedContentResponseSchema.parse((await new Client().call(`horses/${relatedHorse.id}/content`)).body);
+    expect(horseRelatedBeforeUpdate).toMatchObject({ horse: { id: relatedHorse.id, name: relatedHorse.name }, items: [{ id: publicId, title: '公開記事', locked: false }] });
+    expect((await new Client().call(`horses/${randomUUID()}/content`)).status).toBe(404);
     const relatedBeforeUpdate = publicRaceRelatedContentResponseSchema.parse((await new Client().call(`races/${relatedRace.id}/content`)).body);
     expect(relatedBeforeUpdate.items).toContainEqual(expect.objectContaining({ id: publicId, title: '公開記事', locked: false }));
     const publicList = publicContentListResponseSchema.parse((await new Client().call('content?kind=ARTICLE&category=%E6%A4%9C%E8%A8%BC%E8%A8%98%E4%BA%8B')).body);
@@ -69,6 +72,7 @@ describe('content CMS publication and access', () => {
     expect(versions[0].relatedRaceIds).toEqual([relatedRace.id]);
     expect(versions[0].relatedHorseIds).toEqual([relatedHorse.id]);
     expect(versions[1].relatedHorseIds).toEqual([]);
+    expect(publicHorseRelatedContentResponseSchema.parse((await new Client().call(`horses/${relatedHorse.id}/content`)).body).items.some(item => item.id === publicId)).toBe(false);
     await expect(db.contentItem.update({ where: { id: publicId }, data: { relatedHorseIds: [relatedHorse.id, relatedHorse.id] } })).rejects.toThrow();
     await expect(db.contentItem.update({ where: { id: publicId }, data: { relatedHorseIds: [randomUUID()] } })).rejects.toThrow();
     expect(publicRaceRelatedContentResponseSchema.parse((await new Client().call(`races/${relatedRace.id}/content`)).body).items.some(item => item.id === publicId)).toBe(false);
@@ -82,6 +86,7 @@ describe('content CMS publication and access', () => {
     await admin.call(`admin/content/${paidId}/publish`, 'POST', { revision: paidSaved.body.revision, reason: '有料記事公開' });
     const guestLocked = publicContentDetailResponseSchema.parse((await new Client().call(`content/${paidId}`)).body);
     expect(guestLocked).toMatchObject({ locked: true, relatedHorses: [{ id: relatedHorse.id, name: relatedHorse.name }] }); expect(JSON.stringify(guestLocked)).not.toMatch(/公開本文|body|mediaUrl/);
+    expect(publicHorseRelatedContentResponseSchema.parse((await new Client().call(`horses/${relatedHorse.id}/content`)).body).items).toContainEqual(expect.objectContaining({ id: paidId, title: '有料記事', locked: true }));
     expect((await member.call(`content/${paidId}`)).body.locked).toBe(true);
     const now = new Date();
     const dayPassFixture = await account('MEMBER'); const dayPassMember = new Client(); await dayPassMember.login(dayPassFixture);

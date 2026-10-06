@@ -44,7 +44,11 @@ test('an editor publishes an article and the public library shows it on desktop/
   await card.getByRole('link', { name: '読む', exact: true }).click();
   await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
   await expect(page.getByText('関連馬', { exact: true })).toBeVisible();
-  await expect(page.getByText(horse.name, { exact: true })).toBeVisible();
+  const horseLink = page.getByRole('link', { name: horse.name, exact: true });
+  await expect(horseLink).toBeVisible();
   await expect(page.getByText('馬場傾向と当日の確認ポイントを、初心者にもわかりやすく解説します。')).toBeVisible();
+  await horseLink.click();
+  await expect(page.getByRole('heading', { name: horse.name, exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

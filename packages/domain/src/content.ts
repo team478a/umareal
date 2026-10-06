@@ -81,6 +81,11 @@ export const publicRaceRelatedContentResponseSchema = z.object({
   items: z.array(contentMetadataSchema.extend({ locked: z.boolean() }).strict()).max(20)
 }).strict();
 
+export const publicHorseRelatedContentResponseSchema = z.object({
+  horse: contentRelatedHorseSchema,
+  items: z.array(contentMetadataSchema.extend({ locked: z.boolean() }).strict()).max(20)
+}).strict();
+
 export type AdminContentListResponse = z.infer<typeof adminContentListResponseSchema>;
 export type AdminContentItemResponse = z.infer<typeof adminContentItemResponseSchema>;
 export type AdminContentMutationResponse = z.infer<typeof adminContentMutationResponseSchema>;
@@ -89,3 +94,4 @@ export type AdminContentHorseOptionsResponse = z.infer<typeof adminContentHorseO
 export type PublicContentListResponse = z.infer<typeof publicContentListResponseSchema>;
 export type PublicContentDetailResponse = z.infer<typeof publicContentDetailResponseSchema>;
 export type PublicRaceRelatedContentResponse = z.infer<typeof publicRaceRelatedContentResponseSchema>;
+export type PublicHorseRelatedContentResponse = z.infer<typeof publicHorseRelatedContentResponseSchema>;
