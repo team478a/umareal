@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req } from '@nestjs/common';
-import { canManage, CsvRaceDataProvider, dateSchema, entryInputSchema, horseIdentityResolutionInputSchema, horseIdentityResolutionResponseSchema, horseIdentityReviewResponseSchema, jraVanBundleFormatVersion, jstDate, manualEntryInputSchema, parseJraVanRaceBundle, raceDataModeLabels, raceDaySchema, raceInputSchema, requiresMfa, resolveRaceDataMode, venues } from '@keiba/domain';
+import { canManage, CsvRaceDataProvider, dateSchema, entryInputSchema, horseIdentityCorrectionInputSchema, horseIdentityCorrectionResponseSchema, horseIdentityHistoryResponseSchema, horseIdentityResolutionInputSchema, horseIdentityResolutionResponseSchema, horseIdentityReviewResponseSchema, jraVanBundleFormatVersion, jstDate, manualEntryInputSchema, parseJraVanRaceBundle, raceDataModeLabels, raceDaySchema, raceInputSchema, raceOperationHistoryResponseSchema, requiresMfa, resolveRaceDataMode, venues } from '@keiba/domain';
 import type { EntryInput, ImportKind, RaceInput } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -34,6 +34,11 @@ export class RacesController {
   private async staff(req: AppRequest) {
     const actor = await this.auth.authenticate(req);
     if (!canManage(actor, ['ADMIN', 'OPERATOR'])) throw new ForbiddenException({ code: requiresMfa(actor.role) && actor.aal !== 2 ? 'MFA_REQUIRED' : 'FORBIDDEN', message: 'レース管理の権限と二段階認証を確認してください。' });
+    return actor;
+  }
+  private async admin(req: AppRequest) {
+    const actor = await this.auth.authenticate(req);
+    if (!canManage(actor, ['ADMIN'])) throw new ForbiddenException({ code: actor.role === 'ADMIN' ? 'MFA_REQUIRED' : 'FORBIDDEN', message: 'Identityの訂正には管理者権限と二段階認証が必要です。' });
     return actor;
   }
   // One small management transaction at a time; the worker never holds this lock for I/O.
@@ -88,6 +93,62 @@ export class RacesController {
       return horseIdentityResolutionResponseSchema.parse({ id: updated.id, decision: input.decision, horseId: updated.horseId, matchStatus: updated.matchStatus });
     });
   }
+  @Get('horse-identities/history') async horseIdentityHistory(@Req() req: AppRequest, @Query() query: unknown) {
+    await this.staff(req); const { page, limit } = pageSchema.parse(query);
+    const where = { provider: 'MANUAL', matchStatus: 'MATCHED' };
+    const [identities, total] = await this.auth.db.$transaction([
+      this.auth.db.horseExternalIdentity.findMany({
+        where, orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }], skip: (page - 1) * limit, take: limit,
+        include: { horse: { include: { _count: { select: { entries: true } } } } }
+      }),
+      this.auth.db.horseExternalIdentity.count({ where })
+    ]);
+    const ids = identities.map(identity => identity.id);
+    const audits = ids.length ? await this.auth.db.auditLog.findMany({
+      where: { targetType: 'HORSE_EXTERNAL_IDENTITY', targetId: { in: ids }, action: { in: ['HORSE_IDENTITY_RESOLVE', 'HORSE_IDENTITY_CORRECT'] } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }]
+    }) : [];
+    const actorIds = [...new Set(audits.flatMap(audit => audit.actorId ? [audit.actorId] : []))];
+    const actors = actorIds.length ? await this.auth.db.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, displayName: true } }) : [];
+    const actorNames = new Map(actors.map(actor => [actor.id, actor.displayName]));
+    const items = await Promise.all(identities.map(async identity => {
+      if (!identity.horse) throw new ConflictException({ code: 'RESOLVED_HORSE_MISSING', message: '確認済みIdentityの参照先がありません。' });
+      const candidates = await this.auth.db.horse.findMany({
+        where: { name: identity.observedName, id: { not: identity.horse.id } }, orderBy: { id: 'asc' }, take: 20,
+        include: { _count: { select: { entries: true } } }
+      });
+      return {
+        id: identity.id, provider: identity.provider, observedName: identity.observedName, matchStatus: 'MATCHED' as const, updatedAt: identity.updatedAt.toISOString(),
+        currentHorse: { id: identity.horse.id, name: identity.horse.name, entryCount: identity.horse._count.entries },
+        candidates: candidates.map(candidate => ({ id: candidate.id, name: candidate.name, entryCount: candidate._count.entries })),
+        history: audits.filter(audit => audit.targetId === identity.id).map(audit => ({
+          id: audit.id, action: audit.action as 'HORSE_IDENTITY_RESOLVE' | 'HORSE_IDENTITY_CORRECT', reason: audit.reason,
+          actorRole: audit.actorRole, actorDisplayName: audit.actorId ? actorNames.get(audit.actorId) ?? null : null,
+          createdAt: audit.createdAt.toISOString(), requestId: audit.requestId
+        }))
+      };
+    }));
+    return horseIdentityHistoryResponseSchema.parse({ items, total, page, limit });
+  }
+  @Post('horse-identities/:id/correct') async correctHorseIdentity(@Req() req: AppRequest, @Param('id') id: string, @Body() body: unknown) {
+    await this.admin(req); z.string().uuid().parse(id); const input = horseIdentityCorrectionInputSchema.parse(body);
+    return this.mutate(req, `horse-identity-correction:${id}`, body, async tx => {
+      const identity = await tx.horseExternalIdentity.findUnique({ where: { id }, include: { horse: true } });
+      if (!identity || identity.provider !== 'MANUAL' || !identity.horse) throw new NotFoundException();
+      if (identity.matchStatus !== 'MATCHED') throw new ConflictException({ code: 'HORSE_IDENTITY_NOT_RESOLVED', message: '未確認のIdentityは訂正ではなく確認操作を行ってください。' });
+      if (identity.horse.id !== input.expectedHorseId || identity.updatedAt.toISOString() !== input.expectedUpdatedAt) throw new ConflictException({ code: 'STALE_HORSE_IDENTITY', message: '別の操作でIdentityが更新されています。再読み込みしてください。' });
+      if (input.resolvedHorseId === identity.horse.id) throw new BadRequestException({ code: 'HORSE_IDENTITY_UNCHANGED', message: '現在とは異なる紐付け先を選択してください。' });
+      const target = await tx.horse.findUnique({ where: { id: input.resolvedHorseId }, select: { id: true, name: true } });
+      if (!target || target.name !== identity.observedName) throw new BadRequestException({ code: 'INVALID_HORSE_IDENTITY_CORRECTION', message: '同名の既存馬だけを訂正先に選択できます。' });
+      const updated = await tx.horseExternalIdentity.update({ where: { id }, data: { horseId: target.id, lastObservedAt: new Date(), updatedAt: new Date() } });
+      await this.log(tx, req, 'HORSE_IDENTITY_CORRECT', 'HORSE_EXTERNAL_IDENTITY', id, input.reason, {
+        before: { horseId: identity.horse.id, horseName: identity.horse.name, matchStatus: identity.matchStatus },
+        after: { horseId: target.id, horseName: target.name, matchStatus: updated.matchStatus },
+        raceEntriesRewritten: false, previousAuditPreserved: true
+      });
+      return horseIdentityCorrectionResponseSchema.parse({ id: updated.id, horseId: updated.horseId, matchStatus: updated.matchStatus, updatedAt: updated.updatedAt.toISOString() });
+    });
+  }
   @Get('race-data-status') async dataStatus(@Req() req: AppRequest) {
     await this.staff(req);
     const mode = resolveRaceDataMode(process.env.RACE_DATA_MODE);
@@ -140,6 +201,25 @@ export class RacesController {
     await this.staff(req); z.string().uuid().parse(id);
     const race = await this.auth.db.race.findUnique({ where: { id }, include: fullRace });
     if (!race) throw new NotFoundException(); return race;
+  }
+  @Get('races/:id/history') async raceHistory(@Req() req: AppRequest, @Param('id') id: string, @Query() query: unknown) {
+    await this.staff(req); z.string().uuid().parse(id); const { page, limit } = pageSchema.parse(query);
+    const race = await this.auth.db.race.findUnique({ where: { id }, select: { id: true, entries: { select: { id: true } }, announcements: { select: { id: true } } } });
+    if (!race) throw new NotFoundException();
+    const relatedIds = [id, ...race.entries.map(entry => entry.id), ...race.announcements.map(announcement => announcement.id)];
+    const where: Prisma.AuditLogWhereInput = { OR: [{ targetId: { in: relatedIds } }, { details: { path: ['raceId'], equals: id } }] };
+    const [audits, total] = await this.auth.db.$transaction([
+      this.auth.db.auditLog.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], skip: (page - 1) * limit, take: limit }),
+      this.auth.db.auditLog.count({ where })
+    ]);
+    const actorIds = [...new Set(audits.flatMap(audit => audit.actorId ? [audit.actorId] : []))];
+    const actors = actorIds.length ? await this.auth.db.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, displayName: true } }) : [];
+    const actorNames = new Map(actors.map(actor => [actor.id, actor.displayName]));
+    const sourceType = (action: string) => action.startsWith('JRA_VAN_') ? 'JRA_VAN' as const : action.startsWith('CSV_') ? 'CSV' as const : ['RACE_CREATE', 'RACE_UPDATE', 'ENTRY_SAVE', 'MANUAL_ENTRY_CREATE', 'RACE_ANNOUNCE'].includes(action) ? 'MANUAL' as const : 'UMAREAL' as const;
+    return raceOperationHistoryResponseSchema.parse({
+      items: audits.map(audit => ({ id: audit.id, action: audit.action, targetType: audit.targetType, targetId: audit.targetId, reason: audit.reason, actorRole: audit.actorRole, actorDisplayName: audit.actorId ? actorNames.get(audit.actorId) ?? null : null, sourceType: sourceType(audit.action), createdAt: audit.createdAt.toISOString(), requestId: audit.requestId })),
+      total, page, limit
+    });
   }
   @Post('races/:id/announce') async announce(@Req() req: AppRequest, @Param('id') id: string, @Body() body: unknown) {
     const actor = await this.staff(req); z.string().uuid().parse(id);

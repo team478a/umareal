@@ -58,6 +58,68 @@ export const horseIdentityResolutionResponseSchema = z.object({
 }).strict();
 export type HorseIdentityResolutionResponse = z.infer<typeof horseIdentityResolutionResponseSchema>;
 
+export const horseIdentityCorrectionInputSchema = z.object({
+  resolvedHorseId: z.string().uuid(),
+  expectedHorseId: z.string().uuid(),
+  expectedUpdatedAt: z.string().datetime({ offset: true }),
+  reason: z.string().trim().min(1).max(500)
+}).strict();
+export type HorseIdentityCorrectionInput = z.infer<typeof horseIdentityCorrectionInputSchema>;
+
+const horseIdentityAuditSchema = z.object({
+  id: z.string().uuid(),
+  action: z.enum(['HORSE_IDENTITY_RESOLVE', 'HORSE_IDENTITY_CORRECT']),
+  reason: z.string(),
+  actorRole: z.string().nullable(),
+  actorDisplayName: z.string().nullable(),
+  createdAt: z.string().datetime({ offset: true }),
+  requestId: z.string()
+}).strict();
+
+export const horseIdentityHistoryResponseSchema = z.object({
+  items: z.array(z.object({
+    id: z.string().uuid(),
+    provider: z.string().min(1),
+    observedName: z.string().min(1),
+    matchStatus: z.literal('MATCHED'),
+    updatedAt: z.string().datetime({ offset: true }),
+    currentHorse: horseIdentityReviewHorseSchema,
+    candidates: z.array(horseIdentityReviewHorseSchema),
+    history: z.array(horseIdentityAuditSchema)
+  }).strict()),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  limit: z.number().int().positive()
+}).strict();
+export type HorseIdentityHistoryResponse = z.infer<typeof horseIdentityHistoryResponseSchema>;
+
+export const horseIdentityCorrectionResponseSchema = z.object({
+  id: z.string().uuid(),
+  horseId: z.string().uuid(),
+  matchStatus: z.literal('MATCHED'),
+  updatedAt: z.string().datetime({ offset: true })
+}).strict();
+export type HorseIdentityCorrectionResponse = z.infer<typeof horseIdentityCorrectionResponseSchema>;
+
+export const raceOperationHistoryResponseSchema = z.object({
+  items: z.array(z.object({
+    id: z.string().uuid(),
+    action: z.string(),
+    targetType: z.string(),
+    targetId: z.string(),
+    reason: z.string(),
+    actorRole: z.string().nullable(),
+    actorDisplayName: z.string().nullable(),
+    sourceType: z.enum(['MANUAL', 'CSV', 'JRA_VAN', 'UMAREAL']),
+    createdAt: z.string().datetime({ offset: true }),
+    requestId: z.string()
+  }).strict()),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  limit: z.number().int().positive()
+}).strict();
+export type RaceOperationHistoryResponse = z.infer<typeof raceOperationHistoryResponseSchema>;
+
 export const raceDataStatusSchema = z.object({
   mode: raceDataModeSchema,
   label: z.string(),

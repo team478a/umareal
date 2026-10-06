@@ -1228,3 +1228,10 @@ Phase 6N完了時に次ゴールとして示した新規会員登録の運用制
 - `DataLicensePolicy`は保存・派生・会員表示・外部AI送信を独立判定する。未登録は`LICENSE_REVIEW_REQUIRED`としてfail closedし、policyと任意成績値は追記専用にする。
 - Phase 1A inputへの接続はallowlist projectionだけを通し、Assessment、Prediction、三国谷コメント、User情報、内部メモを拒否する。Phase 1Bではexternal AI modeを使用しない。
 - 既存`Assessment.content.calm`は変更しない。`sweating`と`calmness`は後方互換な追加案だけを文書化し、自動推定・backfillを行わない。
+
+## 手動運用の監査・Horse Identity訂正（2026-10-06）
+
+- レース管理画面から、対象レースに直接紐づくレース・出走馬・告知と、監査詳細の`raceId`で紐づく評価・予想・結果・AIガイド等の操作履歴を確認できるようにする。取得方式、担当者、理由、JST日時を表示し、既存の追記専用`AuditLog`を正本とする。
+- 確認済みの`MANUAL` Horse Identityを訂正できるのは`ADMIN+AAL2`だけとする。訂正先は同名の既存Horseに限定し、現在のHorse IDと更新時刻による同時更新検査、理由、冪等性キーを必須にする。
+- Identity訂正は現在の外部Identity参照先だけを変更する。既存`RaceEntry.horseId`、評価、予想、公開版、結果を遡及更新せず、訂正前後を新しい`HORSE_IDENTITY_CORRECT`監査として追記する。
+- DB schema変更、本番migration、本番デプロイ、外部Provider通信は行わない。

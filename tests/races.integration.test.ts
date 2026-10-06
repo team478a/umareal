@@ -108,9 +108,36 @@ describe('race management and transactional CSV imports', () => {
     expect((await db.raceEntry.findUniqueOrThrow({ where: { id: duplicate.body.entry.id } })).horseId).toBe(duplicate.body.entry.horseId);
     expect(await db.auditLog.count({ where: { targetId: duplicate.body.identity.id, action: 'HORSE_IDENTITY_RESOLVE' } })).toBe(1);
 
+    const history = await admin.call('admin/horse-identities/history?limit=50');
+    expect(history.status).toBe(200);
+    const resolvedIdentity = history.body.items.find((item: { id: string }) => item.id === duplicate.body.identity.id);
+    expect(resolvedIdentity).toMatchObject({ currentHorse: { id: saved.horseId }, history: [expect.objectContaining({ action: 'HORSE_IDENTITY_RESOLVE', reason: '同一馬であることを人が確認' })] });
+    const currentIdentity = await db.horseExternalIdentity.findUniqueOrThrow({ where: { id: duplicate.body.identity.id } });
+    const corrected = await admin.call(`admin/horse-identities/${duplicate.body.identity.id}/correct`, 'POST', {
+      resolvedHorseId: duplicate.body.entry.horseId, expectedHorseId: saved.horseId, expectedUpdatedAt: currentIdentity.updatedAt.toISOString(), reason: '初回判断の誤りを人が訂正'
+    }, undefined, headers());
+    expect(corrected).toMatchObject({ status: 201, body: { matchStatus: 'MATCHED', horseId: duplicate.body.entry.horseId } });
+    expect((await db.raceEntry.findUniqueOrThrow({ where: { id: duplicate.body.entry.id } })).horseId).toBe(duplicate.body.entry.horseId);
+    expect(await db.auditLog.count({ where: { targetId: duplicate.body.identity.id, action: { in: ['HORSE_IDENTITY_RESOLVE', 'HORSE_IDENTITY_CORRECT'] } } })).toBe(2);
+    expect((await admin.call(`admin/horse-identities/${duplicate.body.identity.id}/correct`, 'POST', {
+      resolvedHorseId: saved.horseId, expectedHorseId: saved.horseId, expectedUpdatedAt: currentIdentity.updatedAt.toISOString(), reason: '古い画面からの訂正'
+    }, undefined, headers())).body.code).toBe('STALE_HORSE_IDENTITY');
+    const operator = new Client(); await operator.login(await account('OPERATOR')); await operator.mfa();
+    const correctedIdentity = await db.horseExternalIdentity.findUniqueOrThrow({ where: { id: duplicate.body.identity.id } });
+    expect((await operator.call(`admin/horse-identities/${duplicate.body.identity.id}/correct`, 'POST', {
+      resolvedHorseId: saved.horseId, expectedHorseId: correctedIdentity.horseId, expectedUpdatedAt: correctedIdentity.updatedAt.toISOString(), reason: '権限外の訂正'
+    }, undefined, headers())).status).toBe(403);
+
     const distinct = await admin.call(`admin/horse-identities/${first.body.identity.id}/resolve`, 'POST', { decision: 'CONFIRM_DISTINCT', resolvedHorseId: saved.horseId, reason: '別馬であることを人が確認' }, undefined, headers());
     expect(distinct).toMatchObject({ status: 201, body: { matchStatus: 'MATCHED', horseId: saved.horseId } });
     expect((await admin.call(`admin/horse-identities/${first.body.identity.id}/resolve`, 'POST', { decision: 'CONFIRM_DISTINCT', resolvedHorseId: saved.horseId, reason: '二重確認' }, undefined, headers())).body.code).toBe('HORSE_IDENTITY_ALREADY_RESOLVED');
+
+    const raceHistory = await admin.call(`admin/races/${manualRaceId}/history?limit=50`);
+    expect(raceHistory.status).toBe(200);
+    expect(raceHistory.body.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: 'RACE_CREATE', sourceType: 'MANUAL', reason: '手動運用試験レース' }),
+      expect.objectContaining({ action: 'MANUAL_ENTRY_CREATE', sourceType: 'MANUAL', reason: '初期運用の簡易登録' })
+    ]));
   });
   it('reports invalid CSV and previews without mutation; concurrent confirmation applies once', async () => {
     const rows = [entryInput(2), entryInput(3)];
