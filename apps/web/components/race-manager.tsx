@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
 import { ArrowRight, Eye, FileUp, Plus, RefreshCw } from 'lucide-react';
-import { entryHeaders, entryStatuses, jstDate, parseQuickRaceList, raceHeaders, raceStatuses, serializeRaceCsv, venues, type EntryInput, type HorseIdentityHistoryResponse, type HorseIdentityReviewResponse, type ImportKind, type RaceAnnouncementNotificationPreviewResponse, type RaceDataStatus, type RaceInput, type RaceOperationHistoryResponse } from '@keiba/domain';
+import { entryHeaders, entryStatuses, jstDate, parseQuickRaceList, raceHeaders, raceStatuses, serializeRaceCsv, venues, type EntryInput, type HorseIdentityHistoryResponse, type HorseIdentityReviewResponse, type ImportKind, type RaceAnnouncementNotificationPreviewResponse, type RaceDataStatus, type RaceExpertListResponse, type RaceInput, type RaceOperationHistoryResponse } from '@keiba/domain';
 import { NotificationPreview } from './notification-preview';
 
 type Entry = Omit<EntryInput, 'gate' | 'sex' | 'age' | 'carriedWeight' | 'jockey' | 'trainer' | 'winOdds'> & { id: string; gate: number | null; sex: EntryInput['sex'] | null; age: number | null; carriedWeight: string | number | null; jockey: string | null; trainer: string | null; winOdds: string | number | null };
@@ -24,10 +24,10 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
   return result;
 }
 function ErrorMessage({ error }: { error: string }) { return error ? <div className="notice error" role="alert">{error}</div> : null; }
-async function loadExperts(): Promise<{ items: Expert[] }> {
-  const first = await request<{ items: Expert[]; total: number }>('race-experts?limit=50');
-  const rest = await Promise.all(Array.from({ length: Math.max(0, Math.ceil(first.total / 50) - 1) }, (_, i) => request<{ items: Expert[] }>(`race-experts?limit=50&page=${i + 2}`)));
-  return { items: [...first.items, ...rest.flatMap(result => result.items)] };
+async function loadExperts(search = ''): Promise<RaceExpertListResponse> {
+  const query = new URLSearchParams({ limit: '50' });
+  if (search.trim()) query.set('search', search.trim());
+  return request<RaceExpertListResponse>(`race-experts?${query}`);
 }
 function Pager({ page, total, setPage, limit = 20 }: { page: number; total: number; setPage: (page: number) => void; limit?: number }) {
   return <div className="pagination"><span>全{total}件 · {page}ページ</span><button className="button secondary small" disabled={page === 1} onClick={() => setPage(page - 1)}>前へ</button><button className="button secondary small" disabled={page * limit >= total} onClick={() => setPage(page + 1)}>次へ</button></div>;
@@ -46,10 +46,11 @@ export function RaceManager({ canCorrectIdentity = false }: { canCorrectIdentity
   const [announcementReasons, setAnnouncementReasons] = useState<Record<string, string>>({});
   const [announcementPreview, setAnnouncementPreview] = useState<RaceAnnouncementNotificationPreviewResponse | null>(null); const [previewBusy, setPreviewBusy] = useState('');
   const load = useCallback(async () => {
-    try { const [r, d, e, source] = await Promise.all([request<{ items: Race[]; total: number }>(`races?date=${date}&page=${page}`), request<{ items: Day[]; total: number }>(`race-days?page=${dayPage}`), loadExperts(), request<RaceDataStatus>('race-data-status')]); setRaces(r.items); setTotal(r.total); setDays(d.items); setDayTotal(d.total); setExperts(e.items); setDataStatus(source); }
+    try { const [r, d, source] = await Promise.all([request<{ items: Race[]; total: number }>(`races?date=${date}&page=${page}`), request<{ items: Day[]; total: number }>(`race-days?page=${dayPage}`), request<RaceDataStatus>('race-data-status')]); setRaces(r.items); setTotal(r.total); setDays(d.items); setDayTotal(d.total); setDataStatus(source); }
     catch (e) { setError((e as Error).message); }
   }, [date, page, dayPage]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { loadExperts().then(result => setExperts(result.items)).catch(e => setError((e as Error).message)); }, []);
   async function open(id: string) { setError(''); try { setSelected(await request<Race>(`races/${id}`)); setEntry(null); setEditing(true); } catch (e) { setError((e as Error).message); } }
   async function previewAnnouncement(race: Race) { setPreviewBusy(race.id); setError(''); setMessage(''); try { setAnnouncementPreview(await request<RaceAnnouncementNotificationPreviewResponse>(`notifications/previews/race-announcement?raceId=${race.id}`)); } catch (e) { setError((e as Error).message); } finally { setPreviewBusy(''); } }
   async function announce(race: Race) { const reason = announcementReasons[race.id]?.trim(); if (!reason) { setError('告知理由を入力してください。'); return; } setBusy(true); setError(''); setMessage(''); try { const result = await request<{ version: number }>(`races/${race.id}/announce`, 'POST', { reason }); setAnnouncementReasons({ ...announcementReasons, [race.id]: '' }); setAnnouncementPreview(null); setMessage(`${race.venue} ${race.number}Rを告知しました（第${result.version}版）。`); await load(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
@@ -221,6 +222,15 @@ function QuickRaceRegistration({ initialDate, onConfirmed }: { initialDate: stri
 
 function RaceEditor({ race, date, experts, onSaved, onReload }: { race: Race | null; date: string; experts: Expert[]; onSaved: (race: Race) => Promise<void>; onReload: () => void }) {
   const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  const currentExpert = race?.assignments[0] ? { id: race.assignments[0].userId, displayName: race.assignments[0].user?.displayName ?? '現在の担当者' } : null;
+  const mergeExperts = (items: Expert[]) => currentExpert && !items.some(item => item.id === currentExpert.id) ? [currentExpert, ...items] : items;
+  const [expertOptions, setExpertOptions] = useState<Expert[]>(() => mergeExperts(experts));
+  const [expertSearch, setExpertSearch] = useState(''); const [expertTotal, setExpertTotal] = useState<number | null>(null); const [expertBusy, setExpertBusy] = useState(false);
+  async function searchExperts() {
+    setExpertBusy(true); setError('');
+    try { const result = await loadExperts(expertSearch); setExpertOptions(mergeExperts(result.items)); setExpertTotal(result.total); }
+    catch (e) { setError((e as Error).message); } finally { setExpertBusy(false); }
+  }
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError(''); const data = Object.fromEntries(new FormData(event.currentTarget));
     try {
@@ -237,7 +247,8 @@ function RaceEditor({ race, date, experts, onSaved, onReload }: { race: Race | n
     <Field name="name" value={race?.name} /><Field name="raceClass" value={race?.raceClass} /><Field name="distance" type="number" value={race?.distance ?? 1600} />
     <Field name="surface" value={race?.surface ?? 'TURF'} options={choices.surface} /><Field name="direction" value={race?.direction ?? 'LEFT'} options={choices.direction} /><Field name="startsAt" type="datetime-local" value={localStart} />
     <Field name="going" value={race?.going ?? 'UNKNOWN'} options={choices.going} /><Field name="weather" value={race?.weather ?? '未確認'} /><Field name="status" value={race?.status ?? 'SCHEDULED'} options={Object.fromEntries(raceStatuses.map(s => [s, choices.status[s]]))} />
-    <Field name="expertId" value={race?.assignments[0]?.userId ?? ''} required={false} options={{ '': '未割当', ...Object.fromEntries(experts.map(e => [e.id, e.displayName])) }} /><Field name="reason" label="レースの登録・変更理由" />
+    <div className="field"><span>予想担当を検索</span><div className="field-search-row"><input aria-label="予想担当者名" value={expertSearch} maxLength={80} onChange={event => setExpertSearch(event.target.value)} placeholder="担当者名" /><button className="button secondary small" type="button" disabled={expertBusy} onClick={() => void searchExperts()}>{expertBusy ? '検索中…' : '検索'}</button></div>{expertTotal !== null && <small>{expertTotal}件見つかりました</small>}</div>
+    <label className="field">予想担当<select aria-label="予想担当" name="expertId" defaultValue={race?.assignments[0]?.userId ?? ''}><option value="">未割当</option>{expertOptions.map(expert => <option key={expert.id} value={expert.id}>{expert.displayName}</option>)}</select></label><Field name="reason" label="レースの登録・変更理由" />
   </div>{race && <p className="muted form-note">開催日・競馬場・レース番号は変更できません。発走時刻の変更は履歴に記録されます。</p>}<button className="button" disabled={busy}>{busy ? '保存中…' : 'レースを保存'}<ArrowRight size={16} /></button></form></section>;
 }
 

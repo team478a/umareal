@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
-import { CsvRaceDataProvider, dateSchema, entryHeaders, expertRaceListResponseSchema, expertRaceWorkspaceResponseSchema, parseCsv, parseJraVanRaceBundle, parseQuickRaceList, publicRaceAnnouncementsResponseSchema, publicRaceListQuerySchema, publicRaceListResponseSchema, raceHeaders, raceInputSchema, serializeRaceCsv } from './races';
+import { CsvRaceDataProvider, dateSchema, entryHeaders, expertRaceListResponseSchema, expertRaceWorkspaceResponseSchema, parseCsv, parseJraVanRaceBundle, parseQuickRaceList, publicRaceAnnouncementsResponseSchema, publicRaceListQuerySchema, publicRaceListResponseSchema, raceExpertListQuerySchema, raceExpertListResponseSchema, raceHeaders, raceInputSchema, serializeRaceCsv } from './races';
 const provider = new CsvRaceDataProvider();
 const race = '2099-01-10,東京,1,"名前,引用",未勝利,1600,TURF,LEFT,2099-01-10T10:00:00+09:00,GOOD,晴,SCHEDULED,';
 describe('CSV validation before mutations', () => {
@@ -126,6 +126,11 @@ describe('CSV validation before mutations', () => {
     expect(publicRaceListQuerySchema.safeParse({ date: '2026-10-02', dateFrom: '2026-09-01', dateTo: '2026-10-02' }).success).toBe(false);
     expect(publicRaceListQuerySchema.safeParse({ dateFrom: '2026-10-02' }).success).toBe(false);
     expect(publicRaceListQuerySchema.safeParse({ dateFrom: '2026-01-01', dateTo: '2026-10-02' }).success).toBe(false);
+  });
+  it('bounds and validates expert searches', () => {
+    expect(raceExpertListQuerySchema.parse({ search: ' 三国谷 ', limit: '50' })).toEqual({ page: 1, limit: 50, search: '三国谷' });
+    expect(raceExpertListQuerySchema.safeParse({ search: '', limit: 51 }).success).toBe(false);
+    expect(raceExpertListResponseSchema.safeParse({ items: [], total: 0, page: 1, limit: 50, search: null }).success).toBe(true);
   });
   it('normalizes public announcements without exposing internal announcement or race data', () => {
     const id = '11111111-1111-4111-8111-111111111111';

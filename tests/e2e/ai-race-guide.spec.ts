@@ -11,6 +11,9 @@ test('admin publishes a reviewed guide and paddock remains first on desktop and 
   fixture.race = await db.race.update({ where: { id: fixture.race.id }, data: { raceDate: '2999-12-31', startsAt: new Date('2999-12-31T06:00:00Z') } });
   await context.addCookies([{ name: 'keiba_session', value: fixture.token, domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
   await page.goto('/admin/ai-race-guides');
+  await page.getByLabel('AIガイドの開催日').fill(fixture.race.raceDate);
+  await page.getByLabel('AIガイドのレース名').fill(fixture.race.name);
+  await page.getByRole('button', { name: 'レースを検索' }).click();
   await page.getByLabel('対象レース').selectOption(fixture.race.id);
   await expect(page.getByRole('heading', { name: 'データcoverage' })).toBeVisible();
   await expect(page.getByText('PAST_RACES', { exact: true })).toBeVisible();

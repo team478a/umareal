@@ -53,6 +53,7 @@ async function createWin5RaceOptions(targetDate: string, expertId: string) {
 test('creates, completes, previews and publishes a WIN5 paper from the responsive administration screen', async ({ page, context }) => {
   const admin = await assessmentFixture('ADMIN', 2);
   const expert = await account('EXPERT');
+  expert.user = await db.user.update({ where: { id: expert.user.id }, data: { displayName: `WIN5画面担当-${randomUUID().slice(0, 8)}` } });
   const targetDate = await unusedWin5TargetDate(2200);
   const races = await createWin5RaceOptions(targetDate, expert.user.id);
   const title = `画面試験WIN5-${randomUUID().slice(0, 6)}`;
@@ -62,9 +63,11 @@ test('creates, completes, previews and publishes a WIN5 paper from the responsiv
     await context.addCookies([{ name: 'keiba_session', value: admin.token, domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
     await page.goto('/admin/win5');
     await expect(page.getByRole('heading', { name: 'WIN5予想管理', exact: true })).toBeVisible();
+    await page.getByLabel('WIN5予想担当者名').fill(expert.user.displayName);
+    await page.getByRole('button', { name: '検索', exact: true }).click();
     await page.getByLabel('対象日', { exact: true }).fill(targetDate);
     await page.getByLabel('タイトル', { exact: true }).first().fill(title);
-    await page.getByLabel('予想担当').first().selectOption(expert.user.id);
+    await page.getByLabel('予想担当', { exact: true }).first().selectOption(expert.user.id);
     await page.getByLabel('公開予定', { exact: true }).first().fill(`${targetDate}T09:00`);
     await page.getByLabel('作成理由', { exact: true }).fill('開催日の画面公開フロー試験');
     await page.getByRole('button', { name: '予想枠を作成' }).click();

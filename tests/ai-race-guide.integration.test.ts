@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { aiRaceGuideAdminResponseSchema, aiRaceGuideDataCoverageResponseSchema, aiRaceGuidePublicResponseSchema } from '../packages/domain/src';
+import { aiRaceGuideAdminRaceListResponseSchema, aiRaceGuideAdminResponseSchema, aiRaceGuideDataCoverageResponseSchema, aiRaceGuidePublicResponseSchema } from '../packages/domain/src';
 import { account, Client, db } from './helpers';
 
 afterAll(() => db.$disconnect());
@@ -23,6 +23,9 @@ async function fixture() {
 describe('AI race guide generation and publication', () => {
   it('generates, validates, approves and publishes without exposing paid content to free members', async () => {
     const target = await fixture(); const endpoint = `admin/races/${target.race.id}/ai-guide`;
+    const raceSearch = await target.admin.call(`admin/ai-guide/races?date=${target.race.raceDate}&venue=${encodeURIComponent(target.race.venue)}&keyword=${encodeURIComponent(target.race.name)}`);
+    expect(raceSearch.status).toBe(200);
+    expect(aiRaceGuideAdminRaceListResponseSchema.parse(raceSearch.body)).toMatchObject({ total: 1, filters: { date: target.race.raceDate, venue: target.race.venue, keyword: target.race.name }, items: [{ id: target.race.id }] });
     const denied = await target.member.call(`${endpoint}/generations`, 'POST', { revision: 0, mutationId: randomUUID(), reason: '権限境界' });
     expect(denied.status).toBe(403);
     const generated = await target.admin.call(`${endpoint}/generations`, 'POST', { revision: 0, mutationId: randomUUID(), reason: 'synthetic fixture結合試験' });

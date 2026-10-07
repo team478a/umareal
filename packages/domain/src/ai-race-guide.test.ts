@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import {
   aiRaceGuideFactSchema,
+  aiRaceGuideAdminRaceListQuerySchema,
   aiRaceGuidePublicationSnapshotSchema,
   aiRaceGuideStructuredInputSchema,
   canonicalizeAiRaceGuideInput,
@@ -36,6 +37,11 @@ const validOutput = {
 };
 
 describe('AI race guide Phase 1A contract', () => {
+  it('validates bounded administration race searches', () => {
+    expect(aiRaceGuideAdminRaceListQuerySchema.parse({ date: '2026-10-05', venue: '東京', keyword: ' 秋華賞 ' })).toEqual({ page: 1, limit: 50, date: '2026-10-05', venue: '東京', keyword: '秋華賞' });
+    expect(aiRaceGuideAdminRaceListQuerySchema.safeParse({ date: '2026-02-30' }).success).toBe(false);
+    expect(aiRaceGuideAdminRaceListQuerySchema.safeParse({ limit: 101 }).success).toBe(false);
+  });
   it('keeps known and unavailable facts distinct instead of treating missing data as zero', () => {
     expect(aiRaceGuideFactSchema.safeParse(fact).success).toBe(true);
     expect(aiRaceGuideFactSchema.safeParse({ factId: fact.factId, category: fact.category, state: 'UNKNOWN', reasonCode: 'NO_SOURCE', evidenceIds: [] }).success).toBe(true);
