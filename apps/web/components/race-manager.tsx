@@ -3,6 +3,7 @@ import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
 import { ArrowRight, Eye, FileUp, Plus, RefreshCw } from 'lucide-react';
 import { entryHeaders, entryStatuses, jstDate, parseQuickManualEntryList, parseQuickRaceList, raceHeaders, raceStatuses, serializeRaceCsv, venues, type EntryInput, type HorseIdentityHistoryResponse, type HorseIdentityReviewResponse, type ImportKind, type ManualEntryInput, type RaceAnnouncementNotificationPreviewResponse, type RaceDataStatus, type RaceExpertListResponse, type RaceInput, type RaceOperationHistoryResponse } from '@keiba/domain';
 import { NotificationPreview } from './notification-preview';
+import { encodeSessionDraft, parseQuickEntryDraft, parseQuickRaceDraft, raceManagerDraftKey } from './race-manager-drafts';
 
 type Entry = Omit<EntryInput, 'gate' | 'sex' | 'age' | 'carriedWeight' | 'jockey' | 'trainer' | 'winOdds'> & { id: string; gate: number | null; sex: EntryInput['sex'] | null; age: number | null; carriedWeight: string | number | null; jockey: string | null; trainer: string | null; winOdds: string | number | null };
 type Race = Omit<RaceInput, 'expertId'> & { id: string; revision: number; entries?: Entry[]; announcements?: { id: string; version: number; publishedAt: string }[]; assignments: { userId: string; user?: { displayName: string } }[]; _count?: { entries: number } };
@@ -23,6 +24,9 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
   if (!response.ok) throw new Error(`${result.message ?? '処理できませんでした。'}${result.details ? ' ' + result.details.map((d: { path: string; message: string }) => `${labels[d.path.split('.').pop() ?? ''] ?? d.path}: ${d.message}`).join(' / ') : ''}`);
   return result;
 }
+function sessionGet(key: string) { try { return sessionStorage.getItem(key); } catch { return null; } }
+function sessionSet(key: string, value: string) { try { sessionStorage.setItem(key, value); } catch { /* Draft recovery is best effort; normal form entry remains available. */ } }
+function sessionRemove(key: string) { try { sessionStorage.removeItem(key); } catch { /* Storage may be unavailable in a restricted browser. */ } }
 function ErrorMessage({ error }: { error: string }) { return error ? <div className="notice error" role="alert">{error}</div> : null; }
 async function loadExperts(search = ''): Promise<RaceExpertListResponse> {
   const query = new URLSearchParams({ limit: '50' });
@@ -37,7 +41,7 @@ function Field({ name, label, value, type = 'text', required = true, options, st
   return <label className="field"><span id={labelId}>{label ?? labels[name]}</span>{options ? <select aria-labelledby={labelId} name={name} defaultValue={value ?? ''} required={required}>{Object.entries(options).map(([key, text]) => <option key={key} value={key}>{text}</option>)}</select> : <input aria-labelledby={labelId} name={name} defaultValue={value ?? ''} type={type} required={required} step={step} maxLength={type === 'text' ? 100 : undefined} />}</label>;
 }
 
-export function RaceManager({ canCorrectIdentity = false }: { canCorrectIdentity?: boolean }) {
+export function RaceManager({ userId, canCorrectIdentity = false }: { userId: string; canCorrectIdentity?: boolean }) {
   const [date, setDate] = useState(jstDate(new Date())); const [days, setDays] = useState<Day[]>([]); const [dayPage, setDayPage] = useState(1); const [dayTotal, setDayTotal] = useState(0);
   const [races, setRaces] = useState<Race[]>([]); const [experts, setExperts] = useState<Expert[]>([]); const [page, setPage] = useState(1); const [total, setTotal] = useState(0);
   const [selected, setSelected] = useState<Race | null>(null); const [editing, setEditing] = useState(false); const [entry, setEntry] = useState<Entry | null>(null);
@@ -65,7 +69,7 @@ export function RaceManager({ canCorrectIdentity = false }: { canCorrectIdentity
     {dataStatus && <section className="panel"><div className="panel-heading"><div><span className="eyebrow">DATA SOURCE</span><h2>データ取得方式</h2></div><span className="status-tag">正常</span></div><div className="panel-body"><p><strong>{dataStatus.label}</strong></p><p className="muted form-note">{dataStatus.externalIntegration === 'NOT_USED' ? '外部データ連携は使用していません。レース・出走馬・結果を管理画面またはCSVから登録できます。' : '外部Providerのデータも、確認・プレビュー後にUMAREAL標準データへ取り込みます。'}</p></div></section>}
     <HorseIdentityReview date={date} races={races} refreshKey={selected?.revision ?? 0} />
     <HorseIdentityHistory canCorrect={canCorrectIdentity} />
-    <QuickRaceRegistration initialDate={date} onConfirmed={async targetDate => { setDate(targetDate); setPage(1); setEditing(false); setSelected(null); if (targetDate === date) await load(); }} />
+    <QuickRaceRegistration userId={userId} initialDate={date} onConfirmed={async targetDate => { setDate(targetDate); setPage(1); setEditing(false); setSelected(null); if (targetDate === date) await load(); }} />
     <section className="panel"><div className="panel-heading"><h2>開催日</h2></div><form onSubmit={saveDay} className="panel-body"><div className="race-form-grid"><Field name="raceDate" type="date" value={date} /><Field name="venue" value="東京" options={Object.fromEntries(venues.map(v => [v, v]))} /><Field name="reason" label="開催日の登録理由" /><div className="field-action"><button className="button" disabled={busy}><Plus size={16} />開催日を登録</button></div></div></form>
       <div className="day-list">{days.map(day => <button key={day.id} className={`day-chip ${day.raceDate === date ? 'selected' : ''}`} onClick={() => { setDate(day.raceDate); setPage(1); setEditing(false); setSelected(null); }}>{day.raceDate} · {day.venue}<small>{day._count.races} レース</small></button>)}</div><Pager page={dayPage} total={dayTotal} setPage={setDayPage} />
     </section>
@@ -75,7 +79,7 @@ export function RaceManager({ canCorrectIdentity = false }: { canCorrectIdentity
     </section>
     {editing && <RaceEditor key={selected ? `${selected.id}-${selected.revision}` : `new-${date}`} race={selected} date={date} experts={experts} onSaved={async r => { setSelected(r); setMessage('レース情報を保存しました。'); await load(); }} onReload={() => selected && void open(selected.id)} />}
     {selected && <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{selected.venue} {selected.number}R · {selected.name}</span><h2>出走馬</h2></div><button className="button secondary small" onClick={() => setEntry(null)}>新しい馬を入力</button></div>
-      <QuickManualEntryBatch race={selected} onSaved={async warning => { await open(selected.id); await load(); setMessage(warning || '出走馬をまとめて簡易登録しました。詳細情報は後から補完できます。'); }} />
+      <QuickManualEntryBatch key={`batch-${selected.id}`} userId={userId} race={selected} onSaved={async warning => { await open(selected.id); await load(); setMessage(warning || '出走馬をまとめて簡易登録しました。詳細情報は後から補完できます。'); }} />
       <QuickManualEntry race={selected} onSaved={async warning => { await open(selected.id); await load(); setMessage(warning || '出走馬を簡易登録しました。詳細情報は後から補完できます。'); }} />
       <div className="table-scroll"><table className="race-data-table"><thead><tr><th>馬番 / 枠</th><th>馬名</th><th>性齢 / 斤量</th><th>騎手</th><th>状態</th><th>操作</th></tr></thead><tbody>{selected.entries?.map(e => <tr key={e.id}><td>{e.number} / {e.gate ?? '未確認'}</td><td>{e.horseName}</td><td>{e.sex && e.age !== null ? `${choices.sex[e.sex]}${e.age}` : '未確認'} · {e.carriedWeight !== null ? `${e.carriedWeight}kg` : '未確認'}</td><td>{e.jockey ?? '未確認'}</td><td>{e.status === 'ACTIVE' ? '出走予定' : choices.status[e.status]}</td><td><button className="button secondary small" onClick={() => setEntry(e)}>編集</button></td></tr>)}</tbody></table></div>
       <EntryEditor key={`${selected.id}-${selected.revision}-${entry?.id ?? 'new'}`} race={selected} entry={entry} onSaved={async () => { await open(selected.id); await load(); setMessage('出走馬を保存しました。'); }} />
@@ -193,10 +197,23 @@ function HorseIdentityHistory({ canCorrect }: { canCorrect: boolean }) {
   </div></details>;
 }
 
-function QuickManualEntryBatch({ race, onSaved }: { race: Race; onSaved: (message?: string) => Promise<void> }) {
+function QuickManualEntryBatch({ userId, race, onSaved }: { userId: string; race: Race; onSaved: (message?: string) => Promise<void> }) {
   const [source, setSource] = useState(''); const [reason, setReason] = useState('');
   const [preview, setPreview] = useState<{ entries: ManualEntryInput[]; errors: { row: number; field: string; message: string }[] } | null>(null);
-  const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(''); const [busy, setBusy] = useState(false); const [draftReady, setDraftReady] = useState(false); const [restored, setRestored] = useState(false);
+  const storageKey = raceManagerDraftKey(userId, 'quick-entries', race.id);
+  useEffect(() => {
+    const draft = parseQuickEntryDraft(sessionGet(storageKey));
+    if (draft && (draft.source || draft.reason)) { setSource(draft.source); setReason(draft.reason); setRestored(true); }
+    else sessionRemove(storageKey);
+    setDraftReady(true);
+  }, [storageKey]);
+  useEffect(() => {
+    if (!draftReady) return;
+    if (!source && !reason) sessionRemove(storageKey);
+    else sessionSet(storageKey, encodeSessionDraft({ source, reason }));
+  }, [draftReady, reason, source, storageKey]);
+  function discard() { sessionRemove(storageKey); setSource(''); setReason(''); setPreview(null); setRestored(false); }
   function check() {
     setError('');
     const parsed = parseQuickManualEntryList(source);
@@ -210,11 +227,12 @@ function QuickManualEntryBatch({ race, onSaved }: { race: Race; onSaved: (messag
     try {
       const result = await request<{ entries: unknown[]; duplicateNames: string[] }>(`races/${race.id}/entries/manual-batch`, 'POST', { entries: preview.entries, revision: race.revision, reason });
       const count = result.entries.length; const duplicateNames = result.duplicateNames;
-      setSource(''); setReason(''); setPreview(null);
+      sessionRemove(storageKey); setSource(''); setReason(''); setPreview(null); setRestored(false);
       await onSaved(duplicateNames.length ? `${count}頭を登録しました。${duplicateNames.join('、')}は同名馬候補があるため、正式IDとの統合を保留しています。` : `${count}頭をまとめて登録しました。`);
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   return <div className="panel-body entry-editor"><h3>馬番と馬名をまとめて簡易登録</h3><ErrorMessage error={error} />
+    {restored && <div className="notice" role="status">このレースの未送信下書きを復元しました。<button className="text-link" type="button" onClick={discard}>下書きを破棄</button></div>}
     <p className="muted form-note">出馬表から「馬番,馬名」を1行ずつ貼り付けます。最大18頭を確認後に一括登録し、枠番・性齢・斤量・騎手・調教師は未確認のまま保存します。</p>
     <label className="field">出走馬一覧<textarea aria-label="出走馬一括入力" rows={8} maxLength={5000} value={source} onChange={event => { setSource(event.target.value); setPreview(null); }} placeholder={'1,登録馬A\n2,登録馬B\n3,登録馬C'} /></label>
     <button className="button secondary" type="button" disabled={busy || !source.trim()} onClick={check}>登録内容を確認</button>
@@ -241,10 +259,23 @@ function QuickManualEntry({ race, onSaved }: { race: Race; onSaved: (message?: s
   return <form className="panel-body entry-editor" onSubmit={save}><h3>馬番と馬名だけで簡易登録</h3><ErrorMessage error={error} /><div className="race-form-grid"><Field name="number" label="馬番" type="number" value={nextNumber} /><Field name="horseName" label="馬名" /><label className="field">簡易登録の理由<input aria-label="簡易登録の理由" value={reason} onChange={event => setReason(event.target.value)} required maxLength={500} /></label></div><p className="muted form-note">理由は次の馬にも引き継ぎます。枠番・性齢・斤量・騎手・調教師は未確認のまま保存し、馬名だけで既存馬と統合しません。</p><button className="button" disabled={busy || nextNumber === undefined || !reason.trim()}>{busy ? '登録中…' : '出走馬を簡易登録'}</button></form>;
 }
 
-function QuickRaceRegistration({ initialDate, onConfirmed }: { initialDate: string; onConfirmed: (targetDate: string) => Promise<void> }) {
+function QuickRaceRegistration({ userId, initialDate, onConfirmed }: { userId: string; initialDate: string; onConfirmed: (targetDate: string) => Promise<void> }) {
   const [raceDate, setRaceDate] = useState(initialDate); const [raceClass, setRaceClass] = useState('未設定');
   const [source, setSource] = useState(''); const [preview, setPreview] = useState<Preview | null>(null); const [reason, setReason] = useState('');
-  const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(''); const [message, setMessage] = useState(''); const [busy, setBusy] = useState(false); const [draftReady, setDraftReady] = useState(false); const [restored, setRestored] = useState(false);
+  const storageKey = raceManagerDraftKey(userId, 'quick-races');
+  useEffect(() => {
+    const draft = parseQuickRaceDraft(sessionGet(storageKey));
+    if (draft && (draft.source || draft.reason)) { setRaceDate(draft.raceDate); setRaceClass(draft.raceClass); setSource(draft.source); setReason(draft.reason); setRestored(true); }
+    else sessionRemove(storageKey);
+    setDraftReady(true);
+  }, [storageKey]);
+  useEffect(() => {
+    if (!draftReady) return;
+    if (!source && !reason) sessionRemove(storageKey);
+    else sessionSet(storageKey, encodeSessionDraft({ raceDate, raceClass, source, reason }));
+  }, [draftReady, raceClass, raceDate, reason, source, storageKey]);
+  function discard() { sessionRemove(storageKey); setRaceDate(initialDate); setRaceClass('未設定'); setSource(''); setReason(''); setPreview(null); setRestored(false); }
   async function check() {
     setBusy(true); setError(''); setMessage(''); setPreview(null);
     const parsed = parseQuickRaceList({ raceDate, raceClass, text: source });
@@ -258,10 +289,11 @@ function QuickRaceRegistration({ initialDate, onConfirmed }: { initialDate: stri
     const count = preview.changes.length;
     try {
       await request(`races/import/${preview.batchId}/confirm`, 'POST', { reason });
-      setPreview(null); setReason(''); setSource(''); setMessage(`${count}レースを登録しました。`); await onConfirmed(raceDate);
+      sessionRemove(storageKey); setPreview(null); setReason(''); setSource(''); setRestored(false); setMessage(`${count}レースを登録しました。`); await onConfirmed(raceDate);
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   return <section className="panel quick-race-registration"><div className="panel-heading"><div><span className="eyebrow">QUICK REGISTRATION</span><h2>かんたん一括登録</h2></div><Plus size={22} /></div><div className="panel-body"><ErrorMessage error={error} />{message && <div className="notice" role="status">{message}</div>}
+    {restored && <div className="notice" role="status">この利用者の未送信下書きを復元しました。<button className="text-link" type="button" onClick={discard}>下書きを破棄</button></div>}
     <p>開催日とクラスを1回入力し、競馬場ごとのレース一覧を貼り付けます。登録前に追加・変更内容を確認できます。</p>
     <div className="race-form-grid"><label className="field">開催日<input aria-label="かんたん登録の開催日" type="date" value={raceDate} onChange={event => { setRaceDate(event.target.value); setPreview(null); }} /></label><label className="field">クラスの初期値<input aria-label="かんたん登録のクラス" value={raceClass} maxLength={60} onChange={event => { setRaceClass(event.target.value); setPreview(null); }} /></label></div>
     <label className="field">レース一覧<textarea aria-label="かんたん登録のレース一覧" rows={9} value={source} onChange={event => { setSource(event.target.value); setPreview(null); }} placeholder={'東京\n9R 八ヶ岳特別 14:35 芝1800 左\n10R 白秋ステークス 15:10 芝1400 左\n\n京都\n10R 大山崎ステークス 15:00 ダート1200 右'} /></label>
