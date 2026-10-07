@@ -413,6 +413,48 @@ export function parseResultCsv(source: string): { rows: ResultCsvRow[]; errors: 
   return result;
 }
 
+const quickResultStatusTokens: Record<string, ResultCsvRow['status']> = {
+  '取消': 'WITHDRAWN', WITHDRAWN: 'WITHDRAWN',
+  '除外': 'EXCLUDED', EXCLUDED: 'EXCLUDED',
+  '競走中止': 'DNF', DNF: 'DNF'
+};
+
+export type QuickResultParseResult = { rows: ResultCsvRow[]; errors: ResultCsvIssue[] };
+
+/** Parses reviewed manual result rows. A numeric second column means a finished runner; status words never infer a finish. */
+export function parseQuickResultList(source: string): QuickResultParseResult {
+  const result: QuickResultParseResult = { rows: [], errors: [] };
+  if (source.length > 5000) return { ...result, errors: [{ row: 0, field: 'text', message: '貼り付け内容は5,000文字以内にしてください。' }] };
+  const numbers = new Set<number>();
+  const lines = source.replace(/^\uFEFF/, '').split(/\r?\n/);
+  if (lines.filter(line => line.trim()).length > 18) return { ...result, errors: [{ row: 0, field: 'text', message: '1レースにつき18頭以内で入力してください。' }] };
+  for (const [index, rawLine] of lines.entries()) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const columns = line.split(line.includes('\t') ? '\t' : ',').map(value => value.trim());
+    const rowNumber = index + 1;
+    if (![2, 4].includes(columns.length)) { result.errors.push({ row: rowNumber, field: 'row', message: '完走馬は「馬番,着順,人気,単勝」、例外馬は「馬番,取消・除外・競走中止」で入力してください。' }); continue; }
+    const status = quickResultStatusTokens[columns[1] ?? ''];
+    if (status && columns.slice(2).some(Boolean)) { result.errors.push({ row: rowNumber, field: 'status', message: '取消・除外・競走中止には着順、人気、単勝を入力できません。' }); continue; }
+    if (!status && columns.length !== 4) { result.errors.push({ row: rowNumber, field: 'row', message: '完走馬は「馬番,着順,人気,単勝」の4列で入力してください。' }); continue; }
+    const parsed = resultCsvRowSchema.safeParse({
+      number: Number(columns[0]), status: status ?? 'FINISHED',
+      finishPosition: status ? null : Number(columns[1]),
+      popularity: status ? null : Number(columns[2]),
+      finalOdds: status ? null : columns[3]
+    });
+    if (!parsed.success) { parsed.error.issues.forEach(issue => result.errors.push({ row: rowNumber, field: issue.path.join('.'), message: issue.message })); continue; }
+    if (numbers.has(parsed.data.number)) { result.errors.push({ row: rowNumber, field: 'number', message: '同じ馬番が重複しています。' }); continue; }
+    numbers.add(parsed.data.number); result.rows.push(parsed.data);
+  }
+  if (!result.rows.length && !result.errors.length) result.errors.push({ row: 0, field: 'text', message: '結果を1頭以上入力してください。' });
+  return result;
+}
+
+export function serializeResultCsv(rows: readonly ResultCsvRow[]) {
+  return [resultCsvHeaders.join(','), ...rows.map(row => [row.number, row.status, row.finishPosition ?? '', row.popularity ?? '', row.finalOdds ?? ''].join(','))].join('\n');
+}
+
 export function parseBatchResultCsv(source: string): { rows: BatchResultCsvRow[]; errors: ResultCsvIssue[] } {
   const result: { rows: BatchResultCsvRow[]; errors: ResultCsvIssue[] } = { rows: [], errors: [] };
   let csvRows: string[][];

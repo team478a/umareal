@@ -206,18 +206,17 @@ test('JRA-VAN未接続で1開催日の主要運用を管理画面から完走す
   // The operator cannot wait for a real future race during an automated rehearsal. This is the
   // sole non-UI state transition: advance the test clock by moving the local fixture start time.
   await db.race.update({ where: { id: race.id }, data: { startsAt: new Date(Date.now() - 60_000) } });
-  await timed(phases, '結果下書き・確定', 21, 19, async () => {
+  await timed(phases, '結果下書き・確定', 6, 2, async () => {
     await useSession(context, admin.client);
     await page.goto('/admin/results');
     await page.getByRole('button').filter({ hasText: raceName }).click();
-    for (let number = 1; number <= 6; number++) {
-      await page.getByLabel(`${number}番の着順`).fill(String(number));
-      await page.getByLabel(`${number}番の人気`).fill(String(number));
-      await page.getByLabel(`${number}番の確定単勝`).fill(String(number + 1));
-    }
-    await page.getByLabel('結果の確認理由').fill('公式結果を目視確認して手動登録');
-    await page.getByRole('button', { name: '下書きを保存' }).click();
-    await expect(page.getByRole('status')).toContainText('結果下書き版1を保存しました。');
+    await page.getByLabel('結果一括入力').fill(horseNames.map((_, index) => `${index + 1},${index + 1},${index + 1},${index + 2}`).join('\n'));
+    await page.getByRole('button', { name: '入力内容を確認' }).click();
+    await expect(page.getByRole('heading', { name: '下書き反映前の確認', exact: true }).first()).toBeVisible();
+    await page.getByLabel('結果一括入力の理由').fill('公式結果を目視確認して一括入力');
+    await page.getByRole('button', { name: '確認した結果を下書きへ反映' }).click();
+    await expect(page.getByRole('status')).toContainText('結果を下書き版1へ反映しました。');
+    for (let number = 1; number <= 6; number++) await expect(page.getByLabel(`${number}番の着順`)).toHaveValue(String(number));
     await page.getByRole('button', { name: '結果を確定' }).click();
     await expect(page.getByRole('status')).toContainText('確定結果版1と公開版別の馬評価結果を保存しました。');
     await expect(page.getByText(/版1/).last()).toBeVisible();
