@@ -24,6 +24,8 @@ test('paddock drafts survive offline edits, synchronize, and require explicit co
   await page.getByLabel('パドック短評', { exact: true }).fill('通信切断中の評価を保持');
   await expect(page.locator('.assessment-progress')).toContainText('パドック入力 1 / 2頭');
   await expect(page.locator('.assessment-progress [role=status]')).toContainText('未送信');
+  await expect(page.getByRole('button', { name: '最終評価・公開へ', exact: true })).toBeDisabled();
+  await expect(page.getByText('未送信のパドック評価があります。保存済みになってから最終評価・公開へ進んでください。', { exact: true })).toBeVisible();
   const local = await page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? '{}'), `keiba:assessment:${fixture.owner.user.id}:${fixture.race.id}`);
   expect(local.version).toBe(1);
   expect(new Date(local.expiresAt).getTime() - new Date(local.updatedAt).getTime()).toBe(24 * 60 * 60 * 1000);
@@ -31,6 +33,10 @@ test('paddock drafts survive offline edits, synchronize, and require explicit co
   expect(local.drafts[fixture.entries[0].id].content).toMatchObject({ calm: null, sweating: 0, calmness: 0 });
   await context.setOffline(false);
   await expect(page.locator('.assessment-progress [role=status]')).toHaveText('保存済み');
+  await expect(page.getByRole('button', { name: '最終評価・公開へ', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: '最終評価・公開へ', exact: true }).click();
+  await expect(page.locator('.prediction-editor')).toContainText('通信切断中の評価を保持');
+  await page.getByRole('button', { name: '評価入力に戻る', exact: true }).click();
   expect(await page.evaluate(key => localStorage.getItem(key), `keiba:assessment:${fixture.owner.user.id}:${fixture.race.id}`)).toBeNull();
   await page.reload(); await page.getByRole('button', { name: '評価・予想を入力' }).click();
   await expect(page.getByLabel('パドック短評', { exact: true })).toHaveValue('通信切断中の評価を保持');
@@ -43,8 +49,11 @@ test('paddock drafts survive offline edits, synchronize, and require explicit co
   await page.getByRole('button', { name: '馬体の張り 4', exact: true }).click();
   await expect(page.getByRole('heading', { name: '競合する入力の確認' })).toBeVisible();
   await expect(page.locator('.assessment-progress [role=status]')).toHaveText('競合');
+  await expect(page.getByRole('button', { name: '最終評価・公開へ', exact: true })).toBeDisabled();
+  await expect(page.getByText('パドック評価が競合しています。内容を比較して解決し、保存済みを確認してください。', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '比較した端末の入力を再送' }).click();
   await expect(page.locator('.assessment-progress [role=status]')).toHaveText('保存済み');
+  await expect(page.getByRole('button', { name: '最終評価・公開へ', exact: true })).toBeEnabled();
   expect((await db.assessment.findUniqueOrThrow({ where: { entryId: fixture.entries[0].id } })).revision).toBe(saved.revision + 2);
   await page.getByRole('button', { name: '入力状況を確認' }).click();
   await expect(page.getByText('未入力または未送信があります。', { exact: true })).toBeVisible();
