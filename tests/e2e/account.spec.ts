@@ -66,8 +66,10 @@ test('register, save preferences, sign out and sign in on desktop/mobile', async
   expect(forbidden.status()).toBe(403);
   await page.goto('/account');
   await page.screenshot({ path: testInfo.outputPath('account.png'), fullPage: true });
+  await page.evaluate(() => localStorage.setItem('keiba:assessment:logout-test:race', 'sensitive draft'));
   await page.getByRole('button', { name: 'ログアウト', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'おかえりなさい' })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('keiba:assessment:logout-test:race'))).toBeNull();
   await page.getByLabel('メールアドレス', { exact: true }).fill(email);
   await page.getByLabel('パスワード', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'ログイン', exact: true }).click();
@@ -138,8 +140,10 @@ test('free member can confirm account closure and cannot sign in again', async (
   await page.getByLabel('退会理由').selectOption('OTHER');
   await page.getByLabel('現在のパスワード').fill(fixture.password);
   await page.getByLabel('確認のため「退会する」と入力').fill('退会する');
+  await page.evaluate(() => localStorage.setItem('keiba:assessment:closure-test:race', 'sensitive draft'));
   await page.getByRole('button', { name: '退会して利用を停止' }).click();
   await expect(page.getByText('退会手続きが完了し、すべての端末からログアウトしました。')).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('keiba:assessment:closure-test:race'))).toBeNull();
   await page.getByLabel('メールアドレス', { exact: true }).fill(fixture.user.email);
   await page.getByLabel('パスワード', { exact: true }).fill(fixture.password);
   await page.getByRole('button', { name: 'ログイン', exact: true }).click();

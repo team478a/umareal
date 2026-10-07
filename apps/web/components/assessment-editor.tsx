@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { assessmentSaveSchema, blankAssessment, changeLabels, changes, markLabels, marks, metricLabels, metrics, metricValues, paddockComplete, preComplete, uniformPaddockMetrics, type AssessmentInput, type AssessmentSaveInput, type ExpertAssessmentHistoryResponse, type ExpertAssessmentSaveResponse, type ExpertAssessmentWorkspaceResponse } from '@keiba/domain';
 import { PredictionEditor } from './prediction-editor';
+import { readAssessmentDrafts, writeAssessmentDrafts } from './assessment-draft-storage';
 type Entry = ExpertAssessmentWorkspaceResponse['entries'][number];
 type Draft = AssessmentSaveInput;
 type Drafts = Record<string, Draft>;
@@ -26,23 +27,19 @@ export function AssessmentEditor({ raceId, userId, onClose }: { raceId: string; 
   const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [failed, setFailed] = useState(false);
   const [conflict, setConflict] = useState<string | null>(null); const [reason, setReason] = useState('担当評価の入力');
   const [review, setReview] = useState(false); const [history, setHistory] = useState<ExpertAssessmentHistoryResponse['items']>([]);
+  const [storageNotice, setStorageNotice] = useState('');
   const [onlineVersion, setOnlineVersion] = useState(0);
   const [historyPage, setHistoryPage] = useState(1); const [historyTotal, setHistoryTotal] = useState(0);
   const storageKey = `keiba:assessment:${userId}:${raceId}`; const raw = useRef<string | null>(null); const sending = useRef(false);
   const persist = useCallback((next: Drafts) => {
-    if (localStorage.getItem(storageKey) !== raw.current) throw new Error('別のタブで一時保存が変更されました。このタブの内容を確認してから再読み込みしてください。');
-    const encoded = JSON.stringify(next); localStorage.setItem(storageKey, encoded); raw.current = encoded; setDrafts(next);
+    raw.current = writeAssessmentDrafts(localStorage, storageKey, next, raw.current); setDrafts(next);
   }, [storageKey]);
   const load = useCallback(async () => {
     try {
       const result = await request<ExpertAssessmentWorkspaceResponse>(`${raceId}/assessments`);
-      raw.current = localStorage.getItem(storageKey);
-      const stored: unknown = JSON.parse(raw.current ?? '{}');
-      const restored: Drafts = {};
-      if (stored && typeof stored === 'object' && !Array.isArray(stored)) for (const [entryId, draft] of Object.entries(stored)) {
-        const parsed = assessmentSaveSchema.safeParse(draft); if (parsed.success) restored[entryId] = parsed.data;
-      }
-      setWorkspace(result); setDrafts(restored); setReady(true); setError('');
+      const stored = readAssessmentDrafts(localStorage, storageKey); raw.current = stored.raw;
+      setStorageNotice(stored.expired ? '24時間を過ぎた未送信の評価は、この端末から消去しました。' : stored.migrated ? '以前の未送信評価を復元しました。復元後24時間で自動消去します。' : '');
+      setWorkspace(result); setDrafts(stored.drafts); setReady(true); setError('');
     } catch (e) { setError((e as Error).message); }
   }, [raceId, storageKey]);
   useEffect(() => { void load(); }, [load]);
@@ -116,6 +113,7 @@ export function AssessmentEditor({ raceId, userId, onClose }: { raceId: string; 
       {entry && <strong>{entry.number}番 {entry.horseName} · 事前順位 {content.preRank ?? '未入力'} · {content.preMark ? markLabels[content.preMark] : '事前印 未入力'}</strong>}
     </div>
     {error && <div className="notice error" role="alert">{error}</div>}
+    {storageNotice && <div className="notice" role="status">{storageNotice}</div>}
     {failed && !conflict && <button className="button secondary" onClick={() => { setFailed(false); setError(''); }}>再同期する</button>}
     {conflict && <section className="panel panel-body"><h2>競合する入力の確認</h2><p>端末の入力は保持しています。最新情報と比較して選択してください。</p><div className="table-scroll"><table className="race-data-table"><thead><tr><th>項目</th><th>この端末</th><th>サーバーの最新</th></tr></thead><tbody>{Object.entries(drafts[conflict].content).map(([key, value]) => <tr key={key}><td>{fieldLabels[key]}</td><td>{valueText(key, value)}</td><td>{valueText(key, workspace.entries.find(e => e.id === conflict)?.assessment?.content[key as keyof AssessmentInput])}</td></tr>)}</tbody></table></div><button className="button secondary" onClick={() => void resolve(false)}>サーバーの内容を採用</button><button className="button" disabled={!reason.trim()} onClick={() => void resolve(true)}>比較した端末の入力を再送</button></section>}
     {!entry ? <p>出走馬が未登録です。管理画面で登録してください。</p> : <>
@@ -138,8 +136,9 @@ export function AssessmentEditor({ raceId, userId, onClose }: { raceId: string; 
       {history.length > 0 && <section className="panel panel-body"><h2>評価の変更履歴</h2>{history.map(item => <details key={item.revision}><summary>版{item.revision} · {new Date(item.createdAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })} JST · {item.reason}</summary><dl>{Object.entries(item.content).map(([key, value]) => <div key={key}><dt>{fieldLabels[key]}</dt><dd>{valueText(key, value)}</dd></div>)}</dl></details>)}<button disabled={historyPage === 1} onClick={() => void loadHistory(historyPage - 1)}>履歴の前へ</button><button disabled={historyPage * 20 >= historyTotal} onClick={() => void loadHistory(historyPage + 1)}>履歴の次へ</button></section>}
     </>}
     <button className="button secondary" onClick={() => setReview(!review)}>入力状況を確認</button>
+    {pending > 0 && <button className="text-link" disabled={busy} onClick={() => { try { persist({}); setFailed(false); setConflict(null); setError(''); setStorageNotice('この端末の未送信評価を消去しました。'); } catch (e) { setError((e as Error).message); } }}>この端末の未送信評価を消去</button>}
     {review && <section className="panel panel-body"><h2>全頭の入力状況</h2>{(incomplete.length > 0 || pending > 0) && <p role="alert">未入力または未送信があります。</p>}<ul>{workspace.entries.map(e => <li key={e.id}>{e.number}番 {e.horseName}：事前 {preComplete(contentFor(e)) ? '入力済み' : '未入力あり'} / パドック {paddockComplete(contentFor(e)) ? '入力済み' : '未入力あり'} / {drafts[e.id] ? '未送信' : '保存済み'}</li>)}</ul><p>確認後、「最終予想・公開へ」から公開前プレビューへ進めます。</p></section>}
-    <p className="muted form-note">入力はこの端末へ一時保存し、通信回復時に再同期します。共有端末での利用は避けてください。未送信の入力があるときは保存状態を確認してください。</p>
+    <p className="muted form-note">入力はこの端末へ最大24時間一時保存し、通信回復時に再同期します。送信完了・明示消去・ログアウト・退会・期限到達時に端末から消去します。共有端末での利用は避け、未送信の入力があるときは保存状態を確認してください。</p>
     <PredictionEditor raceId={raceId} />
   </div>;
 }

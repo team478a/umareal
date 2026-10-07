@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
+import { blankAssessment } from '../../packages/domain/src';
 import { assessmentFixture } from '../assessment-fixtures';
 import { db } from '../helpers';
 test.afterAll(() => db.$disconnect());
@@ -24,10 +25,13 @@ test('paddock drafts survive offline edits, synchronize, and require explicit co
   await expect(page.locator('.assessment-progress')).toContainText('パドック入力 1 / 2頭');
   await expect(page.locator('.assessment-progress [role=status]')).toContainText('未送信');
   const local = await page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? '{}'), `keiba:assessment:${fixture.owner.user.id}:${fixture.race.id}`);
-  expect(local[fixture.entries[0].id].content.paddockComment).toBe('通信切断中の評価を保持');
-  expect(local[fixture.entries[0].id].content).toMatchObject({ calm: null, sweating: 0, calmness: 0 });
+  expect(local.version).toBe(1);
+  expect(new Date(local.expiresAt).getTime() - new Date(local.updatedAt).getTime()).toBe(24 * 60 * 60 * 1000);
+  expect(local.drafts[fixture.entries[0].id].content.paddockComment).toBe('通信切断中の評価を保持');
+  expect(local.drafts[fixture.entries[0].id].content).toMatchObject({ calm: null, sweating: 0, calmness: 0 });
   await context.setOffline(false);
   await expect(page.locator('.assessment-progress [role=status]')).toHaveText('保存済み');
+  expect(await page.evaluate(key => localStorage.getItem(key), `keiba:assessment:${fixture.owner.user.id}:${fixture.race.id}`)).toBeNull();
   await page.reload(); await page.getByRole('button', { name: '評価・予想を入力' }).click();
   await expect(page.getByLabel('パドック短評', { exact: true })).toHaveValue('通信切断中の評価を保持');
   await expect(page.getByRole('button', { name: '発汗 判断不能', exact: true })).toHaveAttribute('aria-pressed', 'true');
@@ -78,5 +82,26 @@ test('historical combined condition stays visible until sweating and calmness ar
   await expect(page.locator('.assessment-progress')).toContainText('パドック入力 1 / 2頭');
   await expect(page.locator('.assessment-progress [role=status]')).toHaveText('保存済み');
   expect((await db.assessment.findUniqueOrThrow({ where: { entryId: fixture.entries[0].id } })).content).toMatchObject({ calm: null, sweating: 4, calmness: 3 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+test('expired paddock drafts are removed and active drafts can be explicitly cleared', async ({ page, context }) => {
+  const fixture = await assessmentFixture(); const storageKey = `keiba:assessment:${fixture.owner.user.id}:${fixture.race.id}`;
+  await context.addCookies([{ name: 'keiba_session', value: fixture.token, domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
+  await page.goto('/expert');
+  await page.evaluate(({ key, entryId, horseId, content }) => {
+    const draft = { content, revision: 0, raceRevision: 1, horseId, mutationId: crypto.randomUUID(), reason: '期限切れ試験' };
+    localStorage.setItem(key, JSON.stringify({ version: 1, updatedAt: '2026-10-05T00:00:00.000Z', expiresAt: '2026-10-06T00:00:00.000Z', drafts: { [entryId]: draft } }));
+  }, { key: storageKey, entryId: fixture.entries[0].id, horseId: fixture.entries[0].horseId, content: blankAssessment });
+  await page.getByRole('button', { name: '評価・予想を入力' }).click();
+  await expect(page.getByText('24時間を過ぎた未送信の評価は、この端末から消去しました。', { exact: true })).toBeVisible();
+  expect(await page.evaluate(key => localStorage.getItem(key), storageKey)).toBeNull();
+  await context.setOffline(true);
+  await page.getByRole('button', { name: '馬体の張り 4', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'この端末の未送信評価を消去', exact: true })).toBeVisible();
+  expect(await page.evaluate(key => localStorage.getItem(key), storageKey)).not.toBeNull();
+  await page.getByRole('button', { name: 'この端末の未送信評価を消去', exact: true }).click();
+  await expect(page.getByText('この端末の未送信評価を消去しました。', { exact: true })).toBeVisible();
+  expect(await page.evaluate(key => localStorage.getItem(key), storageKey)).toBeNull();
+  await context.setOffline(false);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

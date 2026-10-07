@@ -109,7 +109,7 @@ JRA-VAN/JV-Link/外部競馬データProviderを一度も接続しない状態�
 
 ### エラー時の復旧
 
-- パドック入力は端末一時保存、自動再送、競合比較、再同期の導線がある。
+- パドック入力は最大24時間の端末一時保存、自動再送、競合比較、再同期、明示消去の導線がある。送信完了・ログアウト・退会・期限到達でも端末値を消去する。
 - 予想公開前に下書きとプレビューがあり、公開後は新しい版で訂正する。
 - 結果は下書きと確定が分離され、確定版は上書きされない。
 - CSV取込を使う場合も差分プレビューと確定操作が分離される。
@@ -172,9 +172,10 @@ JRA-VAN/JV-Link/外部競馬データProviderを一度も接続しない状態�
 | 実運用E2E mobile | PASS（1/1） |
 | 手動登録下書き復元E2E | PASS（一括入力に加え、レース詳細・出走馬詳細のdesktop/mobile 2/2。復元、破棄、利用者・対象分離、revision照合、成功後消去） |
 | 結果一括入力下書き復元E2E | PASS（desktop/mobile。復元、破棄、利用者・レース分離、結果revision照合、成功後消去） |
+| パドック端末下書きE2E | PASS（desktop/mobile。24時間期限、明示消去、同期後消去、ログアウト・退会時消去） |
 | Domain contract | PASS（8/8） |
 | Race integration | PASS（8/8。一括確定17頭、候補混入拒否、原子性、冪等性、監査、権限を含む） |
-| 全unit・配備script | PASS（94 files、513 tests／Node 20 tests） |
+| 全unit・配備script | PASS（95 files、517 tests／Node 20 tests） |
 | lint | PASS |
 | typecheck | PASS |
 | build | PASS |
