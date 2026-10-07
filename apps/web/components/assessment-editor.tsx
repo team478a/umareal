@@ -140,6 +140,6 @@ export function AssessmentEditor({ raceId, userId, onClose }: { raceId: string; 
     {pending > 0 && <button className="text-link" disabled={busy} onClick={() => { try { persist({}); setFailed(false); setConflict(null); setError(''); setStorageNotice('この端末の未送信評価を消去しました。'); } catch (e) { setError((e as Error).message); } }}>この端末の未送信評価を消去</button>}
     {review && <section className="panel panel-body"><h2>全頭の入力状況</h2>{(incomplete.length > 0 || pending > 0) && <p role="alert">未入力または未送信があります。</p>}<ul>{workspace.entries.map(e => <li key={e.id}>{e.number}番 {e.horseName}：事前 {preComplete(contentFor(e)) ? '入力済み' : '未入力あり'} / パドック {paddockComplete(contentFor(e)) ? '入力済み' : '未入力あり'} / {drafts[e.id] ? '未送信' : '保存済み'}</li>)}</ul><p>確認後、「最終予想・公開へ」から公開前プレビューへ進めます。</p></section>}
     <p className="muted form-note">入力はこの端末へ最大24時間一時保存し、通信回復時に再同期します。送信完了・明示消去・ログアウト・退会・期限到達時に端末から消去します。共有端末での利用は避け、未送信の入力があるときは保存状態を確認してください。</p>
-    <PredictionEditor raceId={raceId} assessmentSyncState={syncState} />
+    <PredictionEditor raceId={raceId} userId={userId} assessmentSyncState={syncState} />
   </div>;
 }

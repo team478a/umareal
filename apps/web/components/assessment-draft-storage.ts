@@ -2,7 +2,7 @@ import { assessmentSaveSchema, type AssessmentSaveInput } from '@keiba/domain';
 
 export const assessmentDraftStoragePrefix = 'keiba:assessment:';
 export const assessmentDraftRetentionMs = 24 * 60 * 60 * 1000;
-export const operationalSessionDraftPrefixes = ['keiba:race-manager:', 'keiba:result-manager:'] as const;
+export const operationalSessionDraftPrefixes = ['keiba:race-manager:', 'keiba:result-manager:', 'keiba:prediction-editor:'] as const;
 
 type Drafts = Record<string, AssessmentSaveInput>;
 type DraftEnvelope = { version: 1; updatedAt: string; expiresAt: string; drafts: Drafts };
