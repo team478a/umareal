@@ -71,6 +71,25 @@ export const horseIdentityResolutionInputSchema = z.object({
 }).strict();
 export type HorseIdentityResolutionInput = z.infer<typeof horseIdentityResolutionInputSchema>;
 
+const horseIdentityBatchItemSchema = z.object({
+  id: z.string().uuid(),
+  expectedHorseId: z.string().uuid(),
+  expectedUpdatedAt: z.string().datetime({ offset: true })
+}).strict();
+
+export const horseIdentityDistinctBatchInputSchema = z.object({
+  raceId: z.string().uuid(),
+  identities: z.array(horseIdentityBatchItemSchema).min(1).max(18),
+  reason: z.string().trim().min(1).max(500)
+}).strict().superRefine((input, context) => {
+  const ids = new Set<string>();
+  for (const [index, identity] of input.identities.entries()) {
+    if (ids.has(identity.id)) context.addIssue({ code: 'custom', path: ['identities', index, 'id'], message: '同じIdentityが重複しています。' });
+    ids.add(identity.id);
+  }
+});
+export type HorseIdentityDistinctBatchInput = z.infer<typeof horseIdentityDistinctBatchInputSchema>;
+
 const horseIdentityReviewHorseSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1),
@@ -101,6 +120,7 @@ export const horseIdentityReviewResponseSchema = z.object({
     observedName: z.string().min(1),
     matchStatus: z.enum(['POSSIBLE_DUPLICATE', 'UNRESOLVED']),
     createdAt: z.string().datetime({ offset: true }),
+    updatedAt: z.string().datetime({ offset: true }),
     provisionalHorse: horseIdentityReviewHorseSchema,
     candidates: z.array(horseIdentityReviewHorseSchema),
     races: z.array(horseIdentityReviewRaceSchema)
@@ -118,6 +138,16 @@ export const horseIdentityResolutionResponseSchema = z.object({
   matchStatus: z.literal('MATCHED')
 }).strict();
 export type HorseIdentityResolutionResponse = z.infer<typeof horseIdentityResolutionResponseSchema>;
+
+export const horseIdentityDistinctBatchResponseSchema = z.object({
+  items: z.array(z.object({
+    id: z.string().uuid(),
+    horseId: z.string().uuid(),
+    matchStatus: z.literal('MATCHED')
+  }).strict()).min(1).max(18),
+  count: z.number().int().min(1).max(18)
+}).strict();
+export type HorseIdentityDistinctBatchResponse = z.infer<typeof horseIdentityDistinctBatchResponseSchema>;
 
 export const horseIdentityCorrectionInputSchema = z.object({
   resolvedHorseId: z.string().uuid(),

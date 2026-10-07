@@ -108,6 +108,7 @@ function HorseIdentityReview({ date, races, refreshKey }: { date: string; races:
   const [value, setValue] = useState<HorseIdentityReviewResponse | null>(null); const [page, setPage] = useState(1);
   const [reasons, setReasons] = useState<Record<string, string>>({}); const [targets, setTargets] = useState<Record<string, string>>({});
   const [commonReason, setCommonReason] = useState(''); const [raceId, setRaceId] = useState('');
+  const [selectedIds, setSelectedIds] = useState<string[]>([]); const [batchReview, setBatchReview] = useState(false);
   const [busy, setBusy] = useState(''); const [error, setError] = useState(''); const [message, setMessage] = useState('');
   const load = useCallback(async () => {
     const query = new URLSearchParams({ page: String(page), limit: '20', date });
@@ -115,7 +116,7 @@ function HorseIdentityReview({ date, races, refreshKey }: { date: string; races:
     try { setValue(await request<HorseIdentityReviewResponse>(`horse-identities/review?${query}`)); }
     catch (e) { setError((e as Error).message); }
   }, [date, page, raceId, refreshKey]);
-  useEffect(() => { setPage(1); setRaceId(''); }, [date]);
+  useEffect(() => { setPage(1); setRaceId(''); setSelectedIds([]); setBatchReview(false); }, [date]);
   useEffect(() => { void load(); }, [load]);
   async function resolve(identity: HorseIdentityReviewResponse['items'][number], decision: 'MATCH_EXISTING' | 'CONFIRM_DISTINCT') {
     const reason = reasons[identity.id]?.trim() || commonReason.trim(); const resolvedHorseId = decision === 'CONFIRM_DISTINCT' ? identity.provisionalHorse.id : targets[identity.id] ?? identity.candidates[0]?.id;
@@ -125,16 +126,35 @@ function HorseIdentityReview({ date, races, refreshKey }: { date: string; races:
     try {
       await request(`horse-identities/${identity.id}/resolve`, 'POST', { decision, resolvedHorseId, reason });
       setReasons({ ...reasons, [identity.id]: '' });
+      setSelectedIds([]); setBatchReview(false);
       setMessage(decision === 'MATCH_EXISTING' ? `${identity.observedName}を既存馬へ紐付けました。` : `${identity.observedName}を別の馬として確定しました。`);
       await load();
+    } catch (e) { setError((e as Error).message); } finally { setBusy(''); }
+  }
+  const eligible = value?.items.filter(identity => identity.candidates.length === 0) ?? [];
+  const selected = eligible.filter(identity => selectedIds.includes(identity.id));
+  function toggleIdentity(id: string) { setBatchReview(false); setSelectedIds(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]); }
+  async function confirmDistinctBatch() {
+    const reason = commonReason.trim();
+    if (!raceId) { setError('一括確定する対象レースを選択してください。'); return; }
+    if (!selected.length) { setError('一括確定する暫定馬を選択してください。'); return; }
+    if (!reason) { setError('Identityの共通確認理由を入力してください。'); return; }
+    setBusy('batch'); setError(''); setMessage('');
+    try {
+      const result = await request<{ count: number }>('horse-identities/confirm-distinct-batch', 'POST', {
+        raceId, reason, identities: selected.map(identity => ({ id: identity.id, expectedHorseId: identity.provisionalHorse.id, expectedUpdatedAt: identity.updatedAt }))
+      });
+      setSelectedIds([]); setBatchReview(false); setMessage(`${result.count}頭を別の馬として一括確定しました。`); await load();
     } catch (e) { setError((e as Error).message); } finally { setBusy(''); }
   }
   return <section className="panel"><div className="panel-heading"><div><span className="eyebrow">HORSE IDENTITY</span><h2>暫定馬の確認</h2></div><span className="status-tag">未確認 {value?.total ?? 0}件</span></div><div className="panel-body">
     <p className="muted form-note">表示中の開催日に簡易登録した馬だけを確認します。既存馬へ紐付けるか別馬として確定しても、レース出走馬・公開済み予想・結果は書き換えません。</p>
     <ErrorMessage error={error} />{message && <div className="notice" role="status">{message}</div>}
-    <div className="race-form-grid"><label className="field">対象レース<select aria-label="暫定馬を絞り込むレース" value={raceId} onChange={event => { setRaceId(event.target.value); setPage(1); }}><option value="">{date}の全レース</option>{races.map(race => <option key={race.id} value={race.id}>{race.venue} {race.number}R {race.name}</option>)}</select></label><label className="field">共通の確認理由<input aria-label="暫定馬の共通確認理由" value={commonReason} maxLength={500} onChange={event => setCommonReason(event.target.value)} placeholder="例：出馬表と同名候補を確認" /></label></div>
+    <div className="race-form-grid"><label className="field">対象レース<select aria-label="暫定馬を絞り込むレース" value={raceId} onChange={event => { setRaceId(event.target.value); setPage(1); setSelectedIds([]); setBatchReview(false); }}><option value="">{date}の全レース</option>{races.map(race => <option key={race.id} value={race.id}>{race.venue} {race.number}R {race.name}</option>)}</select></label><label className="field">共通の確認理由<input aria-label="暫定馬の共通確認理由" value={commonReason} maxLength={500} onChange={event => setCommonReason(event.target.value)} placeholder="例：出馬表と同名候補を確認" /></label></div>
     <p className="muted form-note">共通理由は各馬の理由が空欄の場合に使用します。個別の事情がある馬だけ理由を上書きしてください。</p>
-    {value?.items.length ? value.items.map(identity => <div className="identity-review-item" key={identity.id}><h3>{identity.observedName}</h3><p>{identity.races.map(race => `${race.venue} ${race.number}R ${race.entryNumber}番`).join('、')} · 使用レース {identity.provisionalHorse.entryCount}件</p>
+    {raceId && eligible.length > 0 && <div className="identity-batch-review"><div className="button-row"><button className="button secondary small" disabled={busy === 'batch'} onClick={() => { setSelectedIds(eligible.map(identity => identity.id)); setBatchReview(false); }}>候補なしをすべて選択</button><button className="button secondary small" disabled={!selected.length || busy === 'batch'} onClick={() => { setBatchReview(true); setError(''); }}>選択内容を確認（{selected.length}頭）</button></div><p className="muted form-note">同名の既存馬候補がない馬だけを選択できます。候補がある馬は個別確認が必要です。</p></div>}
+    {batchReview && selected.length > 0 && <div className="preview-card"><h3>別馬として一括確定する内容</h3><ul>{selected.map(identity => <li key={identity.id}>{identity.races.map(race => `${race.venue} ${race.number}R ${race.entryNumber}番`).join('、')} · {identity.observedName}</li>)}</ul><p>確認理由: {commonReason.trim() || '未入力'}</p><div className="notice warning">同名候補が新たに見つかった場合や、別の操作で状態が変わった場合は全件を反映せず再確認します。</div><button className="button" disabled={busy === 'batch' || !commonReason.trim()} onClick={() => void confirmDistinctBatch()}>{busy === 'batch' ? '確定中…' : `確認した${selected.length}頭を別馬として一括確定`}</button></div>}
+    {value?.items.length ? value.items.map(identity => <div className="identity-review-item" key={identity.id}>{raceId && identity.candidates.length === 0 && <label className="check-row"><input type="checkbox" aria-label={`${identity.observedName}を一括確定対象にする`} checked={selectedIds.includes(identity.id)} disabled={busy === 'batch'} onChange={() => toggleIdentity(identity.id)} /><span>一括確定対象</span></label>}<h3>{identity.observedName}</h3><p>{identity.races.map(race => `${race.venue} ${race.number}R ${race.entryNumber}番`).join('、')} · 使用レース {identity.provisionalHorse.entryCount}件</p>
       {identity.candidates.length > 0 ? <label className="field">同名の既存馬<select aria-label={`${identity.observedName}の紐付け先`} value={targets[identity.id] ?? identity.candidates[0].id} onChange={event => setTargets({ ...targets, [identity.id]: event.target.value })}>{identity.candidates.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.name} · 使用レース{candidate.entryCount}件 · {candidate.id}</option>)}</select></label> : <p className="muted form-note">同名の既存馬候補はありません。</p>}
       <label className="field">個別の確認理由（任意）<input aria-label={`${identity.observedName}のIdentity確認理由`} value={reasons[identity.id] ?? ''} maxLength={500} onChange={event => setReasons({ ...reasons, [identity.id]: event.target.value })} placeholder={commonReason || '共通理由または個別理由を入力'} /></label>
       <div className="button-row">{identity.candidates.length > 0 && <button className="button" disabled={busy === identity.id} onClick={() => void resolve(identity, 'MATCH_EXISTING')}>既存馬へ紐付け</button>}<button className="button secondary" disabled={busy === identity.id} onClick={() => void resolve(identity, 'CONFIRM_DISTINCT')}>別の馬として確定</button></div>

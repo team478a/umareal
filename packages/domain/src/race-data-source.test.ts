@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { horseIdentityCorrectionInputSchema, horseIdentityResolutionInputSchema, horseIdentityReviewQuerySchema, manualEntryBatchInputSchema, manualEntryInputSchema, parseQuickManualEntryList, raceOperationHistoryResponseSchema, resolveRaceDataMode } from './race-data-source';
+import { horseIdentityCorrectionInputSchema, horseIdentityDistinctBatchInputSchema, horseIdentityResolutionInputSchema, horseIdentityReviewQuerySchema, manualEntryBatchInputSchema, manualEntryInputSchema, parseQuickManualEntryList, raceOperationHistoryResponseSchema, resolveRaceDataMode } from './race-data-source';
 
 describe('race data mode', () => {
   it('uses manual operation when no external provider is configured', () => {
@@ -25,6 +25,15 @@ describe('race data mode', () => {
     expect(horseIdentityResolutionInputSchema.parse({ decision: 'MATCH_EXISTING', resolvedHorseId: '10000000-0000-4000-8000-000000000001', reason: '同一馬と確認' })).toMatchObject({ decision: 'MATCH_EXISTING' });
     expect(horseIdentityResolutionInputSchema.safeParse({ decision: 'MATCH_EXISTING', resolvedHorseId: '10000000-0000-4000-8000-000000000001', reason: '' }).success).toBe(false);
     expect(horseIdentityResolutionInputSchema.safeParse({ decision: 'AUTO_MERGE', resolvedHorseId: '10000000-0000-4000-8000-000000000001', reason: '自動' }).success).toBe(false);
+  });
+
+  it('limits reviewed distinct-horse batches to one race and 18 unique identities', () => {
+    const item = { id: '10000000-0000-4000-8000-000000000001', expectedHorseId: '10000000-0000-4000-8000-000000000002', expectedUpdatedAt: '2026-10-07T01:00:00.000Z' };
+    const input = { raceId: '10000000-0000-4000-8000-000000000003', identities: [item], reason: '同名候補がないことを出馬表で確認' };
+    expect(horseIdentityDistinctBatchInputSchema.parse(input)).toEqual(input);
+    expect(horseIdentityDistinctBatchInputSchema.safeParse({ ...input, identities: [item, item] }).success).toBe(false);
+    expect(horseIdentityDistinctBatchInputSchema.safeParse({ ...input, identities: [] }).success).toBe(false);
+    expect(horseIdentityDistinctBatchInputSchema.safeParse({ ...input, identities: Array.from({ length: 19 }, (_, index) => ({ ...item, id: `10000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}` })) }).success).toBe(false);
   });
 
   it('validates optional date and race filters for the identity review queue', () => {
