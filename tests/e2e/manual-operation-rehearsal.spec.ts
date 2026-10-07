@@ -208,11 +208,14 @@ test('JRA-VAN未接続で1開催日の主要運用を管理画面から完走す
     await page.goto('/admin/results');
     await page.getByRole('button').filter({ hasText: raceName }).click();
     await page.getByLabel('結果一括入力').fill(horseNames.map((_, index) => `${index + 1},${index + 1},${index + 1},${index + 2}`).join('\n'));
+    const resultDraftKey = `keiba:result-manager:${admin.fixture.user.id}:quick-result:${race.id}`;
+    await expect.poll(() => page.evaluate(key => sessionStorage.getItem(key), resultDraftKey)).not.toBeNull();
     await page.getByRole('button', { name: '入力内容を確認' }).click();
     await expect(page.getByRole('heading', { name: '下書き反映前の確認', exact: true }).first()).toBeVisible();
     await page.getByLabel('結果一括入力の理由').fill('公式結果を目視確認して一括入力');
     await page.getByRole('button', { name: '確認した結果を下書きへ反映' }).click();
     await expect(page.getByRole('status')).toContainText('結果を下書き版1へ反映しました。');
+    expect(await page.evaluate(key => sessionStorage.getItem(key), resultDraftKey)).toBeNull();
     for (let number = 1; number <= 6; number++) await expect(page.getByLabel(`${number}番の着順`)).toHaveValue(String(number));
     await page.getByRole('button', { name: '結果を確定' }).click();
     await expect(page.getByRole('status')).toContainText('確定結果版1と公開版別の馬評価結果を保存しました。');
