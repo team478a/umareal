@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
 import { account, Client, db } from './helpers';
-import { entryHeaders, expertRaceListResponseSchema, raceHeaders } from '../packages/domain/src/races';
+import { entryHeaders, expertRaceListResponseSchema, raceExpertListResponseSchema, raceHeaders } from '../packages/domain/src/races';
 const admin = new Client(); let expert: Awaited<ReturnType<typeof account>>; let expertClient: Client;
 let day = `2098-${String(Math.floor(Math.random() * 12) + 1).padStart(2, '0')}-${String(Math.floor(Math.random() * 28) + 1).padStart(2, '0')}`;
 const raceInput = (number: number) => ({ raceDate: day, venue: '東京', number, name: `CSV試験-${randomUUID().slice(0, 6)}`, raceClass: '未勝利', distance: 1600, surface: 'TURF', direction: 'LEFT', startsAt: `${day}T10:00:00+09:00`, going: 'GOOD', weather: '晴', status: 'SCHEDULED', expertId: expert.user.id });
@@ -38,6 +38,11 @@ afterAll(() => db.$disconnect());
 describe('race management and transactional CSV imports', () => {
   let raceId: string;
   it('creates a day/race idempotently, assigns expert and refuses expert writes', async () => {
+    const expertSearch = await admin.call(`admin/race-experts?limit=50&search=${encodeURIComponent(expert.user.displayName)}`);
+    expect(expertSearch.status).toBe(200);
+    const expertSearchBody = raceExpertListResponseSchema.parse(expertSearch.body);
+    expect(expertSearchBody.search).toBe(expert.user.displayName);
+    expect(expertSearchBody.items).toContainEqual({ id: expert.user.id, displayName: expert.user.displayName });
     const dayResponse = await admin.call('admin/race-days', 'POST', { day: { raceDate: day, venue: '東京' }, reason: '開催日試験' }, undefined, headers());
     expect([201, 409]).toContain(dayResponse.status);
     const body = { race: raceInput(1), reason: 'レース作成試験' }; const key = headers();

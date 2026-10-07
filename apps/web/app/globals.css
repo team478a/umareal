@@ -610,6 +610,8 @@ td { padding:17px 24px; border-top:1px solid var(--line); }
 .field select,.field textarea { display:block; width:100%; min-height:48px; margin-top:8px; padding:10px 12px; border:1px solid #bdcbc6; border-radius:5px; background:white; color:var(--ink); font:inherit; font-weight:400; }
 .field textarea { font-family:monospace; font-size:14px; resize:vertical; white-space:pre; }
 .field-action { display:flex; align-items:center; }
+.field-search-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; align-items:stretch; }
+.field-search-row .button { min-height:44px; }
 .day-list { display:flex; flex-wrap:wrap; gap:10px; padding:0 26px 20px; }
 .day-chip { background:white; border:1px solid var(--line); border-radius:5px; padding:10px 14px; min-height:44px; text-align:left; font-size:14px; }
 .day-chip small { display:block; color:var(--muted); }

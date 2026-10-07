@@ -1,7 +1,8 @@
-import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Req, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req, UnauthorizedException } from '@nestjs/common';
 import {
   aiRaceGuideAdminResponseSchema,
   aiRaceGuideAdminRaceListResponseSchema,
+  aiRaceGuideAdminRaceListQuerySchema,
   aiRaceGuideApprovalSchema,
   aiRaceGuideDataCoverageResponseSchema,
   aiRaceGuideGenerationRequestSchema,
@@ -179,10 +180,22 @@ export class AiRaceGuideController {
   }
 
   @Get('admin/ai-guide/races')
-  async adminRaces(@Req() req: AppRequest) {
+  async adminRaces(@Req() req: AppRequest, @Query() query: unknown) {
     this.ensureVisible(); await this.admin(req);
-    const items = await this.auth.db.race.findMany({ orderBy: [{ raceDate: 'desc' }, { venue: 'asc' }, { number: 'asc' }], take: 500, select: { id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true, status: true } });
-    return aiRaceGuideAdminRaceListResponseSchema.parse({ items: items.map(item => ({ ...item, startsAt: item.startsAt.toISOString() })) });
+    const { page, limit, date, venue, keyword } = aiRaceGuideAdminRaceListQuerySchema.parse(query);
+    const where: Prisma.RaceWhereInput = {
+      ...(date ? { raceDate: date } : {}),
+      ...(venue ? { venue } : {}),
+      ...(keyword ? { name: { contains: keyword, mode: 'insensitive' } } : {})
+    };
+    const [items, total] = await this.auth.db.$transaction([
+      this.auth.db.race.findMany({ where, orderBy: [{ raceDate: 'desc' }, { venue: 'asc' }, { number: 'asc' }], skip: (page - 1) * limit, take: limit, select: { id: true, raceDate: true, venue: true, number: true, name: true, startsAt: true, status: true } }),
+      this.auth.db.race.count({ where })
+    ]);
+    return aiRaceGuideAdminRaceListResponseSchema.parse({
+      items: items.map(item => ({ ...item, startsAt: item.startsAt.toISOString() })), total, page, limit,
+      filters: { date: date ?? null, venue: venue ?? null, keyword: keyword ?? null }
+    });
   }
 
   @Get('admin/races/:raceId/ai-guide/data-coverage')

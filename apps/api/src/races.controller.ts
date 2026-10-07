@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req } from '@nestjs/common';
-import { canManage, CsvRaceDataProvider, dateSchema, entryInputSchema, horseIdentityCorrectionInputSchema, horseIdentityCorrectionResponseSchema, horseIdentityHistoryResponseSchema, horseIdentityResolutionInputSchema, horseIdentityResolutionResponseSchema, horseIdentityReviewQuerySchema, horseIdentityReviewResponseSchema, jraVanBundleFormatVersion, jstDate, manualEntryInputSchema, parseJraVanRaceBundle, raceDataModeLabels, raceDaySchema, raceInputSchema, raceOperationHistoryResponseSchema, requiresMfa, resolveRaceDataMode, venues } from '@keiba/domain';
+import { canManage, CsvRaceDataProvider, dateSchema, entryInputSchema, horseIdentityCorrectionInputSchema, horseIdentityCorrectionResponseSchema, horseIdentityHistoryResponseSchema, horseIdentityResolutionInputSchema, horseIdentityResolutionResponseSchema, horseIdentityReviewQuerySchema, horseIdentityReviewResponseSchema, jraVanBundleFormatVersion, jstDate, manualEntryInputSchema, parseJraVanRaceBundle, raceDataModeLabels, raceDaySchema, raceExpertListQuerySchema, raceExpertListResponseSchema, raceInputSchema, raceOperationHistoryResponseSchema, requiresMfa, resolveRaceDataMode, venues } from '@keiba/domain';
 import type { EntryInput, ImportKind, RaceInput } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -19,7 +19,7 @@ const bundleStoredSchema = z.object({
   races: z.array(raceInputSchema).min(1).max(36),
   entryGroups: z.array(z.object({ path: z.string().min(1).max(160), raceDate: dateSchema, venue: z.enum(venues), number: z.number().int().min(1).max(12), entries: z.array(entryInputSchema).min(1).max(18) }).strict()).min(1).max(36)
 }).strict();
-const fullRace = { entries: { orderBy: { number: 'asc' as const } }, assignments: { orderBy: { userId: 'asc' as const } } };
+const fullRace = { entries: { orderBy: { number: 'asc' as const } }, assignments: { orderBy: { userId: 'asc' as const }, include: { user: { select: { displayName: true } } } } };
 type Tx = Prisma.TransactionClient;
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 type Rows = { races: RaceInput[]; entries: EntryInput[] };
@@ -192,11 +192,11 @@ export class RacesController {
     });
   }
   @Get('race-experts') async experts(@Req() req: AppRequest, @Query() query: unknown) {
-    await this.staff(req); const { page, limit } = pageSchema.parse(query);
-    const where = { role: 'EXPERT' as const, disabledAt: null };
+    await this.staff(req); const { page, limit, search } = raceExpertListQuerySchema.parse(query);
+    const where: Prisma.UserWhereInput = { role: 'EXPERT', disabledAt: null, ...(search ? { displayName: { contains: search, mode: 'insensitive' } } : {}) };
     const [items, total] = await this.auth.db.$transaction([
-      this.auth.db.user.findMany({ where, select: { id: true, displayName: true }, orderBy: { id: 'asc' }, skip: (page - 1) * limit, take: limit }), this.auth.db.user.count({ where })
-    ]); return { items, total, page, limit };
+      this.auth.db.user.findMany({ where, select: { id: true, displayName: true }, orderBy: [{ displayName: 'asc' }, { createdAt: 'desc' }, { id: 'asc' }], skip: (page - 1) * limit, take: limit }), this.auth.db.user.count({ where })
+    ]); return raceExpertListResponseSchema.parse({ items, total, page, limit, search: search ?? null });
   }
   @Get('races') async races(@Req() req: AppRequest, @Query() query: unknown) {
     await this.staff(req); const { page, limit, date } = pageSchema.extend({ date: dateSchema.default(jstDate(new Date())) }).parse(query);

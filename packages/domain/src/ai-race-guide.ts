@@ -361,8 +361,21 @@ export const aiRaceGuideAdminResponseSchema = z.object({
 }).strict();
 export type AiRaceGuideAdminResponse = z.infer<typeof aiRaceGuideAdminResponseSchema>;
 
+export const aiRaceGuideAdminRaceListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).max(10000).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  date: dateSchema.optional(),
+  venue: z.string().trim().min(1).max(60).optional(),
+  keyword: z.string().trim().min(1).max(80).optional()
+}).strict();
+export type AiRaceGuideAdminRaceListQuery = z.infer<typeof aiRaceGuideAdminRaceListQuerySchema>;
+
 export const aiRaceGuideAdminRaceListResponseSchema = z.object({
-  items: z.array(z.object({ id: z.string().uuid(), raceDate: dateSchema, venue: z.string(), number: z.number().int().positive(), name: z.string(), startsAt: dateTime, status: z.string() }).strict()).max(500)
+  items: z.array(z.object({ id: z.string().uuid(), raceDate: dateSchema, venue: z.string(), number: z.number().int().positive(), name: z.string(), startsAt: dateTime, status: z.string() }).strict()).max(100),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  limit: z.number().int().min(1).max(100),
+  filters: z.object({ date: dateSchema.nullable(), venue: z.string().nullable(), keyword: z.string().nullable() }).strict()
 }).strict();
 export type AiRaceGuideAdminRaceListResponse = z.infer<typeof aiRaceGuideAdminRaceListResponseSchema>;
 

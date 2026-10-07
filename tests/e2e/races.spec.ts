@@ -6,6 +6,7 @@ test.afterAll(() => db.$disconnect());
 test('register a race, import entries with preview, and see it as the assigned expert', async ({ page }, testInfo) => {
   if (process.env.AUTH_PROVIDER !== 'local' || !['localhost', '127.0.0.1'].includes(new URL(process.env.DATABASE_URL ?? '').hostname)) throw new Error('Local database required');
   const admin = await account('ADMIN'); const expert = await account('EXPERT');
+  expert.user = await db.user.update({ where: { id: expert.user.id }, data: { displayName: `画面検証担当-${randomUUID().slice(0, 8)}` } });
   let day = `2097-01-${String(Math.floor(Math.random() * 25) + 1).padStart(2, '0')}`;
   while (await db.race.count({ where: { raceDate: day, venue: '東京' } })) day = new Date(new Date(`${day}T00:00:00Z`).getTime() + 86400000).toISOString().slice(0, 10);
   const client = new Client(); await client.login(admin); await client.mfa();
@@ -21,6 +22,9 @@ test('register a race, import entries with preview, and see it as the assigned e
   const name = `画面検証レース-${randomUUID().slice(0, 6)}`;
   await form.getByLabel('レース名', { exact: true }).fill(name);
   await form.getByLabel('クラス', { exact: true }).fill('3歳未勝利');
+  await form.getByLabel('予想担当者名', { exact: true }).fill(expert.user.displayName);
+  await form.getByRole('button', { name: '検索', exact: true }).click();
+  await expect(form.getByText('1件見つかりました', { exact: true })).toBeVisible();
   await form.getByLabel('予想担当', { exact: true }).selectOption(expert.user.id);
   await form.getByLabel('レースの登録・変更理由', { exact: true }).fill('ブラウザ試験の作成');
   await form.getByRole('button', { name: 'レースを保存' }).click();

@@ -31,6 +31,23 @@ export const entryInputSchema = z.object({
 export type RaceInput = z.infer<typeof raceInputSchema>;
 export type EntryInput = z.infer<typeof entryInputSchema>;
 
+export const raceExpertListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).max(10000).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  search: z.string().trim().min(1).max(80).optional()
+}).strict();
+
+export const raceExpertListResponseSchema = z.object({
+  items: z.array(z.object({ id: z.string().uuid(), displayName: z.string().min(1).max(60) }).strict()).max(50),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  limit: z.number().int().min(1).max(50),
+  search: z.string().nullable()
+}).strict();
+
+export type RaceExpertListQuery = z.infer<typeof raceExpertListQuerySchema>;
+export type RaceExpertListResponse = z.infer<typeof raceExpertListResponseSchema>;
+
 export const publicRaceListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).max(10000).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(20),

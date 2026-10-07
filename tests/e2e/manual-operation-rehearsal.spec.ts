@@ -55,6 +55,7 @@ test('JRA-VAN未接続で1開催日の主要運用を管理画面から完走す
   await useSession(context, admin.client);
 
   const suffix = randomUUID().slice(0, 8);
+  expert.fixture.user = await db.user.update({ where: { id: expert.fixture.user.id }, data: { displayName: `リハーサル担当-${suffix}` } });
   const rehearsalVenues = ['札幌', '函館', '福島', '新潟', '東京', '中山', '中京', '京都', '阪神', '小倉'];
   const rehearsalDays = Array.from({ length: 31 }, (_, index) => `9999-12-${String(31 - index).padStart(2, '0')}`);
   let slot: { day: string; venue: string } | undefined;
@@ -93,6 +94,8 @@ test('JRA-VAN未接続で1開催日の主要運用を管理画面から完走す
     await raceForm.getByLabel('レース名', { exact: true }).fill(raceName);
     await raceForm.getByLabel('クラス', { exact: true }).fill('3歳以上1勝クラス');
     await raceForm.getByLabel('距離（m）', { exact: true }).fill('1600');
+    await raceForm.getByLabel('予想担当者名', { exact: true }).fill(expert.fixture.user.displayName);
+    await raceForm.getByRole('button', { name: '検索', exact: true }).click();
     await raceForm.getByLabel('予想担当', { exact: true }).selectOption(expert.fixture.user.id);
     await raceForm.getByLabel('レースの登録・変更理由', { exact: true }).fill('実運用リハーサル対象レース');
     await raceForm.getByRole('button', { name: 'レースを保存' }).click();
@@ -177,6 +180,9 @@ test('JRA-VAN未接続で1開催日の主要運用を管理画面から完走す
     await useSession(context, admin.client);
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/admin/ai-race-guides');
+    await page.getByLabel('AIガイドの開催日').fill(race.raceDate);
+    await page.getByLabel('AIガイドのレース名').fill(race.name);
+    await page.getByRole('button', { name: 'レースを検索' }).click();
     await page.getByLabel('対象レース').selectOption(race.id);
     await expect(page.getByText(`transport ${guideTransport}`, { exact: true })).toBeVisible();
     await page.getByLabel('操作理由').fill('未接続運用Basic Guide確認');
