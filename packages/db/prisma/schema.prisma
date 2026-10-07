@@ -1826,6 +1826,8 @@ model SystemSetting {
   founderSalesLimit               Int      @default(100)
   billingGraceDays                Int      @default(0)
   contentAccessPolicy             Json     @default("{\"monthly\":{\"paddock\":true,\"win5\":true,\"racePaper\":true,\"content\":true,\"aiRaceGuide\":true},\"dayPass\":{\"paddock\":true,\"win5\":true,\"racePaper\":true,\"content\":false,\"aiRaceGuide\":true},\"manual\":{\"paddock\":true,\"win5\":true,\"racePaper\":true,\"content\":true,\"aiRaceGuide\":true}}")
+  freePredictionTrialEnabled      Boolean  @default(false)
+  freePredictionTrialEndsAt       DateTime? @db.Timestamptz(3)
   maintenanceMessage              String   @default("")
   notificationMaxAttempts         Int      @default(5)
   notificationBaseDelaySeconds    Int      @default(30)

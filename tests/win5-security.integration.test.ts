@@ -121,8 +121,8 @@ describe('WIN5 security boundaries', () => {
     const expiredMember = await assessmentFixture('MEMBER', 1);
     const paidMember = await assessmentFixture('MEMBER', 1);
     const target = await readyProduct(publisher.owner.user.id);
-    const settings = await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { predictionPublicationEnabled: true, contentAccessPolicy: true } });
-    await db.systemSetting.update({ where: { id: 'global' }, data: { predictionPublicationEnabled: true, contentAccessPolicy: defaultContentAccessPolicy } });
+    const settings = await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { predictionPublicationEnabled: true, contentAccessPolicy: true, freePredictionTrialEnabled: true, freePredictionTrialEndsAt: true } });
+    await db.systemSetting.update({ where: { id: 'global' }, data: { predictionPublicationEnabled: true, contentAccessPolicy: defaultContentAccessPolicy, freePredictionTrialEnabled: false, freePredictionTrialEndsAt: null } });
     try {
       const checked = await publisher.client.call(`admin/win5/${target.product.id}/preview`, 'POST', { productRevision: target.product.revision, correctionReason: '' });
       const published = await publisher.client.call(`admin/win5/${target.product.id}/publish/${checked.body.previewId}`, 'POST');
@@ -139,6 +139,13 @@ describe('WIN5 security boundaries', () => {
         expect(publicWin5DetailResponseSchema.parse(response.body).access).toBe('METADATA');
         expect(JSON.stringify(response.body)).not.toMatch(/非公開のWIN5全体総評|非公開の評価馬|非公開の展開見解|非公開の短評|非公開の選定理由|contentSnapshot|evaluations|horseName|summary/);
       }
+      await db.systemSetting.update({ where: { id: 'global' }, data: { freePredictionTrialEnabled: true, freePredictionTrialEndsAt: new Date(Date.now() + 3600000) } });
+      expect(publicWin5DetailResponseSchema.parse((await new Client().call(`win5/${target.product.id}`)).body).access).toBe('METADATA');
+      const freeDuringTrial = publicWin5DetailResponseSchema.parse((await freeMember.client.call(`win5/${target.product.id}`)).body);
+      expect(freeDuringTrial.access).toBe('FULL');
+      expect(JSON.stringify(freeDuringTrial)).toMatch(/非公開のWIN5全体総評|非公開の評価馬1/);
+      await db.systemSetting.update({ where: { id: 'global' }, data: { freePredictionTrialEndsAt: new Date(Date.now() - 1000) } });
+      expect(publicWin5DetailResponseSchema.parse((await freeMember.client.call(`win5/${target.product.id}`)).body).access).toBe('METADATA');
       const list = await new Client().call(`win5?targetDate=${target.targetDate}`);
       expect(publicWin5ListResponseSchema.parse(list.body).total).toBe(1);
       expect(JSON.stringify(list.body)).not.toMatch(/非公開のWIN5全体総評|非公開の評価馬|contentSnapshot|evaluations|horseName|summary/);

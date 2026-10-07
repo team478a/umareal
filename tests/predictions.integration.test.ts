@@ -118,6 +118,27 @@ describe('prediction drafts, publication and immutable versions', () => {
     const anonymousFreeFirst = await new Client().call(`races/${freeFirst.race.id}/prediction`);
     expect(anonymousFreeFirst.body.latest.locked).toBe(true); expect(anonymousFreeFirst.body.latest.summary).toBeUndefined(); expect(anonymousFreeFirst.body.versions[0].locked).toBe(true); expect(anonymousFreeFirst.body.versions[1].locked).toBe(true); expect(anonymousFreeFirst.body.versions[1].summary).toBeUndefined();
   });
+  it('temporarily returns full paddock content to registered free members only', async () => {
+    const fixture = await assessmentFixture();
+    const member = await assessmentFixture('MEMBER');
+    const saved = await save(fixture, draftFor(fixture.entries[0].id, 'FREE'));
+    const checked = await preview(fixture, saved.result.body.revision);
+    await fixture.client.call(`expert/races/${fixture.race.id}/prediction/publish/${checked.body.previewId}`, 'POST');
+    const settings = await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { freePredictionTrialEnabled: true, freePredictionTrialEndsAt: true } });
+    try {
+      await db.systemSetting.update({ where: { id: 'global' }, data: { freePredictionTrialEnabled: true, freePredictionTrialEndsAt: new Date(Date.now() + 3600000) } });
+      const anonymous = publicPredictionResponseSchema.parse((await new Client().call(`races/${fixture.race.id}/prediction`)).body);
+      expect(anonymous).toMatchObject({ locked: true, latest: { locked: true } });
+      expect(JSON.stringify(anonymous)).not.toContain('結合試験の最終見解');
+      const duringTrial = publicPredictionResponseSchema.parse((await member.client.call(`races/${fixture.race.id}/prediction`)).body);
+      expect(duringTrial).toMatchObject({ locked: false, latest: { locked: false, summary: '結合試験の最終見解' } });
+      await db.systemSetting.update({ where: { id: 'global' }, data: { freePredictionTrialEndsAt: new Date(Date.now() - 1000) } });
+      const expired = publicPredictionResponseSchema.parse((await member.client.call(`races/${fixture.race.id}/prediction`)).body);
+      expect(expired).toMatchObject({ locked: true, latest: { locked: true } });
+    } finally {
+      await db.systemSetting.update({ where: { id: 'global' }, data: settings });
+    }
+  });
   it('rejects stale previews and enforces the deadline inside PostgreSQL', async () => {
     const fixture = await assessmentFixture(); const saved = await save(fixture); const checked = await preview(fixture, saved.result.body.revision);
     await db.race.update({ where: { id: fixture.race.id }, data: { weather: '変更', revision: { increment: 1 } } });

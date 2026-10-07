@@ -19,6 +19,33 @@ export const contentAccessPolicySchema = z.object({
 
 export type ContentAccessPolicy = z.infer<typeof contentAccessPolicySchema>;
 
+const freePredictionTrialSettingsBaseSchema = z.object({
+  enabled: z.boolean(),
+  endsAt: z.string().datetime({ offset: true }).nullable()
+}).strict();
+
+export const freePredictionTrialSettingsSchema = freePredictionTrialSettingsBaseSchema.superRefine((value, context) => {
+  if (value.enabled && !value.endsAt) context.addIssue({ code: 'custom', path: ['endsAt'], message: '無料全文公開を有効にする場合は終了日時が必要です。' });
+  if (!value.enabled && value.endsAt) context.addIssue({ code: 'custom', path: ['endsAt'], message: '無料全文公開を無効にする場合は終了日時を空にしてください。' });
+});
+
+export const freePredictionTrialResponseSchema = freePredictionTrialSettingsBaseSchema.extend({
+  active: z.boolean(),
+  contentKinds: z.tuple([z.literal('WIN5'), z.literal('PADDOCK')])
+}).strict();
+
+export type FreePredictionTrialSettings = z.infer<typeof freePredictionTrialSettingsSchema>;
+
+export function canUseFreePredictionTrial(input: {
+  now: Date;
+  registeredMember: boolean;
+  contentKind: PaidContentKind;
+  enabled: boolean;
+  endsAt: Date | null;
+}) {
+  return input.registeredMember && input.enabled && !!input.endsAt && input.now < input.endsAt && ['WIN5', 'PADDOCK'].includes(input.contentKind);
+}
+
 export const defaultContentAccessPolicy: ContentAccessPolicy = {
   monthly: { paddock: true, win5: true, racePaper: true, content: true, aiRaceGuide: true },
   dayPass: { paddock: true, win5: true, racePaper: true, content: false, aiRaceGuide: true },

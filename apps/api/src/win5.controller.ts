@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Put, Query, Req, UnauthorizedException } from '@nestjs/common';
-import { aggregateWin5Evaluations, canReadPrediction, parseContentAccessPolicy, publicWin5DetailResponseSchema, publicWin5ListResponseSchema, publicWin5PerformanceResponseSchema, win5LegUpdateSchema, win5PreviewSchema, win5ProductCreateSchema, win5ProductUpdateSchema } from '@keiba/domain';
+import { aggregateWin5Evaluations, canReadPrediction, canUseFreePredictionTrial, parseContentAccessPolicy, publicWin5DetailResponseSchema, publicWin5ListResponseSchema, publicWin5PerformanceResponseSchema, win5LegUpdateSchema, win5PreviewSchema, win5ProductCreateSchema, win5ProductUpdateSchema } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -197,9 +197,10 @@ export class Win5Controller {
     const staffAccess = !!identity && identity.aal === 2 && (['ADMIN', 'OPERATOR'].includes(identity.role) || (identity.role === 'EXPERT' && product.expertId === identity.id));
     const [entitlements, settings] = await Promise.all([
       identity?.role === 'MEMBER' ? this.auth.db.entitlement.findMany({ where: { userId: identity.id } }) : Promise.resolve([]),
-      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { contentAccessPolicy: true } })
+      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { contentAccessPolicy: true, freePredictionTrialEnabled: true, freePredictionTrialEndsAt: true } })
     ]);
-    const fullAccess = staffAccess || canReadPrediction({ now, publishedAt: versions[0]?.publishedAt ?? null, visibility: 'PAID', raceDate: product.targetDate, entitlements, contentKind: 'WIN5', contentAccessPolicy: parseContentAccessPolicy(settings.contentAccessPolicy) });
+    const trialAccess = canUseFreePredictionTrial({ now, registeredMember: identity?.role === 'MEMBER', contentKind: 'WIN5', enabled: settings.freePredictionTrialEnabled, endsAt: settings.freePredictionTrialEndsAt });
+    const fullAccess = staffAccess || trialAccess || canReadPrediction({ now, publishedAt: versions[0]?.publishedAt ?? null, visibility: 'PAID', raceDate: product.targetDate, entitlements, contentKind: 'WIN5', contentAccessPolicy: parseContentAccessPolicy(settings.contentAccessPolicy) });
     const selectedNumber = input.version ?? versions[0]?.version;
     if (input.version && !versions.some(version => version.version === input.version)) throw new NotFoundException();
     if (!fullAccess || !selectedNumber) return publicWin5DetailResponseSchema.parse({ access: 'METADATA', product: safeProduct, version: null, versions, locked: !!versions.length });

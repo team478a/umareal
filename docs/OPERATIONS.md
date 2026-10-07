@@ -107,6 +107,8 @@ Phase 3Bは外部LINEへ接続せずtest transportで配送状態を検証する
 
 `NOTIFICATION_TRANSPORT=line` でワーカーは管理画面に暗号化保存したChannel access tokenを読み、固定のLINE push APIへ送信する。資格情報や送信先を標準出力へ出さない。`test` はローカル検証専用である。`LAUNCH_MODE=FREE_REGISTRATION` の本番では`LINE_OAUTH_TRANSPORT=line`でLINE登録・ログインと無料会員へのLINE通知を提供できる。通知用`NOTIFICATION_TRANSPORT`はAPI・workerともに`disabled`または`line`を許可する。初期値`disabled`ではLINE配送を展開せず、予約公開とメール配送を処理する。`line`と管理スイッチで配信を有効にしてもStripe購入は停止したままとする。手順は`docs/PHASE6N_FREE_REGISTRATION_LAUNCH.md`を参照する。`FULL` の本番は通知transportも`line`を必須にする。ライブ切替前に通知キューと対象会員を確認し、意図しない一斉送信がない時間帯に行う。
 
+テスト期間に無料会員へWIN5紙面とパドック直前予想の全文を提供する場合は、ADMIN+AAL2で`/admin/settings`の「無料会員向け予想全文テスト」を有効にし、現在より後かつ31日以内の終了日時（JST）と変更理由を保存する。配信対象を無料会員へ広げるため、各WIN5・パドック公開時の公開範囲は「無料会員向け（テスト設定中は全文）」を選ぶ。匿名利用者には全文を返さず、期限を過ぎると登録済み無料会員も通常のロック表示へ戻る。終了後は設定を停止し、監査ログの`SYSTEM_SETTINGS_UPDATE`と通知履歴を確認する。
+
 メール公開通知は `MAIL_TRANSPORT=resend` で有効にする。初回起動はAPIとworkerに同じ `RESEND_API_KEY` と `MAIL_FROM`、APIに`RESEND_WEBHOOK_SECRET`を設定し、初回管理者の準備後は `/admin/settings` から3項目を暗号化保存できる。管理設定が一項目でもあれば環境変数と混在させず、APIの認証メールとworkerの公開通知が同じ設定を使用する。workerは確認済みメール、本人のメール全体・カテゴリ設定、配信拒否状態、有料公開の権限を送信直前にも確認する。管理画面の「メール通知」は緊急停止であり、停止中に作られた新規eventは再開後に処理される。初回有効化前に `/admin/notifications?channel=EMAIL` で対象件数を確認する。既存eventはPhase 6P移行時に展開済みとなり、過去分は送信されない。
 
 ResendでWebhook URLを`https://<公開ドメイン>/api/v1/webhooks/resend`に設定し、`email.bounced`、`email.complained`、`email.suppressed`、`email.failed`、`email.delivery_delayed`を購読する。署名検証後、前3種は照合した会員の公開通知メールを自動停止する。`email.failed`と遅延は送信者設定・上限・一時障害の可能性があるため会員を停止せず、`/admin/incidents`と`/admin/notifications`で確認する。Webhookは重複し得るため`svix-id`で冪等化し、配信順序に依存した自動解除は行わない。本人が受信可能な状態にしたことを確認後、AAL2管理者が理由付きで停止を解除する。解除時も本人の通知設定は無効のままとし、本人が明示的に再開する。
