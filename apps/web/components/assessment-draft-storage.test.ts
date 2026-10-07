@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { blankAssessment } from '@keiba/domain';
-import { assessmentDraftRetentionMs, clearAssessmentDraftStorage, readAssessmentDrafts, writeAssessmentDrafts } from './assessment-draft-storage';
+import { assessmentDraftRetentionMs, clearAssessmentDraftStorage, clearStorageByPrefixes, operationalSessionDraftPrefixes, readAssessmentDrafts, writeAssessmentDrafts } from './assessment-draft-storage';
 
 class MemoryStorage implements Storage {
   private readonly values = new Map<string, string>();
@@ -46,6 +46,16 @@ describe('assessment draft storage', () => {
     const storage = new MemoryStorage();
     storage.setItem('keiba:assessment:user:race', '{}'); storage.setItem('keiba:assessment:other:race', '{}'); storage.setItem('unrelated', 'keep');
     expect(clearAssessmentDraftStorage(storage)).toBe(2);
+    expect(storage.getItem('unrelated')).toBe('keep');
+  });
+
+  it('clears only the allowlisted operational session drafts', () => {
+    const storage = new MemoryStorage();
+    storage.setItem('keiba:race-manager:user:race-detail:race', 'race draft');
+    storage.setItem('keiba:result-manager:user:quick-result:race', 'result draft');
+    storage.setItem('keiba:other:user', 'keep'); storage.setItem('unrelated', 'keep');
+    expect(clearStorageByPrefixes(storage, operationalSessionDraftPrefixes)).toBe(2);
+    expect(storage.getItem('keiba:other:user')).toBe('keep');
     expect(storage.getItem('unrelated')).toBe('keep');
   });
 });
