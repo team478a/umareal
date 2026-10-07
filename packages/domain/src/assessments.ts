@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { entryStatuses, raceStatuses } from './races';
-export const metrics = ['body', 'walk', 'coat', 'focus', 'calm'] as const;
-export const metricLabels = { body: '馬体の張り', walk: '歩様・踏み込み', coat: '毛艶', focus: '気合・集中力', calm: '発汗・落ち着き' };
+export const metrics = ['body', 'walk', 'coat', 'focus', 'sweating', 'calmness'] as const;
+export const metricLabels = { body: '馬体の張り', walk: '歩様・踏み込み', coat: '毛艶', focus: '気合・集中力', sweating: '発汗', calmness: '落ち着き', calm: '発汗・落ち着き（旧形式）' } as const;
 export const metricValues = [1, 2, 3, 4, 5, 0] as const;
 export type MetricValue = typeof metricValues[number];
 export const changes = ['BIG_UP', 'UP', 'SAME', 'DOWN', 'BIG_DOWN', 'UNKNOWN'] as const;
@@ -13,20 +13,32 @@ const metric = z.number().int().min(0).max(5).nullable();
 export const assessmentSchema = z.object({
   preScore: z.number().int().min(0).max(100).nullable(), preRank: z.number().int().min(1).max(18).nullable(),
   preMark: z.enum(marks).nullable(), preComment: z.string().max(1000),
-  body: metric, walk: metric, coat: metric, focus: metric, calm: metric,
+  body: metric, walk: metric, coat: metric, focus: metric,
+  // `calm` is retained so every historical snapshot remains readable. New
+  // input records the two observations separately.
+  calm: metric, sweating: metric.default(null), calmness: metric.default(null),
   change: z.enum(changes).nullable(), paddockComment: z.string().max(1000)
 }).strict();
 export type AssessmentInput = z.infer<typeof assessmentSchema>;
-export const blankAssessment: AssessmentInput = { preScore: null, preRank: null, preMark: null, preComment: '', body: null, walk: null, coat: null, focus: null, calm: null, change: null, paddockComment: '' };
-export function uniformPaddockMetrics(value: MetricValue): Pick<AssessmentInput, typeof metrics[number]> {
-  return { body: value, walk: value, coat: value, focus: value, calm: value };
+export const blankAssessment: AssessmentInput = { preScore: null, preRank: null, preMark: null, preComment: '', body: null, walk: null, coat: null, focus: null, calm: null, sweating: null, calmness: null, change: null, paddockComment: '' };
+export function uniformPaddockMetrics(value: MetricValue): Pick<AssessmentInput, typeof metrics[number] | 'calm'> {
+  return { body: value, walk: value, coat: value, focus: value, sweating: value, calmness: value, calm: null };
 }
-export function paddockComplete(value: AssessmentInput) { return metrics.every(key => value[key] !== null) && value.change !== null; }
+export function paddockComplete(value: AssessmentInput) {
+  const commonComplete = ['body', 'walk', 'coat', 'focus'].every(key => value[key as 'body' | 'walk' | 'coat' | 'focus'] !== null);
+  const splitComplete = value.sweating !== null && value.calmness !== null;
+  const legacyComplete = value.sweating === null && value.calmness === null && value.calm !== null;
+  return commonComplete && (splitComplete || legacyComplete) && value.change !== null;
+}
 export function preComplete(value: AssessmentInput) { return value.preScore !== null && value.preRank !== null && value.preMark !== null; }
 export const assessmentSaveSchema = z.object({
   content: assessmentSchema, revision: z.number().int().min(0), raceRevision: z.number().int().positive(),
   horseId: z.string().uuid(), mutationId: z.string().uuid(), reason: z.string().trim().min(1).max(500)
-}).strict();
+}).strict().superRefine((value, context) => {
+  if (value.content.calm !== null && (value.content.sweating !== null || value.content.calmness !== null)) {
+    context.addIssue({ code: 'custom', path: ['content', 'calm'], message: '旧形式の合成値と分離した評価は同時に保存できません。' });
+  }
+});
 export type AssessmentSaveInput = z.infer<typeof assessmentSaveSchema>;
 
 const assessmentDateTimeSchema = z.preprocess(

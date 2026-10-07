@@ -306,7 +306,7 @@ StripeもSecret keyとWebhook secretは同じ暗号化方式で保存し、設�
 | POST | /expert/races/:raceId/entries/:entryId/assessment | `{content,revision,raceRevision,horseId,mutationId,reason}` を部分入力として保存 |
 | GET | /expert/races/:raceId/entries/:entryId/history | 追記履歴。page、20件単位 |
 
-contentは事前点数・順位・印・短評、パドック5項目、総合変化、短評。未入力はnull、パドック項目の判断不能は0。mutationIdは馬ごとの送信を冪等にし、同じIDで内容が異なる再送は409。評価revisionの不一致はASSESSMENT_CONFLICT、レースrevision・馬IDの不一致はRACE_CHANGED。競合応答に他端末の内容は含めず、認可済みGETで最新値を再取得する。成功ごとに評価履歴と監査を同じトランザクションへ追記する。
+contentは事前点数・順位・印・短評、パドック6項目（馬体、歩様、毛艶、気合、発汗、落ち着き）、総合変化、短評。未入力はnull、パドック項目の判断不能は0。旧版の`calm`（発汗・落ち着き合成値）は互換読取専用で保持し、`sweating`と`calmness`へ推測変換しない。mutationIdは馬ごとの送信を冪等にし、同じIDで内容が異なる再送は409。評価revisionの不一致はASSESSMENT_CONFLICT、レースrevision・馬IDの不一致はRACE_CHANGED。競合応答に他端末の内容は含めず、認可済みGETで最新値を再取得する。成功ごとに評価履歴と監査を同じトランザクションへ追記する。
 
 ## 最終予想・公開版
 

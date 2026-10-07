@@ -59,15 +59,15 @@ AIレースガイドは `Prediction` の種類追加ではなく、別の補助�
 | 歩様 | `walk` | 0〜5で構造化済み |
 | 毛艶 | `coat` | 0〜5で構造化済み |
 | 気合 | `focus` | 0〜5で構造化済み |
-| 発汗 | `calm` | 「発汗・落ち着き」の合成値。個別分析不可 |
-| 落ち着き | `calm` | 同上 |
+| 発汗 | `sweating` | 新規評価は0〜5で個別保存。旧版の`calm`は推測分割しない |
+| 落ち着き | `calmness` | 新規評価は0〜5で個別保存。旧版の`calm`は推測分割しない |
 | 総合変化 | `change` | `BIG_UP`〜`BIG_DOWN`、`UNKNOWN` |
 | コメント | `paddockComment` | 構造化済み |
 | 事前情報 | `preScore`、`preRank`、`preMark`、`preComment` | 構造化済み |
 | 最終評価 | `PredictionMark` | Assessment外。公開予想versionに保存 |
 | 結果 | `RaceResultVersion` | Assessment外。確定結果versionに保存 |
 
-0点は「評価不能」を表す。将来の分析では0を最低評価として集計してはいけない。発汗と落ち着きを別軸で分析するにはcontract変更が必要である。AI事前情報、パドック評価、最終予想、結果は `raceId`、`entryId`、`horseId` と各versionで結合できるが、同一時点を保証する分析用snapshotは未整備である。
+0点は「評価不能」を表す。将来の分析では0を最低評価として集計してはいけない。発汗と落ち着きは新規版で別軸として保存できるが、旧`calm`値を2軸へ推測変換してはならない。AI事前情報、パドック評価、最終予想、結果は `raceId`、`entryId`、`horseId` と各versionで結合できるが、同一時点を保証する分析用snapshotは未整備である。
 
 ## 5. JRA-VAN bridge監査
 
