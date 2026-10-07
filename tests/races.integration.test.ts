@@ -148,6 +148,28 @@ describe('race management and transactional CSV imports', () => {
       expect.objectContaining({ action: 'MANUAL_ENTRY_CREATE', sourceType: 'MANUAL', reason: '初期運用の簡易登録' })
     ]));
   });
+  it('creates a full 18-horse card atomically from a reviewed manual batch', async () => {
+    const response = await admin.call('admin/races', 'POST', { race: raceInput(9), reason: '一括簡易登録試験レース' }, undefined, headers());
+    expect(response.status).toBe(201); const batchRaceId = response.body.id as string; const suffix = randomUUID().slice(0, 8);
+    const duplicateName = `既存同名馬-${suffix}`;
+    await db.horse.create({ data: { id: randomUUID(), name: duplicateName } });
+    const entries = Array.from({ length: 18 }, (_, index) => ({ number: index + 1, horseName: index === 0 ? duplicateName : `一括登録馬${index + 1}-${suffix}` }));
+    const key = headers();
+    const created = await admin.call(`admin/races/${batchRaceId}/entries/manual-batch`, 'POST', { entries, revision: 1, reason: '出馬表18頭を確認して一括登録' }, undefined, key);
+    expect(created.status).toBe(201);
+    expect(created.body.entries).toHaveLength(18);
+    expect(created.body.duplicateNames).toEqual([duplicateName]);
+    expect((await admin.call(`admin/races/${batchRaceId}/entries/manual-batch`, 'POST', { entries, revision: 1, reason: '出馬表18頭を確認して一括登録' }, undefined, key)).body).toEqual(created.body);
+    expect(await db.raceEntry.count({ where: { raceId: batchRaceId } })).toBe(18);
+    expect(await db.horseExternalIdentity.count({ where: { horse: { entries: { some: { raceId: batchRaceId } } }, provider: 'MANUAL' } })).toBe(18);
+    expect((await db.race.findUniqueOrThrow({ where: { id: batchRaceId } })).revision).toBe(2);
+    expect(await db.auditLog.count({ where: { targetId: batchRaceId, action: 'MANUAL_ENTRY_BATCH_CREATE' } })).toBe(1);
+    const conflict = await admin.call(`admin/races/${batchRaceId}/entries/manual-batch`, 'POST', { entries: [{ number: 1, horseName: `衝突馬-${suffix}` }], revision: 2, reason: '登録済み馬番との競合確認' }, undefined, headers());
+    expect(conflict).toMatchObject({ status: 409, body: { code: 'ENTRY_ALREADY_EXISTS' } });
+    expect(await db.raceEntry.count({ where: { raceId: batchRaceId } })).toBe(18);
+    const history = await admin.call(`admin/races/${batchRaceId}/history?limit=50`);
+    expect(history.body.items).toContainEqual(expect.objectContaining({ action: 'MANUAL_ENTRY_BATCH_CREATE', sourceType: 'MANUAL', reason: '出馬表18頭を確認して一括登録' }));
+  });
   it('reports invalid CSV and previews without mutation; concurrent confirmation applies once', async () => {
     const rows = [entryInput(2), entryInput(3)];
     const bad = await preview('entries', [rows[0], { ...rows[1], number: 2 }], raceId);

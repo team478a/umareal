@@ -283,6 +283,7 @@ StripeもSecret keyとWebhook secretは同じ暗号化方式で保存し、設�
 | POST | /admin/races | `{race,reason}` |
 | PATCH | /admin/races/:id | `{race,revision,reason}`。照合キー変更不可 |
 | POST | /admin/races/:id/entries | `{entry,revision,reason,entryId?}`。編集時はentryId必須 |
+| POST | /admin/races/:id/entries/manual-batch | `{entries:[{number,horseName}],revision,reason}`。最大18頭を暫定Identityとして同一トランザクションで簡易登録。登録済み馬番・入力内重複を拒否し、同名の既存Horseへ自動統合しない |
 | POST | /admin/races/import/preview | `{kind:races\|entries,csv,raceId?}`。出走馬のみraceId必須 |
 | POST | /admin/races/import/:batchId/confirm | `{reason}`。プレビューした本人のみ |
 | POST | /admin/races/import/bundle/preview | `{manifest,racesCsv,entries:[{path,csv}]}`。`UMAREAL_JRA_VAN_BUNDLE_V1`のSHA-256、対象日、件数、レース対応を検証し、開催日全体の差分と15分有効のbatchIdを返す |
