@@ -26,7 +26,7 @@ export class ContentController {
 
   private async editor(req: AppRequest) {
     const actor = await this.auth.authenticate(req);
-    if (!canManage(actor, ['ADMIN', 'EDITOR'])) throw new ForbiddenException({ code: 'CONTENT_ACCESS_DENIED', message: 'コンテンツ編集権限を確認してください。' });
+    if (!canManage(actor, ['ADMIN', 'EDITOR', 'OPERATOR'])) throw new ForbiddenException({ code: 'CONTENT_ACCESS_DENIED', message: 'コンテンツ編集権限を確認してください。' });
     return actor;
   }
 

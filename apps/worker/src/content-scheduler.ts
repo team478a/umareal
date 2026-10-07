@@ -19,7 +19,7 @@ export async function runContentSchedules(input: { db: PrismaClient; limit?: num
         const item = await tx.contentItem.findUniqueOrThrow({ where: { id: candidate.id }, include: { updater: { select: { role: true, disabledAt: true } }, versions: { orderBy: { version: 'desc' }, take: 1 } } });
         const reason = item.scheduleReason ?? '予約公開';
         if (item.scheduledRevision !== item.revision) fail('CONTENT_SCHEDULE_REVISION_CHANGED');
-        if (item.updater.disabledAt || !['ADMIN', 'EDITOR'].includes(item.updater.role)) fail('CONTENT_SCHEDULE_ACTOR_INVALID');
+        if (item.updater.disabledAt || !['ADMIN', 'EDITOR', 'OPERATOR'].includes(item.updater.role)) fail('CONTENT_SCHEDULE_ACTOR_INVALID');
         const draft = contentDraftSchema.parse({
           kind: item.kind,
           title: item.title,

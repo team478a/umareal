@@ -187,8 +187,8 @@ export class AdminContinuityController {
         if (target.email.toLowerCase() !== input.confirmationEmail) throw new ConflictException({ code: 'ADMIN_CONFIRMATION_MISMATCH', message: '確認用メールアドレスが一致しません。' });
         this.ensureContinuity(await this.activeAdministrators(tx, target.id));
         const [pendingPublicationSchedules, pendingContentSchedules] = await Promise.all([tx.publicationSchedule.count({ where: { createdBy: target.id, status: { in: ['PENDING', 'PROCESSING'] } } }), tx.contentItem.count({ where: { updatedBy: target.id, status: 'SCHEDULED' } })]);
-        if (pendingPublicationSchedules && input.nextRole !== 'OPERATOR') throw new ConflictException({ code: 'ADMIN_SCHEDULES_PENDING', message: 'この管理者が作成した配信予約を取消・完了するか、レース担当へ変更してください。' });
-        if (pendingContentSchedules && input.nextRole !== 'EDITOR') throw new ConflictException({ code: 'ADMIN_CONTENT_SCHEDULES_PENDING', message: 'この管理者が作成したコンテンツ公開予約を取消・完了するか、編集担当へ変更してください。' });
+        if (pendingPublicationSchedules && input.nextRole !== 'OPERATOR') throw new ConflictException({ code: 'ADMIN_SCHEDULES_PENDING', message: 'この管理者が作成した配信予約を取消・完了するか、運用責任者へ変更してください。' });
+        if (pendingContentSchedules && !['EDITOR', 'OPERATOR'].includes(input.nextRole)) throw new ConflictException({ code: 'ADMIN_CONTENT_SCHEDULES_PENDING', message: 'この管理者が作成したコンテンツ公開予約を取消・完了するか、編集担当または運用責任者へ変更してください。' });
         if (input.nextRole !== 'MEMBER') {
           const access = await this.memberAccessDependencies(tx, target.id);
           if (Object.values(access).some(Boolean)) throw new ConflictException({ code: 'ADMIN_ACTIVE_MEMBER_ACCESS', message: '有効または申込中の契約、1日利用、閲覧権限があります。会員として変更するか、アクセス終了後にスタッフへ変更してください。' });

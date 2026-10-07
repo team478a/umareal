@@ -30,7 +30,7 @@ function ManualLibrary({ items, admin = false }: { items: Manual[]; admin?: bool
   const selected = items.find(item => item.id === selectedId) ?? items[0];
   return <>
     <div className="page-heading"><span className="eyebrow">{admin ? 'PRIVATE VIDEO GUIDE' : 'VIDEO GUIDE'}</span><h1>動画マニュアル</h1><p>{admin ? '管理画面の操作手順を、実際の画面と音声で確認できます。' : '無料会員登録からレース情報・紙面の確認までを動画で説明します。'}</p></div>
-    {admin && <div className="notice manual-private-notice"><LockKeyhole size={18} /><span>このページと動画は管理者・レース担当だけが閲覧できます。動画URLを外部へ共有しないでください。</span></div>}
+    {admin && <div className="notice manual-private-notice"><LockKeyhole size={18} /><span>このページと動画は管理者・運用責任者だけが閲覧できます。動画URLを外部へ共有しないでください。</span></div>}
     <section className="panel manual-player" aria-labelledby="selected-manual-title">
       <div className="panel-heading"><div><span className="eyebrow">NOW PLAYING</span><h2 id="selected-manual-title">{selected.title}</h2></div><span className="count-tag">{selected.duration}</span></div>
       <div className="manual-video-wrap"><video key={selected.src} controls preload="metadata" playsInline controlsList={admin ? 'nodownload' : undefined}><source src={selected.src} type="video/mp4" />お使いのブラウザーは動画再生に対応していません。</video></div>

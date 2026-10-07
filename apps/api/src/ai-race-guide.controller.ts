@@ -52,7 +52,7 @@ export class AiRaceGuideController {
 
   private async admin(req: AppRequest) {
     const actor = await this.auth.authenticate(req);
-    if (!canManage(actor, ['ADMIN'])) throw new ForbiddenException({ code: actor.role === 'ADMIN' ? 'MFA_REQUIRED' : 'FORBIDDEN', message: 'AIレースガイドの管理には管理者権限と二段階認証が必要です。' });
+    if (!canManage(actor, ['ADMIN', 'OPERATOR']) || actor.aal !== 2) throw new ForbiddenException({ code: ['ADMIN', 'OPERATOR'].includes(actor.role) ? 'MFA_REQUIRED' : 'FORBIDDEN', message: 'AIレースガイドの管理には運用責任者または管理者権限と二段階認証が必要です。' });
     return actor;
   }
 

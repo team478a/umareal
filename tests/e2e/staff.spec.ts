@@ -8,7 +8,7 @@ test.afterAll(async () => {
 test('operator and expert see their management entry after login', async ({ page }, testInfo) => {
   if (process.env.AUTH_PROVIDER !== 'local' || !['127.0.0.1', 'localhost'].includes(new URL(process.env.DATABASE_URL ?? '').hostname)) throw new Error('Staff browser test requires local development database');
   const cases = [
-    { fixture: await account('OPERATOR'), href: '/admin', heading: 'レース担当用の管理画面' },
+    { fixture: await account('OPERATOR'), href: '/admin', heading: '運用責任者用の管理画面' },
     { fixture: await account('EXPERT'), href: '/expert', heading: '予想担当用の管理画面' }
   ];
   for (const item of cases) {
@@ -31,7 +31,14 @@ test('operator and expert see their management entry after login', async ({ page
       await page.goto('/admin');
       await expect(page.getByRole('heading', { name: '管理ダッシュボード', exact: true })).toBeVisible();
       if (testInfo.project.name.includes('mobile')) await page.getByRole('button', { name: 'メニューを開く' }).click();
-      await expect(page.getByRole('navigation', { name: '管理メニュー' }).getByRole('link', { name: '馬を評価・公開', exact: true })).toHaveAttribute('href', '/expert');
+      const adminMenu = page.getByRole('navigation', { name: '管理メニュー' });
+      await expect(adminMenu.getByRole('link', { name: '馬を評価・公開', exact: true })).toHaveAttribute('href', '/expert');
+      await expect(adminMenu.getByRole('link', { name: '記事・動画・音声を管理', exact: true })).toHaveAttribute('href', '/admin/content');
+      await expect(adminMenu.getByRole('link', { name: '会員を確認', exact: true })).toHaveCount(0);
+      await expect(adminMenu.getByRole('link', { name: '料金・クーポン・請求', exact: true })).toHaveCount(0);
+      await page.goto('/admin/content');
+      await expect(page.getByRole('heading', { name: '記事・動画・音声', exact: true })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'コンテンツ一覧', exact: true })).toBeVisible();
       await page.goto('/expert');
       await expect(page.getByRole('heading', { name: '二段階認証を完了してください', exact: true })).toBeVisible();
     }

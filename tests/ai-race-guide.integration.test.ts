@@ -23,6 +23,10 @@ async function fixture() {
 describe('AI race guide generation and publication', () => {
   it('generates, validates, approves and publishes without exposing paid content to free members', async () => {
     const target = await fixture(); const endpoint = `admin/races/${target.race.id}/ai-guide`;
+    const operator = new Client(); await operator.login(await account('OPERATOR'));
+    expect((await operator.call(`admin/ai-guide/races?date=${target.race.raceDate}`)).body.code).toBe('MFA_REQUIRED');
+    await operator.mfa();
+    expect((await operator.call(`admin/ai-guide/races?date=${target.race.raceDate}`)).status).toBe(200);
     const raceSearch = await target.admin.call(`admin/ai-guide/races?date=${target.race.raceDate}&venue=${encodeURIComponent(target.race.venue)}&keyword=${encodeURIComponent(target.race.name)}`);
     expect(raceSearch.status).toBe(200);
     expect(aiRaceGuideAdminRaceListResponseSchema.parse(raceSearch.body)).toMatchObject({ total: 1, filters: { date: target.race.raceDate, venue: target.race.venue, keyword: target.race.name }, items: [{ id: target.race.id }] });
