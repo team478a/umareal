@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req } from '@nestjs/common';
-import { canManage, CsvRaceDataProvider, dateSchema, entryInputSchema, horseIdentityCorrectionInputSchema, horseIdentityCorrectionResponseSchema, horseIdentityHistoryResponseSchema, horseIdentityResolutionInputSchema, horseIdentityResolutionResponseSchema, horseIdentityReviewQuerySchema, horseIdentityReviewResponseSchema, jraVanBundleFormatVersion, jstDate, manualEntryBatchInputSchema, manualEntryInputSchema, parseJraVanRaceBundle, raceDataModeLabels, raceDaySchema, raceExpertListQuerySchema, raceExpertListResponseSchema, raceInputSchema, raceOperationHistoryResponseSchema, requiresMfa, resolveRaceDataMode, venues, type ManualEntryInput } from '@keiba/domain';
+import { canManage, CsvRaceDataProvider, dateSchema, entryInputSchema, horseIdentityCorrectionInputSchema, horseIdentityCorrectionResponseSchema, horseIdentityDistinctBatchInputSchema, horseIdentityDistinctBatchResponseSchema, horseIdentityHistoryResponseSchema, horseIdentityResolutionInputSchema, horseIdentityResolutionResponseSchema, horseIdentityReviewQuerySchema, horseIdentityReviewResponseSchema, jraVanBundleFormatVersion, jstDate, manualEntryBatchInputSchema, manualEntryInputSchema, parseJraVanRaceBundle, raceDataModeLabels, raceDaySchema, raceExpertListQuerySchema, raceExpertListResponseSchema, raceInputSchema, raceOperationHistoryResponseSchema, requiresMfa, resolveRaceDataMode, venues, type ManualEntryInput } from '@keiba/domain';
 import type { EntryInput, ImportKind, RaceInput } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -72,13 +72,52 @@ export class RacesController {
         orderBy: { id: 'asc' }, take: 20, include: { _count: { select: { entries: true } } }
       });
       return {
-        id: identity.id, provider: identity.provider, observedName: identity.observedName, matchStatus: identity.matchStatus, createdAt: identity.createdAt.toISOString(),
+        id: identity.id, provider: identity.provider, observedName: identity.observedName, matchStatus: identity.matchStatus, createdAt: identity.createdAt.toISOString(), updatedAt: identity.updatedAt.toISOString(),
         provisionalHorse: { id: identity.horse.id, name: identity.horse.name, entryCount: identity.horse._count.entries },
         candidates: candidates.map(candidate => ({ id: candidate.id, name: candidate.name, entryCount: candidate._count.entries })),
         races: identity.horse.entries.map(entry => ({ raceId: entry.race.id, raceDate: entry.race.raceDate, venue: entry.race.venue, number: entry.race.number, name: entry.race.name, entryNumber: entry.number }))
       };
     }));
     return horseIdentityReviewResponseSchema.parse({ items, total, page, limit });
+  }
+  @Post('horse-identities/confirm-distinct-batch') async confirmDistinctHorseIdentities(@Req() req: AppRequest, @Body() body: unknown) {
+    await this.staff(req); const input = horseIdentityDistinctBatchInputSchema.parse(body);
+    return this.mutate(req, `horse-identity-distinct-batch:${input.raceId}`, body, async tx => {
+      const ids = input.identities.map(identity => identity.id);
+      const identities = await tx.horseExternalIdentity.findMany({
+        where: { id: { in: ids } },
+        include: { horse: { include: { entries: { where: { raceId: input.raceId }, select: { id: true } } } } }
+      });
+      const byId = new Map(identities.map(identity => [identity.id, identity]));
+      const ordered = input.identities.map(expected => ({ expected, identity: byId.get(expected.id) }));
+      if (ordered.some(item => !item.identity || item.identity.provider !== 'MANUAL' || !item.identity.horse)) {
+        throw new ConflictException({ code: 'HORSE_IDENTITY_BATCH_STALE', message: '確認対象が変更されています。再読み込みしてください。' });
+      }
+      for (const { expected, identity } of ordered) {
+        if (!identity?.horse || identity.matchStatus === 'MATCHED' || identity.horseId !== expected.expectedHorseId || identity.updatedAt.toISOString() !== expected.expectedUpdatedAt || identity.horse.entries.length !== 1) {
+          throw new ConflictException({ code: 'HORSE_IDENTITY_BATCH_STALE', message: '確認対象が変更されています。再読み込みしてください。' });
+        }
+      }
+      const names = [...new Set(ordered.map(item => item.identity!.observedName))];
+      const sameNameHorses = await tx.horse.findMany({ where: { name: { in: names } }, select: { id: true, name: true } });
+      const requiringReview = ordered.filter(({ identity }) => sameNameHorses.some(horse => horse.name === identity!.observedName && horse.id !== identity!.horseId));
+      if (requiringReview.length) {
+        throw new ConflictException({ code: 'HORSE_IDENTITY_CANDIDATE_FOUND', message: `${requiringReview.map(item => item.identity!.observedName).join('、')}には同名候補があります。個別に確認してください。` });
+      }
+      const now = new Date(); const items = [];
+      for (const { identity } of ordered) {
+        const current = identity!;
+        const updated = await tx.horseExternalIdentity.update({ where: { id: current.id }, data: { matchStatus: 'MATCHED', lastObservedAt: now, updatedAt: now } });
+        await this.log(tx, req, 'HORSE_IDENTITY_RESOLVE', 'HORSE_EXTERNAL_IDENTITY', current.id, input.reason, {
+          decision: 'CONFIRM_DISTINCT', batch: true, raceId: input.raceId,
+          before: { horseId: current.horse!.id, horseName: current.horse!.name, matchStatus: current.matchStatus },
+          after: { horseId: current.horse!.id, horseName: current.horse!.name, matchStatus: updated.matchStatus },
+          raceEntriesRewritten: false
+        });
+        items.push({ id: updated.id, horseId: updated.horseId!, matchStatus: 'MATCHED' as const });
+      }
+      return horseIdentityDistinctBatchResponseSchema.parse({ items, count: items.length });
+    });
   }
   @Post('horse-identities/:id/resolve') async resolveHorseIdentity(@Req() req: AppRequest, @Param('id') id: string, @Body() body: unknown) {
     await this.staff(req); z.string().uuid().parse(id); const input = horseIdentityResolutionInputSchema.parse(body);

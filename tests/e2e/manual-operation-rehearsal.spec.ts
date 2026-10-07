@@ -115,16 +115,17 @@ test('JRA-VAN未接続で1開催日の主要運用を管理画面から完走す
   expect(await db.raceEntry.count({ where: { raceId: race.id } })).toBe(6);
   expect(await db.horseExternalIdentity.count({ where: { observedName: { in: horseNames }, provider: 'MANUAL', matchStatus: 'UNRESOLVED' } })).toBe(6);
 
-  await timed(phases, '暫定Horse Identity確認', 8, 1, async () => {
+  await timed(phases, '暫定Horse Identity確認', 5, 1, async () => {
     const identityPanel = page.locator('section.panel').filter({ has: page.getByRole('heading', { name: '暫定馬の確認', exact: true }) });
     await identityPanel.getByLabel('暫定馬を絞り込むレース').selectOption(race.id);
+    await identityPanel.getByRole('button', { name: '候補なしをすべて選択' }).click();
     await identityPanel.getByLabel('暫定馬の共通確認理由').fill('同名候補なしを確認');
-    for (const horseName of horseNames) {
-      const identity = identityPanel.locator('.identity-review-item').filter({ hasText: horseName });
-      await expect(identity).toContainText(`${venue} 1R`);
-      await identity.getByRole('button', { name: '別の馬として確定' }).click();
-      await expect(identityPanel.getByRole('status')).toContainText(`${horseName}を別の馬として確定しました。`);
-    }
+    await identityPanel.getByRole('button', { name: '選択内容を確認（6頭）' }).click();
+    await expect(identityPanel.getByRole('heading', { name: '別馬として一括確定する内容', exact: true })).toBeVisible();
+    const batchPreview = identityPanel.locator('.preview-card');
+    for (const horseName of horseNames) await expect(batchPreview.getByText(new RegExp(horseName))).toBeVisible();
+    await identityPanel.getByRole('button', { name: '確認した6頭を別馬として一括確定' }).click();
+    await expect(identityPanel.getByRole('status')).toContainText('6頭を別の馬として一括確定しました。');
   });
   expect(await db.horseExternalIdentity.count({ where: { observedName: { in: horseNames }, provider: 'MANUAL', matchStatus: 'MATCHED' } })).toBe(6);
 
