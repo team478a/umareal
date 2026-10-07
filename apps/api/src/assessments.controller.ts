@@ -1,5 +1,5 @@
-import { Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req } from '@nestjs/common';
-import { assessmentSaveSchema, canEditRace, expertAssessmentHistoryResponseSchema, expertAssessmentSaveResponseSchema, expertAssessmentWorkspaceResponseSchema } from '@keiba/domain';
+import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req } from '@nestjs/common';
+import { assessmentSaveSchema, assessmentSchema, canEditRace, expertAssessmentHistoryResponseSchema, expertAssessmentSaveResponseSchema, expertAssessmentWorkspaceResponseSchema } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -50,9 +50,13 @@ export class AssessmentsController {
       if (!entry) throw new NotFoundException();
       const key = `assessment:${req.auth!.id}:${entryId}:${input.mutationId}`;
       const requestHash = hashToken(JSON.stringify(input));
+      const legacyContent = Object.fromEntries(Object.entries(input.content).filter(([key]) => key !== 'sweating' && key !== 'calmness'));
+      const legacyRequestHash = input.content.sweating === null && input.content.calmness === null
+        ? hashToken(JSON.stringify({ ...input, content: legacyContent }))
+        : null;
       const prior = await tx.idempotencyKey.findUnique({ where: { key } });
       if (prior) {
-        if (prior.requestHash !== requestHash) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: '再送の内容が変わっています。' });
+        if (prior.requestHash !== requestHash && prior.requestHash !== legacyRequestHash) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: '再送の内容が変わっています。' });
         // Earlier releases persisted the full Assessment row. Accept that stored
         // shape for retry compatibility, then expose only the public contract.
         const previous = expertAssessmentSaveResponseSchema.passthrough().parse(prior.response);
@@ -60,6 +64,10 @@ export class AssessmentsController {
       }
       if (race.revision !== input.raceRevision || entry.horseId !== input.horseId) throw new ConflictException({ code: 'RACE_CHANGED', message: '出走馬・担当・レース情報が変更されました。最新情報と入力を確認してください。' });
       if ((entry.assessment?.revision ?? 0) !== input.revision) throw new ConflictException({ code: 'ASSESSMENT_CONFLICT', message: '別の端末で評価が更新されました。両方の入力を確認してください。' });
+      if (input.content.calm !== null) {
+        const previousContent = entry.assessment ? assessmentSchema.parse(entry.assessment.content) : null;
+        if (!previousContent || previousContent.calm !== input.content.calm) throw new BadRequestException({ code: 'LEGACY_ASSESSMENT_READ_ONLY', message: '旧形式の「発汗・落ち着き」は変更できません。発汗と落ち着きを個別に入力してください。' });
+      }
       const revision = input.revision + 1;
       const saved = await tx.assessment.upsert({ where: { entryId }, create: { entryId, content: json(input.content), revision, updatedBy: req.auth!.id }, update: { content: json(input.content), revision, updatedBy: req.auth!.id, updatedAt: new Date() } });
       const { assessment: previous, ...snapshot } = entry;

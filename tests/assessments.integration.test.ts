@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { randomUUID } from 'node:crypto';
-import { blankAssessment, expertAssessmentHistoryResponseSchema, expertAssessmentSaveResponseSchema, expertAssessmentWorkspaceResponseSchema } from '../packages/domain/src';
+import { createHash, randomUUID } from 'node:crypto';
+import { blankAssessment, expertAssessmentHistoryResponseSchema, expertAssessmentSaveResponseSchema, expertAssessmentWorkspaceResponseSchema, paddockComplete } from '../packages/domain/src';
 import { assessmentFixture } from './assessment-fixtures';
 import { db } from './helpers';
 let fixture: Awaited<ReturnType<typeof assessmentFixture>>;
@@ -40,12 +40,36 @@ describe('assessment drafts with server-owned access and append-only history', (
     expect(Object.keys(result.body.entries[0]).sort()).toEqual(['assessment', 'horseId', 'horseName', 'id', 'number', 'status']);
     expect(JSON.stringify(result.body)).not.toMatch(/updatedBy|entrySnapshot|actorId|passwordHash|authSubject|token|secret/i);
   });
+  it('normalizes historical combined condition data without rewriting the stored snapshot', async () => {
+    const legacy = await assessmentFixture();
+    const legacyContent = { preScore: null, preRank: null, preMark: null, preComment: '', body: 3, walk: 3, coat: 3, focus: 3, calm: 4, change: 'SAME', paddockComment: '旧形式' };
+    await db.assessment.create({ data: { entryId: legacy.entries[0].id, revision: 1, updatedBy: legacy.owner.user.id, content: legacyContent } });
+    const response = await legacy.client.call(`expert/races/${legacy.race.id}/assessments`);
+    expect(response.status).toBe(200);
+    const parsed = expertAssessmentWorkspaceResponseSchema.parse(response.body);
+    expect(parsed.entries[0].assessment?.content).toMatchObject({ calm: 4, sweating: null, calmness: null });
+    expect(paddockComplete(parsed.entries[0].assessment!.content)).toBe(true);
+    expect((await db.assessment.findUniqueOrThrow({ where: { entryId: legacy.entries[0].id } })).content).toEqual(legacyContent);
+  });
+  it('rejects creating or changing the legacy combined condition through the API', async () => {
+    const target = await assessmentFixture();
+    const savePath = `expert/races/${target.race.id}/entries/${target.entries[0].id}/assessment`;
+    const result = await target.client.call(savePath, 'POST', {
+      content: { ...blankAssessment, calm: 4 }, revision: 0, raceRevision: target.race.revision,
+      horseId: target.entries[0].horseId, mutationId: randomUUID(), reason: '旧形式の新規保存を拒否'
+    });
+    expect(result.status).toBe(400);
+    expect(result.body.code).toBe('LEGACY_ASSESSMENT_READ_ONLY');
+    expect(await db.assessment.findUnique({ where: { entryId: target.entries[0].id } })).toBeNull();
+  });
   it('saves partial inputs, retries once and rejects concurrent stale writes', async () => {
     const first = input(); const result = await fixture.client.call(path(), 'POST', first); expect(result.status).toBe(201);
     expect(expertAssessmentSaveResponseSchema.parse(result.body)).toEqual(result.body);
     expect(Object.keys(result.body).sort()).toEqual(['content', 'revision']);
     const fullSavedRow = await db.assessment.findUniqueOrThrow({ where: { entryId: fixture.entries[0].id } });
-    await db.idempotencyKey.update({ where: { key: `assessment:${fixture.owner.user.id}:${fixture.entries[0].id}:${first.mutationId}` }, data: { response: JSON.parse(JSON.stringify(fullSavedRow)) } });
+    const legacyContent = Object.fromEntries(Object.entries(first.content).filter(([key]) => key !== 'sweating' && key !== 'calmness'));
+    const legacyRequestHash = createHash('sha256').update(JSON.stringify({ ...first, content: legacyContent })).digest('hex');
+    await db.idempotencyKey.update({ where: { key: `assessment:${fixture.owner.user.id}:${fixture.entries[0].id}:${first.mutationId}` }, data: { requestHash: legacyRequestHash, response: JSON.parse(JSON.stringify(fullSavedRow)) } });
     const replay = await fixture.client.call(path(), 'POST', first);
     expect(replay.body.revision).toBe(1);
     expect(Object.keys(replay.body).sort()).toEqual(['content', 'revision']);

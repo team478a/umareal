@@ -113,7 +113,7 @@ test('completes all 18 paddock entries and a formal skip inside the three-minute
   await context.addCookies([{ name: 'keiba_session', value: fixture.token, domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
   await page.goto('/expert'); const row = page.locator('.race-row').filter({ hasText: fixture.race.name }); await row.getByRole('button', { name: '評価・予想を入力' }).click();
   for (let number = 1; number <= 18; number++) {
-    await page.getByRole('button', { name: '5項目を3に設定', exact: true }).click();
+    await page.getByRole('button', { name: '6項目を3に設定', exact: true }).click();
     await page.getByRole('button', { name: '据え置き', exact: true }).click();
     if (number < 18) await page.getByRole('button', { name: '次の馬', exact: true }).click();
   }
