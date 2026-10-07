@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assessmentSchema, blankAssessment, expertAssessmentHistoryResponseSchema, expertAssessmentSaveResponseSchema, expertAssessmentWorkspaceResponseSchema, paddockComplete, preComplete } from './assessments';
+import { assessmentSchema, blankAssessment, expertAssessmentHistoryResponseSchema, expertAssessmentSaveResponseSchema, expertAssessmentWorkspaceResponseSchema, metricValues, paddockComplete, preComplete, uniformPaddockMetrics } from './assessments';
 describe('partial assessments and explicit unknown values', () => {
   it('accepts partial drafts but does not count missing fields as complete', () => {
     expect(assessmentSchema.safeParse(blankAssessment).success).toBe(true);
@@ -13,6 +13,14 @@ describe('partial assessments and explicit unknown values', () => {
   });
   it('rejects invalid ratings, scores, ranks and oversized comments', () => {
     for (const patch of [{ body: 6 }, { calm: -1 }, { preScore: 101 }, { preRank: 0 }, { preScore: 2.3 }, { change: 'AUTO' }, { paddockComment: 'x'.repeat(1001) }]) expect(assessmentSchema.safeParse({ ...blankAssessment, ...patch }).success).toBe(false);
+  });
+  it('builds an explicit uniform patch for only the five paddock metrics', () => {
+    for (const value of metricValues) {
+      const patch = uniformPaddockMetrics(value);
+      expect(patch).toEqual({ body: value, walk: value, coat: value, focus: value, calm: value });
+      expect(Object.keys(patch)).toHaveLength(5);
+      expect(assessmentSchema.safeParse({ ...blankAssessment, ...patch }).success).toBe(true);
+    }
   });
 });
 

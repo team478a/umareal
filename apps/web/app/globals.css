@@ -652,6 +652,8 @@ td { padding:17px 24px; border-top:1px solid var(--line); }
 .assessment-fields { border:0; padding:0; margin:0; min-width:0; }
 .metric { border:0; padding:8px 0 16px; margin:0; min-width:0; }
 .metric legend { font-weight:600; padding:0; }
+.metric-quick { margin-bottom:12px; padding:14px; border:1px solid #b5cfc6; border-radius:7px; background:#eef5f2; }
+.metric-quick .form-note { margin:4px 0 10px; }
 .metric-options { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:7px; }
 .metric-options>button:last-child { grid-column:1/-1; }
 .metric button { min-height:44px; background:#fff; color:var(--ink); border:1px solid #adbbb5; border-radius:5px; font:inherit; cursor:pointer; }

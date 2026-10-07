@@ -15,7 +15,8 @@ test('paddock drafts survive offline edits, synchronize, and require explicit co
   await expect(page.locator('.assessment-progress [role=status]')).toHaveText('保存済み');
   await page.getByRole('button', { name: 'パドック評価', exact: true }).click();
   await context.setOffline(true);
-  for (const label of ['馬体の張り', '歩様・踏み込み', '毛艶', '気合・集中力', '発汗・落ち着き']) await page.getByRole('button', { name: `${label} 判断不能`, exact: true }).click();
+  await page.getByRole('button', { name: '5項目を判断不能に設定', exact: true }).click();
+  await expect(page.getByRole('button', { name: '5項目を判断不能に設定', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('button', { name: '判断不能', exact: true }).click();
   await page.getByLabel('パドック短評', { exact: true }).fill('通信切断中の評価を保持');
   await expect(page.locator('.assessment-progress')).toContainText('パドック入力 1 / 2頭');
@@ -40,6 +41,7 @@ test('paddock drafts survive offline edits, synchronize, and require explicit co
   await expect(page.getByText('未入力または未送信があります。', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '次の馬', exact: true }).click();
   await expect(page.getByRole('heading', { name: '2番 評価試験馬2' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '5項目を判断不能に設定', exact: true })).toHaveAttribute('aria-pressed', 'false');
   await page.getByRole('button', { name: '前の馬', exact: true }).click();
   await page.getByRole('button', { name: 'この馬の変更履歴' }).click();
   await expect(page.getByRole('heading', { name: '評価の変更履歴' })).toBeVisible();

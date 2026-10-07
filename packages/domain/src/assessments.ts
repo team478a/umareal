@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { entryStatuses, raceStatuses } from './races';
 export const metrics = ['body', 'walk', 'coat', 'focus', 'calm'] as const;
 export const metricLabels = { body: '馬体の張り', walk: '歩様・踏み込み', coat: '毛艶', focus: '気合・集中力', calm: '発汗・落ち着き' };
+export const metricValues = [1, 2, 3, 4, 5, 0] as const;
+export type MetricValue = typeof metricValues[number];
 export const changes = ['BIG_UP', 'UP', 'SAME', 'DOWN', 'BIG_DOWN', 'UNKNOWN'] as const;
 export const changeLabels = { BIG_UP: '大幅UP', UP: 'UP', SAME: '据え置き', DOWN: 'DOWN', BIG_DOWN: '大幅DOWN', UNKNOWN: '判断不能' };
 export const marks = ['NONE', 'HONMEI', 'TAIKO', 'TANANA', 'RENKA', 'ANA', 'DANGER'] as const;
@@ -16,6 +18,9 @@ export const assessmentSchema = z.object({
 }).strict();
 export type AssessmentInput = z.infer<typeof assessmentSchema>;
 export const blankAssessment: AssessmentInput = { preScore: null, preRank: null, preMark: null, preComment: '', body: null, walk: null, coat: null, focus: null, calm: null, change: null, paddockComment: '' };
+export function uniformPaddockMetrics(value: MetricValue): Pick<AssessmentInput, typeof metrics[number]> {
+  return { body: value, walk: value, coat: value, focus: value, calm: value };
+}
 export function paddockComplete(value: AssessmentInput) { return metrics.every(key => value[key] !== null) && value.change !== null; }
 export function preComplete(value: AssessmentInput) { return value.preScore !== null && value.preRank !== null && value.preMark !== null; }
 export const assessmentSaveSchema = z.object({

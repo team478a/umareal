@@ -27,11 +27,7 @@ async function timed<T>(phases: Record<string, Phase>, name: string, actions: nu
 }
 
 async function paddockHorse(page: Page, number: number, comment: string) {
-  await page.getByLabel('馬体の張り 4').click();
-  await page.getByLabel('歩様・踏み込み 4').click();
-  await page.getByLabel('毛艶 4').click();
-  await page.getByLabel('気合・集中力 4').click();
-  await page.getByLabel('発汗・落ち着き 4').click();
+  await page.getByRole('button', { name: '5項目を4に設定', exact: true }).click();
   await page.getByRole('button', { name: number % 2 ? 'UP' : '据え置き', exact: true }).click();
   await page.getByLabel('パドック短評').fill(comment);
   await expect(page.getByRole('status')).toHaveText('保存済み', { timeout: 10_000 });
@@ -137,7 +133,7 @@ test('JRA-VAN未接続で1開催日の主要運用を管理画面から完走す
   await expect(page.getByRole('heading', { name: raceName, exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
-  await timed(phases, 'スマホ・パドック6頭入力', 49, 43, async () => {
+  await timed(phases, 'スマホ・パドック6頭入力', 25, 43, async () => {
     for (let number = 1; number <= 6; number++) {
       await paddockHorse(page, number, `${number}番は登録済み所見のみを記録`);
       if (number < 6) await page.getByRole('button', { name: '次の馬' }).click();
