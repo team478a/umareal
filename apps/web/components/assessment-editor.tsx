@@ -78,11 +78,25 @@ export function AssessmentEditor({ raceId, userId, onClose }: { raceId: string; 
   const content = entry ? contentFor(entry) : blankAssessment;
   const usesLegacyCondition = content.calm !== null && content.sweating === null && content.calmness === null;
   function edit(patch: Partial<AssessmentInput>) {
-    if (!entry || busy || failed || conflict) return;
+    if (!entry || busy || failed || conflict) return false;
     const previous = drafts[entry.id];
     const next = { ...drafts, [entry.id]: { content: { ...content, ...patch }, revision: previous?.revision ?? entry.assessment?.revision ?? 0, raceRevision: previous?.raceRevision ?? workspace!.race.revision, horseId: entry.horseId, mutationId: crypto.randomUUID(), reason: reason.trim() } };
-    if (!assessmentSaveSchema.safeParse(next[entry.id]).success) { setError('入力範囲を確認してください。点数0〜100、順位1〜18、短評1000文字以内です。'); return; }
-    try { persist(next); setError(''); } catch (e) { setDrafts(next); setFailed(true); setError(`端末に保存できません：${(e as Error).message} 入力を控えてから再読み込みしてください。`); }
+    if (!assessmentSaveSchema.safeParse(next[entry.id]).success) { setError('入力範囲を確認してください。点数0〜100、順位1〜18、短評1000文字以内です。'); return false; }
+    try { persist(next); setError(''); return true; }
+    catch (e) { setDrafts(next); setFailed(true); setError(`端末に保存できません：${(e as Error).message} 入力を控えてから再読み込みしてください。`); return false; }
+  }
+  function completeAndAdvance(change: AssessmentInput['change']) {
+    if (!metrics.every(metric => content[metric] !== null) || !edit({ change })) return;
+    let nextIndex = -1;
+    for (let offset = 1; offset < workspace!.entries.length; offset += 1) {
+      const candidateIndex = (index + offset) % workspace!.entries.length;
+      if (!paddockComplete(contentFor(workspace!.entries[candidateIndex]))) { nextIndex = candidateIndex; break; }
+    }
+    if (nextIndex === -1) {
+      setStorageNotice('全頭のパドック評価を入力しました。保存済みを確認して最終評価へ進んでください。');
+      return;
+    }
+    setIndex(nextIndex); setHistory([]); setStorageNotice(`${workspace!.entries[nextIndex].number}番の未入力馬へ移動しました。`);
   }
   async function resolve(keepLocal: boolean) {
     if (!conflict) return;
@@ -128,6 +142,7 @@ export function AssessmentEditor({ raceId, userId, onClose }: { raceId: string; 
           <fieldset className="metric metric-quick"><legend>6項目まとめて設定</legend><p className="form-note">現在の馬だけに反映します。異なる項目は下で個別に調整できます。</p><div className="metric-options">{metricValues.map(value => <button type="button" key={value} aria-label={`6項目を${value === 0 ? '判断不能' : value}に設定`} aria-pressed={metrics.every(metric => content[metric] === value)} onClick={() => edit(uniformPaddockMetrics(value))}>{value === 0 ? '判断不能' : value}</button>)}</div></fieldset>
           {metrics.map(metric => <fieldset className="metric" key={metric}><legend>{metricLabels[metric]}</legend><div className="metric-options">{metricValues.map(value => <button type="button" key={value} aria-label={`${metricLabels[metric]} ${value === 0 ? '判断不能' : value}`} aria-pressed={content[metric] === value} onClick={() => edit({ [metric]: value, ...(metric === 'sweating' || metric === 'calmness' ? { calm: null } : {}) })}>{value === 0 ? '判断不能' : value}</button>)}</div></fieldset>)}
           <fieldset className="metric"><legend>総合変化</legend><div className="change-options">{changes.map(change => <button key={change} type="button" aria-pressed={content.change === change} onClick={() => edit({ change })}>{changeLabels[change]}</button>)}</div></fieldset>
+          <fieldset className="metric metric-complete"><legend>総合変化を確定して次の未入力馬へ</legend><p className="form-note">6項目を確認後、選んだ総合変化を保存して、未入力の馬を馬番順に表示します。評価内容は自動入力しません。</p><div className="change-options">{changes.map(change => <button key={change} type="button" disabled={!metrics.every(metric => content[metric] !== null)} onClick={() => completeAndAdvance(change)}>{changeLabels[change]}で完了→次</button>)}</div></fieldset>
           <label className="field">パドック短評<textarea aria-label="パドック短評" maxLength={1000} value={content.paddockComment} onChange={e => edit({ paddockComment: e.target.value })} placeholder="端末の音声入力も使用できます" /></label><div className="comment-templates">{['歩様がスムーズ', '落ち着いている', '判断材料が不足'].map(text => <button className="button secondary small" key={text} onClick={() => edit({ paddockComment: `${content.paddockComment}${content.paddockComment ? '。' : ''}${text}`.slice(0, 1000) })}>{text}</button>)}</div>
           </>}
         </fieldset>
