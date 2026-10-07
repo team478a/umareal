@@ -98,6 +98,33 @@ test('pastes multiple races, previews them, and confirms once on mobile', async 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
+test('pastes and confirms an 18-horse card without entering technical IDs', async ({ page }) => {
+  if (process.env.AUTH_PROVIDER !== 'local' || !['localhost', '127.0.0.1'].includes(new URL(process.env.DATABASE_URL ?? '').hostname)) throw new Error('Local database required');
+  const admin = await account('ADMIN'); const client = new Client(); await client.login(admin); await client.mfa();
+  await page.context().addCookies([{ name: 'keiba_session', value: client.cookie.split('=')[1], domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
+  await page.setViewportSize({ width: 390, height: 844 });
+  let day = `2095-04-${String(Math.floor(Math.random() * 25) + 1).padStart(2, '0')}`;
+  while (await db.race.count({ where: { raceDate: day, venue: '東京' } })) day = new Date(new Date(`${day}T00:00:00Z`).getTime() + 86400000).toISOString().slice(0, 10);
+  const suffix = randomUUID().slice(0, 8), raceName = `18頭一括登録-${suffix}`;
+  const created = await client.call('admin/races', 'POST', { race: { raceDate: day, venue: '東京', number: 12, name: raceName, raceClass: '3歳以上1勝クラス', distance: 1800, surface: 'TURF', direction: 'LEFT', startsAt: `${day}T16:30:00+09:00`, going: 'UNKNOWN', weather: '未確認', status: 'SCHEDULED', expertId: null }, reason: '18頭一括登録の画面試験' }, undefined, { 'Idempotency-Key': randomUUID() });
+  expect(created.status).toBe(201);
+  const horseNames = Array.from({ length: 18 }, (_, index) => `一括画面試験馬${index + 1}-${suffix}`);
+  await page.goto('/admin/races');
+  await page.getByLabel('表示する開催日', { exact: true }).fill(day);
+  const row = page.getByRole('row').filter({ hasText: raceName });
+  await row.getByRole('button', { name: '編集・出走馬' }).click();
+  await page.getByLabel('出走馬一括入力').fill(horseNames.map((name, index) => `${index + 1},${name}`).join('\n'));
+  await page.getByRole('button', { name: '登録内容を確認' }).click();
+  await expect(page.getByRole('heading', { name: '一括登録前の確認', exact: true })).toBeVisible();
+  expect(await db.raceEntry.count({ where: { raceId: created.body.id } })).toBe(0);
+  await page.getByLabel('出走馬一括登録の理由').fill('出馬表18頭を画面で確認');
+  await page.getByRole('button', { name: '確認した18頭を一括登録' }).click();
+  await expect(page.getByRole('status')).toContainText('18頭をまとめて登録しました。');
+  expect(await db.raceEntry.count({ where: { raceId: created.body.id } })).toBe(18);
+  expect(await db.horseExternalIdentity.count({ where: { observedName: { in: horseNames }, provider: 'MANUAL' } })).toBe(18);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
 test('selects a verified JRA-VAN bundle and confirms the whole race day', async ({ page }) => {
   if (process.env.AUTH_PROVIDER !== 'local' || !['localhost', '127.0.0.1'].includes(new URL(process.env.DATABASE_URL ?? '').hostname)) throw new Error('Local database required');
   const admin = await account('ADMIN'); const client = new Client(); await client.login(admin); await client.mfa();

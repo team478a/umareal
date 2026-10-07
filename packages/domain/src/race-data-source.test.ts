@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { horseIdentityCorrectionInputSchema, horseIdentityResolutionInputSchema, horseIdentityReviewQuerySchema, manualEntryInputSchema, raceOperationHistoryResponseSchema, resolveRaceDataMode } from './race-data-source';
+import { horseIdentityCorrectionInputSchema, horseIdentityResolutionInputSchema, horseIdentityReviewQuerySchema, manualEntryBatchInputSchema, manualEntryInputSchema, parseQuickManualEntryList, raceOperationHistoryResponseSchema, resolveRaceDataMode } from './race-data-source';
 
 describe('race data mode', () => {
   it('uses manual operation when no external provider is configured', () => {
@@ -11,6 +11,14 @@ describe('race data mode', () => {
     expect(() => resolveRaceDataMode('LIVE')).toThrow();
     expect(manualEntryInputSchema.parse({ number: 7, horseName: '手動登録馬' })).toEqual({ number: 7, horseName: '手動登録馬' });
     expect(manualEntryInputSchema.safeParse({ number: 7, horseName: '=IMPORT' }).success).toBe(false);
+  });
+
+  it('parses up to 18 manual entries without inventing identity data', () => {
+    expect(parseQuickManualEntryList('1,一括登録馬A\n2\t一括登録馬B')).toEqual({ entries: [{ number: 1, horseName: '一括登録馬A' }, { number: 2, horseName: '一括登録馬B' }], errors: [] });
+    expect(manualEntryBatchInputSchema.safeParse([{ number: 1, horseName: '一括登録馬A' }, { number: 1, horseName: '一括登録馬B' }]).success).toBe(false);
+    expect(parseQuickManualEntryList('1,一括登録馬\n2,一括登録馬').errors).toContainEqual(expect.objectContaining({ row: 2, field: 'horseName' }));
+    expect(parseQuickManualEntryList('1,=IMPORT').errors).toContainEqual(expect.objectContaining({ row: 1, field: 'horseName' }));
+    expect(parseQuickManualEntryList(Array.from({ length: 19 }, (_, index) => `${index + 1},馬${index + 1}`).join('\n')).errors).toContainEqual(expect.objectContaining({ row: 19, field: 'number' }));
   });
 
   it('requires an explicit human decision, target horse and reason for identity resolution', () => {

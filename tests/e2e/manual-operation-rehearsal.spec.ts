@@ -103,15 +103,14 @@ test('JRA-VAN未接続で1開催日の主要運用を管理画面から完走す
   });
   const race = await db.race.findFirstOrThrow({ where: { name: raceName } });
 
-  await timed(phases, '出走馬6頭登録', 13, 7, async () => {
-    const quick = page.locator('form').filter({ has: page.getByRole('button', { name: '出走馬を簡易登録' }) });
-    await quick.getByLabel('簡易登録の理由', { exact: true }).fill('出馬表を確認して簡易登録');
-    for (const horseName of horseNames) {
-      await quick.getByLabel('馬名', { exact: true }).fill(horseName);
-      await quick.getByRole('button', { name: '出走馬を簡易登録' }).click();
-      await expect(page.getByRole('cell', { name: horseName, exact: true })).toBeVisible();
-      await expect(quick.getByLabel('簡易登録の理由', { exact: true })).toHaveValue('出馬表を確認して簡易登録');
-    }
+  await timed(phases, '出走馬6頭登録', 4, 2, async () => {
+    await page.getByLabel('出走馬一括入力').fill(horseNames.map((horseName, index) => `${index + 1},${horseName}`).join('\n'));
+    await page.getByRole('button', { name: '登録内容を確認' }).click();
+    await expect(page.getByRole('heading', { name: '一括登録前の確認', exact: true })).toBeVisible();
+    await page.getByLabel('出走馬一括登録の理由').fill('出馬表を確認して一括簡易登録');
+    await page.getByRole('button', { name: '確認した6頭を一括登録' }).click();
+    await expect(page.getByRole('status')).toContainText('6頭をまとめて登録しました。');
+    for (const horseName of horseNames) await expect(page.getByRole('cell', { name: horseName, exact: true })).toBeVisible();
   });
   expect(await db.raceEntry.count({ where: { raceId: race.id } })).toBe(6);
   expect(await db.horseExternalIdentity.count({ where: { observedName: { in: horseNames }, provider: 'MANUAL', matchStatus: 'UNRESOLVED' } })).toBe(6);
@@ -245,7 +244,7 @@ test('JRA-VAN未接続で1開催日の主要運用を管理画面から完走す
       await expect(page.getByRole('row').filter({ hasText: action }).first()).toBeVisible();
     }
   });
-  const requiredAudits = ['RACE_CREATE', 'MANUAL_ENTRY_CREATE', 'ASSESSMENT_SAVE', 'PREDICTION_DRAFT_SAVE', 'PREDICTION_PUBLISH', 'AI_GUIDE_GENERATION_REQUEST', 'AI_GUIDE_APPROVE', 'AI_GUIDE_PUBLISH', 'RACE_RESULT_DRAFT_SAVE', 'RACE_RESULT_CONFIRM'];
+  const requiredAudits = ['RACE_CREATE', 'MANUAL_ENTRY_BATCH_CREATE', 'ASSESSMENT_SAVE', 'PREDICTION_DRAFT_SAVE', 'PREDICTION_PUBLISH', 'AI_GUIDE_GENERATION_REQUEST', 'AI_GUIDE_APPROVE', 'AI_GUIDE_PUBLISH', 'RACE_RESULT_DRAFT_SAVE', 'RACE_RESULT_CONFIRM'];
   const auditActions = await db.auditLog.findMany({ where: { createdAt: { gte: rehearsalStartedAt }, action: { in: requiredAudits } }, select: { action: true } });
   for (const action of requiredAudits) expect(auditActions.map(item => item.action)).toContain(action);
 

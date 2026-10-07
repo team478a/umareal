@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
 import { ArrowRight, Eye, FileUp, Plus, RefreshCw } from 'lucide-react';
-import { entryHeaders, entryStatuses, jstDate, parseQuickRaceList, raceHeaders, raceStatuses, serializeRaceCsv, venues, type EntryInput, type HorseIdentityHistoryResponse, type HorseIdentityReviewResponse, type ImportKind, type RaceAnnouncementNotificationPreviewResponse, type RaceDataStatus, type RaceExpertListResponse, type RaceInput, type RaceOperationHistoryResponse } from '@keiba/domain';
+import { entryHeaders, entryStatuses, jstDate, parseQuickManualEntryList, parseQuickRaceList, raceHeaders, raceStatuses, serializeRaceCsv, venues, type EntryInput, type HorseIdentityHistoryResponse, type HorseIdentityReviewResponse, type ImportKind, type ManualEntryInput, type RaceAnnouncementNotificationPreviewResponse, type RaceDataStatus, type RaceExpertListResponse, type RaceInput, type RaceOperationHistoryResponse } from '@keiba/domain';
 import { NotificationPreview } from './notification-preview';
 
 type Entry = Omit<EntryInput, 'gate' | 'sex' | 'age' | 'carriedWeight' | 'jockey' | 'trainer' | 'winOdds'> & { id: string; gate: number | null; sex: EntryInput['sex'] | null; age: number | null; carriedWeight: string | number | null; jockey: string | null; trainer: string | null; winOdds: string | number | null };
@@ -75,6 +75,7 @@ export function RaceManager({ canCorrectIdentity = false }: { canCorrectIdentity
     </section>
     {editing && <RaceEditor key={selected ? `${selected.id}-${selected.revision}` : `new-${date}`} race={selected} date={date} experts={experts} onSaved={async r => { setSelected(r); setMessage('レース情報を保存しました。'); await load(); }} onReload={() => selected && void open(selected.id)} />}
     {selected && <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{selected.venue} {selected.number}R · {selected.name}</span><h2>出走馬</h2></div><button className="button secondary small" onClick={() => setEntry(null)}>新しい馬を入力</button></div>
+      <QuickManualEntryBatch race={selected} onSaved={async warning => { await open(selected.id); await load(); setMessage(warning || '出走馬をまとめて簡易登録しました。詳細情報は後から補完できます。'); }} />
       <QuickManualEntry race={selected} onSaved={async warning => { await open(selected.id); await load(); setMessage(warning || '出走馬を簡易登録しました。詳細情報は後から補完できます。'); }} />
       <div className="table-scroll"><table className="race-data-table"><thead><tr><th>馬番 / 枠</th><th>馬名</th><th>性齢 / 斤量</th><th>騎手</th><th>状態</th><th>操作</th></tr></thead><tbody>{selected.entries?.map(e => <tr key={e.id}><td>{e.number} / {e.gate ?? '未確認'}</td><td>{e.horseName}</td><td>{e.sex && e.age !== null ? `${choices.sex[e.sex]}${e.age}` : '未確認'} · {e.carriedWeight !== null ? `${e.carriedWeight}kg` : '未確認'}</td><td>{e.jockey ?? '未確認'}</td><td>{e.status === 'ACTIVE' ? '出走予定' : choices.status[e.status]}</td><td><button className="button secondary small" onClick={() => setEntry(e)}>編集</button></td></tr>)}</tbody></table></div>
       <EntryEditor key={`${selected.id}-${selected.revision}-${entry?.id ?? 'new'}`} race={selected} entry={entry} onSaved={async () => { await open(selected.id); await load(); setMessage('出走馬を保存しました。'); }} />
@@ -86,7 +87,7 @@ export function RaceManager({ canCorrectIdentity = false }: { canCorrectIdentity
 }
 
 const operationLabels: Record<string, string> = {
-  RACE_CREATE: 'レース作成', RACE_UPDATE: 'レース更新', ENTRY_SAVE: '出走馬保存', MANUAL_ENTRY_CREATE: '出走馬簡易登録',
+  RACE_CREATE: 'レース作成', RACE_UPDATE: 'レース更新', ENTRY_SAVE: '出走馬保存', MANUAL_ENTRY_CREATE: '出走馬簡易登録', MANUAL_ENTRY_BATCH_CREATE: '出走馬一括簡易登録',
   RACE_ANNOUNCE: '対象レース告知', ASSESSMENT_SAVE: 'パドック評価保存', PREDICTION_DRAFT_SAVE: '予想下書き保存',
   PREDICTION_PUBLISH: '予想公開', PREDICTION_CORRECT: '予想訂正版公開', RACE_RESULT_DRAFT_SAVE: '結果下書き保存',
   RACE_RESULT_CONFIRM: '結果確定', RACE_RESULT_CSV_IMPORT_CONFIRMED: '結果CSV取込', AI_GUIDE_GENERATION_REQUEST: 'AIガイド生成',
@@ -170,6 +171,40 @@ function HorseIdentityHistory({ canCorrect }: { canCorrect: boolean }) {
     </div>) : <p className="muted form-note">確認済みIdentityはまだありません。</p>}
     {value && <Pager page={page} total={value.total} setPage={setPage} limit={value.limit} />}
   </div></details>;
+}
+
+function QuickManualEntryBatch({ race, onSaved }: { race: Race; onSaved: (message?: string) => Promise<void> }) {
+  const [source, setSource] = useState(''); const [reason, setReason] = useState('');
+  const [preview, setPreview] = useState<{ entries: ManualEntryInput[]; errors: { row: number; field: string; message: string }[] } | null>(null);
+  const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  function check() {
+    setError('');
+    const parsed = parseQuickManualEntryList(source);
+    const occupied = new Set(race.entries?.map(entry => entry.number) ?? []);
+    const conflicts = parsed.entries.filter(entry => occupied.has(entry.number)).map(entry => ({ row: source.split(/\r?\n/).findIndex(line => line.trim().startsWith(`${entry.number},`) || line.trim().startsWith(`${entry.number}\t`)) + 1, field: 'number', message: `${entry.number}番は登録済みです。` }));
+    setPreview({ entries: parsed.entries, errors: [...parsed.errors, ...conflicts] });
+  }
+  async function confirm() {
+    if (!preview || preview.errors.length || !preview.entries.length || !reason.trim()) return;
+    setBusy(true); setError('');
+    try {
+      const result = await request<{ entries: unknown[]; duplicateNames: string[] }>(`races/${race.id}/entries/manual-batch`, 'POST', { entries: preview.entries, revision: race.revision, reason });
+      const count = result.entries.length; const duplicateNames = result.duplicateNames;
+      setSource(''); setReason(''); setPreview(null);
+      await onSaved(duplicateNames.length ? `${count}頭を登録しました。${duplicateNames.join('、')}は同名馬候補があるため、正式IDとの統合を保留しています。` : `${count}頭をまとめて登録しました。`);
+    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  }
+  return <div className="panel-body entry-editor"><h3>馬番と馬名をまとめて簡易登録</h3><ErrorMessage error={error} />
+    <p className="muted form-note">出馬表から「馬番,馬名」を1行ずつ貼り付けます。最大18頭を確認後に一括登録し、枠番・性齢・斤量・騎手・調教師は未確認のまま保存します。</p>
+    <label className="field">出走馬一覧<textarea aria-label="出走馬一括入力" rows={8} maxLength={5000} value={source} onChange={event => { setSource(event.target.value); setPreview(null); }} placeholder={'1,登録馬A\n2,登録馬B\n3,登録馬C'} /></label>
+    <button className="button secondary" type="button" disabled={busy || !source.trim()} onClick={check}>登録内容を確認</button>
+    {preview && <div className="import-preview"><h3>一括登録前の確認</h3>{preview.errors.length ? <div role="alert"><ul>{preview.errors.map((issue, index) => <li key={index}>{issue.row ? `${issue.row}行目 · ` : ''}{issue.field === 'number' ? '馬番' : labels[issue.field] ?? issue.field}：{issue.message}</li>)}</ul></div> : <>
+      <p className="muted form-note">{preview.entries.length}頭を暫定Identityとして登録します。馬名が同じ既存馬へ自動統合しません。</p>
+      <div className="table-scroll"><table className="race-data-table"><thead><tr><th>馬番</th><th>馬名</th><th>登録後</th></tr></thead><tbody>{preview.entries.map(entry => <tr key={entry.number}><td>{entry.number}</td><td>{entry.horseName}</td><td>詳細未確認・暫定Identity</td></tr>)}</tbody></table></div>
+      <label className="field">一括簡易登録の理由<input aria-label="出走馬一括登録の理由" value={reason} maxLength={500} onChange={event => setReason(event.target.value)} /></label>
+      <button className="button" type="button" disabled={busy || !reason.trim()} onClick={() => void confirm()}>{busy ? '登録中…' : `確認した${preview.entries.length}頭を一括登録`}</button>
+    </>}</div>}
+  </div>;
 }
 
 function QuickManualEntry({ race, onSaved }: { race: Race; onSaved: (message?: string) => Promise<void> }) {

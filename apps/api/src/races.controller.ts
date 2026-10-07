@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req } from '@nestjs/common';
-import { canManage, CsvRaceDataProvider, dateSchema, entryInputSchema, horseIdentityCorrectionInputSchema, horseIdentityCorrectionResponseSchema, horseIdentityHistoryResponseSchema, horseIdentityResolutionInputSchema, horseIdentityResolutionResponseSchema, horseIdentityReviewQuerySchema, horseIdentityReviewResponseSchema, jraVanBundleFormatVersion, jstDate, manualEntryInputSchema, parseJraVanRaceBundle, raceDataModeLabels, raceDaySchema, raceExpertListQuerySchema, raceExpertListResponseSchema, raceInputSchema, raceOperationHistoryResponseSchema, requiresMfa, resolveRaceDataMode, venues } from '@keiba/domain';
+import { canManage, CsvRaceDataProvider, dateSchema, entryInputSchema, horseIdentityCorrectionInputSchema, horseIdentityCorrectionResponseSchema, horseIdentityHistoryResponseSchema, horseIdentityResolutionInputSchema, horseIdentityResolutionResponseSchema, horseIdentityReviewQuerySchema, horseIdentityReviewResponseSchema, jraVanBundleFormatVersion, jstDate, manualEntryBatchInputSchema, manualEntryInputSchema, parseJraVanRaceBundle, raceDataModeLabels, raceDaySchema, raceExpertListQuerySchema, raceExpertListResponseSchema, raceInputSchema, raceOperationHistoryResponseSchema, requiresMfa, resolveRaceDataMode, venues, type ManualEntryInput } from '@keiba/domain';
 import type { EntryInput, ImportKind, RaceInput } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -222,7 +222,7 @@ export class RacesController {
     const actorIds = [...new Set(audits.flatMap(audit => audit.actorId ? [audit.actorId] : []))];
     const actors = actorIds.length ? await this.auth.db.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, displayName: true } }) : [];
     const actorNames = new Map(actors.map(actor => [actor.id, actor.displayName]));
-    const sourceType = (action: string) => action.startsWith('JRA_VAN_') ? 'JRA_VAN' as const : action.startsWith('CSV_') ? 'CSV' as const : ['RACE_CREATE', 'RACE_UPDATE', 'ENTRY_SAVE', 'MANUAL_ENTRY_CREATE', 'RACE_ANNOUNCE'].includes(action) ? 'MANUAL' as const : 'UMAREAL' as const;
+    const sourceType = (action: string) => action.startsWith('JRA_VAN_') ? 'JRA_VAN' as const : action.startsWith('CSV_') ? 'CSV' as const : ['RACE_CREATE', 'RACE_UPDATE', 'ENTRY_SAVE', 'MANUAL_ENTRY_CREATE', 'MANUAL_ENTRY_BATCH_CREATE', 'RACE_ANNOUNCE'].includes(action) ? 'MANUAL' as const : 'UMAREAL' as const;
     return raceOperationHistoryResponseSchema.parse({
       items: audits.map(audit => ({ id: audit.id, action: audit.action, targetType: audit.targetType, targetId: audit.targetId, reason: audit.reason, actorRole: audit.actorRole, actorDisplayName: audit.actorId ? actorNames.get(audit.actorId) ?? null : null, sourceType: sourceType(audit.action), createdAt: audit.createdAt.toISOString(), requestId: audit.requestId })),
       total, page, limit
@@ -302,17 +302,43 @@ export class RacesController {
       if (!before) throw new NotFoundException();
       if (before.revision !== revision) throw new ConflictException({ code: 'STALE_REVISION', message: '他の操作で変更されました。再読み込みしてください。' });
       if (before.entries.some(item => item.number === entry.number)) throw new ConflictException({ code: 'ENTRY_ALREADY_EXISTS', message: 'この馬番は登録済みです。出走馬一覧の編集から変更してください。' });
-      const duplicateCandidates = await tx.horse.findMany({ where: { name: entry.horseName }, select: { id: true }, take: 20 });
-      const horse = await tx.horse.create({ data: { id: randomUUID(), name: entry.horseName } });
-      const now = new Date();
-      const identity = await tx.horseExternalIdentity.create({ data: {
-        horseId: horse.id, provider: 'MANUAL', externalKeyHash: hashToken(`MANUAL\0${randomUUID()}`), sourceVersion: 'MANUAL_OPERATION_V1', observedName: entry.horseName,
-        matchStatus: duplicateCandidates.length ? 'POSSIBLE_DUPLICATE' : 'UNRESOLVED', firstObservedAt: now, lastObservedAt: now
-      } });
-      const saved = await tx.raceEntry.create({ data: { raceId: id, horseId: horse.id, number: entry.number, horseName: entry.horseName, gate: null, sex: null, age: null, carriedWeight: null, jockey: null, trainer: null, winOdds: null, popularity: null, status: 'ACTIVE' } });
+      const { saved, identity, duplicateCandidates } = await this.createManualEntry(tx, id, entry);
       await tx.race.update({ where: { id }, data: { revision: { increment: 1 } } });
       await this.log(tx, req, 'MANUAL_ENTRY_CREATE', 'RACE_ENTRY', saved.id, reason, { after: saved, identityId: identity.id, identityProvider: identity.provider, identityStatus: identity.matchStatus, duplicateCandidateHorseIds: duplicateCandidates.map(candidate => candidate.id) });
       return { entry: saved, identity: { id: identity.id, provider: identity.provider, status: identity.matchStatus, duplicateCandidateCount: duplicateCandidates.length } };
+    });
+  }
+  private async createManualEntry(tx: Tx, raceId: string, entry: ManualEntryInput) {
+    const duplicateCandidates = await tx.horse.findMany({ where: { name: entry.horseName }, select: { id: true }, take: 20 });
+    const horse = await tx.horse.create({ data: { id: randomUUID(), name: entry.horseName } });
+    const now = new Date();
+    const identity = await tx.horseExternalIdentity.create({ data: {
+      horseId: horse.id, provider: 'MANUAL', externalKeyHash: hashToken(`MANUAL\0${randomUUID()}`), sourceVersion: 'MANUAL_OPERATION_V1', observedName: entry.horseName,
+      matchStatus: duplicateCandidates.length ? 'POSSIBLE_DUPLICATE' : 'UNRESOLVED', firstObservedAt: now, lastObservedAt: now
+    } });
+    const saved = await tx.raceEntry.create({ data: { raceId, horseId: horse.id, number: entry.number, horseName: entry.horseName, gate: null, sex: null, age: null, carriedWeight: null, jockey: null, trainer: null, winOdds: null, popularity: null, status: 'ACTIVE' } });
+    return { saved, identity, duplicateCandidates };
+  }
+  @Post('races/:id/entries/manual-batch') async manualEntryBatch(@Req() req: AppRequest, @Param('id') id: string, @Body() body: unknown) {
+    await this.staff(req); z.string().uuid().parse(id);
+    const { entries, revision, reason } = z.object({ entries: manualEntryBatchInputSchema, revision: z.number().int().positive(), reason: reasonSchema }).strict().parse(body);
+    return this.mutate(req, `manual-entry-batch:${id}`, body, async tx => {
+      const before = await tx.race.findUnique({ where: { id }, include: fullRace });
+      if (!before) throw new NotFoundException();
+      if (before.revision !== revision) throw new ConflictException({ code: 'STALE_REVISION', message: '他の操作で変更されました。再読み込みしてください。' });
+      const occupied = entries.filter(entry => before.entries.some(item => item.number === entry.number)).map(entry => entry.number);
+      if (occupied.length) throw new ConflictException({ code: 'ENTRY_ALREADY_EXISTS', message: `登録済みの馬番があります（${occupied.join('、')}番）。出走馬一覧を確認してください。` });
+      const created = [];
+      for (const entry of entries) created.push(await this.createManualEntry(tx, id, entry));
+      await tx.race.update({ where: { id }, data: { revision: { increment: 1 } } });
+      await this.log(tx, req, 'MANUAL_ENTRY_BATCH_CREATE', 'RACE', id, reason, {
+        entryCount: created.length,
+        entries: created.map(item => ({ entryId: item.saved.id, number: item.saved.number, horseName: item.saved.horseName, identityId: item.identity.id, identityStatus: item.identity.matchStatus, duplicateCandidateHorseIds: item.duplicateCandidates.map(candidate => candidate.id) }))
+      });
+      return {
+        entries: created.map(item => ({ entry: item.saved, identity: { id: item.identity.id, provider: item.identity.provider, status: item.identity.matchStatus, duplicateCandidateCount: item.duplicateCandidates.length } })),
+        duplicateNames: created.filter(item => item.duplicateCandidates.length).map(item => item.saved.horseName)
+      };
     });
   }
   private async snapshot(tx: Tx, kind: ImportKind, rows: Rows, raceId?: string) {
