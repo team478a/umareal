@@ -100,25 +100,28 @@ test('JRA-VAN未接続で1開催日の主要運用を管理画面から完走す
   });
   const race = await db.race.findFirstOrThrow({ where: { name: raceName } });
 
-  await timed(phases, '出走馬6頭登録', 18, 18, async () => {
+  await timed(phases, '出走馬6頭登録', 13, 7, async () => {
     const quick = page.locator('form').filter({ has: page.getByRole('button', { name: '出走馬を簡易登録' }) });
+    await quick.getByLabel('簡易登録の理由', { exact: true }).fill('出馬表を確認して簡易登録');
     for (const horseName of horseNames) {
       await quick.getByLabel('馬名', { exact: true }).fill(horseName);
-      await quick.getByLabel('簡易登録の理由', { exact: true }).fill('出馬表を確認して簡易登録');
       await quick.getByRole('button', { name: '出走馬を簡易登録' }).click();
       await expect(page.getByRole('cell', { name: horseName, exact: true })).toBeVisible();
+      await expect(quick.getByLabel('簡易登録の理由', { exact: true })).toHaveValue('出馬表を確認して簡易登録');
     }
   });
   expect(await db.raceEntry.count({ where: { raceId: race.id } })).toBe(6);
   expect(await db.horseExternalIdentity.count({ where: { observedName: { in: horseNames }, provider: 'MANUAL', matchStatus: 'UNRESOLVED' } })).toBe(6);
 
-  await timed(phases, '暫定Horse Identity確認', 12, 6, async () => {
-    await page.reload();
+  await timed(phases, '暫定Horse Identity確認', 8, 1, async () => {
+    const identityPanel = page.locator('section.panel').filter({ has: page.getByRole('heading', { name: '暫定馬の確認', exact: true }) });
+    await identityPanel.getByLabel('暫定馬を絞り込むレース').selectOption(race.id);
+    await identityPanel.getByLabel('暫定馬の共通確認理由').fill('同名候補なしを確認');
     for (const horseName of horseNames) {
-      const identity = page.locator('.identity-review-item').filter({ hasText: horseName });
-      await identity.getByLabel(`${horseName}のIdentity確認理由`).fill('同名候補なしを確認');
+      const identity = identityPanel.locator('.identity-review-item').filter({ hasText: horseName });
+      await expect(identity).toContainText(`${venue} 1R`);
       await identity.getByRole('button', { name: '別の馬として確定' }).click();
-      await expect(page.getByRole('status')).toContainText(`${horseName}を別の馬として確定しました。`);
+      await expect(identityPanel.getByRole('status')).toContainText(`${horseName}を別の馬として確定しました。`);
     }
   });
   expect(await db.horseExternalIdentity.count({ where: { observedName: { in: horseNames }, provider: 'MANUAL', matchStatus: 'MATCHED' } })).toBe(6);

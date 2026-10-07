@@ -34,6 +34,23 @@ const horseIdentityReviewHorseSchema = z.object({
   entryCount: z.number().int().nonnegative()
 }).strict();
 
+export const horseIdentityReviewQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  raceId: z.string().uuid().optional()
+}).strict();
+export type HorseIdentityReviewQuery = z.infer<typeof horseIdentityReviewQuerySchema>;
+
+const horseIdentityReviewRaceSchema = z.object({
+  raceId: z.string().uuid(),
+  raceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  venue: z.string().min(1),
+  number: z.number().int().positive(),
+  name: z.string().min(1),
+  entryNumber: z.number().int().positive()
+}).strict();
+
 export const horseIdentityReviewResponseSchema = z.object({
   items: z.array(z.object({
     id: z.string().uuid(),
@@ -42,7 +59,8 @@ export const horseIdentityReviewResponseSchema = z.object({
     matchStatus: z.enum(['POSSIBLE_DUPLICATE', 'UNRESOLVED']),
     createdAt: z.string().datetime({ offset: true }),
     provisionalHorse: horseIdentityReviewHorseSchema,
-    candidates: z.array(horseIdentityReviewHorseSchema)
+    candidates: z.array(horseIdentityReviewHorseSchema),
+    races: z.array(horseIdentityReviewRaceSchema)
   }).strict()),
   total: z.number().int().nonnegative(),
   page: z.number().int().positive(),

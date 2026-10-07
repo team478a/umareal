@@ -95,13 +95,17 @@ describe('race management and transactional CSV imports', () => {
     expect(duplicate.body.entry.horseId).not.toBe(saved.horseId);
     expect(await db.auditLog.count({ where: { targetId: { in: [first.body.entry.id, duplicate.body.entry.id] }, action: 'MANUAL_ENTRY_CREATE' } })).toBe(2);
 
-    const review = await admin.call('admin/horse-identities/review?limit=50');
+    const review = await admin.call(`admin/horse-identities/review?limit=50&date=${day}&raceId=${manualRaceId}`);
     expect(review.status).toBe(200);
     expect(review.body.items.find((item: { id: string }) => item.id === duplicate.body.identity.id)).toMatchObject({
       observedName: sharedName,
       provisionalHorse: { id: duplicate.body.entry.horseId, entryCount: 1 },
-      candidates: expect.arrayContaining([expect.objectContaining({ id: saved.horseId, entryCount: 1 })])
+      candidates: expect.arrayContaining([expect.objectContaining({ id: saved.horseId, entryCount: 1 })]),
+      races: [{ raceId: manualRaceId, raceDate: day, venue: '東京', number: 2, entryNumber: 17 }]
     });
+    const otherDate = await admin.call('admin/horse-identities/review?limit=50&date=2097-01-01');
+    expect(otherDate.status).toBe(200);
+    expect(otherDate.body.items.some((item: { id: string }) => item.id === duplicate.body.identity.id)).toBe(false);
     const resolved = await admin.call(`admin/horse-identities/${duplicate.body.identity.id}/resolve`, 'POST', { decision: 'MATCH_EXISTING', resolvedHorseId: saved.horseId, reason: '同一馬であることを人が確認' }, undefined, headers());
     expect(resolved).toMatchObject({ status: 201, body: { matchStatus: 'MATCHED', horseId: saved.horseId } });
     expect(await db.horseExternalIdentity.findUniqueOrThrow({ where: { id: duplicate.body.identity.id } })).toMatchObject({ matchStatus: 'MATCHED', horseId: saved.horseId });

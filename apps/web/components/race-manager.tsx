@@ -62,7 +62,7 @@ export function RaceManager({ canCorrectIdentity = false }: { canCorrectIdentity
     <div className="page-heading"><span className="eyebrow">RACE OPERATIONS</span><h1>レース管理</h1><p>開催日・出走馬・担当者を登録し、CSVの差分を確認して取り込みます。</p></div>
     <ErrorMessage error={error} />{message && <div className="notice" role="status">{message}</div>}
     {dataStatus && <section className="panel"><div className="panel-heading"><div><span className="eyebrow">DATA SOURCE</span><h2>データ取得方式</h2></div><span className="status-tag">正常</span></div><div className="panel-body"><p><strong>{dataStatus.label}</strong></p><p className="muted form-note">{dataStatus.externalIntegration === 'NOT_USED' ? '外部データ連携は使用していません。レース・出走馬・結果を管理画面またはCSVから登録できます。' : '外部Providerのデータも、確認・プレビュー後にUMAREAL標準データへ取り込みます。'}</p></div></section>}
-    <HorseIdentityReview />
+    <HorseIdentityReview date={date} races={races} refreshKey={selected?.revision ?? 0} />
     <HorseIdentityHistory canCorrect={canCorrectIdentity} />
     <QuickRaceRegistration initialDate={date} onConfirmed={async targetDate => { setDate(targetDate); setPage(1); setEditing(false); setSelected(null); if (targetDate === date) await load(); }} />
     <section className="panel"><div className="panel-heading"><h2>開催日</h2></div><form onSubmit={saveDay} className="panel-body"><div className="race-form-grid"><Field name="raceDate" type="date" value={date} /><Field name="venue" value="東京" options={Object.fromEntries(venues.map(v => [v, v]))} /><Field name="reason" label="開催日の登録理由" /><div className="field-action"><button className="button" disabled={busy}><Plus size={16} />開催日を登録</button></div></div></form>
@@ -102,17 +102,21 @@ function RaceOperationHistory({ raceId }: { raceId: string }) {
   </div>;
 }
 
-function HorseIdentityReview() {
+function HorseIdentityReview({ date, races, refreshKey }: { date: string; races: Race[]; refreshKey: number }) {
   const [value, setValue] = useState<HorseIdentityReviewResponse | null>(null); const [page, setPage] = useState(1);
   const [reasons, setReasons] = useState<Record<string, string>>({}); const [targets, setTargets] = useState<Record<string, string>>({});
+  const [commonReason, setCommonReason] = useState(''); const [raceId, setRaceId] = useState('');
   const [busy, setBusy] = useState(''); const [error, setError] = useState(''); const [message, setMessage] = useState('');
   const load = useCallback(async () => {
-    try { setValue(await request<HorseIdentityReviewResponse>(`horse-identities/review?page=${page}&limit=20`)); }
+    const query = new URLSearchParams({ page: String(page), limit: '20', date });
+    if (raceId) query.set('raceId', raceId);
+    try { setValue(await request<HorseIdentityReviewResponse>(`horse-identities/review?${query}`)); }
     catch (e) { setError((e as Error).message); }
-  }, [page]);
+  }, [date, page, raceId, refreshKey]);
+  useEffect(() => { setPage(1); setRaceId(''); }, [date]);
   useEffect(() => { void load(); }, [load]);
   async function resolve(identity: HorseIdentityReviewResponse['items'][number], decision: 'MATCH_EXISTING' | 'CONFIRM_DISTINCT') {
-    const reason = reasons[identity.id]?.trim(); const resolvedHorseId = decision === 'CONFIRM_DISTINCT' ? identity.provisionalHorse.id : targets[identity.id] ?? identity.candidates[0]?.id;
+    const reason = reasons[identity.id]?.trim() || commonReason.trim(); const resolvedHorseId = decision === 'CONFIRM_DISTINCT' ? identity.provisionalHorse.id : targets[identity.id] ?? identity.candidates[0]?.id;
     if (!reason) { setError('Identityの確認理由を入力してください。'); return; }
     if (!resolvedHorseId) { setError('紐付け先の既存馬を選択してください。'); return; }
     setBusy(identity.id); setError(''); setMessage('');
@@ -124,11 +128,13 @@ function HorseIdentityReview() {
     } catch (e) { setError((e as Error).message); } finally { setBusy(''); }
   }
   return <section className="panel"><div className="panel-heading"><div><span className="eyebrow">HORSE IDENTITY</span><h2>暫定馬の確認</h2></div><span className="status-tag">未確認 {value?.total ?? 0}件</span></div><div className="panel-body">
-    <p className="muted form-note">簡易登録した馬を、人が確認して既存馬へ紐付けるか別馬として確定します。レース出走馬・公開済み予想・結果は書き換えません。</p>
+    <p className="muted form-note">表示中の開催日に簡易登録した馬だけを確認します。既存馬へ紐付けるか別馬として確定しても、レース出走馬・公開済み予想・結果は書き換えません。</p>
     <ErrorMessage error={error} />{message && <div className="notice" role="status">{message}</div>}
-    {value?.items.length ? value.items.map(identity => <div className="identity-review-item" key={identity.id}><h3>{identity.observedName}</h3><p>暫定馬ID: <code>{identity.provisionalHorse.id}</code> · 使用レース {identity.provisionalHorse.entryCount}件</p>
+    <div className="race-form-grid"><label className="field">対象レース<select aria-label="暫定馬を絞り込むレース" value={raceId} onChange={event => { setRaceId(event.target.value); setPage(1); }}><option value="">{date}の全レース</option>{races.map(race => <option key={race.id} value={race.id}>{race.venue} {race.number}R {race.name}</option>)}</select></label><label className="field">共通の確認理由<input aria-label="暫定馬の共通確認理由" value={commonReason} maxLength={500} onChange={event => setCommonReason(event.target.value)} placeholder="例：出馬表と同名候補を確認" /></label></div>
+    <p className="muted form-note">共通理由は各馬の理由が空欄の場合に使用します。個別の事情がある馬だけ理由を上書きしてください。</p>
+    {value?.items.length ? value.items.map(identity => <div className="identity-review-item" key={identity.id}><h3>{identity.observedName}</h3><p>{identity.races.map(race => `${race.venue} ${race.number}R ${race.entryNumber}番`).join('、')} · 使用レース {identity.provisionalHorse.entryCount}件</p>
       {identity.candidates.length > 0 ? <label className="field">同名の既存馬<select aria-label={`${identity.observedName}の紐付け先`} value={targets[identity.id] ?? identity.candidates[0].id} onChange={event => setTargets({ ...targets, [identity.id]: event.target.value })}>{identity.candidates.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.name} · 使用レース{candidate.entryCount}件 · {candidate.id}</option>)}</select></label> : <p className="muted form-note">同名の既存馬候補はありません。</p>}
-      <label className="field">確認理由<input aria-label={`${identity.observedName}のIdentity確認理由`} value={reasons[identity.id] ?? ''} maxLength={500} onChange={event => setReasons({ ...reasons, [identity.id]: event.target.value })} /></label>
+      <label className="field">個別の確認理由（任意）<input aria-label={`${identity.observedName}のIdentity確認理由`} value={reasons[identity.id] ?? ''} maxLength={500} onChange={event => setReasons({ ...reasons, [identity.id]: event.target.value })} placeholder={commonReason || '共通理由または個別理由を入力'} /></label>
       <div className="button-row">{identity.candidates.length > 0 && <button className="button" disabled={busy === identity.id} onClick={() => void resolve(identity, 'MATCH_EXISTING')}>既存馬へ紐付け</button>}<button className="button secondary" disabled={busy === identity.id} onClick={() => void resolve(identity, 'CONFIRM_DISTINCT')}>別の馬として確定</button></div>
     </div>) : <div className="empty"><h3>確認待ちの暫定馬はありません</h3><p>簡易登録した馬はここで確認できます。</p></div>}
     {value && <Pager page={page} total={value.total} setPage={setPage} limit={value.limit} />}
@@ -166,17 +172,17 @@ function HorseIdentityHistory({ canCorrect }: { canCorrect: boolean }) {
 }
 
 function QuickManualEntry({ race, onSaved }: { race: Race; onSaved: (message?: string) => Promise<void> }) {
-  const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  const [reason, setReason] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError(''); const form = event.currentTarget; const data = new FormData(form);
     try {
-      const result = await request<{ identity: { status: string; duplicateCandidateCount: number } }>(`races/${race.id}/entries/manual`, 'POST', { entry: { number: Number(data.get('number')), horseName: String(data.get('horseName')) }, revision: race.revision, reason: data.get('reason') });
+      const result = await request<{ identity: { status: string; duplicateCandidateCount: number } }>(`races/${race.id}/entries/manual`, 'POST', { entry: { number: Number(data.get('number')), horseName: String(data.get('horseName')) }, revision: race.revision, reason });
       form.reset();
       await onSaved(result.identity.status === 'POSSIBLE_DUPLICATE' ? `出走馬を登録しました。同名馬が${result.identity.duplicateCandidateCount}頭いるため、正式IDとの統合は保留されています。` : undefined);
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
   const nextNumber = Array.from({ length: 18 }, (_, i) => i + 1).find(number => !race.entries?.some(entry => entry.number === number));
-  return <form className="panel-body entry-editor" onSubmit={save}><h3>馬番と馬名だけで簡易登録</h3><ErrorMessage error={error} /><div className="race-form-grid"><Field name="number" label="馬番" type="number" value={nextNumber} /><Field name="horseName" label="馬名" /><Field name="reason" label="簡易登録の理由" /></div><p className="muted form-note">枠番・性齢・斤量・騎手・調教師は未確認のまま保存します。馬名だけで既存馬と統合せず、暫定Identityとして登録します。</p><button className="button" disabled={busy || nextNumber === undefined}>{busy ? '登録中…' : '出走馬を簡易登録'}</button></form>;
+  return <form className="panel-body entry-editor" onSubmit={save}><h3>馬番と馬名だけで簡易登録</h3><ErrorMessage error={error} /><div className="race-form-grid"><Field name="number" label="馬番" type="number" value={nextNumber} /><Field name="horseName" label="馬名" /><label className="field">簡易登録の理由<input aria-label="簡易登録の理由" value={reason} onChange={event => setReason(event.target.value)} required maxLength={500} /></label></div><p className="muted form-note">理由は次の馬にも引き継ぎます。枠番・性齢・斤量・騎手・調教師は未確認のまま保存し、馬名だけで既存馬と統合しません。</p><button className="button" disabled={busy || nextNumber === undefined || !reason.trim()}>{busy ? '登録中…' : '出走馬を簡易登録'}</button></form>;
 }
 
 function QuickRaceRegistration({ initialDate, onConfirmed }: { initialDate: string; onConfirmed: (targetDate: string) => Promise<void> }) {

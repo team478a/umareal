@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req } from '@nestjs/common';
-import { canManage, CsvRaceDataProvider, dateSchema, entryInputSchema, horseIdentityCorrectionInputSchema, horseIdentityCorrectionResponseSchema, horseIdentityHistoryResponseSchema, horseIdentityResolutionInputSchema, horseIdentityResolutionResponseSchema, horseIdentityReviewResponseSchema, jraVanBundleFormatVersion, jstDate, manualEntryInputSchema, parseJraVanRaceBundle, raceDataModeLabels, raceDaySchema, raceInputSchema, raceOperationHistoryResponseSchema, requiresMfa, resolveRaceDataMode, venues } from '@keiba/domain';
+import { canManage, CsvRaceDataProvider, dateSchema, entryInputSchema, horseIdentityCorrectionInputSchema, horseIdentityCorrectionResponseSchema, horseIdentityHistoryResponseSchema, horseIdentityResolutionInputSchema, horseIdentityResolutionResponseSchema, horseIdentityReviewQuerySchema, horseIdentityReviewResponseSchema, jraVanBundleFormatVersion, jstDate, manualEntryInputSchema, parseJraVanRaceBundle, raceDataModeLabels, raceDaySchema, raceInputSchema, raceOperationHistoryResponseSchema, requiresMfa, resolveRaceDataMode, venues } from '@keiba/domain';
 import type { EntryInput, ImportKind, RaceInput } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -50,12 +50,18 @@ export class RacesController {
     if (settings && !settings.csvImportEnabled) throw new ForbiddenException({ code: 'CSV_IMPORT_STOPPED', message: '管理設定によりCSV取込を停止しています。' });
   }
   @Get('horse-identities/review') async horseIdentities(@Req() req: AppRequest, @Query() query: unknown) {
-    await this.staff(req); const { page, limit } = pageSchema.parse(query);
-    const where = { provider: 'MANUAL', matchStatus: { in: ['POSSIBLE_DUPLICATE', 'UNRESOLVED'] } };
+    await this.staff(req); const { page, limit, date, raceId } = horseIdentityReviewQuerySchema.parse(query);
+    const entryWhere: Prisma.RaceEntryWhereInput = { ...(raceId ? { raceId } : {}), ...(date ? { race: { raceDate: date } } : {}) };
+    const filteredByRace = Boolean(date || raceId);
+    const where: Prisma.HorseExternalIdentityWhereInput = {
+      provider: 'MANUAL',
+      matchStatus: { in: ['POSSIBLE_DUPLICATE', 'UNRESOLVED'] },
+      ...(filteredByRace ? { horse: { entries: { some: entryWhere } } } : {})
+    };
     const [identities, total] = await this.auth.db.$transaction([
       this.auth.db.horseExternalIdentity.findMany({
         where, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], skip: (page - 1) * limit, take: limit,
-        include: { horse: { include: { _count: { select: { entries: true } } } } }
+        include: { horse: { include: { _count: { select: { entries: true } }, entries: { where: filteredByRace ? entryWhere : {}, orderBy: [{ race: { startsAt: 'asc' } }, { number: 'asc' }], select: { number: true, race: { select: { id: true, raceDate: true, venue: true, number: true, name: true } } } } } } }
       }),
       this.auth.db.horseExternalIdentity.count({ where })
     ]);
@@ -68,7 +74,8 @@ export class RacesController {
       return {
         id: identity.id, provider: identity.provider, observedName: identity.observedName, matchStatus: identity.matchStatus, createdAt: identity.createdAt.toISOString(),
         provisionalHorse: { id: identity.horse.id, name: identity.horse.name, entryCount: identity.horse._count.entries },
-        candidates: candidates.map(candidate => ({ id: candidate.id, name: candidate.name, entryCount: candidate._count.entries }))
+        candidates: candidates.map(candidate => ({ id: candidate.id, name: candidate.name, entryCount: candidate._count.entries })),
+        races: identity.horse.entries.map(entry => ({ raceId: entry.race.id, raceDate: entry.race.raceDate, venue: entry.race.venue, number: entry.race.number, name: entry.race.name, entryNumber: entry.number }))
       };
     }));
     return horseIdentityReviewResponseSchema.parse({ items, total, page, limit });

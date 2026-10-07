@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { horseIdentityCorrectionInputSchema, horseIdentityResolutionInputSchema, manualEntryInputSchema, raceOperationHistoryResponseSchema, resolveRaceDataMode } from './race-data-source';
+import { horseIdentityCorrectionInputSchema, horseIdentityResolutionInputSchema, horseIdentityReviewQuerySchema, manualEntryInputSchema, raceOperationHistoryResponseSchema, resolveRaceDataMode } from './race-data-source';
 
 describe('race data mode', () => {
   it('uses manual operation when no external provider is configured', () => {
@@ -17,6 +17,13 @@ describe('race data mode', () => {
     expect(horseIdentityResolutionInputSchema.parse({ decision: 'MATCH_EXISTING', resolvedHorseId: '10000000-0000-4000-8000-000000000001', reason: '同一馬と確認' })).toMatchObject({ decision: 'MATCH_EXISTING' });
     expect(horseIdentityResolutionInputSchema.safeParse({ decision: 'MATCH_EXISTING', resolvedHorseId: '10000000-0000-4000-8000-000000000001', reason: '' }).success).toBe(false);
     expect(horseIdentityResolutionInputSchema.safeParse({ decision: 'AUTO_MERGE', resolvedHorseId: '10000000-0000-4000-8000-000000000001', reason: '自動' }).success).toBe(false);
+  });
+
+  it('validates optional date and race filters for the identity review queue', () => {
+    const raceId = '10000000-0000-4000-8000-000000000001';
+    expect(horseIdentityReviewQuerySchema.parse({ date: '2026-10-07', raceId })).toMatchObject({ page: 1, limit: 20, date: '2026-10-07', raceId });
+    expect(horseIdentityReviewQuerySchema.safeParse({ date: '2026/10/07' }).success).toBe(false);
+    expect(horseIdentityReviewQuerySchema.safeParse({ raceId: 'not-a-uuid' }).success).toBe(false);
   });
 
   it('requires optimistic concurrency and a reason for identity correction', () => {
