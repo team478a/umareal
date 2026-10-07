@@ -60,6 +60,7 @@ test('staff role selector keeps the current role visible without making it selec
   const secret = await page.locator('.setup-secret code').innerText();
   await page.getByLabel('認証コード').fill(totp(secret));
   await page.getByRole('button', { name: 'コードを確認' }).click();
+  await expect(page.getByRole('heading', { name: '二段階認証が完了しています', exact: true })).toBeVisible();
   await page.goto('/admin/staff');
   await page.getByLabel('対象アカウント').selectOption(operator.user.id);
   const roleOptions = page.getByRole('radiogroup', { name: '権限一覧と変更後のロール' });
