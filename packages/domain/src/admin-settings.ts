@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { billingSettingsSchema } from './billing';
-import { contentAccessPolicySchema } from './content-access';
+import { contentAccessPolicySchema, freePredictionTrialResponseSchema, freePredictionTrialSettingsSchema } from './content-access';
 
 const mailFromSchema = z.string().trim().min(3).max(320).refine(value => {
   if (value.includes('\r') || value.includes('\n')) return false;
@@ -48,6 +48,7 @@ export const adminSettingsUpdateSchema = z.object({
     baseDelaySeconds: z.number().int().min(10).max(3600)
   }).strict(),
   contentAccess: contentAccessPolicySchema.optional(),
+  freePredictionTrial: freePredictionTrialSettingsSchema.optional(),
   publicationPolicy: adminSettingsPublicationPolicySchema.optional(),
   billing: billingSettingsSchema,
   stripe: z.object({
@@ -109,6 +110,7 @@ export const adminSettingsResponseSchema = z.object({
   maintenanceMessage: z.string(),
   notificationPolicy: z.object({ maxAttempts: z.number().int().min(1).max(10), baseDelaySeconds: z.number().int().min(10).max(3600) }).strict(),
   contentAccess: contentAccessPolicySchema,
+  freePredictionTrial: freePredictionTrialResponseSchema,
   publicationPolicy: adminSettingsPublicationPolicySchema,
   environment: z.object({
     launchMode: z.string().min(1),

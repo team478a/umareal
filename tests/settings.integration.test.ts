@@ -15,7 +15,7 @@ describe('audited administration settings', () => {
     expect((await admin.call('admin/settings')).body.code).toBe('MFA_REQUIRED');
     await admin.mfa();
     const initial = await admin.call('admin/settings'); expect(initial.status).toBe(200); adminSettingsResponseSchema.parse(initial.body);
-    expect(Object.keys(initial.body).sort()).toEqual(['billing', 'captcha', 'contentAccess', 'environment', 'line', 'mail', 'maintenanceMessage', 'notificationPolicy', 'operations', 'publicationPolicy', 'registrationPauseMessage', 'revision', 'stripe', 'updatedAt', 'updatedBy']);
+    expect(Object.keys(initial.body).sort()).toEqual(['billing', 'captcha', 'contentAccess', 'environment', 'freePredictionTrial', 'line', 'mail', 'maintenanceMessage', 'notificationPolicy', 'operations', 'publicationPolicy', 'registrationPauseMessage', 'revision', 'stripe', 'updatedAt', 'updatedBy']);
 
     const fixture = await assessmentFixture();
     await db.prediction.create({ data: { raceId: fixture.race.id, revision: 1, updatedBy: fixture.owner.user.id, draft: { ...emptyPredictionDraft, visibility: 'FREE', confidence: 'A', stance: 'SKIP', summary: '停止確認', marks: [], bets: [] } } });
@@ -31,6 +31,7 @@ describe('audited administration settings', () => {
       captcha: { enabled: true, siteKey: '0x4AAAA-test-site-key', secret: turnstileSecret, clearSecret: false },
       maintenanceMessage: '結合試験中', notificationPolicy: { maxAttempts: 4, baseDelaySeconds: 45 },
       publicationPolicy: { correction: 'EXPERT_OR_ADMIN', delayedRace: 'LATEST_STARTS_AT' },
+      freePredictionTrial: { enabled: true, endsAt: new Date(Date.now() + 7 * 86400000).toISOString() },
       contentAccess: { monthly: { paddock: true, win5: true, racePaper: true, content: true }, dayPass: { paddock: true, win5: false, racePaper: false, content: false }, manual: { paddock: true, win5: true, racePaper: true, content: true } },
       billing: { founderSalesEnabled: false, standardSalesEnabled: true, dayPassSalesEnabled: true, founderPriceYen: 1980, standardPriceYen: 2980, dayPassPriceYen: 980, founderSalesLimit: 100, billingGraceDays: 0 },
       stripe: { liveMode: false, secretKey: stripeSecretKey, webhookSecret: stripeWebhookSecret, clearSecretKey: false, clearWebhookSecret: false, priceFounder: 'price_Founder123', priceStandard: 'price_Standard123', priceDayPass: 'price_DayPass123' },
@@ -50,6 +51,7 @@ describe('audited administration settings', () => {
     expect(stopped.body.captcha.readiness).toMatchObject({ siteKeyStored: true, secretStored: true, secretReadable: true, serverValidationReady: true, transport: 'TEST_ONLY', externalConnectionTested: false });
     expect(stopped.body.publicationPolicy).toEqual({ correction: 'EXPERT_OR_ADMIN', delayedRace: 'LATEST_STARTS_AT' });
     expect(stopped.body.contentAccess.dayPass).toEqual({ paddock: true, win5: false, racePaper: false, content: false, aiRaceGuide: false });
+    expect(stopped.body.freePredictionTrial).toMatchObject({ enabled: true, active: true, contentKinds: ['WIN5', 'PADDOCK'] });
     expect(stopped.body.environment).toMatchObject({ launchMode: 'FULL', authProvider: 'LOCAL_DEVELOPMENT', supabaseConfigured: false });
     expect(JSON.stringify(stopped.body)).not.toContain(channelSecret); expect(JSON.stringify(stopped.body)).not.toContain(channelAccessToken); expect(JSON.stringify(stopped.body)).not.toContain(loginChannelSecret); expect(JSON.stringify(stopped.body)).not.toContain(stripeSecretKey); expect(JSON.stringify(stopped.body)).not.toContain(stripeWebhookSecret); expect(JSON.stringify(stopped.body)).not.toContain(mailApiKey); expect(JSON.stringify(stopped.body)).not.toContain(mailWebhookSecret); expect(JSON.stringify(stopped.body)).not.toContain(turnstileSecret);
     const stored = await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' } });
@@ -81,6 +83,8 @@ describe('audited administration settings', () => {
     const csv = [raceHeaders.join(','), raceHeaders.map(field => String(row[field] ?? '')).join(',')].join('\n');
     expect((await admin.call('admin/races/import/preview', 'POST', { kind: 'races', csv })).body.code).toBe('CSV_IMPORT_STOPPED');
     expect((await admin.call('admin/settings', 'PATCH', stoppedBody)).body.code).toBe('STALE_REVISION');
+    const tooLong = await admin.call('admin/settings', 'PATCH', { ...stoppedBody, revision: stopped.body.revision, freePredictionTrial: { enabled: true, endsAt: new Date(Date.now() + 32 * 86400000).toISOString() } });
+    expect(tooLong).toMatchObject({ status: 400, body: { code: 'FREE_PREDICTION_TRIAL_TOO_LONG' } });
 
     const restored = await admin.call('admin/settings', 'PATCH', {
       ...stoppedBody, revision: stopped.body.revision, reason: '結合試験後に通常運用へ復帰',
@@ -88,6 +92,7 @@ describe('audited administration settings', () => {
       registrationPauseMessage: '',
       contentAccess: initial.body.contentAccess,
       publicationPolicy: initial.body.publicationPolicy,
+      freePredictionTrial: { enabled: false, endsAt: null },
       maintenanceMessage: '', stripe: { liveMode: false, clearSecretKey: true, clearWebhookSecret: true, priceFounder: null, priceStandard: null, priceDayPass: null }, mail: { from: null, clearApiKey: true, clearWebhookSecret: true }, line: { channelId: null, clearChannelSecret: true, clearChannelAccessToken: true, loginChannelId: null, loginCallbackUrl: null, clearLoginChannelSecret: true }
     });
     adminSettingsResponseSchema.parse(restored.body);
@@ -100,13 +105,14 @@ describe('audited administration settings', () => {
     expect((await new Client().call('auth/register', 'POST', resumedBody)).body.code).toBe('CAPTCHA_REQUIRED');
     expect((await new Client().call('auth/register', 'POST', { ...resumedBody, captchaToken: 'wrong' })).body.code).toBe('CAPTCHA_INVALID');
     expect((await new Client().call('auth/register', 'POST', { ...resumedBody, captchaToken: 'test-registration-captcha' })).status).toBe(201);
-    const cleaned = await admin.call('admin/settings', 'PATCH', { ...stoppedBody, revision: restored.body.revision, reason: 'Bot対策の結合試験を終了', operations: { ...restored.body.operations }, registrationPauseMessage: '', maintenanceMessage: '', contentAccess: initial.body.contentAccess, publicationPolicy: initial.body.publicationPolicy, captcha: { enabled: false, siteKey: null, clearSecret: true }, stripe: { liveMode: false, clearSecretKey: true, clearWebhookSecret: true, priceFounder: null, priceStandard: null, priceDayPass: null }, mail: { from: null, clearApiKey: true, clearWebhookSecret: true }, line: { channelId: null, clearChannelSecret: true, clearChannelAccessToken: true, loginChannelId: null, loginCallbackUrl: null, clearLoginChannelSecret: true } }); adminSettingsResponseSchema.parse(cleaned.body);
+    const cleaned = await admin.call('admin/settings', 'PATCH', { ...stoppedBody, revision: restored.body.revision, reason: 'Bot対策の結合試験を終了', operations: { ...restored.body.operations }, registrationPauseMessage: '', maintenanceMessage: '', contentAccess: initial.body.contentAccess, freePredictionTrial: { enabled: false, endsAt: null }, publicationPolicy: initial.body.publicationPolicy, captcha: { enabled: false, siteKey: null, clearSecret: true }, stripe: { liveMode: false, clearSecretKey: true, clearWebhookSecret: true, priceFounder: null, priceStandard: null, priceDayPass: null }, mail: { from: null, clearApiKey: true, clearWebhookSecret: true }, line: { channelId: null, clearChannelSecret: true, clearChannelAccessToken: true, loginChannelId: null, loginCallbackUrl: null, clearLoginChannelSecret: true } }); adminSettingsResponseSchema.parse(cleaned.body);
     expect(cleaned.status).toBe(200); expect(cleaned.body.captcha.connectionStatus).toBe('DISABLED');
     await expect(db.systemSetting.update({ where: { id: 'global' }, data: { newRegistrationsEnabled: false, registrationPauseMessage: '' } })).rejects.toThrow();
     await expect(db.systemSetting.update({ where: { id: 'global' }, data: { lineNotificationsEnabled: true } })).rejects.toThrow();
     await expect(db.systemSetting.update({ where: { id: 'global' }, data: { lineLoginEnabled: true } })).rejects.toThrow();
     await expect(db.systemSetting.update({ where: { id: 'global' }, data: { stripeLiveMode: true } })).rejects.toThrow();
     await expect(db.systemSetting.update({ where: { id: 'global' }, data: { registrationCaptchaEnabled: true } })).rejects.toThrow();
+    await expect(db.systemSetting.update({ where: { id: 'global' }, data: { freePredictionTrialEnabled: true, freePredictionTrialEndsAt: null } })).rejects.toThrow();
     await expect(db.systemSetting.update({ where: { id: 'global' }, data: { contentAccessPolicy: {} } })).rejects.toThrow();
     const operator = new Client(); await operator.login(await account('OPERATOR')); expect((await operator.call('admin/settings')).status).toBe(200); expect((await operator.call('admin/settings', 'PATCH', { ...stoppedBody, revision: cleaned.body.revision })).status).toBe(403);
   });

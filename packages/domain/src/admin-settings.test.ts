@@ -14,6 +14,7 @@ describe('administrator settings response contract', () => {
     notificationPolicy: { maxAttempts: 5, baseDelaySeconds: 30 },
     publicationPolicy: { correction: 'ADMIN_ONLY' as const, delayedRace: 'CLOSED' as const },
     contentAccess: { monthly: { paddock: true, win5: true, racePaper: true, content: true }, dayPass: { paddock: true, win5: true, racePaper: true, content: false }, manual: { paddock: true, win5: true, racePaper: true, content: true } },
+    freePredictionTrial: { enabled: false, endsAt: null, active: false, contentKinds: ['WIN5', 'PADDOCK'] as const },
     environment: {
       launchMode: 'FULL', authProvider: 'LOCAL_DEVELOPMENT' as const, applicationUrl: 'http://localhost:3000',
       adminUrlConfigured: false, supabaseConfigured: false, sentryConfigured: false,

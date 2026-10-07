@@ -67,6 +67,12 @@ export class AdminSettingsController {
       maintenanceMessage: value.maintenanceMessage,
       notificationPolicy: { maxAttempts: value.notificationMaxAttempts, baseDelaySeconds: value.notificationBaseDelaySeconds },
       contentAccess: parseContentAccessPolicy(value.contentAccessPolicy),
+      freePredictionTrial: {
+        enabled: value.freePredictionTrialEnabled,
+        endsAt: value.freePredictionTrialEndsAt?.toISOString() ?? null,
+        active: value.freePredictionTrialEnabled && !!value.freePredictionTrialEndsAt && new Date() < value.freePredictionTrialEndsAt,
+        contentKinds: ['WIN5', 'PADDOCK']
+      },
       publicationPolicy: { correction: value.predictionCorrectionPolicy, delayedRace: value.delayedPublicationPolicy },
       environment: {
         launchMode: process.env.LAUNCH_MODE ?? 'UNSET',
@@ -164,6 +170,16 @@ export class AdminSettingsController {
       if (mailApiKeyEncrypted && !mail.secretReadable) throw new BadRequestException({ code: 'MAIL_CREDENTIALS_UNREADABLE', message: '保存済みメール資格情報を読み取れません。再設定してください。' });
       if (mailWebhookSecretEncrypted && !mail.webhookSecretReadable) throw new BadRequestException({ code: 'MAIL_WEBHOOK_CREDENTIALS_UNREADABLE', message: '保存済みメールWebhook資格情報を読み取れません。再設定してください。' });
       if (process.env.MAIL_TRANSPORT === 'resend' && !mail.complete) throw new BadRequestException({ code: 'MAIL_CONFIGURATION_REQUIRED', message: 'Resend transportにはAPI key、送信元、Webhook signing secretが必要です。' });
+      const freePredictionTrial = input.freePredictionTrial ?? {
+        enabled: before.freePredictionTrialEnabled,
+        endsAt: before.freePredictionTrialEndsAt?.toISOString() ?? null
+      };
+      const freePredictionTrialEndsAt = freePredictionTrial.endsAt ? new Date(freePredictionTrial.endsAt) : null;
+      if (freePredictionTrial.enabled && freePredictionTrialEndsAt) {
+        const now = new Date();
+        if (freePredictionTrialEndsAt <= now) throw new BadRequestException({ code: 'FREE_PREDICTION_TRIAL_END_REQUIRED', message: '無料全文公開の終了日時は現在より後を指定してください。' });
+        if (freePredictionTrialEndsAt.getTime() > now.getTime() + 31 * 86400000) throw new BadRequestException({ code: 'FREE_PREDICTION_TRIAL_TOO_LONG', message: '無料全文公開の期間は31日以内にしてください。' });
+      }
       const after = await tx.systemSetting.update({ where: { id: 'global' }, data: {
         ...input.operations,
         registrationPauseMessage: input.registrationPauseMessage,
@@ -174,6 +190,8 @@ export class AdminSettingsController {
         notificationMaxAttempts: input.notificationPolicy.maxAttempts,
         notificationBaseDelaySeconds: input.notificationPolicy.baseDelaySeconds,
         ...(input.contentAccess ? { contentAccessPolicy: input.contentAccess } : {}),
+        freePredictionTrialEnabled: freePredictionTrial.enabled,
+        freePredictionTrialEndsAt,
         ...(input.publicationPolicy ? { predictionCorrectionPolicy: input.publicationPolicy.correction, delayedPublicationPolicy: input.publicationPolicy.delayedRace } : {}),
         ...input.billing,
         stripeSecretKeyEncrypted,

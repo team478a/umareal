@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req, UnauthorizedException } from '@nestjs/common';
-import { assessmentSchema, canEditRace, canReadPrediction, expertPredictionDraftSaveResponseSchema, expertPredictionEditorResponseSchema, expertPredictionPreviewResponseSchema, expertPredictionPublishResponseSchema, legacyPredictionDraftSchema, paddockComplete, parseContentAccessPolicy, predictionDraftSchema, predictionSaveSchema, publicPredictionResponseSchema, publishablePredictionSchema, publishPreviewSchema } from '@keiba/domain';
+import { assessmentSchema, canEditRace, canReadPrediction, canUseFreePredictionTrial, expertPredictionDraftSaveResponseSchema, expertPredictionEditorResponseSchema, expertPredictionPreviewResponseSchema, expertPredictionPublishResponseSchema, legacyPredictionDraftSchema, paddockComplete, parseContentAccessPolicy, predictionDraftSchema, predictionSaveSchema, publicPredictionResponseSchema, publishablePredictionSchema, publishPreviewSchema } from '@keiba/domain';
 import type { PredictionDraft } from '@keiba/domain';
 import { Prisma } from '@keiba/db';
 import { z } from 'zod';
@@ -154,9 +154,11 @@ export class PredictionsController {
     const staffAccess = !!identity && canEditRace(identity, race.assignments.map(a => a.userId));
     const [entitlements, settings] = await Promise.all([
       identity?.role === 'MEMBER' ? this.auth.db.entitlement.findMany({ where: { userId: identity.id } }) : Promise.resolve([]),
-      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { contentAccessPolicy: true } })
+      this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { contentAccessPolicy: true, freePredictionTrialEnabled: true, freePredictionTrialEndsAt: true } })
     ]);
-    const canView = (version: typeof latest) => !!staffAccess || canReadPrediction({ now: new Date(), publishedAt: version.publishedAt, visibility: 'PAID', raceDate: race.raceDate, entitlements, contentKind: 'PADDOCK', contentAccessPolicy: parseContentAccessPolicy(settings.contentAccessPolicy) });
+    const now = new Date();
+    const trialAccess = canUseFreePredictionTrial({ now, registeredMember: identity?.role === 'MEMBER', contentKind: 'PADDOCK', enabled: settings.freePredictionTrialEnabled, endsAt: settings.freePredictionTrialEndsAt });
+    const canView = (version: typeof latest) => !!staffAccess || trialAccess || canReadPrediction({ now, publishedAt: version.publishedAt, visibility: 'PAID', raceDate: race.raceDate, entitlements, contentKind: 'PADDOCK', contentAccessPolicy: parseContentAccessPolicy(settings.contentAccessPolicy) });
     const redact = (version: NonNullable<typeof latest>) => canView(version)
       ? { ...version, locked: false }
       : { id: version.id, version: version.version, status: version.status, visibility: version.visibility, publishedAt: version.publishedAt, previousVersionId: version.previousVersionId, locked: true };
