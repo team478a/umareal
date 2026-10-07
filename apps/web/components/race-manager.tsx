@@ -3,7 +3,7 @@ import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
 import { ArrowRight, Eye, FileUp, Plus, RefreshCw } from 'lucide-react';
 import { entryHeaders, entryStatuses, jstDate, parseQuickManualEntryList, parseQuickRaceList, raceHeaders, raceStatuses, serializeRaceCsv, venues, type EntryInput, type HorseIdentityHistoryResponse, type HorseIdentityReviewResponse, type ImportKind, type ManualEntryInput, type RaceAnnouncementNotificationPreviewResponse, type RaceDataStatus, type RaceExpertListResponse, type RaceInput, type RaceOperationHistoryResponse } from '@keiba/domain';
 import { NotificationPreview } from './notification-preview';
-import { encodeSessionDraft, parseQuickEntryDraft, parseQuickRaceDraft, raceManagerDraftKey } from './race-manager-drafts';
+import { encodeSessionDraft, isEntryDetailDraftCurrent, isRaceDetailDraftCurrent, parseEntryDetailDraft, parseQuickEntryDraft, parseQuickRaceDraft, parseRaceDetailDraft, raceManagerDraftKey, type EntryDetailDraft, type RaceDetailDraft } from './race-manager-drafts';
 
 type Entry = Omit<EntryInput, 'gate' | 'sex' | 'age' | 'carriedWeight' | 'jockey' | 'trainer' | 'winOdds'> & { id: string; gate: number | null; sex: EntryInput['sex'] | null; age: number | null; carriedWeight: string | number | null; jockey: string | null; trainer: string | null; winOdds: string | number | null };
 type Race = Omit<RaceInput, 'expertId'> & { id: string; revision: number; entries?: Entry[]; announcements?: { id: string; version: number; publishedAt: string }[]; assignments: { userId: string; user?: { displayName: string } }[]; _count?: { entries: number } };
@@ -27,6 +27,7 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
 function sessionGet(key: string) { try { return sessionStorage.getItem(key); } catch { return null; } }
 function sessionSet(key: string, value: string) { try { sessionStorage.setItem(key, value); } catch { /* Draft recovery is best effort; normal form entry remains available. */ } }
 function sessionRemove(key: string) { try { sessionStorage.removeItem(key); } catch { /* Storage may be unavailable in a restricted browser. */ } }
+function formText(data: FormData, key: string) { return String(data.get(key) ?? ''); }
 function ErrorMessage({ error }: { error: string }) { return error ? <div className="notice error" role="alert">{error}</div> : null; }
 async function loadExperts(search = ''): Promise<RaceExpertListResponse> {
   const query = new URLSearchParams({ limit: '50' });
@@ -77,12 +78,12 @@ export function RaceManager({ userId, canCorrectIdentity = false }: { userId: st
       {races.length > 0 && <div className="announcement-quick-list"><div className="quick-list-heading"><strong>対象レース告知</strong><small>対象人数と本文を確認してから公開します。</small></div>{races.map(race => <div className="announcement-quick-row" key={race.id}><div><strong>{race.venue} {race.number}R {race.name}</strong><small>{race.announcements?.[0] ? `告知済み・第${race.announcements[0].version}版` : '未告知'}</small></div><label className="field"><span className="sr-only">{race.name}の告知理由</span><input aria-label={`${race.name}の告知理由`} value={announcementReasons[race.id] ?? ''} maxLength={500} onChange={event => setAnnouncementReasons({ ...announcementReasons, [race.id]: event.target.value })} placeholder="対象レースとして決定" /></label><button className="button secondary small" disabled={busy || previewBusy === race.id || !(announcementReasons[race.id] ?? '').trim()} onClick={() => void previewAnnouncement(race)}><Eye size={16} />{previewBusy === race.id ? '確認中…' : '配信内容を確認'}</button>{announcementPreview?.race.id === race.id && <NotificationPreview preview={announcementPreview} busy={busy} action={{ label: race.announcements?.[0] ? 'この内容で再告知する' : 'この内容で告知する', onClick: () => void announce(race) }} />}</div>)}</div>}
       {races.length ? <div className="table-scroll"><table className="race-data-table"><thead><tr><th>レース</th><th>発走（JST）</th><th>状態</th><th>出走馬</th><th>予想担当</th><th>操作</th></tr></thead><tbody>{races.map(r => <tr key={r.id}><td>{r.venue} {r.number}R<br /><strong>{r.name}</strong></td><td>{new Date(r.startsAt).toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' })}</td><td>{choices.status[r.status]}</td><td>{r._count?.entries ?? 0}頭</td><td>{r.assignments.map(a => a.user?.displayName ?? a.userId).join('、') || '未割当'}</td><td><button className="button secondary small" onClick={() => void open(r.id)}>編集・出走馬</button></td></tr>)}</tbody></table></div> : <div className="empty"><h3>この日のレースは未登録です</h3><p>レースを追加するか、CSVを取り込んでください。</p></div>}<Pager page={page} total={total} setPage={setPage} />
     </section>
-    {editing && <RaceEditor key={selected ? `${selected.id}-${selected.revision}` : `new-${date}`} race={selected} date={date} experts={experts} onSaved={async r => { setSelected(r); setMessage('レース情報を保存しました。'); await load(); }} onReload={() => selected && void open(selected.id)} />}
+    {editing && <RaceEditor key={selected ? `${selected.id}-${selected.revision}` : `new-${date}`} userId={userId} race={selected} date={date} experts={experts} onSaved={async r => { setSelected(r); setMessage('レース情報を保存しました。'); await load(); }} onReload={() => selected && void open(selected.id)} />}
     {selected && <section className="panel"><div className="panel-heading"><div><span className="eyebrow">{selected.venue} {selected.number}R · {selected.name}</span><h2>出走馬</h2></div><button className="button secondary small" onClick={() => setEntry(null)}>新しい馬を入力</button></div>
       <QuickManualEntryBatch key={`batch-${selected.id}`} userId={userId} race={selected} onSaved={async warning => { await open(selected.id); await load(); setMessage(warning || '出走馬をまとめて簡易登録しました。詳細情報は後から補完できます。'); }} />
       <QuickManualEntry race={selected} onSaved={async warning => { await open(selected.id); await load(); setMessage(warning || '出走馬を簡易登録しました。詳細情報は後から補完できます。'); }} />
       <div className="table-scroll"><table className="race-data-table"><thead><tr><th>馬番 / 枠</th><th>馬名</th><th>性齢 / 斤量</th><th>騎手</th><th>状態</th><th>操作</th></tr></thead><tbody>{selected.entries?.map(e => <tr key={e.id}><td>{e.number} / {e.gate ?? '未確認'}</td><td>{e.horseName}</td><td>{e.sex && e.age !== null ? `${choices.sex[e.sex]}${e.age}` : '未確認'} · {e.carriedWeight !== null ? `${e.carriedWeight}kg` : '未確認'}</td><td>{e.jockey ?? '未確認'}</td><td>{e.status === 'ACTIVE' ? '出走予定' : choices.status[e.status]}</td><td><button className="button secondary small" onClick={() => setEntry(e)}>編集</button></td></tr>)}</tbody></table></div>
-      <EntryEditor key={`${selected.id}-${selected.revision}-${entry?.id ?? 'new'}`} race={selected} entry={entry} onSaved={async () => { await open(selected.id); await load(); setMessage('出走馬を保存しました。'); }} />
+      <EntryEditor key={`${selected.id}-${selected.revision}-${entry?.id ?? 'new'}`} userId={userId} race={selected} entry={entry} onSaved={async () => { await open(selected.id); await load(); setMessage('出走馬を保存しました。'); }} />
       <RaceOperationHistory raceId={selected.id} />
     </section>}
     <JraVanBundleImport manualMode={dataStatus?.mode === 'MANUAL'} onConfirmed={async targetDate => { setDate(targetDate); setPage(1); setEditing(false); setSelected(null); await load(); }} />
@@ -307,12 +308,25 @@ function QuickRaceRegistration({ userId, initialDate, onConfirmed }: { userId: s
   </div></section>;
 }
 
-function RaceEditor({ race, date, experts, onSaved, onReload }: { race: Race | null; date: string; experts: Expert[]; onSaved: (race: Race) => Promise<void>; onReload: () => void }) {
+function RaceEditor({ userId, race, date, experts, onSaved, onReload }: { userId: string; race: Race | null; date: string; experts: Expert[]; onSaved: (race: Race) => Promise<void>; onReload: () => void }) {
   const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
   const currentExpert = race?.assignments[0] ? { id: race.assignments[0].userId, displayName: race.assignments[0].user?.displayName ?? '現在の担当者' } : null;
   const mergeExperts = (items: Expert[]) => currentExpert && !items.some(item => item.id === currentExpert.id) ? [currentExpert, ...items] : items;
   const [expertOptions, setExpertOptions] = useState<Expert[]>(() => mergeExperts(experts));
   const [expertSearch, setExpertSearch] = useState(''); const [expertTotal, setExpertTotal] = useState<number | null>(null); const [expertBusy, setExpertBusy] = useState(false);
+  const [initialDraft, setInitialDraft] = useState<RaceDetailDraft | null | undefined>(undefined); const [restored, setRestored] = useState(false); const [formVersion, setFormVersion] = useState(0);
+  const storageKey = raceManagerDraftKey(userId, 'race-detail', race?.id ?? `new-${date}`);
+  useEffect(() => {
+    const draft = parseRaceDetailDraft(sessionGet(storageKey));
+    const expectedRevision = race?.revision ?? null;
+    if (draft && isRaceDetailDraftCurrent(draft, expectedRevision)) {
+      if (draft.expertId) setExpertOptions(items => items.some(item => item.id === draft.expertId) ? items : [...items, { id: draft.expertId, displayName: draft.expertDisplayName || '下書きの担当者' }]);
+      setInitialDraft(draft); setRestored(true);
+    } else {
+      if (sessionGet(storageKey)) sessionRemove(storageKey);
+      setInitialDraft(null); setRestored(false);
+    }
+  }, [storageKey, race?.revision]);
   async function searchExperts() {
     setExpertBusy(true); setError('');
     try { const result = await loadExperts(expertSearch); setExpertOptions(mergeExperts(result.items)); setExpertTotal(result.total); }
@@ -325,36 +339,71 @@ function RaceEditor({ race, date, experts, onSaved, onReload }: { race: Race | n
       input.number = Number(input.number); input.distance = Number(input.distance); input.expertId = input.expertId || null;
       input.startsAt = new Date(`${input.startsAt}:00+09:00`).toISOString();
       const result = await request<Race>(race ? `races/${race.id}` : 'races', race ? 'PATCH' : 'POST', { race: input, reason: data.reason, ...(race ? { revision: race.revision } : {}) });
+      sessionRemove(storageKey);
       await onSaved(result);
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
+  function persist(form: HTMLFormElement) {
+    const data = new FormData(form); const selected = form.elements.namedItem('expertId') as HTMLSelectElement | null;
+    const draft: RaceDetailDraft = {
+      baseRevision: race?.revision ?? null,
+      raceDate: formText(data, 'raceDate'), venue: formText(data, 'venue'), number: formText(data, 'number'), name: formText(data, 'name'),
+      raceClass: formText(data, 'raceClass'), distance: formText(data, 'distance'), surface: formText(data, 'surface'), direction: formText(data, 'direction'),
+      startsAt: formText(data, 'startsAt'), going: formText(data, 'going'), weather: formText(data, 'weather'), status: formText(data, 'status'),
+      expertId: formText(data, 'expertId'), expertDisplayName: selected?.selectedOptions[0]?.textContent ?? '', reason: formText(data, 'reason'),
+    };
+    sessionSet(storageKey, encodeSessionDraft(draft));
+  }
+  function discard() { sessionRemove(storageKey); setInitialDraft(null); setRestored(false); setFormVersion(value => value + 1); }
   const localStart = race ? new Date(new Date(race.startsAt).getTime() + 9 * 3600000).toISOString().slice(0, 16) : `${date}T15:00`;
-  return <section className="panel"><div className="panel-heading"><h2>{race ? 'レース情報の編集' : '新しいレース'}</h2>{race && <button className="text-link" onClick={onReload}><RefreshCw size={16} />再読み込み</button>}</div><form className="panel-body" onSubmit={save}><ErrorMessage error={error} /><div className="race-form-grid">
-    <Field name="raceDate" type="date" value={race?.raceDate ?? date} /><Field name="venue" value={race?.venue ?? '東京'} options={Object.fromEntries(venues.map(v => [v, v]))} /><Field name="number" label="レース番号" type="number" value={race?.number ?? 1} />
-    <Field name="name" value={race?.name} /><Field name="raceClass" value={race?.raceClass} /><Field name="distance" type="number" value={race?.distance ?? 1600} />
-    <Field name="surface" value={race?.surface ?? 'TURF'} options={choices.surface} /><Field name="direction" value={race?.direction ?? 'LEFT'} options={choices.direction} /><Field name="startsAt" type="datetime-local" value={localStart} />
-    <Field name="going" value={race?.going ?? 'UNKNOWN'} options={choices.going} /><Field name="weather" value={race?.weather ?? '未確認'} /><Field name="status" value={race?.status ?? 'SCHEDULED'} options={Object.fromEntries(raceStatuses.map(s => [s, choices.status[s]]))} />
+  return <section className="panel"><div className="panel-heading"><h2>{race ? 'レース情報の編集' : '新しいレース'}</h2>{race && <button className="text-link" onClick={onReload}><RefreshCw size={16} />再読み込み</button>}</div>{initialDraft === undefined ? <div className="panel-body"><p className="muted form-note">入力欄を準備しています。</p></div> : <form key={formVersion} className="panel-body" onSubmit={save} onInput={event => persist(event.currentTarget)}><ErrorMessage error={error} />
+    {restored && <div className="notice" role="status">未送信のレース詳細を復元しました。<button className="text-link" type="button" onClick={discard}>詳細下書きを破棄</button></div>}
+    <div className="race-form-grid">
+    <Field name="raceDate" type="date" value={initialDraft?.raceDate ?? race?.raceDate ?? date} /><Field name="venue" value={initialDraft?.venue ?? race?.venue ?? '東京'} options={Object.fromEntries(venues.map(v => [v, v]))} /><Field name="number" label="レース番号" type="number" value={initialDraft?.number ?? race?.number ?? 1} />
+    <Field name="name" value={initialDraft?.name ?? race?.name} /><Field name="raceClass" value={initialDraft?.raceClass ?? race?.raceClass} /><Field name="distance" type="number" value={initialDraft?.distance ?? race?.distance ?? 1600} />
+    <Field name="surface" value={initialDraft?.surface ?? race?.surface ?? 'TURF'} options={choices.surface} /><Field name="direction" value={initialDraft?.direction ?? race?.direction ?? 'LEFT'} options={choices.direction} /><Field name="startsAt" type="datetime-local" value={initialDraft?.startsAt ?? localStart} />
+    <Field name="going" value={initialDraft?.going ?? race?.going ?? 'UNKNOWN'} options={choices.going} /><Field name="weather" value={initialDraft?.weather ?? race?.weather ?? '未確認'} /><Field name="status" value={initialDraft?.status ?? race?.status ?? 'SCHEDULED'} options={Object.fromEntries(raceStatuses.map(s => [s, choices.status[s]]))} />
     <div className="field"><span>予想担当を検索</span><div className="field-search-row"><input aria-label="予想担当者名" value={expertSearch} maxLength={80} onChange={event => setExpertSearch(event.target.value)} placeholder="担当者名" /><button className="button secondary small" type="button" disabled={expertBusy} onClick={() => void searchExperts()}>{expertBusy ? '検索中…' : '検索'}</button></div>{expertTotal !== null && <small>{expertTotal}件見つかりました</small>}</div>
-    <label className="field">予想担当<select aria-label="予想担当" name="expertId" defaultValue={race?.assignments[0]?.userId ?? ''}><option value="">未割当</option>{expertOptions.map(expert => <option key={expert.id} value={expert.id}>{expert.displayName}</option>)}</select></label><Field name="reason" label="レースの登録・変更理由" />
-  </div>{race && <p className="muted form-note">開催日・競馬場・レース番号は変更できません。発走時刻の変更は履歴に記録されます。</p>}<button className="button" disabled={busy}>{busy ? '保存中…' : 'レースを保存'}<ArrowRight size={16} /></button></form></section>;
+    <label className="field">予想担当<select aria-label="予想担当" name="expertId" defaultValue={initialDraft?.expertId ?? race?.assignments[0]?.userId ?? ''}><option value="">未割当</option>{expertOptions.map(expert => <option key={expert.id} value={expert.id}>{expert.displayName}</option>)}</select></label><Field name="reason" label="レースの登録・変更理由" value={initialDraft?.reason} />
+  </div>{race && <p className="muted form-note">開催日・競馬場・レース番号は変更できません。発走時刻の変更は履歴に記録されます。</p>}<button className="button" disabled={busy}>{busy ? '保存中…' : 'レースを保存'}<ArrowRight size={16} /></button></form>}</section>;
 }
 
-function EntryEditor({ race, entry, onSaved }: { race: Race; entry: Entry | null; onSaved: () => Promise<void> }) {
+function EntryEditor({ userId, race, entry, onSaved }: { userId: string; race: Race; entry: Entry | null; onSaved: () => Promise<void> }) {
   const [horseId] = useState(() => entry?.horseId ?? crypto.randomUUID()); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  const [initialDraft, setInitialDraft] = useState<EntryDetailDraft | null | undefined>(undefined); const [restored, setRestored] = useState(false); const [formVersion, setFormVersion] = useState(0);
+  const storageKey = raceManagerDraftKey(userId, 'entry-detail', `${race.id}:${entry?.id ?? 'new'}`);
+  useEffect(() => {
+    const draft = parseEntryDetailDraft(sessionGet(storageKey));
+    if (draft && isEntryDetailDraftCurrent(draft, race.revision, entry?.id ?? null)) { setInitialDraft(draft); setRestored(true); }
+    else { if (sessionGet(storageKey)) sessionRemove(storageKey); setInitialDraft(null); setRestored(false); }
+  }, [storageKey, race.revision, entry?.id]);
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError(''); const data = Object.fromEntries(new FormData(event.currentTarget));
     try {
       const input: Record<string, unknown> = Object.fromEntries(entryHeaders.map(key => [key, data[key]]));
       for (const key of ['number', 'gate', 'age', 'carriedWeight', 'winOdds', 'popularity']) input[key] = input[key] === '' ? null : Number(input[key]);
-      await request(`races/${race.id}/entries`, 'POST', { entry: input, ...(entry ? { entryId: entry.id } : {}), revision: race.revision, reason: data.reason }); await onSaved();
+      await request(`races/${race.id}/entries`, 'POST', { entry: input, ...(entry ? { entryId: entry.id } : {}), revision: race.revision, reason: data.reason }); sessionRemove(storageKey); await onSaved();
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
-  return <form className="panel-body entry-editor" onSubmit={save}><h3>{entry ? `${entry.number}番の編集` : '出走馬を追加'}</h3><ErrorMessage error={error} /><div className="race-form-grid">
-    <Field name="number" label="馬番" type="number" value={entry?.number ?? Array.from({ length: 18 }, (_, i) => i + 1).find(n => !race.entries?.some(e => e.number === n))} /><Field name="gate" type="number" value={entry ? entry.gate ?? '' : 1} /><Field name="horseName" value={entry?.horseName} />
-    <input type="hidden" name="horseId" value={horseId} /><Field name="sex" value={entry ? entry.sex ?? '' : 'MALE'} options={{ '': '未確認（選択必須）', ...choices.sex }} /><Field name="age" type="number" value={entry ? entry.age ?? '' : 3} />
-    <Field name="carriedWeight" type="number" step="0.1" value={entry ? entry.carriedWeight ?? '' : 57} /><Field name="jockey" value={entry?.jockey ?? ''} /><Field name="trainer" value={entry?.trainer ?? ''} />
-    <Field name="winOdds" type="number" step="0.1" required={false} value={entry?.winOdds} /><Field name="popularity" type="number" required={false} value={entry?.popularity} /><Field name="status" value={entry?.status ?? 'ACTIVE'} options={Object.fromEntries(entryStatuses.map(s => [s, s === 'ACTIVE' ? '出走予定' : choices.status[s]]))} />
-    <Field name="reason" label="出走馬の登録・変更理由" />
+  function persist(form: HTMLFormElement) {
+    const data = new FormData(form); const draft: EntryDetailDraft = {
+      raceRevision: race.revision, entryId: entry?.id ?? null,
+      number: formText(data, 'number'), gate: formText(data, 'gate'), horseName: formText(data, 'horseName'), sex: formText(data, 'sex'), age: formText(data, 'age'),
+      carriedWeight: formText(data, 'carriedWeight'), jockey: formText(data, 'jockey'), trainer: formText(data, 'trainer'), winOdds: formText(data, 'winOdds'),
+      popularity: formText(data, 'popularity'), status: formText(data, 'status'), reason: formText(data, 'reason'),
+    }; sessionSet(storageKey, encodeSessionDraft(draft));
+  }
+  function discard() { sessionRemove(storageKey); setInitialDraft(null); setRestored(false); setFormVersion(value => value + 1); }
+  const nextNumber = Array.from({ length: 18 }, (_, index) => index + 1).find(number => !race.entries?.some(item => item.number === number));
+  if (initialDraft === undefined) return <div className="panel-body entry-editor"><h3>{entry ? `${entry.number}番の編集` : '出走馬を追加'}</h3><p className="muted form-note">入力欄を準備しています。</p></div>;
+  return <form key={formVersion} className="panel-body entry-editor" onSubmit={save} onInput={event => persist(event.currentTarget)}><h3>{entry ? `${entry.number}番の編集` : '出走馬を追加'}</h3><ErrorMessage error={error} />
+    {restored && <div className="notice" role="status">未送信の出走馬詳細を復元しました。<button className="text-link" type="button" onClick={discard}>出走馬下書きを破棄</button></div>}
+    <div className="race-form-grid">
+    <Field name="number" label="馬番" type="number" value={initialDraft?.number ?? entry?.number ?? nextNumber} /><Field name="gate" type="number" value={initialDraft?.gate ?? (entry ? entry.gate ?? '' : 1)} /><Field name="horseName" value={initialDraft?.horseName ?? entry?.horseName} />
+    <input type="hidden" name="horseId" value={horseId} /><Field name="sex" value={initialDraft?.sex ?? (entry ? entry.sex ?? '' : 'MALE')} options={{ '': '未確認（選択必須）', ...choices.sex }} /><Field name="age" type="number" value={initialDraft?.age ?? (entry ? entry.age ?? '' : 3)} />
+    <Field name="carriedWeight" type="number" step="0.1" value={initialDraft?.carriedWeight ?? (entry ? entry.carriedWeight ?? '' : 57)} /><Field name="jockey" value={initialDraft?.jockey ?? entry?.jockey ?? ''} /><Field name="trainer" value={initialDraft?.trainer ?? entry?.trainer ?? ''} />
+    <Field name="winOdds" type="number" step="0.1" required={false} value={initialDraft?.winOdds ?? entry?.winOdds} /><Field name="popularity" type="number" required={false} value={initialDraft?.popularity ?? entry?.popularity} /><Field name="status" value={initialDraft?.status ?? entry?.status ?? 'ACTIVE'} options={Object.fromEntries(entryStatuses.map(s => [s, s === 'ACTIVE' ? '出走予定' : choices.status[s]]))} />
+    <Field name="reason" label="出走馬の登録・変更理由" value={initialDraft?.reason} />
   </div><p className="muted form-note">馬の内部IDはシステムが管理します。登録済みの馬は一覧の「編集」から変更します。取消・除外は状態を変更して記録します。</p><button className="button" disabled={busy}>{busy ? '保存中…' : '出走馬を保存'}</button></form>;
 }
 
