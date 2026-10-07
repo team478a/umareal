@@ -45,12 +45,16 @@ test('register a race, import entries with preview, and see it as the assigned e
   await expect(page.getByRole('cell', { name: '簡易登録の試験馬', exact: true })).toBeVisible();
   await expect(page.getByRole('cell', { name: '未確認', exact: true }).first()).toBeVisible();
   const entryForm = page.locator('form').filter({ has: page.getByRole('button', { name: '出走馬を保存' }) });
+  await expect(entryForm.getByLabel('馬ID', { exact: true })).toHaveCount(0);
+  await expect(entryForm.locator('input[name="horseId"][type="hidden"]')).toHaveCount(1);
   await entryForm.getByLabel('馬名', { exact: true }).fill('手動登録の試験馬');
   await entryForm.getByLabel('騎手', { exact: true }).fill('試験騎手');
   await entryForm.getByLabel('調教師', { exact: true }).fill('試験調教師');
   await entryForm.getByLabel('出走馬の登録・変更理由', { exact: true }).fill('手動登録試験');
   await entryForm.getByRole('button', { name: '出走馬を保存' }).click();
   await expect(page.getByRole('cell', { name: '手動登録の試験馬', exact: true })).toBeVisible();
+  const manuallyCreatedEntry = await db.raceEntry.findFirstOrThrow({ where: { raceId: createdRace.id, horseName: '手動登録の試験馬' } });
+  expect(manuallyCreatedEntry.horseId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
   const horseId = randomUUID();
   const csv = `${entryHeaders.join(',')}\n${horseId},3,2,CSV登録の試験馬,FEMALE,3,55,CSV騎手,CSV調教師,4.2,2,ACTIVE`;
   await page.getByLabel('CSVファイル', { exact: true }).setInputFiles({ name: 'entries.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') });
@@ -164,6 +168,40 @@ test('pastes and confirms an 18-horse card without entering technical IDs', asyn
   expect(await db.horseExternalIdentity.count({ where: { observedName: { in: horseNames }, provider: 'MANUAL' } })).toBe(18);
   expect(await page.evaluate(key => sessionStorage.getItem(key), storageKey)).toBeNull();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test('resolves and reviews a provisional horse without displaying raw UUIDs', async ({ page }) => {
+  if (process.env.AUTH_PROVIDER !== 'local' || !['localhost', '127.0.0.1'].includes(new URL(process.env.DATABASE_URL ?? '').hostname)) throw new Error('Local database required');
+  const admin = await account('ADMIN'); const client = new Client(); await client.login(admin); await client.mfa();
+  await page.context().addCookies([{ name: 'keiba_session', value: client.cookie.split('=')[1], domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
+  let day = `2094-05-${String(Math.floor(Math.random() * 25) + 1).padStart(2, '0')}`;
+  while (await db.race.count({ where: { raceDate: day, venue: '東京' } })) day = new Date(new Date(`${day}T00:00:00Z`).getTime() + 86400000).toISOString().slice(0, 10);
+  const suffix = randomUUID().slice(0, 8), raceName = `Identity表示試験-${suffix}`, horseName = `同名表示試験馬-${suffix}`;
+  const existingHorse = await db.horse.create({ data: { id: randomUUID(), name: horseName } });
+  const created = await client.call('admin/races', 'POST', { race: { raceDate: day, venue: '東京', number: 8, name: raceName, raceClass: '表示試験', distance: 1600, surface: 'TURF', direction: 'LEFT', startsAt: `${day}T14:00:00+09:00`, going: 'UNKNOWN', weather: '未確認', status: 'SCHEDULED', expertId: null }, reason: 'Horse UUID非表示の画面試験' }, undefined, { 'Idempotency-Key': randomUUID() });
+  expect(created.status).toBe(201);
+  await page.goto('/admin/races');
+  await page.getByLabel('表示する開催日', { exact: true }).fill(day);
+  await page.getByRole('row').filter({ hasText: raceName }).getByRole('button', { name: '編集・出走馬' }).click();
+  const quickEntryForm = page.locator('form').filter({ has: page.getByRole('button', { name: '出走馬を簡易登録' }) });
+  await quickEntryForm.getByLabel('馬名', { exact: true }).fill(horseName);
+  await quickEntryForm.getByLabel('簡易登録の理由', { exact: true }).fill('同名候補の表示を確認');
+  await quickEntryForm.getByRole('button', { name: '出走馬を簡易登録' }).click();
+  await expect(page.getByRole('status')).toContainText('正式IDとの統合は保留されています。');
+  const identity = await db.horseExternalIdentity.findFirstOrThrow({ where: { observedName: horseName, provider: 'MANUAL' } });
+  const target = page.getByLabel(`${horseName}の紐付け先`);
+  await expect(target).toBeVisible();
+  await expect(target.locator('option:checked')).toHaveText(`候補1 · ${horseName} · 使用レース0件`);
+  expect(await page.locator('body').innerText()).not.toContain(existingHorse.id);
+  expect(await page.locator('body').innerText()).not.toContain(identity.horseId!);
+  await page.getByLabel(`${horseName}のIdentity確認理由`).fill('同名候補を登録履歴と照合');
+  await page.getByRole('button', { name: '既存馬へ紐付け' }).click();
+  await expect(page.getByText(`${horseName}を既存馬へ紐付けました。`, { exact: true })).toBeVisible();
+  await page.reload();
+  await page.getByText('確認済みIdentityと訂正', { exact: true }).click();
+  await expect(page.getByText(`現在の紐付け: ${horseName} · 使用レース 0件`, { exact: true })).toBeVisible();
+  expect(await page.locator('body').innerText()).not.toContain(existingHorse.id);
+  expect(await page.locator('body').innerText()).not.toContain(identity.horseId!);
 });
 
 test('selects a verified JRA-VAN bundle and confirms the whole race day', async ({ page }) => {
