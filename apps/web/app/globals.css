@@ -1000,12 +1000,16 @@ td { padding:17px 24px; border-top:1px solid var(--line); }
 .warning-text { color:#995d00!important; }
 .staff-form { display:grid; gap:16px; }
 .staff-role-options { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
-.staff-role-options label { display:flex; gap:10px; align-items:start; padding:15px; border:1px solid var(--line); border-radius:7px; cursor:pointer; background:#fff; }
+.staff-role-options label,.staff-role-options>div { display:flex; gap:10px; align-items:start; padding:15px; border:1px solid var(--line); border-radius:7px; cursor:pointer; background:#fff; }
 .staff-role-options label:has(input:checked) { border-color:var(--green); background:#f3f8f5; }
+.staff-role-options .current { border-color:var(--green); background:#f3f8f5; cursor:default; }
 .staff-role-options label.reserved { border-style:dashed; }
 .staff-role-options input { margin-top:3px; }
 .staff-role-options span { display:grid; gap:4px; }
 .staff-role-options small { color:var(--muted); }
+.staff-role-options strong { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.staff-role-options .current-role-tag { color:var(--green); font-size:11px; }
+.staff-role-options .current-role-check { display:grid; place-items:center; flex:0 0 18px; width:18px; height:18px; margin-top:1px; border-radius:50%; color:#fff; background:var(--green); }
 @media(max-width:850px) { .staff-list article { grid-template-columns:1fr auto; } .staff-access { grid-column:1/-1; grid-row:2; } }
 @media(max-width:650px) { .staff-policy { grid-template-columns:auto minmax(0,1fr); padding:19px; align-items:start; } .staff-policy .button { grid-column:1/-1; width:100%; } .staff-list { padding:0 20px; } .staff-list article { grid-template-columns:1fr; gap:12px; } .staff-access { grid-column:auto; grid-row:auto; } .staff-list article>.button,.staff-actions,.staff-actions .button { width:100%; } .staff-role-options { grid-template-columns:1fr; } }
 .settings-status-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); padding:0 24px 24px; gap:10px; }
