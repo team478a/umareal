@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { adminResultBatchImportConfirmResponseSchema, adminResultBatchImportPreviewResponseSchema, adminResultConfirmResponseSchema, adminResultDataProvidersResponseSchema, adminResultDraftSaveResponseSchema, adminResultImportHistoryResponseSchema, adminResultRaceDetailResponseSchema, adminResultRaceImportConfirmResponseSchema, adminResultRaceImportPreviewResponseSchema, adminResultRacesResponseSchema, aggregatePerformances, getResultDataProvider, legacyRaceResultInputSchema, parseBatchResultCsv, parseResultCsv, publicPredictionStatsQuerySchema, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, resultDataProviderCatalog, settlePrediction, verifyJraVanResultBundle } from './results';
+import { adminResultBatchImportConfirmResponseSchema, adminResultBatchImportPreviewResponseSchema, adminResultConfirmResponseSchema, adminResultDataProvidersResponseSchema, adminResultDraftSaveResponseSchema, adminResultImportHistoryResponseSchema, adminResultRaceDetailResponseSchema, adminResultRaceImportConfirmResponseSchema, adminResultRaceImportPreviewResponseSchema, adminResultRacesResponseSchema, aggregatePerformances, getResultDataProvider, legacyRaceResultInputSchema, parseBatchResultCsv, parseQuickResultList, parseResultCsv, publicPredictionStatsQuerySchema, publicPredictionStatsResponseSchema, publicRaceResultResponseSchema, resultDataProviderCatalog, serializeResultCsv, settlePrediction, verifyJraVanResultBundle } from './results';
 
 const entry = (entryId: string, finishPosition: number) => ({ entryId, status: 'FINISHED' as const, finishPosition, popularity: finishPosition, finalOdds: '2.5' });
 
@@ -273,6 +273,26 @@ describe('dormant legacy result settlement', () => {
 });
 
 describe('result CSV', () => {
+  it('converts reviewed compact rows into the canonical result CSV without inferring exceptional finishes', () => {
+    const parsed = parseQuickResultList('1,1,2,3.4\n2\t取消\n3,除外,,\n4,競走中止');
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.rows).toEqual([
+      { number: 1, status: 'FINISHED', finishPosition: 1, popularity: 2, finalOdds: '3.4' },
+      { number: 2, status: 'WITHDRAWN', finishPosition: null, popularity: null, finalOdds: null },
+      { number: 3, status: 'EXCLUDED', finishPosition: null, popularity: null, finalOdds: null },
+      { number: 4, status: 'DNF', finishPosition: null, popularity: null, finalOdds: null }
+    ]);
+    expect(parseResultCsv(serializeResultCsv(parsed.rows))).toEqual(parsed);
+  });
+
+  it('rejects compact result duplicates, incomplete finished rows, exceptional values and a nineteenth runner', () => {
+    expect(parseQuickResultList('1,1,1,2.0\n1,2,2,3.0').errors).toContainEqual({ row: 2, field: 'number', message: '同じ馬番が重複しています。' });
+    expect(parseQuickResultList('1,1').errors[0]).toMatchObject({ row: 1, field: 'row' });
+    expect(parseQuickResultList('1,取消,1,2.0').errors[0]).toMatchObject({ row: 1, field: 'status' });
+    const nineteen = Array.from({ length: 19 }, (_, index) => `${index + 1},1,1,2.0`).join('\n');
+    expect(parseQuickResultList(nineteen).errors).toContainEqual({ row: 0, field: 'text', message: '1レースにつき18頭以内で入力してください。' });
+  });
+
   it('parses canonical result values without betting or payout fields', () => {
     const parsed = parseResultCsv('\uFEFFnumber,status,finishPosition,popularity,finalOdds\r\n1,FINISHED,1,2,3.4\r\n2,WITHDRAWN,,,');
     expect(parsed.errors).toEqual([]);
