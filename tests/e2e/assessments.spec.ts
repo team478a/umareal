@@ -4,6 +4,26 @@ import { blankAssessment } from '../../packages/domain/src';
 import { assessmentFixture } from '../assessment-fixtures';
 import { db } from '../helpers';
 test.afterAll(() => db.$disconnect());
+test('completes the current horse and advances to the next incomplete horse without filling observations automatically', async ({ page, context }) => {
+  const fixture = await assessmentFixture('EXPERT', 2, 3);
+  await db.assessment.create({ data: { entryId: fixture.entries[1].id, revision: 1, updatedBy: fixture.owner.user.id, content: { ...blankAssessment, body: 3, walk: 3, coat: 3, focus: 3, sweating: 3, calmness: 3, change: 'SAME' } } });
+  await context.addCookies([{ name: 'keiba_session', value: fixture.token, domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
+  await page.goto('/expert'); await page.getByRole('button', { name: '評価・予想を入力' }).click();
+  await expect(page.getByRole('button', { name: '据え置きで完了→次', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: '6項目を3に設定', exact: true }).click();
+  await page.getByRole('button', { name: '据え置きで完了→次', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '3番 評価試験馬3' })).toBeVisible();
+  await expect(page.getByText('3番の未入力馬へ移動しました。', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '6項目を3に設定', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  await page.getByRole('button', { name: '6項目を4に設定', exact: true }).click();
+  await page.getByRole('button', { name: 'UPで完了→次', exact: true }).click();
+  await expect(page.getByText('全頭のパドック評価を入力しました。保存済みを確認して最終評価へ進んでください。', { exact: true })).toBeVisible();
+  await expect(page.locator('.assessment-progress')).toContainText('パドック入力 3 / 3頭');
+  await expect(page.locator('.assessment-progress [role=status]')).toHaveText('保存済み');
+  expect((await db.assessment.findUniqueOrThrow({ where: { entryId: fixture.entries[0].id } })).content).toMatchObject({ body: 3, change: 'SAME' });
+  expect((await db.assessment.findUniqueOrThrow({ where: { entryId: fixture.entries[2].id } })).content).toMatchObject({ body: 4, change: 'UP' });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
 test('paddock drafts survive offline edits, synchronize, and require explicit conflict resolution', async ({ page, context }, testInfo) => {
   const fixture = await assessmentFixture();
   await context.addCookies([{ name: 'keiba_session', value: fixture.token, domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
