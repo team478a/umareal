@@ -17,7 +17,7 @@ async function request<T>(method = 'GET', body?: unknown): Promise<T> {
 export function OperatorSettingsStatus() {
   const [settings, setSettings] = useState<Settings | null>(null); const [error, setError] = useState('');
   useEffect(() => { request<Settings>().then(setSettings).catch(value => setError(value.message)); }, []);
-  if (!settings) return <><div className="page-heading"><span className="eyebrow">OPERATIONS STATUS</span><h1>運用・連携状態</h1><p>レース担当は状態を確認できます。設定変更は管理者が行います。</p></div><p role={error ? 'alert' : 'status'}>{error || '読み込み中…'}</p></>;
+  if (!settings) return <><div className="page-heading"><span className="eyebrow">OPERATIONS STATUS</span><h1>運用・連携状態</h1><p>運用責任者は状態を確認できます。設定変更は管理者が行います。</p></div><p role={error ? 'alert' : 'status'}>{error || '読み込み中…'}</p></>;
   const operations = [
     ['新規会員登録', settings.operations.newRegistrationsEnabled], ['メール通知', settings.operations.emailNotificationsEnabled], ['予想公開', settings.operations.predictionPublicationEnabled], ['CSV取込', settings.operations.csvImportEnabled],
     ['LINE通知', settings.operations.lineNotificationsEnabled], ['LINEログイン', settings.operations.lineLoginEnabled], ['新規購入', settings.operations.newPurchasesEnabled]

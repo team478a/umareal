@@ -20,6 +20,10 @@ describe('content CMS publication and access', () => {
     await admin.mfa();
     const editorFixture = await account('EDITOR'); const editor = new Client(); await editor.login(editorFixture);
     expect((await editor.call('admin/content')).status).toBe(200);
+    const operatorFixture = await account('OPERATOR'); const operator = new Client(); await operator.login(operatorFixture);
+    expect((await operator.call('admin/content')).status).toBe(200);
+    expect((await operator.call('admin/users')).status).toBe(403);
+    expect((await operator.call('admin/billing')).status).toBe(403);
     const notificationFixture = await account('MEMBER');
     const notificationClient = new Client(); await notificationClient.login(notificationFixture);
     const memberFixture = await account('MEMBER'); const member = new Client(); await member.login(memberFixture);
@@ -96,8 +100,8 @@ describe('content CMS publication and access', () => {
     expect((await member.call(`content/${paidId}`)).body).toMatchObject({ locked: false, body: '有料記事の公開本文' });
 
     const scheduledId = randomUUID(); const scheduledAt = new Date(Date.now() + 60_000);
-    const scheduledDraft = await editor.call('admin/content/draft', 'POST', { id: scheduledId, revision: 0, draft: { ...draft('予約動画', 'MEMBERS'), kind: 'VIDEO', mediaUrl: 'https://example.test/video' }, reason: '予約動画の下書き' });
-    const scheduled = await editor.call(`admin/content/${scheduledId}/schedule`, 'POST', { revision: scheduledDraft.body.revision, scheduledAt: scheduledAt.toISOString(), reason: '予約公開試験' });
+    const scheduledDraft = await operator.call('admin/content/draft', 'POST', { id: scheduledId, revision: 0, draft: { ...draft('予約動画', 'MEMBERS'), kind: 'VIDEO', mediaUrl: 'https://example.test/video' }, reason: '運用責任者による予約動画の下書き' });
+    const scheduled = await operator.call(`admin/content/${scheduledId}/schedule`, 'POST', { revision: scheduledDraft.body.revision, scheduledAt: scheduledAt.toISOString(), reason: '運用責任者による予約公開試験' });
     expect(scheduled.body).toMatchObject({ status: 'SCHEDULED', revision: 2 });
     const run = await runContentSchedules({ db, now: () => new Date(scheduledAt.getTime() + 1000) });
     expect(run).toEqual({ claimed: 1, published: 1, failed: 0 });
@@ -105,10 +109,10 @@ describe('content CMS publication and access', () => {
     expect(await db.notificationEvent.findUniqueOrThrow({ where: { contentVersionId: scheduledVersion.id } })).toMatchObject({ eventType: 'CONTENT_PUBLISHED' });
     expect((await member.call(`content/${scheduledId}`)).body).toMatchObject({ locked: false, mediaUrl: 'https://example.test/video' });
 
-    const archived = await editor.call(`admin/content/${scheduledId}/archive`, 'POST', { revision: 3, reason: '掲載期間終了' });
+    const archived = await operator.call(`admin/content/${scheduledId}/archive`, 'POST', { revision: 3, reason: '掲載期間終了' });
     expect(archived.body.status).toBe('ARCHIVED');
     expect((await member.call(`content/${scheduledId}`)).status).toBe(404);
-    expect((await editor.call(`admin/content/${scheduledId}/restore`, 'POST', { revision: 4, reason: '再編集' })).body.status).toBe('DRAFT');
+    expect((await operator.call(`admin/content/${scheduledId}/restore`, 'POST', { revision: 4, reason: '再編集' })).body.status).toBe('DRAFT');
     expect((await member.call(`content/${scheduledId}`)).status).toBe(404);
   });
 });

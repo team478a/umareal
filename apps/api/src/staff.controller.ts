@@ -79,7 +79,8 @@ export class StaffController {
           if (Object.values(access).some(Boolean)) throw new ConflictException({ code: 'STAFF_ACTIVE_MEMBER_ACCESS', message: '有効または申込中の契約、1日利用、閲覧権限があります。会員利用が終了してからスタッフロールへ変更してください。' });
         }
         const dependencies = await this.dependencies(tx, target.id);
-        if (target.role === 'OPERATOR' && input.nextRole !== 'OPERATOR' && dependencies.pendingPublicationSchedules) throw new ConflictException({ code: 'STAFF_SCHEDULES_PENDING', message: '待機中または処理中の配信予約を取消・完了してからレース担当ロールを変更してください。' });
+        if (target.role === 'OPERATOR' && input.nextRole !== 'OPERATOR' && dependencies.pendingPublicationSchedules) throw new ConflictException({ code: 'STAFF_SCHEDULES_PENDING', message: '待機中または処理中の配信予約を取消・完了してから運用責任者ロールを変更してください。' });
+        if (target.role === 'OPERATOR' && input.nextRole !== 'OPERATOR' && dependencies.pendingContentSchedules) throw new ConflictException({ code: 'STAFF_CONTENT_SCHEDULES_PENDING', message: '予約中のコンテンツを取消または公開してから運用責任者ロールを変更してください。' });
         if (target.role === 'EDITOR' && input.nextRole !== 'EDITOR' && dependencies.pendingContentSchedules) throw new ConflictException({ code: 'STAFF_CONTENT_SCHEDULES_PENDING', message: '予約中のコンテンツを取消または公開してから編集担当ロールを変更してください。' });
         if (target.role === 'EXPERT' && input.nextRole !== 'EXPERT') {
           if (dependencies.upcomingRaceAssignments || dependencies.activeWin5Products) throw new ConflictException({
@@ -123,7 +124,7 @@ export class StaffController {
         `;
         const target = rows[0];
         if (!target) throw new NotFoundException({ code: 'USER_NOT_FOUND', message: '対象アカウントが見つかりません。' });
-        if (target.id === actor.id || target.role === 'ADMIN' || target.role === 'MEMBER') throw new ConflictException({ code: 'STAFF_STATUS_NOT_MANAGED', message: '予想担当・編集担当・レース担当のアカウントだけを停止・再開できます。' });
+        if (target.id === actor.id || target.role === 'ADMIN' || target.role === 'MEMBER') throw new ConflictException({ code: 'STAFF_STATUS_NOT_MANAGED', message: '予想担当・編集担当・運用責任者のアカウントだけを停止・再開できます。' });
         if (target.role !== input.expectedRole) throw new ConflictException({ code: 'STAFF_ROLE_CHANGED', message: '別の操作でロールが変更されました。最新の状態を確認してください。' });
         if (!target.email || !target.emailVerifiedAt) throw new ConflictException({ code: 'STAFF_ACCOUNT_NOT_READY', message: '確認済みメールを持つスタッフアカウントだけを変更できます。' });
         if (target.email.toLowerCase() !== input.confirmationEmail) throw new ConflictException({ code: 'STAFF_CONFIRMATION_MISMATCH', message: '確認用メールアドレスが一致しません。' });

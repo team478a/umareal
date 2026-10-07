@@ -117,5 +117,10 @@ describe('staff role management', () => {
     await db.publicationSchedule.create({ data: { raceId: race.id, kind: 'RACE_ANNOUNCEMENT', draftRevision: null, scheduledAt: new Date(Date.now() + 3600000), reason: '配信予約保護', createdBy: scheduledOperator.user.id } });
     const roleBlocked = await actor.call(`admin/staff/${scheduledOperator.user.id}/role`, 'PATCH', { expectedRole: 'OPERATOR', nextRole: 'MEMBER', confirmationEmail: scheduledOperator.user.email, reason: '予約を残した変更' });
     expect(roleBlocked).toMatchObject({ status: 409, body: { code: 'STAFF_SCHEDULES_PENDING' } });
+
+    const contentOperator = await account('OPERATOR');
+    await db.contentItem.create({ data: { kind: 'ARTICLE', status: 'SCHEDULED', title: '予約記事', summary: '予約中コンテンツの権限保護', body: '公開前本文', category: '運用', visibility: 'MEMBERS', scheduledAt: new Date(Date.now() + 3600000), scheduledRevision: 1, scheduleReason: '権限変更保護試験', createdBy: contentOperator.user.id, updatedBy: contentOperator.user.id } });
+    const contentRoleBlocked = await actor.call(`admin/staff/${contentOperator.user.id}/role`, 'PATCH', { expectedRole: 'OPERATOR', nextRole: 'MEMBER', confirmationEmail: contentOperator.user.email, reason: 'コンテンツ予約を残した変更' });
+    expect(contentRoleBlocked).toMatchObject({ status: 409, body: { code: 'STAFF_CONTENT_SCHEDULES_PENDING' } });
   });
 });

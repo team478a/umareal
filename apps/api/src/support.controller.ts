@@ -127,7 +127,7 @@ export class SupportController {
       const current = await tx.supportRequest.findUnique({ where: { id }, select: { id: true, priority: true, assignedToId: true, dueAt: true, category: true } });
       if (!current) throw new NotFoundException({ code: 'SUPPORT_REQUEST_NOT_FOUND', message: '問い合わせを確認できません。' });
       if (input.assignedToId && !await tx.user.findFirst({ where: { id: input.assignedToId, role: { in: ['ADMIN', 'OPERATOR'] }, disabledAt: null }, select: { id: true } })) {
-        throw new ConflictException({ code: 'SUPPORT_ASSIGNEE_INVALID', message: '有効な管理者またはレース担当を選択してください。' });
+        throw new ConflictException({ code: 'SUPPORT_ASSIGNEE_INVALID', message: '有効な管理者または運用責任者を選択してください。' });
       }
       const unchanged = current.priority === input.priority && current.assignedToId === input.assignedToId && current.dueAt?.getTime() === dueAt?.getTime();
       if (unchanged) throw new ConflictException({ code: 'SUPPORT_TRIAGE_UNCHANGED', message: '担当、優先度、対応期限のいずれかを変更してください。' });
