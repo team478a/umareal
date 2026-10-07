@@ -69,13 +69,15 @@ test('register, save preferences, sign out and sign in on desktop/mobile', async
   await page.evaluate(() => {
     localStorage.setItem('keiba:assessment:logout-test:race', 'sensitive draft'); localStorage.setItem('unrelated-local', 'keep');
     sessionStorage.setItem('keiba:race-manager:logout-test:race-detail:race', 'race draft');
-    sessionStorage.setItem('keiba:result-manager:logout-test:quick-result:race', 'result draft'); sessionStorage.setItem('unrelated-session', 'keep');
+    sessionStorage.setItem('keiba:result-manager:logout-test:quick-result:race', 'result draft');
+    sessionStorage.setItem('keiba:prediction-editor:logout-test:race', 'prediction draft'); sessionStorage.setItem('unrelated-session', 'keep');
   });
   await page.getByRole('button', { name: 'ログアウト', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'おかえりなさい' })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem('keiba:assessment:logout-test:race'))).toBeNull();
   expect(await page.evaluate(() => sessionStorage.getItem('keiba:race-manager:logout-test:race-detail:race'))).toBeNull();
   expect(await page.evaluate(() => sessionStorage.getItem('keiba:result-manager:logout-test:quick-result:race'))).toBeNull();
+  expect(await page.evaluate(() => sessionStorage.getItem('keiba:prediction-editor:logout-test:race'))).toBeNull();
   expect(await page.evaluate(() => [localStorage.getItem('unrelated-local'), sessionStorage.getItem('unrelated-session')])).toEqual(['keep', 'keep']);
   await page.getByLabel('メールアドレス', { exact: true }).fill(email);
   await page.getByLabel('パスワード', { exact: true }).fill(password);
@@ -151,12 +153,14 @@ test('free member can confirm account closure and cannot sign in again', async (
     localStorage.setItem('keiba:assessment:closure-test:race', 'sensitive draft');
     sessionStorage.setItem('keiba:race-manager:closure-test:quick-races', 'race draft');
     sessionStorage.setItem('keiba:result-manager:closure-test:quick-result:race', 'result draft');
+    sessionStorage.setItem('keiba:prediction-editor:closure-test:race', 'prediction draft');
   });
   await page.getByRole('button', { name: '退会して利用を停止' }).click();
   await expect(page.getByText('退会手続きが完了し、すべての端末からログアウトしました。')).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem('keiba:assessment:closure-test:race'))).toBeNull();
   expect(await page.evaluate(() => sessionStorage.getItem('keiba:race-manager:closure-test:quick-races'))).toBeNull();
   expect(await page.evaluate(() => sessionStorage.getItem('keiba:result-manager:closure-test:quick-result:race'))).toBeNull();
+  expect(await page.evaluate(() => sessionStorage.getItem('keiba:prediction-editor:closure-test:race'))).toBeNull();
   await page.getByLabel('メールアドレス', { exact: true }).fill(fixture.user.email);
   await page.getByLabel('パスワード', { exact: true }).fill(fixture.password);
   await page.getByRole('button', { name: 'ログイン', exact: true }).click();
@@ -175,6 +179,7 @@ test('failed logout keeps operational drafts for recovery', async ({ page }) => 
     localStorage.setItem('keiba:assessment:failed-logout:race', 'assessment draft');
     sessionStorage.setItem('keiba:race-manager:failed-logout:quick-races', 'race draft');
     sessionStorage.setItem('keiba:result-manager:failed-logout:quick-result:race', 'result draft');
+    sessionStorage.setItem('keiba:prediction-editor:failed-logout:race', 'prediction draft');
   });
   await page.route('**/api/v1/auth/logout', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: 'ログアウト通信試験' }) }));
   await page.getByRole('button', { name: 'ログアウト', exact: true }).click();
@@ -182,6 +187,7 @@ test('failed logout keeps operational drafts for recovery', async ({ page }) => 
   expect(await page.evaluate(() => [
     localStorage.getItem('keiba:assessment:failed-logout:race'),
     sessionStorage.getItem('keiba:race-manager:failed-logout:quick-races'),
-    sessionStorage.getItem('keiba:result-manager:failed-logout:quick-result:race')
-  ])).toEqual(['assessment draft', 'race draft', 'result draft']);
+    sessionStorage.getItem('keiba:result-manager:failed-logout:quick-result:race'),
+    sessionStorage.getItem('keiba:prediction-editor:failed-logout:race')
+  ])).toEqual(['assessment draft', 'race draft', 'result draft', 'prediction draft']);
 });

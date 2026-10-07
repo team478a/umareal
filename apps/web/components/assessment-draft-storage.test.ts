@@ -53,8 +53,9 @@ describe('assessment draft storage', () => {
     const storage = new MemoryStorage();
     storage.setItem('keiba:race-manager:user:race-detail:race', 'race draft');
     storage.setItem('keiba:result-manager:user:quick-result:race', 'result draft');
+    storage.setItem('keiba:prediction-editor:user:race', 'prediction draft');
     storage.setItem('keiba:other:user', 'keep'); storage.setItem('unrelated', 'keep');
-    expect(clearStorageByPrefixes(storage, operationalSessionDraftPrefixes)).toBe(2);
+    expect(clearStorageByPrefixes(storage, operationalSessionDraftPrefixes)).toBe(3);
     expect(storage.getItem('keiba:other:user')).toBe('keep');
     expect(storage.getItem('unrelated')).toBe('keep');
   });
