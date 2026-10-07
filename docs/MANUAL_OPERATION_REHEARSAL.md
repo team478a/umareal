@@ -170,10 +170,10 @@ JRA-VAN/JV-Link/外部競馬データProviderを一度も接続しない状態�
 | --- | --- |
 | 実運用E2E desktop | PASS（1/1） |
 | 実運用E2E mobile | PASS（1/1） |
-| 手動登録下書き復元E2E | PASS（desktop/mobile 4/4。復元、破棄、別利用者・別レース分離、成功後消去） |
+| 手動登録下書き復元E2E | PASS（一括入力に加え、レース詳細・出走馬詳細のdesktop/mobile 2/2。復元、破棄、利用者・対象分離、revision照合、成功後消去） |
 | Domain contract | PASS（8/8） |
 | Race integration | PASS（8/8。一括確定17頭、候補混入拒否、原子性、冪等性、監査、権限を含む） |
-| 全unit・配備script | PASS（93 files、507 tests／Node 20 tests） |
+| 全unit・配備script | PASS（93 files、509 tests／Node 20 tests） |
 | lint | PASS |
 | typecheck | PASS |
 | build | PASS |
