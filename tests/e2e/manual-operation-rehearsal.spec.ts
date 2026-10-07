@@ -40,8 +40,11 @@ async function paddockHorse(page: Page, number: number, comment: string) {
 test('JRA-VAN未接続で1開催日の主要運用を管理画面から完走する', async ({ page, context }, testInfo) => {
   test.setTimeout(240_000);
   if (process.env.AUTH_PROVIDER !== 'local' || !['localhost', '127.0.0.1'].includes(new URL(process.env.DATABASE_URL ?? '').hostname)) throw new Error('Local database required');
-  expect(process.env.RACE_DATA_MODE).toBe('MANUAL');
-  expect(process.env.AI_RACE_GUIDE_TRANSPORT).toBe('template');
+  const raceDataMode = process.env.RACE_DATA_MODE ?? 'MANUAL';
+  const guideTransport = process.env.AI_RACE_GUIDE_TRANSPORT ?? 'disabled';
+  expect(raceDataMode).toBe('MANUAL');
+  expect(['template', 'test']).toContain(guideTransport);
+  const templateGuide = guideTransport === 'template';
 
   const rehearsalStartedAt = new Date();
   const phases: Record<string, Phase> = {};
@@ -52,10 +55,19 @@ test('JRA-VAN未接続で1開催日の主要運用を管理画面から完走す
   await useSession(context, admin.client);
 
   const suffix = randomUUID().slice(0, 8);
-  const day = '9999-12-31';
   const rehearsalVenues = ['札幌', '函館', '福島', '新潟', '東京', '中山', '中京', '京都', '阪神', '小倉'];
-  const venue = (await Promise.all(rehearsalVenues.map(async item => ({ item, used: await db.raceDay.count({ where: { raceDate: day, venue: item } }) })))).find(item => !item.used)?.item;
-  if (!venue) throw new Error('No free rehearsal venue is available for the isolated future date');
+  const rehearsalDays = Array.from({ length: 31 }, (_, index) => `9999-12-${String(31 - index).padStart(2, '0')}`);
+  let slot: { day: string; venue: string } | undefined;
+  for (const candidateDay of rehearsalDays) {
+    const usedVenues = new Set((await db.raceDay.findMany({ where: { raceDate: candidateDay }, select: { venue: true } })).map(item => item.venue));
+    const candidateVenue = rehearsalVenues.find(item => !usedVenues.has(item));
+    if (candidateVenue) {
+      slot = { day: candidateDay, venue: candidateVenue };
+      break;
+    }
+  }
+  if (!slot) throw new Error('No free rehearsal slot is available for the isolated future dates');
+  const { day, venue } = slot;
   const raceName = `未接続運用リハーサル-${suffix}`;
   const horseNames = Array.from({ length: 6 }, (_, index) => `手動運用馬${index + 1}-${suffix}`);
 
@@ -163,12 +175,12 @@ test('JRA-VAN未接続で1開催日の主要運用を管理画面から完走す
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto('/admin/ai-race-guides');
     await page.getByLabel('対象レース').selectOption(race.id);
-    await expect(page.getByText('transport template', { exact: true })).toBeVisible();
+    await expect(page.getByText(`transport ${guideTransport}`, { exact: true })).toBeVisible();
     await page.getByLabel('操作理由').fill('未接続運用Basic Guide確認');
-    await page.getByRole('button', { name: 'Basic Guideを生成' }).click();
+    await page.getByRole('button', { name: templateGuide ? 'Basic Guideを生成' : 'synthetic fixtureで生成' }).click();
     await expect(page.getByRole('status')).toContainText('生成・検証が完了しました。');
-    await expect(page.getByText('固定テンプレートによる参考情報', { exact: true })).toBeVisible();
-    await expect(page.locator('.ai-guide-sections')).toContainText('詳細が未登録です。データ不足を成績不振とは扱いません。');
+    await expect(page.getByText(templateGuide ? '固定テンプレートによる参考情報' : 'AIによる参考情報', { exact: true })).toBeVisible();
+    await expect(page.locator('.ai-guide-sections')).toContainText(templateGuide ? '詳細が未登録です。データ不足を成績不振とは扱いません。' : '判断に必要なデータ件数が不足しています。');
     await page.getByRole('button', { name: '確認済みにする' }).click();
     await expect(page.getByRole('status')).toContainText('確認済みにしました。');
     await page.getByRole('button', { name: '公開版を追加' }).click();
@@ -178,9 +190,9 @@ test('JRA-VAN未接続で1開催日の主要運用を管理画面から完走す
   await useSession(context, member.client);
   await page.goto(`/races/${race.id}`);
   await expect(page.getByRole('heading', { name: 'AIレースガイド' })).toBeVisible();
-  await expect(page.getByText('Basic Guide（固定テンプレート）', { exact: true })).toBeVisible();
+  await expect(page.getByText(templateGuide ? 'Basic Guide（固定テンプレート）' : 'AIによる参考情報', { exact: true })).toBeVisible();
   const guideText = await page.locator('.ai-race-guide').innerText();
-  expect(guideText).toContain('登録済み情報だけ');
+  if (templateGuide) expect(guideText).toContain('登録済み情報だけ');
   expect(guideText).not.toMatch(/勝率|的中率|おすすめ馬券|買い目[:：]|絶好調|勝ち負け必至/);
 
   // The operator cannot wait for a real future race during an automated rehearsal. This is the
