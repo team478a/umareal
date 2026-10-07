@@ -2,6 +2,7 @@ import { assessmentSaveSchema, type AssessmentSaveInput } from '@keiba/domain';
 
 export const assessmentDraftStoragePrefix = 'keiba:assessment:';
 export const assessmentDraftRetentionMs = 24 * 60 * 60 * 1000;
+export const operationalSessionDraftPrefixes = ['keiba:race-manager:', 'keiba:result-manager:'] as const;
 
 type Drafts = Record<string, AssessmentSaveInput>;
 type DraftEnvelope = { version: 1; updatedAt: string; expiresAt: string; drafts: Drafts };
@@ -74,10 +75,14 @@ export function writeAssessmentDrafts(storage: Storage, key: string, drafts: Dra
 }
 
 export function clearAssessmentDraftStorage(storage: Storage) {
+  return clearStorageByPrefixes(storage, [assessmentDraftStoragePrefix]);
+}
+
+export function clearStorageByPrefixes(storage: Storage, prefixes: readonly string[]) {
   let removed = 0;
   for (let index = storage.length - 1; index >= 0; index -= 1) {
     const key = storage.key(index);
-    if (key?.startsWith(assessmentDraftStoragePrefix)) {
+    if (key && prefixes.some(prefix => key.startsWith(prefix))) {
       storage.removeItem(key);
       removed += 1;
     }
@@ -88,4 +93,10 @@ export function clearAssessmentDraftStorage(storage: Storage) {
 export function clearBrowserAssessmentDraftStorage() {
   try { return clearAssessmentDraftStorage(window.localStorage); }
   catch { return 0; }
+}
+
+export function clearBrowserOperationalDraftStorage() {
+  const assessments = clearBrowserAssessmentDraftStorage();
+  try { return assessments + clearStorageByPrefixes(window.sessionStorage, operationalSessionDraftPrefixes); }
+  catch { return assessments; }
 }

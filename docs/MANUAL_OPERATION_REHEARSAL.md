@@ -172,10 +172,10 @@ JRA-VAN/JV-Link/外部競馬データProviderを一度も接続しない状態�
 | 実運用E2E mobile | PASS（1/1） |
 | 手動登録下書き復元E2E | PASS（一括入力に加え、レース詳細・出走馬詳細のdesktop/mobile 2/2。復元、破棄、利用者・対象分離、revision照合、成功後消去） |
 | 結果一括入力下書き復元E2E | PASS（desktop/mobile。復元、破棄、利用者・レース分離、結果revision照合、成功後消去） |
-| パドック端末下書きE2E | PASS（desktop/mobile。24時間期限、明示消去、同期後消去、ログアウト・退会時消去） |
+| 運用端末下書きE2E | PASS（desktop/mobile。パドック24時間期限、明示消去、同期後消去、正常ログアウト・退会時にパドック／レース／出走馬／結果下書きを消去。ログアウト失敗時は復旧用に保持。無関係なstorage値は保持） |
 | Domain contract | PASS（8/8） |
 | Race integration | PASS（8/8。一括確定17頭、候補混入拒否、原子性、冪等性、監査、権限を含む） |
-| 全unit・配備script | PASS（95 files、517 tests／Node 20 tests） |
+| 全unit・配備script | PASS（95 files、518 tests／Node 20 tests） |
 | lint | PASS |
 | typecheck | PASS |
 | build | PASS |

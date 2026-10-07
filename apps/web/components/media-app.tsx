@@ -39,7 +39,7 @@ import { ContentLibrary, ContentManager, ContentPage, HorseRelatedContentPage } 
 import type { PaidContentViewer } from './paid-content-watermark';
 import { AdminAiRaceGuide } from './ai-race-guide';
 import { AdminAudit } from './admin-audit';
-import { clearBrowserAssessmentDraftStorage } from './assessment-draft-storage';
+import { clearBrowserOperationalDraftStorage } from './assessment-draft-storage';
 
 type Preferences = NotificationPreferencesResponse;
 type PublicConfig = PublicAuthConfigResponse;
@@ -111,7 +111,7 @@ export function MediaApp() {
     { label: '設定・安全管理', items: [...(me.role === 'ADMIN' ? [{ href: '/admin/readiness', label: '公開前の準備確認', Icon: ClipboardCheck }, { href: '/admin/line-rich-menu', label: 'LINEメニューを設定', Icon: PanelTop }, { href: '/admin/continuity', label: '管理者の引き継ぎ', Icon: ShieldCheck }, { href: '/admin/staff', label: 'スタッフ権限を設定', Icon: UserCog }, { href: '/admin/backups', label: 'バックアップを確認', Icon: DatabaseBackup }, { href: '/admin/account-closures', label: '退会記録を確認', Icon: UserRoundX }] : []), { href: '/admin/settings', label: me.role === 'ADMIN' ? 'サービス・連携設定' : 'サービス稼働状況', Icon: Settings2 }, ...(me.role === 'ADMIN' ? [{ href: '/admin/audit', label: '操作履歴を確認', Icon: Clock3 }] : [])] }
   ] : [];
   const nav = adminWorkspace ? adminNavSections.flatMap(section => section.items) : memberNav;
-  async function logout() { try { await api('auth/logout', 'POST'); clearBrowserAssessmentDraftStorage(); setMe(null); setUnreadNotifications(0); router.push('/login'); } catch (e) { setError((e as Error).message); } }
+  async function logout() { try { await api('auth/logout', 'POST'); clearBrowserOperationalDraftStorage(); setMe(null); setUnreadNotifications(0); router.push('/login'); } catch (e) { setError((e as Error).message); } }
 
   if (path === '/' && !me) return <GuestEntry ready={!loading} />;
 
@@ -262,7 +262,7 @@ function Account({ me, refresh, capabilities, emailNotificationsEnabled }: { me:
   async function save(event: FormEvent) { event.preventDefault(); setBusy(true); setError(''); setMessage(''); try { await api<NotificationPreferencesResponse>('me/preferences', 'PATCH', preferences); setMessage('通知設定を保存しました。'); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
   async function enableRaceNotifications() { setBusy(true); setError(''); setMessage(''); const next = { ...preferences, predictions: true }; try { await api<NotificationPreferencesResponse>('me/preferences', 'PATCH', next); setPreferences(next); await refresh(); setMessage('対象レース告知と最終予想の通知を有効にしました。'); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
   async function linkLine() { setBusy(true); setError(''); try { const value = await api<{ authorizationUrl: string }>('auth/line/start', 'POST', { purpose: 'LINK' }); window.location.assign(value.authorizationUrl); } catch (e) { setError((e as Error).message); setBusy(false); } }
-  async function switchToLinkedLineAccount() { setBusy(true); setError(''); try { await api('auth/logout', 'POST'); clearBrowserAssessmentDraftStorage(); window.location.assign('/login?line=already-linked'); } catch (e) { setError((e as Error).message); setBusy(false); } }
+  async function switchToLinkedLineAccount() { setBusy(true); setError(''); try { await api('auth/logout', 'POST'); clearBrowserOperationalDraftStorage(); window.location.assign('/login?line=already-linked'); } catch (e) { setError((e as Error).message); setBusy(false); } }
   async function unlinkLine() { setBusy(true); setError(''); setMessage(''); try { await api('auth/line/unlink', 'POST'); await refresh(); setMessage('LINE連携を解除しました。'); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
   async function fallback(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setBusy(true); setError(''); setMessage(''); const form = new FormData(event.currentTarget); try { const result = await api<{ message: string }>('auth/email/fallback', 'POST', { email: form.get('email'), password: form.get('password') }); setMessage(result.message); event.currentTarget.reset(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
   const hasPaidAccess = me.entitlements.length > 0;
