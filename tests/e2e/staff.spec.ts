@@ -46,6 +46,31 @@ test('operator and expert see their management entry after login', async ({ page
     await expect(page.getByRole('heading', { name: 'おかえりなさい', exact: true })).toBeVisible();
   }
 });
+test('staff role selector keeps the current role visible without making it selectable', async ({ page }) => {
+  if (process.env.AUTH_PROVIDER !== 'local' || !['127.0.0.1', 'localhost'].includes(new URL(process.env.DATABASE_URL ?? '').hostname)) throw new Error('Staff browser test requires local development database');
+  const administrator = await account('ADMIN');
+  const operator = await account('OPERATOR');
+  await page.goto('/login');
+  await page.getByLabel('メールアドレス', { exact: true }).fill(administrator.user.email);
+  await page.getByLabel('パスワード', { exact: true }).fill(administrator.password);
+  await page.getByRole('button', { name: 'ログイン', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'マイページ', exact: true })).toBeVisible();
+  await page.goto('/security');
+  await page.getByRole('button', { name: '設定を始める' }).click();
+  const secret = await page.locator('.setup-secret code').innerText();
+  await page.getByLabel('認証コード').fill(totp(secret));
+  await page.getByRole('button', { name: 'コードを確認' }).click();
+  await expect(page.getByRole('heading', { name: '二段階認証が完了しています', exact: true })).toBeVisible();
+  await page.goto('/admin/staff');
+  await page.getByLabel('対象アカウント').selectOption(operator.user.id);
+  const roleOptions = page.getByRole('radiogroup', { name: '権限一覧と変更後のロール' });
+  await expect(roleOptions.locator('[aria-label="運用責任者（現在の権限）"]')).toContainText('現在の権限');
+  await expect(roleOptions.getByRole('radio')).toHaveCount(3);
+  await expect(roleOptions.getByRole('radio', { name: '運用責任者' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'ロールを変更' })).toBeDisabled();
+  await roleOptions.getByRole('radio', { name: '会員' }).check();
+  await expect(page.getByRole('button', { name: 'ロールを変更' })).toBeEnabled();
+});
 test('administrator must complete MFA before viewing member management', async ({ page }) => {
   if (process.env.AUTH_PROVIDER !== 'local' || !['127.0.0.1', 'localhost'].includes(new URL(process.env.DATABASE_URL ?? '').hostname)) throw new Error('Staff browser test requires local development database');
   const fixture = await account('ADMIN');
