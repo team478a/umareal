@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { account, Client, db } from './helpers';
 import { activatePendingDayPasses } from '../apps/api/src/day-pass-access';
+import { activateStartedDayPasses } from '../apps/worker/src/day-pass-activator';
 
 afterAll(async () => {
   await db.systemSetting.update({ where: { id: 'global' }, data: { newPurchasesEnabled: false, founderSalesEnabled: false, billingGraceDays: 0 } });
@@ -61,6 +62,20 @@ describe('local billing lifecycle', () => {
     expect(JSON.stringify(first.body)).not.toContain('providerPaymentId');
     expect(JSON.stringify(first.body)).not.toContain('userId');
     expect((await client.call('billing/day-pass', 'POST', { raceDate }, undefined, { 'Idempotency-Key': randomUUID() })).body.code).toBe('DAY_PASS_EXISTS');
+  });
+
+  it('starts pending day passes at the target date even when WIN5 is still unpublished', async () => {
+    const fixture = await account(); const raceDate = '2099-05-09'; const endsAt = new Date('2099-05-09T15:00:00.000Z');
+    const expert = await account('EXPERT');
+    await db.predictionProduct.create({ data: { type: 'WIN5_PREVIEW', targetDate: raceDate, title: '未公開WIN5', expertId: expert.user.id, scheduledPublishAt: new Date('2099-05-08T12:00:00.000Z'), confidence: 'B', updatedBy: expert.user.id } });
+    const pass = await db.dayPass.create({ data: { userId: fixture.user.id, raceDate, status: 'PENDING', priceYen: 980, startsAt: null, endsAt, provider: 'LOCAL_TEST', source: 'PURCHASE', providerPassId: `target-date-${randomUUID()}`, entitlementId: null } });
+    expect(await activateStartedDayPasses({ db, now: () => new Date('2099-05-08T14:59:59.000Z') })).toEqual({ activated: 0 });
+    expect(await activateStartedDayPasses({ db, now: () => new Date('2099-05-08T15:00:00.000Z') })).toEqual({ activated: 1 });
+    expect(await activateStartedDayPasses({ db, now: () => new Date('2099-05-08T15:00:01.000Z') })).toEqual({ activated: 0 });
+    const activated = await db.dayPass.findUniqueOrThrow({ where: { id: pass.id }, include: { entitlement: true } });
+    expect(activated).toMatchObject({ status: 'ACTIVE', startsAt: new Date('2099-05-08T15:00:00.000Z') });
+    expect(activated.entitlement).toMatchObject({ planCode: 'DAY_PASS', startsAt: new Date('2099-05-08T15:00:00.000Z'), endsAt });
+    expect(await db.auditLog.count({ where: { action: 'DAY_PASS_AUTO_STARTED', targetId: pass.id } })).toBe(1);
   });
 
   it('enforces the founder cap under a server-side setting', async () => {

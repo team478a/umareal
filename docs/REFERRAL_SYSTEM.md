@@ -1,6 +1,6 @@
-# 友達紹介制度 V1 / 可変特典 Phase B
+# 友達紹介制度 V1 / 可変特典 Phase C
 
-> 既存V1の3人・10人一日券は互換運用として維持する。可変特典Phase Bは版管理された別基盤として追加し、初期特典は自動有効化しない。実装結果は[Phase B結果](MEMBER_CONTENT_REFERRAL_PHASE_B_RESULTS.md)を参照する。
+> 既存V1の3人・10人一日券は互換運用として維持する。可変特典基盤も初期特典を自動有効化しない。付与基盤は[Phase B結果](MEMBER_CONTENT_REFERRAL_PHASE_B_RESULTS.md)、会員導線と権限統合は[Phase C結果](MEMBER_CONTENT_REFERRAL_PHASE_C_RESULTS.md)を参照する。
 
 ## 制度概要
 
@@ -31,7 +31,7 @@
 
 成立処理は紹介者単位のPostgreSQL transaction advisory lockを取得し、成立人数を再集計する。有効なマイルストーンをDBから読み、`userId + milestoneId` の一意制約を使って1回だけ特典を付与する。3人目と4人目、10人目と11人目が同時に確認を完了しても同じロックと一意制約を通る。人数、期限、数量を画面や成立ロジックへ直接埋め込まない。
 
-紹介特典は獲得時点で閲覧権限を開始しない。会員が未使用Rewardの対象日を選び、交換時に既存の `createDayPassAccess` を通して `DayPass` と `Entitlement(planCode=DAY_PASS)` を作る。WIN5初版公開済みなら公開時刻から対象日終了まで、未公開なら既存仕様どおりPENDINGで待機し、初版公開時に有効化する。対象日終了はJST翌日0時の排他的終端である。
+紹介特典は獲得時点で閲覧権限を開始しない。会員が未使用RewardまたはGrantの対象日を選び、交換時に既存の `createDayPassAccess` を通して `DayPass` と `Entitlement(planCode=DAY_PASS)` を作る。WIN5初版公開済みなら公開時刻から、未公開でも対象日0:00 JSTにworkerから有効化し、対象日中の交換はその時点で有効化する。対象日終了はJST翌日0時の排他的終端である。
 
 交換はReward単位のDBロック、Reward状態、期限、本人所有、同一対象日の既存DayPassを再検証する。選択できる対象日は本日からReward有効期限のJST日付までとする。使用済み・期限切れ・無効Rewardは再利用できない。一日利用アクセス判定は既存 `Entitlement` だけを使い、紹介専用の権限判定を作らない。
 
@@ -59,6 +59,8 @@
 | GET | `/me/referrals` | MEMBER本人。コード、URL、成立人数、次の特典、マイルストーン、Reward一覧 |
 | GET | `/me/referral-rewards` | MEMBER本人。Reward一覧 |
 | POST | `/me/referral-rewards/:id/redeem` | MEMBER本人。`{targetDate}` で既存一日利用へ交換 |
+| GET | `/me/referral-benefit-program` | MEMBER本人。公開中の可変特典、進捗、本人のGrantを会員向け項目だけ返す |
+| POST | `/me/referral-benefit-grants/:id/redeem` | MEMBER本人。Idempotency-Key必須でDAY_PASSまたはMONTHLY_ACCESSを利用開始 |
 | GET | `/admin/referrals` | ADMIN+AAL2。`page`、`status`による集計・紹介者・最近の記録 |
 | GET | `/admin/referrals/:id` | ADMIN+AAL2。紹介詳細 |
 | POST | `/admin/referrals/:id/invalidate` | ADMIN+AAL2。`{reason}` 必須で成立紹介を無効化 |
@@ -67,7 +69,7 @@
 
 ## 画面
 
-マイページの「友達紹介」に、成立人数、次の特典までの残数、DBマイルストーン、紹介URL、LINE共有、コピー、未使用・使用済み・期限切れ特典、対象日選択を表示する。LINE共有文は「ウマリアル無料会員登録開始！」と紹介コード付きLP URLにする。LINE共有は会員本人の操作で共有画面を開くだけで、Messaging APIによる代理送信や自動投稿は行わない。
+マイページの「友達紹介」に、成立人数、次の特典までの残数、紹介URL、紹介コード、LINE共有、コピー、既存マイルストーン、公開中の可変特典、未使用・使用済み・期限切れ特典を表示する。DAY_PASSは対象日を選び、MONTHLY_ACCESSは明示操作で開始する。LIMITED_CONTENTは有効なGrantと公開中CMSの組だけリンクを表示する。LINE共有文は「ウマリアル無料会員登録開始！」と紹介コード付きLP URLにする。LINE共有は会員本人の操作で共有画面を開くだけで、Messaging APIによる代理送信や自動投稿は行わない。
 
 紹介URLを開いた人にはLPを表示し、LPのLINE・メール登録導線から通常の無料登録画面へ `invite` を引き継ぐ。既存の成人・規約・プライバシー同意、メール確認またはLINE登録、登録特典動画、無料コンテンツ導線を維持する。LP連携のコードと確認手順は `docs/REFERRAL_LP_INTEGRATION.md` を正とする。
 
@@ -75,7 +77,7 @@
 
 `tests/referrals.integration.test.ts` はメール確認前後、流入計測との分離、通常・無効・改ざんコード登録、3/4/10/11人、3人目/4人目と10人目/11人目の同時成立、LINE登録、Reward交換、過去日・期限後・同一日・再利用の拒否、自己・重複、ADMIN+AAL2、3人/10人での無効化と再到達、`INVALIDATED` の再有効化、`REDEEMED / EXPIRED` の非復活、監査を検証する。
 
-`tests/e2e/referrals.spec.ts` はPCとiPhone相当幅で、紹介者ログイン、マイページの紹介URL、LINE共有URL、新規会員のフォーム登録、メール確認、成立人数反映、特典表示、横スクロールなし、管理画面の集計・詳細・理由付き無効化を実ブラウザで検証する。`tests/win5.integration.test.ts` は購入一日券と紹介一日券の両方が公開待ち `PENDING` になり、WIN5初版公開で同じ既存処理から `ACTIVE` とEntitlementへ移行し、同じWIN5本文を閲覧できることを検証する。Supabase認証試験は `PENDING` からcallback後の `QUALIFIED` までを検証する。既存acquisition、billing、Stripe、月額アクセスの試験も削除・skipせず実行する。
+`tests/e2e/referrals.spec.ts` はPCとiPhone相当幅で、紹介者ログイン、マイページの紹介URL、LINE共有URL、新規会員のフォーム登録、メール確認、成立人数反映、新旧特典表示、横スクロールなし、管理画面の集計・詳細・理由付き無効化を実ブラウザで検証する。`tests/billing.integration.test.ts` はWIN5未公開でも対象日0:00 JST前には開始せず、開始後はworkerが購入・紹介一日券を冪等にACTIVEとEntitlementへ移行することを検証する。`tests/referrals.integration.test.ts` は限定コンテンツの非権利会員へ本文・media URLを返さず、Grant保有者だけが閲覧できることを検証する。既存acquisition、billing、Stripe、月額アクセスの試験も削除・skipせず実行する。
 
 ## 将来拡張とV1対象外
 

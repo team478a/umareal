@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { encryptSecret } from '../packages/db/src';
-import { adminReferralBenefitGrantsResponseSchema, adminReferralBenefitsResponseSchema, adminReferralDetailResponseSchema, adminReferralInvalidateResponseSchema, adminReferralListResponseSchema, memberReferralBenefitGrantsResponseSchema, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema, referralBenefitGrantRedeemResponseSchema } from '../packages/domain/src';
+import { adminReferralBenefitGrantsResponseSchema, adminReferralBenefitsResponseSchema, adminReferralDetailResponseSchema, adminReferralInvalidateResponseSchema, adminReferralListResponseSchema, memberReferralBenefitGrantsResponseSchema, memberReferralBenefitProgramResponseSchema, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema, referralBenefitGrantRedeemResponseSchema } from '../packages/domain/src';
 import { account, base, Client, db, origin } from './helpers';
 
 const password = 'referral-integration-password-123';
@@ -84,6 +84,11 @@ describe('configurable referral benefits Phase B', () => {
     const grants = memberReferralBenefitGrantsResponseSchema.parse(grantsResponse.body);
     expect(grants.items.map(item => item.rewardType).sort()).toEqual(['DAY_PASS', 'MONTHLY_ACCESS']);
     expect(new Set(grants.items.map(item => item.benefit.requiredReferralCount))).toEqual(new Set([2]));
+    expect(grants.items.every(item => item.memberGuidance && item.usageTerms)).toBe(true);
+    const program = memberReferralBenefitProgramResponseSchema.parse((await ownerClient.call('me/referral-benefit-program')).body);
+    expect(program.offers.filter(item => created.some(createdBenefit => createdBenefit.id === item.id))).toHaveLength(2);
+    expect(program.offers.filter(item => created.some(createdBenefit => createdBenefit.id === item.id)).every(item => item.achieved && item.remaining === 0)).toBe(true);
+    expect(JSON.stringify(program)).not.toMatch(/userId|email|authSubject|contentItemIds/);
     const immutableVersion = await db.referralBenefitVersion.findFirstOrThrow({ where: { benefitId: created[0].id } });
     await expect(db.referralBenefitVersion.update({ where: { id: immutableVersion.id }, data: { name: '上書き禁止' } })).rejects.toThrow();
     const immutableGrant = await db.referralBenefitGrant.findFirstOrThrow({ where: { userId: owner.user.id } });
@@ -113,6 +118,26 @@ describe('configurable referral benefits Phase B', () => {
     await qualifyMany(stoppedOwner.user.referralCode, 2);
     expect(await db.referralBenefitGrant.count({ where: { userId: stoppedOwner.user.id } })).toBe(0);
   }, 60000);
+
+  it('shows limited content links to the awarded member without exposing the protected body to others', async () => {
+    const adminFixture = await account('ADMIN'); const admin = new Client(); await admin.login(adminFixture); await admin.mfa();
+    const contentId = randomUUID(); const suffix = randomUUID().slice(0, 8); const title = `紹介限定動画${suffix}`;
+    const draft = { kind: 'VIDEO', title, summary: '紹介達成者向けの限定解説です。', body: '紹介達成者だけが読める解説本文', thumbnailUrl: null, mediaUrl: `https://video.example.test/referral-${suffix}`, category: '紹介特典', tags: ['限定'], relatedRaceIds: [], relatedHorseIds: [], visibility: 'PAID' };
+    expect((await admin.call('admin/content/draft', 'POST', { id: contentId, revision: 0, draft, reason: '限定コンテンツ結合試験' })).status).toBe(201);
+    expect((await admin.call(`admin/content/${contentId}/publish`, 'POST', { revision: 1, reason: '限定コンテンツを公開' })).status).toBe(201);
+    const benefitConfig = { name: `5人限定動画${suffix}`, description: '紹介達成者だけが閲覧できます。', requiredReferralCount: 1, rewardType: 'LIMITED_CONTENT', quantity: 1, claimValidityDays: 60, accessDays: null, distributionStartsAt: null, distributionEndsAt: null, published: true, grantEnabled: true, sortOrder: 20, memberGuidance: '限定動画を確認できます。', usageTerms: '本人のみ利用できます。', contentItemIds: [contentId] };
+    const benefit = await admin.call('admin/referrals/benefits', 'POST', { expectedRevision: 0, reason: '限定コンテンツ特典の結合試験', config: benefitConfig }, origin, { 'Idempotency-Key': randomUUID() });
+    expect(benefit.status).toBe(201);
+    const owner = await account(); const ownerClient = new Client(); await ownerClient.login(owner); await qualifyMany(owner.user.referralCode, 1);
+    const outsider = new Client(); await outsider.login(await account());
+    const denied = await outsider.call(`content/${contentId}`); expect(denied.body).toMatchObject({ locked: true }); expect(denied.body.body).toBeUndefined(); expect(denied.body.mediaUrl).toBeUndefined();
+    const program = memberReferralBenefitProgramResponseSchema.parse((await ownerClient.call('me/referral-benefit-program')).body);
+    const grant = program.grants.find(item => item.benefit.id === benefit.body.id)!;
+    expect(grant).toMatchObject({ rewardType: 'LIMITED_CONTENT', status: 'AVAILABLE', contents: [{ id: contentId, title }] });
+    expect((await ownerClient.call(`content/${contentId}`)).body).toMatchObject({ locked: false, body: draft.body, mediaUrl: draft.mediaUrl });
+    const current = adminReferralBenefitsResponseSchema.parse((await admin.call('admin/referrals/benefits')).body).items.find(item => item.id === benefit.body.id)!;
+    expect((await admin.call(`admin/referrals/benefits/${current.id}/versions`, 'POST', { expectedRevision: current.revision, reason: '結合試験終了後に新規付与を停止', config: { ...benefitConfig, grantEnabled: false } }, origin, { 'Idempotency-Key': randomUUID() })).status).toBe(201);
+  }, 30000);
 });
 afterAll(() => db.$disconnect());
 

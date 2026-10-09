@@ -106,3 +106,20 @@ test('a LINE registrant receives, opens and can revisit multiple registration be
   await page.screenshot({ path: testInfo.outputPath('line-registration-benefit.png'), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
+
+test('a verified email registrant sees the same registration benefit on desktop and mobile', async ({ page }, testInfo) => {
+  const admin = await account('ADMIN'); const member = await account(); const suffix = randomUUID().slice(0, 8);
+  const adminClient = new Client(); await adminClient.login(admin); await adminClient.mfa();
+  const title = `共通登録特典${suffix}`; const videoUrl = `https://video.example.test/email-benefit-${suffix}`;
+  const created = await adminClient.call('admin/free-reports/benefits', 'POST', { title, description: 'LINE・メール共通の登録特典です。', videoUrl, reason: '確認済みメール会員のE2E' });
+  expect(created.status).toBe(201); createdBenefitIds.push(created.body.id);
+  const memberClient = new Client(); await memberClient.login(member);
+  await page.context().addCookies([{ name: 'keiba_session', value: memberClient.cookie.split('=')[1], domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
+  await page.goto('/account?email=verified');
+  await expect(page.getByRole('heading', { name: '登録特典を受け取れます' })).toBeVisible();
+  await page.getByRole('link', { name: '特典一覧を見る' }).click();
+  await expect(page.getByRole('heading', { name: title })).toBeVisible();
+  await expect(page.getByText('本人確認を完了した無料会員へお渡しする特典です。')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('email-registration-benefit.png'), fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});

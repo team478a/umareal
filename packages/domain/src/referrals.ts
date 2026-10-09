@@ -270,8 +270,36 @@ export const adminReferralBenefitGrantsResponseSchema = z.object({
   total: z.number().int().nonnegative()
 }).strict();
 
+export const memberReferralBenefitGrantSchema = referralBenefitGrantSchema.omit({ member: true }).extend({
+  description: z.string().min(1),
+  accessDays: z.number().int().positive().nullable(),
+  memberGuidance: z.string().min(1),
+  usageTerms: z.string().min(1),
+  contents: z.array(referralBenefitContentSchema)
+}).strict();
+
 export const memberReferralBenefitGrantsResponseSchema = z.object({
-  items: z.array(referralBenefitGrantSchema)
+  items: z.array(memberReferralBenefitGrantSchema)
+}).strict();
+
+export const memberReferralBenefitProgramResponseSchema = z.object({
+  offers: z.array(z.object({
+    id: z.string().uuid(),
+    versionId: z.string().uuid(),
+    version: z.number().int().positive(),
+    name: z.string().min(1),
+    description: z.string().min(1),
+    requiredReferralCount: z.number().int().positive(),
+    rewardType: referralBenefitTypeSchema,
+    quantity: z.number().int().positive(),
+    accessDays: z.number().int().positive().nullable(),
+    grantEnabled: z.boolean(),
+    memberGuidance: z.string().min(1),
+    usageTerms: z.string().min(1),
+    achieved: z.boolean(),
+    remaining: z.number().int().nonnegative()
+  }).strict()),
+  grants: z.array(memberReferralBenefitGrantSchema)
 }).strict();
 
 export const referralBenefitGrantRedeemSchema = z.object({
@@ -305,4 +333,5 @@ export type AdminReferralBenefitsResponse = z.infer<typeof adminReferralBenefits
 export type AdminReferralBenefitMutationResponse = z.infer<typeof adminReferralBenefitMutationResponseSchema>;
 export type AdminReferralBenefitGrantsResponse = z.infer<typeof adminReferralBenefitGrantsResponseSchema>;
 export type MemberReferralBenefitGrantsResponse = z.infer<typeof memberReferralBenefitGrantsResponseSchema>;
+export type MemberReferralBenefitProgramResponse = z.infer<typeof memberReferralBenefitProgramResponseSchema>;
 export type ReferralBenefitGrantRedeemResponse = z.infer<typeof referralBenefitGrantRedeemResponseSchema>;
