@@ -153,12 +153,12 @@ export const win5LegUpdateSchema = z.object({
   legNumber: z.number().int().min(1).max(5),
   raceId: z.string().uuid(),
   confidence: z.enum(confidences),
-  paceView: z.string().trim().min(1).max(2000),
-  shortComment: z.string().trim().min(1).max(1000),
-  evaluations: evaluatedHorsesSchema.refine(value => value.length > 0, '評価馬を1頭以上設定してください。'),
+  paceView: z.string().trim().max(2000),
+  shortComment: z.string().trim().max(1000),
+  evaluations: evaluatedHorsesSchema,
   reason: z.string().trim().min(1).max(500)
 }).strict().superRefine((value, context) => {
-  if (value.evaluations.filter(item => item.evaluationType === 'PRIMARY').length !== 1) context.addIssue({ code: 'custom', path: ['evaluations'], message: '中心馬を1頭設定してください。' });
+  if (value.evaluations.length > 0 && value.evaluations.filter(item => item.evaluationType === 'PRIMARY').length !== 1) context.addIssue({ code: 'custom', path: ['evaluations'], message: '中心馬を1頭設定してください。' });
 });
 
 export const win5PreviewSchema = z.object({

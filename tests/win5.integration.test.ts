@@ -52,6 +52,12 @@ describe('WIN5 product drafting and publication', () => {
     const updated = await admin.client.call(`admin/win5/${created.body.id}`, 'PATCH', { revision, title: created.body.title, expertId: expert.owner.user.id, scheduledPublishAt, accessScope: 'PAID', confidence: 'A', summary: '5レースを通した全体総評', showFreeConfidence: true, reason: '全体総評の入力' });
     expect(updated.status).toBe(200); revision = updated.body.revision;
 
+    const raceOnly = await admin.client.call(`admin/win5/${created.body.id}/races/1`, 'PUT', { productRevision: revision, raceId: races[0].race.id, confidence: 'C', paceView: '', shortComment: '', evaluations: [], reason: '公式WIN5対象レースの事前登録' });
+    expect(raceOnly.status, JSON.stringify(raceOnly.body)).toBe(200); revision = raceOnly.body.productRevision;
+    expect(await db.predictionProductRace.findUniqueOrThrow({ where: { productId_legNumber: { productId: created.body.id, legNumber: 1 } }, include: { selections: true } })).toMatchObject({ paceView: null, shortComment: null, selections: [] });
+    const incompletePreview = await admin.client.call(`admin/win5/${created.body.id}/preview`, 'POST', { productRevision: revision, correctionReason: '' });
+    expect(incompletePreview).toMatchObject({ status: 400, body: { code: 'WIN5_LEGS_INCOMPLETE' } });
+
     const dayMember = await account(); const dayClient = new Client(); await dayClient.login(dayMember);
     await db.systemSetting.update({ where: { id: 'global' }, data: { newPurchasesEnabled: true } });
     const dayPurchase = await dayClient.call('billing/day-pass', 'POST', { raceDate: targetDate }, undefined, { 'Idempotency-Key': randomUUID() });
