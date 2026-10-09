@@ -14,7 +14,8 @@ const accessRowSchema = z.object({
 export const contentAccessPolicySchema = z.object({
   monthly: accessRowSchema,
   dayPass: accessRowSchema,
-  manual: accessRowSchema
+  manual: accessRowSchema,
+  referralMonthly: accessRowSchema.default({ paddock: true, win5: true, racePaper: true, content: true, aiRaceGuide: true })
 }).strict();
 
 export type ContentAccessPolicy = z.infer<typeof contentAccessPolicySchema>;
@@ -49,13 +50,15 @@ export function canUseFreePredictionTrial(input: {
 export const defaultContentAccessPolicy: ContentAccessPolicy = {
   monthly: { paddock: true, win5: true, racePaper: true, content: true, aiRaceGuide: true },
   dayPass: { paddock: true, win5: true, racePaper: true, content: false, aiRaceGuide: true },
-  manual: { paddock: true, win5: true, racePaper: true, content: true, aiRaceGuide: true }
+  manual: { paddock: true, win5: true, racePaper: true, content: true, aiRaceGuide: true },
+  referralMonthly: { paddock: true, win5: true, racePaper: true, content: true, aiRaceGuide: true }
 };
 
 const closedContentAccessPolicy: ContentAccessPolicy = {
   monthly: { paddock: false, win5: false, racePaper: false, content: false, aiRaceGuide: false },
   dayPass: { paddock: false, win5: false, racePaper: false, content: false, aiRaceGuide: false },
-  manual: { paddock: false, win5: false, racePaper: false, content: false, aiRaceGuide: false }
+  manual: { paddock: false, win5: false, racePaper: false, content: false, aiRaceGuide: false },
+  referralMonthly: { paddock: false, win5: false, racePaper: false, content: false, aiRaceGuide: false }
 };
 
 export function parseContentAccessPolicy(value: unknown): ContentAccessPolicy {
@@ -68,5 +71,6 @@ export function planCanReadContent(planCode: string, kind: PaidContentKind, poli
   if (planCode === 'FOUNDER' || planCode === 'STANDARD') return policy.monthly[key];
   if (planCode === 'DAY_PASS') return policy.dayPass[key];
   if (planCode === 'MANUAL') return policy.manual[key];
+  if (planCode === 'REFERRAL_MONTHLY_ACCESS') return policy.referralMonthly[key];
   return false;
 }

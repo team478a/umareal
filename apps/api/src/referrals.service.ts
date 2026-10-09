@@ -4,6 +4,7 @@ import { jstDate } from '@keiba/domain';
 import type { AppRequest } from './context';
 import { AuthService } from './auth.service';
 import { createDayPassAccess } from './day-pass-access';
+import { ReferralBenefitsService } from './referral-benefits.service';
 
 type Tx = Prisma.TransactionClient;
 
@@ -27,7 +28,10 @@ export function buildMemberReferralUrl(
 
 @Injectable()
 export class ReferralsService {
-  constructor(@Inject(AuthService) private readonly auth: AuthService) {}
+  constructor(
+    @Inject(AuthService) private readonly auth: AuthService,
+    @Inject(ReferralBenefitsService) private readonly benefits: ReferralBenefitsService
+  ) {}
 
   async createPending(tx: Tx, referredUserId: string, memberReferralCode?: string) {
     if (!memberReferralCode) return null;
@@ -55,6 +59,12 @@ export class ReferralsService {
     }, 'REFERRAL');
     const qualifiedCount = await tx.referral.count({ where: { referrerUserId: referral.referrerUserId, status: 'QUALIFIED' } });
     await this.grantReachedMilestones(tx, referral.referrerUserId, qualifiedCount, now, req);
+    await this.benefits.recordQualification(tx, {
+      referralId: referral.id,
+      referrerUserId: referral.referrerUserId,
+      qualifiedCount,
+      achievedAt: now
+    }, req);
     return { referralId: referral.id, referrerUserId: referral.referrerUserId, qualifiedCount };
   }
 
@@ -198,7 +208,8 @@ export class ReferralsService {
       });
       const rewards = await tx.referralReward.findMany({ where: { userId: referral.referrerUserId, status: 'AVAILABLE', expiresAt: { gt: now }, milestone: { requiredReferralCount: { gt: qualifiedCount } } } });
       for (const reward of rewards) await tx.referralReward.update({ where: { id: reward.id }, data: { status: 'INVALIDATED', invalidatedAt: now, invalidatedReason: `紹介無効化: ${reason}` } });
-      await this.auth.audit(tx, req, 'REFERRAL_INVALIDATED', id, reason, { referrerUserId: referral.referrerUserId, qualifiedCount, unusedRewardsInvalidated: rewards.length }, 'REFERRAL');
+      const unusedBenefitGrantsInvalidated = await this.benefits.reconcileInvalidation(tx, referral.referrerUserId, qualifiedCount, reason, now);
+      await this.auth.audit(tx, req, 'REFERRAL_INVALIDATED', id, reason, { referrerUserId: referral.referrerUserId, qualifiedCount, unusedRewardsInvalidated: rewards.length, unusedBenefitGrantsInvalidated }, 'REFERRAL');
       return { id, status: 'INVALIDATED', qualifiedCount, unusedRewardsInvalidated: rewards.length };
     });
   }

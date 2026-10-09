@@ -1,12 +1,22 @@
 import { Body, Controller, ForbiddenException, Get, Inject, Param, Post, Query, Req } from '@nestjs/common';
-import { adminReferralDetailResponseSchema, adminReferralInvalidateResponseSchema, adminReferralListQuerySchema, adminReferralListResponseSchema, canManage, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema, referralInvalidateSchema, referralRewardRedeemSchema } from '@keiba/domain';
+import { adminReferralBenefitCreateSchema, adminReferralBenefitGrantListQuerySchema, adminReferralBenefitGrantsResponseSchema, adminReferralBenefitMutationResponseSchema, adminReferralBenefitsResponseSchema, adminReferralBenefitVersionCreateSchema, adminReferralDetailResponseSchema, adminReferralInvalidateResponseSchema, adminReferralListQuerySchema, adminReferralListResponseSchema, canManage, memberReferralBenefitGrantsResponseSchema, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema, referralBenefitGrantRedeemResponseSchema, referralBenefitGrantRedeemSchema, referralInvalidateSchema, referralRewardRedeemSchema } from '@keiba/domain';
+import { z } from 'zod';
 import type { AppRequest } from './context';
 import { AuthService } from './auth.service';
 import { ReferralsService } from './referrals.service';
+import { ReferralBenefitsService } from './referral-benefits.service';
 
 @Controller()
 export class ReferralsController {
-  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(ReferralsService) private readonly referrals: ReferralsService) {}
+  constructor(
+    @Inject(AuthService) private readonly auth: AuthService,
+    @Inject(ReferralsService) private readonly referrals: ReferralsService,
+    @Inject(ReferralBenefitsService) private readonly benefits: ReferralBenefitsService
+  ) {}
+
+  private requestKey(req: AppRequest) {
+    return z.string().uuid().parse(req.header('idempotency-key'));
+  }
 
   private async member(req: AppRequest) {
     const actor = await this.auth.authenticate(req);
@@ -38,6 +48,48 @@ export class ReferralsController {
     const actor = await this.member(req);
     const input = referralRewardRedeemSchema.parse(body);
     return memberReferralRewardRedeemResponseSchema.parse(await this.referrals.redeem(actor.id, id, input.targetDate, req));
+  }
+
+  @Get('me/referral-benefit-grants')
+  async benefitGrants(@Req() req: AppRequest) {
+    const actor = await this.member(req);
+    return memberReferralBenefitGrantsResponseSchema.parse(await this.benefits.memberGrants(actor.id));
+  }
+
+  @Post('me/referral-benefit-grants/:id/redeem')
+  async redeemBenefit(@Param('id') id: string, @Body() body: unknown, @Req() req: AppRequest) {
+    z.string().uuid().parse(id);
+    const actor = await this.member(req);
+    const input = referralBenefitGrantRedeemSchema.parse(body);
+    return referralBenefitGrantRedeemResponseSchema.parse(await this.benefits.redeem(actor.id, id, input.targetDate, this.requestKey(req), req));
+  }
+
+  @Get('admin/referrals/benefits')
+  async benefitsList(@Req() req: AppRequest) {
+    await this.admin(req);
+    return adminReferralBenefitsResponseSchema.parse(await this.benefits.adminList());
+  }
+
+  @Post('admin/referrals/benefits')
+  async createBenefit(@Body() body: unknown, @Req() req: AppRequest) {
+    const actor = await this.admin(req);
+    const input = adminReferralBenefitCreateSchema.parse(body);
+    return adminReferralBenefitMutationResponseSchema.parse(await this.benefits.create(actor.id, input, this.requestKey(req), req));
+  }
+
+  @Post('admin/referrals/benefits/:id/versions')
+  async createBenefitVersion(@Param('id') id: string, @Body() body: unknown, @Req() req: AppRequest) {
+    z.string().uuid().parse(id);
+    const actor = await this.admin(req);
+    const input = adminReferralBenefitVersionCreateSchema.parse(body);
+    return adminReferralBenefitMutationResponseSchema.parse(await this.benefits.createVersion(id, actor.id, input, this.requestKey(req), req));
+  }
+
+  @Get('admin/referrals/benefit-grants')
+  async benefitGrantList(@Query() query: Record<string, unknown>, @Req() req: AppRequest) {
+    await this.admin(req);
+    const input = adminReferralBenefitGrantListQuerySchema.parse(query);
+    return adminReferralBenefitGrantsResponseSchema.parse(await this.benefits.adminGrants(input.page, input.status));
   }
 
   @Get('admin/referrals')

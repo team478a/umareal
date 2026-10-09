@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { encryptSecret } from '../packages/db/src';
-import { adminReferralDetailResponseSchema, adminReferralInvalidateResponseSchema, adminReferralListResponseSchema, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema } from '../packages/domain/src';
+import { adminReferralBenefitGrantsResponseSchema, adminReferralBenefitsResponseSchema, adminReferralDetailResponseSchema, adminReferralInvalidateResponseSchema, adminReferralListResponseSchema, memberReferralBenefitGrantsResponseSchema, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema, referralBenefitGrantRedeemResponseSchema } from '../packages/domain/src';
 import { account, base, Client, db, origin } from './helpers';
 
 const password = 'referral-integration-password-123';
@@ -55,6 +55,64 @@ beforeAll(async () => {
     { requiredReferralCount: 3, rewardType: 'DAY_PASS', rewardQuantity: 1 },
     { requiredReferralCount: 10, rewardType: 'DAY_PASS', rewardQuantity: 1 }
   ]);
+});
+
+describe('configurable referral benefits Phase B', () => {
+  const config = (name: string, rewardType: 'DAY_PASS' | 'MONTHLY_ACCESS') => ({ name, description: `${name}の説明`, requiredReferralCount: 2, rewardType, quantity: 1, claimValidityDays: 60, accessDays: rewardType === 'MONTHLY_ACCESS' ? 30 : null, distributionStartsAt: null, distributionEndsAt: null, published: true, grantEnabled: true, sortOrder: 10, memberGuidance: `${name}を利用できます。`, usageTerms: '本人のみ利用できます。', contentItemIds: [] });
+
+  it('versions settings, grants multiple benefits at one threshold, and redeems without creating a subscription', async () => {
+    const aal1 = new Client(); await aal1.login(await account('ADMIN'));
+    expect((await aal1.call('admin/referrals/benefits')).body.code).toBe('MFA_REQUIRED');
+    const member = new Client(); await member.login(await account());
+    expect((await member.call('admin/referrals/benefits')).status).toBe(403);
+
+    const historicalOwner = await account();
+    await qualifyMany(historicalOwner.user.referralCode, 2);
+    const adminFixture = await account('ADMIN'); const admin = new Client(); await admin.login(adminFixture); await admin.mfa();
+    const created = [] as Array<{ id: string; revision: number }>;
+    for (const [name, type] of [['追加1日券', 'DAY_PASS'], ['30日閲覧', 'MONTHLY_ACCESS']] as const) {
+      const response = await admin.call('admin/referrals/benefits', 'POST', { expectedRevision: 0, reason: 'Phase B結合試験', config: config(name, type) }, origin, { 'Idempotency-Key': randomUUID() });
+      expect(response.status).toBe(201);
+      created.push(response.body);
+    }
+    expect(await db.referralBenefitGrant.count({ where: { userId: historicalOwner.user.id } })).toBe(0);
+
+    const owner = await account(); const ownerClient = new Client(); await ownerClient.login(owner);
+    await qualifyMany(owner.user.referralCode, 2);
+    const grantsResponse = await ownerClient.call('me/referral-benefit-grants');
+    expect(grantsResponse.status).toBe(200);
+    const grants = memberReferralBenefitGrantsResponseSchema.parse(grantsResponse.body);
+    expect(grants.items.map(item => item.rewardType).sort()).toEqual(['DAY_PASS', 'MONTHLY_ACCESS']);
+    expect(new Set(grants.items.map(item => item.benefit.requiredReferralCount))).toEqual(new Set([2]));
+    const immutableVersion = await db.referralBenefitVersion.findFirstOrThrow({ where: { benefitId: created[0].id } });
+    await expect(db.referralBenefitVersion.update({ where: { id: immutableVersion.id }, data: { name: '上書き禁止' } })).rejects.toThrow();
+    const immutableGrant = await db.referralBenefitGrant.findFirstOrThrow({ where: { userId: owner.user.id } });
+    await expect(db.referralBenefitGrant.update({ where: { id: immutableGrant.id }, data: { rewardSnapshot: { tampered: true } } })).rejects.toThrow();
+
+    const monthly = grants.items.find(item => item.rewardType === 'MONTHLY_ACCESS')!;
+    const key = randomUUID();
+    const redeemed = await ownerClient.call(`me/referral-benefit-grants/${monthly.id}/redeem`, 'POST', { targetDate: null }, origin, { 'Idempotency-Key': key });
+    expect(redeemed.status).toBe(201);
+    expect(referralBenefitGrantRedeemResponseSchema.parse(redeemed.body)).toMatchObject({ grantId: monthly.id, rewardType: 'MONTHLY_ACCESS' });
+    expect(await db.subscription.count({ where: { userId: owner.user.id } })).toBe(0);
+    expect(await db.entitlement.findUnique({ where: { id: redeemed.body.entitlementId } })).toMatchObject({ userId: owner.user.id, planCode: 'REFERRAL_MONTHLY_ACCESS' });
+    const replay = await ownerClient.call(`me/referral-benefit-grants/${monthly.id}/redeem`, 'POST', { targetDate: null }, origin, { 'Idempotency-Key': key });
+    expect(replay.body).toEqual(redeemed.body);
+
+    const list = adminReferralBenefitsResponseSchema.parse((await admin.call('admin/referrals/benefits')).body);
+    expect(list.items.filter(item => created.some(row => row.id === item.id))).toHaveLength(2);
+    expect(adminReferralBenefitGrantsResponseSchema.parse((await admin.call('admin/referrals/benefit-grants')).body).items.some(item => item.member?.id === owner.user.id)).toBe(true);
+    for (const [index, createdBenefit] of created.entries()) {
+      const current = list.items.find(item => item.id === createdBenefit.id)!;
+      const stopped = await admin.call(`admin/referrals/benefits/${current.id}/versions`, 'POST', { expectedRevision: current.revision, reason: '結合試験終了後に新規付与を停止', config: { ...config(current.latest.name, current.latest.rewardType as 'DAY_PASS' | 'MONTHLY_ACCESS'), published: index !== 0, grantEnabled: false } }, origin, { 'Idempotency-Key': randomUUID() });
+      expect(stopped.status).toBe(201);
+      expect(stopped.body.version).toBe(2);
+    }
+    expect((await db.referralBenefitGrant.findUniqueOrThrow({ where: { id: monthly.id } })).status).toBe('REDEEMED');
+    const stoppedOwner = await account();
+    await qualifyMany(stoppedOwner.user.referralCode, 2);
+    expect(await db.referralBenefitGrant.count({ where: { userId: stoppedOwner.user.id } })).toBe(0);
+  }, 60000);
 });
 afterAll(() => db.$disconnect());
 

@@ -1,6 +1,6 @@
-# 友達紹介制度 V1
+# 友達紹介制度 V1 / 可変特典 Phase B
 
-> この文書は現在稼働するV1の仕様を記録する。複数種別・設定版・同一人数の複数特典を含む次期設計は[Phase A監査](MEMBER_CONTENT_REFERRAL_PHASE_A_AUDIT.md)と[実装計画](MEMBER_CONTENT_REFERRAL_IMPLEMENTATION_PLAN.md)を参照する。Phase A時点ではV1の実行時挙動を変更しない。
+> 既存V1の3人・10人一日券は互換運用として維持する。可変特典Phase Bは版管理された別基盤として追加し、初期特典は自動有効化しない。実装結果は[Phase B結果](MEMBER_CONTENT_REFERRAL_PHASE_B_RESULTS.md)を参照する。
 
 ## 制度概要
 

@@ -102,6 +102,10 @@ test('administrator can review and invalidate a referral without exposing contac
   await page.context().addCookies([{ name: 'keiba_session', value: client.cookie.split('=')[1], domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
   await page.goto('/admin/referrals');
   await expect(page.getByRole('heading', { name: '紹介管理', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '紹介特典設定', exact: true })).toBeVisible();
+  await expect(page.getByLabel('特典名称', { exact: true })).toBeVisible();
+  await expect(page.getByRole('combobox', { name: '特典種別' })).toBeVisible();
+  await expect(page.getByText('新しい特典は既定で非公開・付与停止です。', { exact: false })).toBeVisible();
   for (const label of ['紹介経由登録', '紹介者', '3人達成', '10人達成', '特典付与', '特典使用']) await expect(page.getByText(label, { exact: true }).first()).toBeVisible();
   await expect(page.getByText(owner.email ?? '')).toHaveCount(0);
 
@@ -110,7 +114,7 @@ test('administrator can review and invalidate a referral without exposing contac
   await expect(page.getByRole('heading', { name: '紹介詳細', exact: true })).toBeVisible();
   await expect(page.locator('.referral-detail')).toContainText(`紹介者${suffix}`);
   await expect(page.locator('.referral-detail')).toContainText('EMAIL登録');
-  await page.getByLabel('理由').fill('E2Eで不正紹介の無効化操作を確認');
+  await page.getByLabel('理由', { exact: true }).fill('E2Eで不正紹介の無効化操作を確認');
   await page.getByRole('button', { name: '無効化する' }).click();
   await expect(page.getByRole('status')).toContainText('未使用特典を安全に再計算しました');
   expect(await db.referral.findUniqueOrThrow({ where: { id: selectedReferralId } })).toMatchObject({ status: 'INVALIDATED', invalidatedReason: 'E2Eで不正紹介の無効化操作を確認' });

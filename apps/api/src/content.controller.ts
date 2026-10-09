@@ -4,6 +4,7 @@ import { adminContentHorseOptionsResponseSchema, adminContentItemResponseSchema,
 import { z } from 'zod';
 import { AuthService } from './auth.service';
 import type { AppRequest, AuthContext } from './context';
+import { ReferralBenefitsService } from './referral-benefits.service';
 
 type Tx = Prisma.TransactionClient;
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
@@ -18,7 +19,10 @@ const publicMetadata = (contentId: string, version: Omit<PublicVersionRow, 'cont
 
 @Controller()
 export class ContentController {
-  constructor(@Inject(AuthService) private readonly auth: AuthService) {}
+  constructor(
+    @Inject(AuthService) private readonly auth: AuthService,
+    @Inject(ReferralBenefitsService) private readonly referralBenefits: ReferralBenefitsService
+  ) {}
 
   private locked<T>(work: (tx: Tx) => Promise<T>) {
     return this.auth.db.$transaction(async tx => { await tx.$queryRaw`SELECT pg_advisory_xact_lock(7262027)::text`; return work(tx); }, { timeout: 20000, maxWait: 10000 });
@@ -191,7 +195,7 @@ export class ContentController {
     try { return await this.auth.authenticate(req); } catch (error) { if (error instanceof UnauthorizedException) return null; throw error; }
   }
 
-  private async access(actor: AuthContext | null, version: { visibility: string; publishedAt: Date }) {
+  private async access(actor: AuthContext | null, version: { visibility: string; publishedAt: Date }, contentItemId: string) {
     if (version.visibility === 'PUBLIC') return true;
     if (!actor) return false;
     if (version.visibility === 'MEMBERS' || actor.role !== 'MEMBER') return true;
@@ -199,7 +203,9 @@ export class ContentController {
       this.auth.db.entitlement.findMany({ where: { userId: actor.id } }),
       this.auth.db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { contentAccessPolicy: true } })
     ]);
-    return canReadPrediction({ now: new Date(), publishedAt: version.publishedAt, visibility: 'PAID', raceDate: jstDate(version.publishedAt), entitlements, contentKind: 'CONTENT', contentAccessPolicy: parseContentAccessPolicy(settings.contentAccessPolicy) });
+    const now = new Date();
+    if (canReadPrediction({ now, publishedAt: version.publishedAt, visibility: 'PAID', raceDate: jstDate(version.publishedAt), entitlements, contentKind: 'CONTENT', contentAccessPolicy: parseContentAccessPolicy(settings.contentAccessPolicy) })) return true;
+    return this.referralBenefits.hasLimitedContentAccess(actor.id, contentItemId, now);
   }
 
   @Get('content') async list(@Req() req: AppRequest, @Query() query: unknown) {
@@ -233,7 +239,7 @@ export class ContentController {
         SELECT DISTINCT latest.category FROM content_items ci JOIN latest ON latest."contentId" = ci.id
         WHERE ci."isVisible" = true ORDER BY latest.category`
     ]);
-    const rows = await Promise.all(items.map(async version => ({ ...publicMetadata(version.contentId, version), locked: !await this.access(actor, version) })));
+    const rows = await Promise.all(items.map(async version => ({ ...publicMetadata(version.contentId, version), locked: !await this.access(actor, version, version.contentId) })));
     return publicContentListResponseSchema.parse({ items: rows, total: Number(totals[0]?.count ?? 0), page, limit: 20, filters: { kind, category: category ?? null, categories: categories.map(row => row.category) } });
   }
 
@@ -246,7 +252,7 @@ export class ContentController {
     const horseRows = version.relatedHorseIds.length ? await this.auth.db.horse.findMany({ where: { id: { in: version.relatedHorseIds } }, select: { id: true, name: true } }) : [];
     const horseById = new Map(horseRows.map(horse => [horse.id, horse]));
     const relatedHorses = version.relatedHorseIds.flatMap(horseId => { const horse = horseById.get(horseId); return horse ? [horse] : []; });
-    if (!await this.access(actor, version)) return publicContentDetailResponseSchema.parse({ ...metadata, locked: true, relatedRaces, relatedHorses });
+    if (!await this.access(actor, version, item.id)) return publicContentDetailResponseSchema.parse({ ...metadata, locked: true, relatedRaces, relatedHorses });
     const snapshot = contentDraftSchema.parse(version.snapshot);
     return publicContentDetailResponseSchema.parse({ ...metadata, locked: false, body: snapshot.body, mediaUrl: snapshot.mediaUrl, relatedRaces, relatedHorses });
   }
@@ -263,7 +269,7 @@ export class ContentController {
       FROM content_items ci JOIN latest ON latest."contentId" = ci.id
       WHERE ci."isVisible" = true AND latest."relatedRaceIds" @> ARRAY[${raceId}::uuid]
       ORDER BY latest."publishedAt" DESC, ci.id DESC LIMIT 20`;
-    const rows = await Promise.all(items.map(async version => ({ ...publicMetadata(version.contentId, version), locked: !await this.access(actor, version) })));
+    const rows = await Promise.all(items.map(async version => ({ ...publicMetadata(version.contentId, version), locked: !await this.access(actor, version, version.contentId) })));
     return publicRaceRelatedContentResponseSchema.parse({ items: rows });
   }
 
@@ -280,7 +286,7 @@ export class ContentController {
       FROM content_items ci JOIN latest ON latest."contentId" = ci.id
       WHERE ci."isVisible" = true AND latest."relatedHorseIds" @> ARRAY[${horseId}::uuid]
       ORDER BY latest."publishedAt" DESC, ci.id DESC LIMIT 20`;
-    const rows = await Promise.all(items.map(async version => ({ ...publicMetadata(version.contentId, version), locked: !await this.access(actor, version) })));
+    const rows = await Promise.all(items.map(async version => ({ ...publicMetadata(version.contentId, version), locked: !await this.access(actor, version, version.contentId) })));
     return publicHorseRelatedContentResponseSchema.parse({ horse, items: rows });
   }
 }
