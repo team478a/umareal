@@ -1,5 +1,5 @@
 import { Body, Controller, ForbiddenException, Get, Inject, Param, Post, Query, Req } from '@nestjs/common';
-import { adminReferralBenefitCreateSchema, adminReferralBenefitGrantListQuerySchema, adminReferralBenefitGrantsResponseSchema, adminReferralBenefitMutationResponseSchema, adminReferralBenefitsResponseSchema, adminReferralBenefitVersionCreateSchema, adminReferralDetailResponseSchema, adminReferralInvalidateResponseSchema, adminReferralListQuerySchema, adminReferralListResponseSchema, canManage, memberReferralBenefitGrantsResponseSchema, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema, referralBenefitGrantRedeemResponseSchema, referralBenefitGrantRedeemSchema, referralInvalidateSchema, referralRewardRedeemSchema } from '@keiba/domain';
+import { adminReferralBenefitCreateSchema, adminReferralBenefitGrantListQuerySchema, adminReferralBenefitGrantsResponseSchema, adminReferralBenefitMutationResponseSchema, adminReferralBenefitsResponseSchema, adminReferralBenefitVersionCreateSchema, adminReferralDetailResponseSchema, adminReferralInvalidateResponseSchema, adminReferralListQuerySchema, adminReferralListResponseSchema, canManage, memberReferralBenefitGrantsResponseSchema, memberReferralBenefitProgramResponseSchema, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema, referralBenefitGrantRedeemResponseSchema, referralBenefitGrantRedeemSchema, referralInvalidateSchema, referralRewardRedeemSchema } from '@keiba/domain';
 import { z } from 'zod';
 import type { AppRequest } from './context';
 import { AuthService } from './auth.service';
@@ -54,6 +54,12 @@ export class ReferralsController {
   async benefitGrants(@Req() req: AppRequest) {
     const actor = await this.member(req);
     return memberReferralBenefitGrantsResponseSchema.parse(await this.benefits.memberGrants(actor.id));
+  }
+
+  @Get('me/referral-benefit-program')
+  async benefitProgram(@Req() req: AppRequest) {
+    const actor = await this.member(req);
+    return memberReferralBenefitProgramResponseSchema.parse(await this.benefits.memberProgram(actor.id));
   }
 
   @Post('me/referral-benefit-grants/:id/redeem')

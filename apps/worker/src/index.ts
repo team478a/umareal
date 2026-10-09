@@ -11,9 +11,10 @@ import { ResendEmailTransport } from './email-transport';
 import { ResendOperationalAlertTransport } from './operational-alert-transport';
 import { runOperationalAlerts, TestOperationalAlertTransport, type OperationalAlertTransport } from './operational-alert-runner';
 import { recordWorkerHeartbeat } from './service-heartbeat';
+import { activateStartedDayPasses } from './day-pass-activator';
 
 config({ path: resolve(process.cwd(), '../../.env'), quiet: true });
-export const workerCapabilities = ['scheduled-publication', 'content-scheduled-publication', 'prediction-notification-outbox', 'email-notifications', 'operational-alerts', 'recipient-authorization', 'retry-policy', 'delivery-attempt-history'] as const;
+export const workerCapabilities = ['scheduled-publication', 'content-scheduled-publication', 'day-pass-target-date-activation', 'prediction-notification-outbox', 'email-notifications', 'operational-alerts', 'recipient-authorization', 'retry-policy', 'delivery-attempt-history'] as const;
 
 async function main() {
   const transportName = process.env.NOTIFICATION_TRANSPORT ?? 'test';
@@ -52,10 +53,11 @@ async function main() {
       }
       const schedules = await runPublicationSchedules({ db });
       const contentSchedules = await runContentSchedules({ db });
+      const dayPasses = await activateStartedDayPasses({ db });
       const line = transport ? await runNotificationBatch({ db, transport }) : await skipPendingNotificationEvents(db);
       const email = await runEmailNotificationBatch({ db, transport: emailTransport });
       const alerts = await runOperationalAlerts({ db, transport: alertTransport });
-      console.info(JSON.stringify({ job: 'publication-notifications-and-alerts', schedules, contentSchedules, line, email, alerts }));
+      console.info(JSON.stringify({ job: 'publication-notifications-and-alerts', schedules, contentSchedules, dayPasses, line, email, alerts }));
       if (!continuous || stopping) break;
       await new Promise(resolveWait => setTimeout(resolveWait, 5000));
     } while (continuous && !stopping);
@@ -74,3 +76,4 @@ export * from './content-scheduler';
 export * from './operational-alert-runner';
 export * from './operational-alert-transport';
 export * from './service-heartbeat';
+export * from './day-pass-activator';

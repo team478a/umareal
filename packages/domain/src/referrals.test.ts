@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adminReferralBenefitCreateSchema, adminReferralDetailResponseSchema, adminReferralInvalidateResponseSchema, adminReferralListQuerySchema, adminReferralListResponseSchema, lineOAuthStartSchema, memberReferralCodeSchema, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema, referralBenefitConfigSchema, referralBenefitGrantRedeemSchema, referralInvalidateSchema, referralRewardRedeemSchema, registrationSchema } from './index';
+import { adminReferralBenefitCreateSchema, adminReferralDetailResponseSchema, adminReferralInvalidateResponseSchema, adminReferralListQuerySchema, adminReferralListResponseSchema, lineOAuthStartSchema, memberReferralBenefitProgramResponseSchema, memberReferralCodeSchema, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema, referralBenefitConfigSchema, referralBenefitGrantRedeemSchema, referralInvalidateSchema, referralRewardRedeemSchema, registrationSchema } from './index';
 
 describe('referral input boundaries', () => {
   it('normalizes safe member referral codes without changing acquisition referral input', () => {
@@ -81,6 +81,15 @@ describe('referral input boundaries', () => {
     expect(parsed.endsAt).toBe(response.endsAt.toISOString());
     expect(memberReferralRewardRedeemResponseSchema.safeParse({ ...response, userId: '44444444-4444-4444-8444-444444444444' }).success).toBe(false);
     expect(memberReferralRewardRedeemResponseSchema.safeParse({ ...response, email: 'member@example.test' }).success).toBe(false);
+  });
+
+  it('exposes only member-safe referral benefit progress and grant fields', () => {
+    const content = { id: '11111111-1111-4111-8111-111111111111', title: '限定解説', kind: 'VIDEO' as const, status: 'PUBLISHED' };
+    const grant = { id: '22222222-2222-4222-8222-222222222222', rewardType: 'LIMITED_CONTENT' as const, unitNo: 1, status: 'AVAILABLE' as const, grantedAt: '2026-10-09T00:00:00.000Z', expiresAt: '2026-12-08T00:00:00.000Z', usedAt: null, benefit: { id: '33333333-3333-4333-8333-333333333333', name: '限定動画', requiredReferralCount: 5, version: 1 }, description: '紹介者限定です。', accessDays: null, memberGuidance: '対象動画を確認できます。', usageTerms: '本人のみ利用できます。', contents: [content] };
+    const response = { offers: [{ id: grant.benefit.id, versionId: '44444444-4444-4444-8444-444444444444', version: 1, name: grant.benefit.name, description: grant.description, requiredReferralCount: 5, rewardType: grant.rewardType, quantity: 1, accessDays: null, grantEnabled: true, memberGuidance: grant.memberGuidance, usageTerms: grant.usageTerms, achieved: true, remaining: 0 }], grants: [grant] };
+    expect(memberReferralBenefitProgramResponseSchema.parse(response)).toEqual(response);
+    expect(memberReferralBenefitProgramResponseSchema.safeParse({ ...response, grants: [{ ...grant, userId: '55555555-5555-4555-8555-555555555555' }] }).success).toBe(false);
+    expect(memberReferralBenefitProgramResponseSchema.safeParse({ ...response, offers: [{ ...response.offers[0], contentItemIds: [content.id] }] }).success).toBe(false);
   });
 
   it('defines the strict public response contract for GET /admin/referrals', () => {

@@ -34,7 +34,7 @@ export class AdminFreeReportsController {
   }
 
   private async benefitAudience(db: Prisma.TransactionClient | AuthService['db'], benefitId = 'global') {
-    const eligible = { role: 'MEMBER' as const, registrationMethod: 'LINE', disabledAt: null };
+    const eligible = { role: 'MEMBER' as const, disabledAt: null, OR: [{ registrationMethod: 'LINE' }, { emailVerifiedAt: { not: null } }] };
     const [eligibleMembers, viewedMembers] = await Promise.all([
       db.user.count({ where: eligible }),
       db.freeMemberBenefitView.count({ where: { benefitId, user: eligible } })
@@ -43,7 +43,7 @@ export class AdminFreeReportsController {
   }
 
   private async benefits(db: Prisma.TransactionClient | AuthService['db']) {
-    const eligible = { role: 'MEMBER' as const, registrationMethod: 'LINE', disabledAt: null };
+    const eligible = { role: 'MEMBER' as const, disabledAt: null, OR: [{ registrationMethod: 'LINE' }, { emailVerifiedAt: { not: null } }] };
     const [eligibleMembers, benefits] = await Promise.all([
       db.user.count({ where: eligible }),
       db.freeMemberBenefit.findMany({ orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: freeMemberBenefitListSelect })
@@ -223,10 +223,14 @@ export class AdminFreeReportsController {
 export class MemberFreeReportsController {
   constructor(@Inject(AuthService) private readonly auth: AuthService) {}
 
+  private eligible(actor: Awaited<ReturnType<AuthService['authenticate']>>) {
+    return actor.role === 'MEMBER' && (actor.user.registrationMethod === 'LINE' || actor.user.emailVerifiedAt !== null);
+  }
+
   @Get('me/free-benefit')
   async benefit(@Req() req: AppRequest) {
     const actor = await this.auth.authenticate(req);
-    if (actor.role !== 'MEMBER' || actor.user.registrationMethod !== 'LINE') return publicFreeMemberBenefitResponseSchema.parse({ configured: false });
+    if (!this.eligible(actor)) return publicFreeMemberBenefitResponseSchema.parse({ configured: false });
     const [value, viewed] = await Promise.all([
       this.auth.db.freeMemberBenefit.findUnique({ where: { id: 'global' }, select: { title: true, description: true, updatedAt: true } }),
       this.auth.db.freeMemberBenefitView.findUnique({ where: { userId_benefitId: { userId: actor.id, benefitId: 'global' } }, select: { viewedAt: true } })
@@ -237,7 +241,7 @@ export class MemberFreeReportsController {
   @Get('me/free-benefits')
   async benefits(@Req() req: AppRequest) {
     const actor = await this.auth.authenticate(req);
-    if (actor.role !== 'MEMBER' || actor.user.registrationMethod !== 'LINE') return publicFreeMemberBenefitListResponseSchema.parse({ items: [] });
+    if (!this.eligible(actor)) return publicFreeMemberBenefitListResponseSchema.parse({ items: [] });
     const values = await this.auth.db.freeMemberBenefit.findMany({
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: { id: true, title: true, description: true, createdAt: true, updatedAt: true, views: { where: { userId: actor.id }, take: 1, select: { viewedAt: true } } }
@@ -248,7 +252,7 @@ export class MemberFreeReportsController {
   @Post('me/free-benefit/view')
   async viewBenefit(@Req() req: AppRequest) {
     const actor = await this.auth.authenticate(req);
-    if (actor.role !== 'MEMBER' || actor.user.registrationMethod !== 'LINE') throw new NotFoundException({ code: 'FREE_BENEFIT_NOT_FOUND', message: '登録特典が見つかりません。' });
+    if (!this.eligible(actor)) throw new NotFoundException({ code: 'FREE_BENEFIT_NOT_FOUND', message: '登録特典が見つかりません。' });
     return this.auth.db.$transaction(async tx => {
       const value = await tx.freeMemberBenefit.findUnique({ where: { id: 'global' }, select: { id: true, videoUrl: true } });
       if (!value) throw new NotFoundException({ code: 'FREE_BENEFIT_NOT_FOUND', message: '登録特典が見つかりません。' });
@@ -261,7 +265,7 @@ export class MemberFreeReportsController {
   @Post('me/free-benefits/:benefitId/view')
   async viewBenefitById(@Req() req: AppRequest, @Param('benefitId') benefitId: string) {
     const actor = await this.auth.authenticate(req); z.string().trim().min(1).max(100).parse(benefitId);
-    if (actor.role !== 'MEMBER' || actor.user.registrationMethod !== 'LINE') throw new NotFoundException({ code: 'FREE_BENEFIT_NOT_FOUND', message: '登録特典が見つかりません。' });
+    if (!this.eligible(actor)) throw new NotFoundException({ code: 'FREE_BENEFIT_NOT_FOUND', message: '登録特典が見つかりません。' });
     return this.auth.db.$transaction(async tx => {
       const value = await tx.freeMemberBenefit.findUnique({ where: { id: benefitId }, select: { id: true, videoUrl: true } });
       if (!value) throw new NotFoundException({ code: 'FREE_BENEFIT_NOT_FOUND', message: '登録特典が見つかりません。' });

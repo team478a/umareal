@@ -190,8 +190,59 @@ export class ReferralBenefitsService {
   async memberGrants(userId: string) {
     const now = new Date();
     await this.auth.db.referralBenefitGrant.updateMany({ where: { userId, status: 'AVAILABLE', expiresAt: { lte: now } }, data: { status: 'EXPIRED' } });
-    const items = await this.auth.db.referralBenefitGrant.findMany({ where: { userId }, include: { benefitVersion: { select: { benefitId: true, name: true, requiredReferralCount: true, version: true } } }, orderBy: [{ grantedAt: 'desc' }, { id: 'desc' }] });
-    return { items: items.map(item => ({ id: item.id, rewardType: item.rewardType, unitNo: item.unitNo, status: item.status, grantedAt: item.grantedAt, expiresAt: item.expiresAt, usedAt: item.usedAt, benefit: { id: item.benefitVersion.benefitId, name: item.benefitVersion.name, requiredReferralCount: item.benefitVersion.requiredReferralCount, version: item.benefitVersion.version } })) };
+    const items = await this.auth.db.referralBenefitGrant.findMany({
+      where: { userId },
+      include: { benefitVersion: { include: { contents: { include: { contentItem: { select: { id: true, title: true, kind: true, status: true, isVisible: true } } } } } } },
+      orderBy: [{ grantedAt: 'desc' }, { id: 'desc' }]
+    });
+    return { items: items.map(item => ({
+      id: item.id,
+      rewardType: item.rewardType,
+      unitNo: item.unitNo,
+      status: item.status,
+      grantedAt: item.grantedAt,
+      expiresAt: item.expiresAt,
+      usedAt: item.usedAt,
+      benefit: { id: item.benefitVersion.benefitId, name: item.benefitVersion.name, requiredReferralCount: item.benefitVersion.requiredReferralCount, version: item.benefitVersion.version },
+      description: item.benefitVersion.description,
+      accessDays: item.benefitVersion.accessDays,
+      memberGuidance: item.benefitVersion.memberGuidance,
+      usageTerms: item.benefitVersion.usageTerms,
+      contents: item.benefitVersion.contents.filter(content => content.contentItem.status === 'PUBLISHED' && content.contentItem.isVisible).map(content => ({ id: content.contentItem.id, title: content.contentItem.title, kind: content.contentItem.kind, status: content.contentItem.status }))
+    })) };
+  }
+
+  async memberProgram(userId: string) {
+    const now = new Date();
+    const [qualifiedCount, benefits, grants] = await Promise.all([
+      this.auth.db.referral.count({ where: { referrerUserId: userId, status: 'QUALIFIED' } }),
+      this.auth.db.referralBenefit.findMany({
+        include: { versions: { orderBy: { version: 'desc' }, take: 1 } },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
+      }),
+      this.memberGrants(userId)
+    ]);
+    const offers = benefits.flatMap(benefit => {
+      const version = benefit.versions[0];
+      if (!version?.published || (version.distributionStartsAt && version.distributionStartsAt > now) || (version.distributionEndsAt && version.distributionEndsAt <= now)) return [];
+      return [{
+        id: benefit.id,
+        versionId: version.id,
+        version: version.version,
+        name: version.name,
+        description: version.description,
+        requiredReferralCount: version.requiredReferralCount,
+        rewardType: version.rewardType,
+        quantity: version.quantity,
+        accessDays: version.accessDays,
+        grantEnabled: version.grantEnabled,
+        memberGuidance: version.memberGuidance,
+        usageTerms: version.usageTerms,
+        achieved: qualifiedCount >= version.requiredReferralCount,
+        remaining: Math.max(0, version.requiredReferralCount - qualifiedCount)
+      }];
+    }).sort((left, right) => left.requiredReferralCount - right.requiredReferralCount || left.name.localeCompare(right.name, 'ja'));
+    return { offers, grants: grants.items };
   }
 
   async redeem(userId: string, grantId: string, targetDate: string | null, requestKey: string, req: AppRequest) {

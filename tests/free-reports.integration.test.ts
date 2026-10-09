@@ -113,7 +113,7 @@ describe('LP free member offer', () => {
     expect(notificationList.body.items.find((item: { id: string }) => item.id === event.id)).toMatchObject({ title: '無料パドック速報を公開しました' });
   });
 
-  it('delivers and records the configured benefit only for members who registered with LINE', async () => {
+  it('delivers and records the configured benefit for LINE and verified email members', async () => {
     const target = await fixture();
     const lineMember = await account();
     await db.user.update({ where: { id: lineMember.user.id }, data: { registrationMethod: 'LINE' } });
@@ -129,9 +129,10 @@ describe('LP free member offer', () => {
     expect(saved.audience.eligibleMembers).toBeGreaterThanOrEqual(1);
     expect(JSON.stringify(saved)).not.toMatch(/email|password|token|authSubject|lineSubject/i);
     expect((await new Client().call('me/free-benefit')).status).toBe(401);
-    expect(publicFreeMemberBenefitResponseSchema.parse((await target.memberClient.call('me/free-benefit')).body)).toEqual({ configured: false });
-    const deniedView = await target.memberClient.call('me/free-benefit/view', 'POST');
-    expect(deniedView.status).toBe(404); expect(deniedView.body.code).toBe('FREE_BENEFIT_NOT_FOUND');
+    const emailBenefit = publicFreeMemberBenefitResponseSchema.parse((await target.memberClient.call('me/free-benefit')).body);
+    expect(emailBenefit).toMatchObject({ configured: true, title: 'パドックで評価を変えた実例', viewedAt: null });
+    const emailViewResponse = await target.memberClient.call('me/free-benefit/view', 'POST');
+    expect(emailViewResponse.status).toBe(201); expect(publicFreeMemberBenefitViewResponseSchema.parse(emailViewResponse.body)).toMatchObject({ videoUrl: 'https://video.example.test/bonus' });
     const lineBenefit = publicFreeMemberBenefitResponseSchema.parse((await lineClient.call('me/free-benefit')).body);
     expect(lineBenefit).toMatchObject({ configured: true, title: 'パドックで評価を変えた実例', viewedAt: null });
     expect(JSON.stringify(lineBenefit)).not.toMatch(/videoUrl|revision|updatedBy|userId|email|password|token/i);
@@ -144,7 +145,7 @@ describe('LP free member offer', () => {
     const viewedBenefit = publicFreeMemberBenefitResponseSchema.parse((await lineClient.call('me/free-benefit')).body);
     expect(viewedBenefit).toMatchObject({ configured: true, viewedAt: firstView.viewedAt });
     const after = adminFreeMemberBenefitResponseSchema.parse((await target.adminClient.call('admin/free-reports/benefit')).body);
-    expect(after.audience.viewedMembers).toBeGreaterThanOrEqual(saved.audience.viewedMembers + 1);
+    expect(after.audience.viewedMembers).toBeGreaterThanOrEqual(saved.audience.viewedMembers + 2);
   });
 
   it('adds, lists, edits and tracks multiple LINE registration benefits independently', async () => {
@@ -169,7 +170,9 @@ describe('LP free member offer', () => {
     const staleEdit = await target.adminClient.call(`admin/free-reports/benefits/${firstResponse.body.id}`, 'PATCH', { revision: 1, title: '競合', description: '競合', videoUrl: 'https://video.example.test/conflict', reason: '競合確認' });
     expect(staleEdit.status).toBe(409); expect(staleEdit.body.code).toBe('FREE_BENEFIT_CONFLICT');
     expect((await new Client().call('me/free-benefits')).status).toBe(401);
-    expect(publicFreeMemberBenefitListResponseSchema.parse((await target.memberClient.call('me/free-benefits')).body)).toEqual({ items: [] });
+    const emailList = publicFreeMemberBenefitListResponseSchema.parse((await target.memberClient.call('me/free-benefits')).body);
+    expect(emailList.items.find(item => item.id === firstResponse.body.id)).toMatchObject({ title: `登録特典A改${suffix}`, viewedAt: null });
+    expect(emailList.items.find(item => item.id === secondResponse.body.id)).toMatchObject({ title: `登録特典B${suffix}`, viewedAt: null });
     const publicList = publicFreeMemberBenefitListResponseSchema.parse((await lineClient.call('me/free-benefits')).body);
     expect(publicList.items.find(item => item.id === firstResponse.body.id)).toMatchObject({ title: `登録特典A改${suffix}`, viewedAt: null });
     expect(publicList.items.find(item => item.id === secondResponse.body.id)).toMatchObject({ title: `登録特典B${suffix}`, viewedAt: null });

@@ -18,7 +18,10 @@ export async function createDayPassAccess(tx: Tx, input: {
     where: { type_targetDate: { type: 'WIN5_PREVIEW', targetDate: input.raceDate } },
     select: { versions: { orderBy: { version: 'asc' }, take: 1, select: { publishedAt: true } } }
   });
-  const startsAt = product ? product.versions[0]?.publishedAt ?? null : window.startsAt;
+  const now = new Date();
+  const startsAt = product
+    ? product.versions[0]?.publishedAt ?? (now >= window.startsAt ? now : null)
+    : window.startsAt;
   const entitlement = startsAt ? await tx.entitlement.create({
     data: { userId: input.userId, planCode: 'DAY_PASS', startsAt, endsAt: window.endsAt, raceDate: input.raceDate, reason: input.reason, grantedBy: input.actorId }
   }) : null;
