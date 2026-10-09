@@ -38,6 +38,10 @@ describe('WIN5 product drafting and publication', () => {
 
     expect((await aal1.client.call('admin/win5')).body.code).toBe('MFA_REQUIRED');
     const scheduledPublishAt = `${targetDate}T05:00:00+09:00`;
+    const operatorOwnedTargetDate = await unusedWin5TargetDate();
+    const operatorOwned = await admin.client.call('admin/win5', 'POST', { type: 'WIN5_PREVIEW', targetDate: operatorOwnedTargetDate, title: `WIN5運用責任者試験-${randomUUID().slice(0, 6)}`, expertId: operator.owner.user.id, scheduledPublishAt: `${operatorOwnedTargetDate}T05:00:00+09:00`, accessScope: 'PAID', confidence: 'A', summary: '', showFreeConfidence: false, reason: '運用責任者をWIN5担当へ指定できることを確認' }, undefined, { 'Idempotency-Key': randomUUID() });
+    expect(operatorOwned.status, JSON.stringify(operatorOwned.body)).toBe(201);
+    expect(operatorOwned.body.expertId).toBe(operator.owner.user.id);
     const created = await admin.client.call('admin/win5', 'POST', { type: 'WIN5_PREVIEW', targetDate, title: `WIN5試験-${randomUUID().slice(0, 6)}`, expertId: expert.owner.user.id, scheduledPublishAt, accessScope: 'PAID', confidence: 'A', summary: '', showFreeConfidence: false, reason: 'WIN5結合試験の準備' }, undefined, { 'Idempotency-Key': randomUUID() });
     expect(created.status, JSON.stringify(created.body)).toBe(201);
     const adminExpertEntry = await admin.client.call('expert/win5');

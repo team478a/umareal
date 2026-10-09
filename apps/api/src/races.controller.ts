@@ -232,7 +232,7 @@ export class RacesController {
   }
   @Get('race-experts') async experts(@Req() req: AppRequest, @Query() query: unknown) {
     await this.staff(req); const { page, limit, search } = raceExpertListQuerySchema.parse(query);
-    const where: Prisma.UserWhereInput = { role: 'EXPERT', disabledAt: null, ...(search ? { displayName: { contains: search, mode: 'insensitive' } } : {}) };
+    const where: Prisma.UserWhereInput = { role: { in: ['EXPERT', 'OPERATOR'] }, disabledAt: null, ...(search ? { displayName: { contains: search, mode: 'insensitive' } } : {}) };
     const [items, total] = await this.auth.db.$transaction([
       this.auth.db.user.findMany({ where, select: { id: true, displayName: true }, orderBy: [{ displayName: 'asc' }, { createdAt: 'desc' }, { id: 'asc' }], skip: (page - 1) * limit, take: limit }), this.auth.db.user.count({ where })
     ]); return raceExpertListResponseSchema.parse({ items, total, page, limit, search: search ?? null });
@@ -281,7 +281,7 @@ export class RacesController {
     });
   }
   private async validateExpert(tx: Tx, id: string | null) {
-    if (id && !await tx.user.findFirst({ where: { id, role: 'EXPERT', disabledAt: null } })) throw new BadRequestException({ code: 'INVALID_EXPERT', message: '有効な予想担当を選択してください。' });
+    if (id && !await tx.user.findFirst({ where: { id, role: { in: ['EXPERT', 'OPERATOR'] }, disabledAt: null } })) throw new BadRequestException({ code: 'INVALID_EXPERT', message: '有効な予想担当または運用責任者を選択してください。' });
   }
   private async saveRace(tx: Tx, input: RaceInput, id?: string) {
     await this.validateExpert(tx, input.expertId);

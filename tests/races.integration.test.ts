@@ -43,6 +43,10 @@ describe('race management and transactional CSV imports', () => {
     const expertSearchBody = raceExpertListResponseSchema.parse(expertSearch.body);
     expect(expertSearchBody.search).toBe(expert.user.displayName);
     expect(expertSearchBody.items).toContainEqual({ id: expert.user.id, displayName: expert.user.displayName });
+    const operatorAccount = await account('OPERATOR');
+    const operatorSearch = await admin.call(`admin/race-experts?limit=50&search=${encodeURIComponent(operatorAccount.user.displayName)}`);
+    expect(operatorSearch.status).toBe(200);
+    expect(raceExpertListResponseSchema.parse(operatorSearch.body).items).toContainEqual({ id: operatorAccount.user.id, displayName: operatorAccount.user.displayName });
     const dayResponse = await admin.call('admin/race-days', 'POST', { day: { raceDate: day, venue: '東京' }, reason: '開催日試験' }, undefined, headers());
     expect([201, 409]).toContain(dayResponse.status);
     const body = { race: raceInput(1), reason: 'レース作成試験' }; const key = headers();
