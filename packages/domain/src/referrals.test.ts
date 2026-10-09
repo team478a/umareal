@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adminReferralDetailResponseSchema, adminReferralInvalidateResponseSchema, adminReferralListQuerySchema, adminReferralListResponseSchema, lineOAuthStartSchema, memberReferralCodeSchema, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema, referralInvalidateSchema, referralRewardRedeemSchema, registrationSchema } from './index';
+import { adminReferralBenefitCreateSchema, adminReferralDetailResponseSchema, adminReferralInvalidateResponseSchema, adminReferralListQuerySchema, adminReferralListResponseSchema, lineOAuthStartSchema, memberReferralCodeSchema, memberReferralRewardRedeemResponseSchema, memberReferralRewardsSchema, memberReferralSummarySchema, referralBenefitConfigSchema, referralBenefitGrantRedeemSchema, referralInvalidateSchema, referralRewardRedeemSchema, registrationSchema } from './index';
 
 describe('referral input boundaries', () => {
   it('normalizes safe member referral codes without changing acquisition referral input', () => {
@@ -22,6 +22,17 @@ describe('referral input boundaries', () => {
     expect(referralRewardRedeemSchema.safeParse({ targetDate: '2099/03/04' }).success).toBe(false);
     expect(adminReferralListQuerySchema.parse({})).toEqual({ page: 1, status: 'ALL' });
     expect(referralInvalidateSchema.safeParse({ reason: ' ' }).success).toBe(false);
+  });
+
+  it('validates configurable benefit types without allowing unsafe combinations', () => {
+    const base = { name: '紹介特典', description: '説明', requiredReferralCount: 5, quantity: 1, claimValidityDays: 60, distributionStartsAt: null, distributionEndsAt: null, published: true, grantEnabled: true, sortOrder: 10, memberGuidance: '案内', usageTerms: '条件', contentItemIds: [] as string[] };
+    expect(referralBenefitConfigSchema.safeParse({ ...base, rewardType: 'DAY_PASS', accessDays: null }).success).toBe(true);
+    expect(referralBenefitConfigSchema.safeParse({ ...base, rewardType: 'MONTHLY_ACCESS', accessDays: 30 }).success).toBe(true);
+    expect(referralBenefitConfigSchema.safeParse({ ...base, rewardType: 'MONTHLY_ACCESS', accessDays: null }).success).toBe(false);
+    expect(referralBenefitConfigSchema.safeParse({ ...base, rewardType: 'LIMITED_CONTENT', accessDays: null, contentItemIds: ['11111111-1111-4111-8111-111111111111'] }).success).toBe(true);
+    expect(referralBenefitConfigSchema.safeParse({ ...base, rewardType: 'DAY_PASS', accessDays: null, published: false, grantEnabled: true }).success).toBe(false);
+    expect(adminReferralBenefitCreateSchema.safeParse({ expectedRevision: 1, reason: '作成', config: { ...base, rewardType: 'DAY_PASS', accessDays: null } }).success).toBe(false);
+    expect(referralBenefitGrantRedeemSchema.parse({ targetDate: null })).toEqual({ targetDate: null });
   });
 
   it('defines the strict public response contract for GET /me/referrals', () => {

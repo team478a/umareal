@@ -78,6 +78,10 @@ model User {
   referralsMade                  Referral[]                 @relation("ReferralReferrer")
   referralReceived               Referral?                  @relation("ReferralReferred")
   referralRewards                ReferralReward[]
+  referralBenefitsCreated        ReferralBenefit[]          @relation("ReferralBenefitCreator")
+  referralBenefitVersionsCreated ReferralBenefitVersion[]   @relation("ReferralBenefitVersionCreator")
+  referralAchievements           ReferralAchievement[]      @relation("ReferralAchievementOwner")
+  referralBenefitGrants          ReferralBenefitGrant[]
   referralsInvalidated           Referral[]                 @relation("ReferralInvalidator")
   richMenusPublished             LineRichMenuPublication[]  @relation("LineRichMenuPublisher")
   paperDrafts                    RacePaper[]
@@ -312,18 +316,19 @@ model EmailWebhookEvent {
 }
 
 model Entitlement {
-  id           String        @id @default(uuid()) @db.Uuid
-  userId       String        @db.Uuid
-  user         User          @relation(fields: [userId], references: [id])
-  planCode     String
-  startsAt     DateTime      @db.Timestamptz(3)
-  endsAt       DateTime      @db.Timestamptz(3)
-  raceDate     String?
-  reason       String
-  grantedBy    String        @db.Uuid
-  revokedAt    DateTime?     @db.Timestamptz(3)
-  subscription Subscription?
-  dayPass      DayPass?
+  id                   String                @id @default(uuid()) @db.Uuid
+  userId               String                @db.Uuid
+  user                 User                  @relation(fields: [userId], references: [id])
+  planCode             String
+  startsAt             DateTime              @db.Timestamptz(3)
+  endsAt               DateTime              @db.Timestamptz(3)
+  raceDate             String?
+  reason               String
+  grantedBy            String                @db.Uuid
+  revokedAt            DateTime?             @db.Timestamptz(3)
+  subscription         Subscription?
+  dayPass              DayPass?
+  referralBenefitGrant ReferralBenefitGrant?
 
   @@index([userId, endsAt])
   @@map("entitlements")
@@ -355,24 +360,25 @@ model Subscription {
 }
 
 model DayPass {
-  id             String               @id @default(uuid()) @db.Uuid
-  userId         String               @db.Uuid
-  user           User                 @relation(fields: [userId], references: [id])
-  raceDate       String
-  status         String
-  priceYen       Int
-  startsAt       DateTime?            @db.Timestamptz(3)
-  endsAt         DateTime             @db.Timestamptz(3)
-  provider       String
-  source         String               @default("PURCHASE")
-  providerPassId String               @unique
-  entitlementId  String?              @unique @db.Uuid
-  entitlement    Entitlement?         @relation(fields: [entitlementId], references: [id])
-  payments       PaymentTransaction[]
-  events         BillingEvent[]
-  referralReward ReferralReward?
-  createdAt      DateTime             @default(now()) @db.Timestamptz(3)
-  updatedAt      DateTime             @default(now()) @db.Timestamptz(3)
+  id                   String                @id @default(uuid()) @db.Uuid
+  userId               String                @db.Uuid
+  user                 User                  @relation(fields: [userId], references: [id])
+  raceDate             String
+  status               String
+  priceYen             Int
+  startsAt             DateTime?             @db.Timestamptz(3)
+  endsAt               DateTime              @db.Timestamptz(3)
+  provider             String
+  source               String                @default("PURCHASE")
+  providerPassId       String                @unique
+  entitlementId        String?               @unique @db.Uuid
+  entitlement          Entitlement?          @relation(fields: [entitlementId], references: [id])
+  payments             PaymentTransaction[]
+  events               BillingEvent[]
+  referralReward       ReferralReward?
+  referralBenefitGrant ReferralBenefitGrant?
+  createdAt            DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime              @default(now()) @db.Timestamptz(3)
 
   @@unique([userId, raceDate])
   @@index([status, endsAt])
@@ -380,18 +386,19 @@ model DayPass {
 }
 
 model Referral {
-  id                String    @id @default(uuid()) @db.Uuid
-  referrerUserId    String    @db.Uuid
-  referrer          User      @relation("ReferralReferrer", fields: [referrerUserId], references: [id])
-  referredUserId    String    @unique @db.Uuid
-  referred          User      @relation("ReferralReferred", fields: [referredUserId], references: [id])
-  status            String    @default("PENDING")
-  qualifiedAt       DateTime? @db.Timestamptz(3)
-  invalidatedAt     DateTime? @db.Timestamptz(3)
+  id                String               @id @default(uuid()) @db.Uuid
+  referrerUserId    String               @db.Uuid
+  referrer          User                 @relation("ReferralReferrer", fields: [referrerUserId], references: [id])
+  referredUserId    String               @unique @db.Uuid
+  referred          User                 @relation("ReferralReferred", fields: [referredUserId], references: [id])
+  status            String               @default("PENDING")
+  qualifiedAt       DateTime?            @db.Timestamptz(3)
+  invalidatedAt     DateTime?            @db.Timestamptz(3)
   invalidatedReason String?
-  invalidatedById   String?   @db.Uuid
-  invalidatedBy     User?     @relation("ReferralInvalidator", fields: [invalidatedById], references: [id])
-  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
+  invalidatedById   String?              @db.Uuid
+  invalidatedBy     User?                @relation("ReferralInvalidator", fields: [invalidatedById], references: [id])
+  createdAt         DateTime             @default(now()) @db.Timestamptz(3)
+  achievement       ReferralAchievement?
 
   @@index([referrerUserId, status, qualifiedAt])
   @@index([createdAt])
@@ -434,6 +441,104 @@ model ReferralReward {
   @@unique([userId, milestoneId])
   @@index([userId, status, expiresAt])
   @@map("referral_rewards")
+}
+
+model ReferralBenefit {
+  id          String                   @id @default(uuid()) @db.Uuid
+  revision    Int                      @default(1)
+  createdById String                   @db.Uuid
+  createdBy   User                     @relation("ReferralBenefitCreator", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  createdAt   DateTime                 @default(now()) @db.Timestamptz(3)
+  versions    ReferralBenefitVersion[]
+
+  @@index([createdAt])
+  @@map("referral_benefits")
+}
+
+model ReferralBenefitVersion {
+  id                    String                          @id @default(uuid()) @db.Uuid
+  benefitId             String                          @db.Uuid
+  benefit               ReferralBenefit                 @relation(fields: [benefitId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  version               Int
+  name                  String
+  description           String
+  requiredReferralCount Int
+  rewardType            String
+  quantity              Int
+  claimValidityDays     Int
+  accessDays            Int?
+  distributionStartsAt  DateTime?                       @db.Timestamptz(3)
+  distributionEndsAt    DateTime?                       @db.Timestamptz(3)
+  published             Boolean                         @default(false)
+  grantEnabled          Boolean                         @default(false)
+  sortOrder             Int
+  memberGuidance        String
+  usageTerms            String
+  changeReason          String
+  createdById           String                          @db.Uuid
+  createdBy             User                            @relation("ReferralBenefitVersionCreator", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  createdAt             DateTime                        @default(now()) @db.Timestamptz(3)
+  contents              ReferralBenefitVersionContent[]
+  grants                ReferralBenefitGrant[]
+
+  @@unique([benefitId, version])
+  @@index([requiredReferralCount, published, grantEnabled])
+  @@index([createdAt])
+  @@map("referral_benefit_versions")
+}
+
+model ReferralBenefitVersionContent {
+  benefitVersionId String                 @db.Uuid
+  benefitVersion   ReferralBenefitVersion @relation(fields: [benefitVersionId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  contentItemId    String                 @db.Uuid
+  contentItem      ContentItem            @relation(fields: [contentItemId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@id([benefitVersionId, contentItemId])
+  @@index([contentItemId])
+  @@map("referral_benefit_version_contents")
+}
+
+model ReferralAchievement {
+  id                     String                 @id @default(uuid()) @db.Uuid
+  referrerUserId         String                 @db.Uuid
+  referrer               User                   @relation("ReferralAchievementOwner", fields: [referrerUserId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  referralId             String                 @unique @db.Uuid
+  referral               Referral               @relation(fields: [referralId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  previousQualifiedCount Int
+  qualifiedCount         Int
+  achievedAt             DateTime               @db.Timestamptz(3)
+  grants                 ReferralBenefitGrant[]
+
+  @@index([referrerUserId, achievedAt])
+  @@map("referral_achievements")
+}
+
+model ReferralBenefitGrant {
+  id                String                 @id @default(uuid()) @db.Uuid
+  userId            String                 @db.Uuid
+  user              User                   @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  benefitVersionId  String                 @db.Uuid
+  benefitVersion    ReferralBenefitVersion @relation(fields: [benefitVersionId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  achievementId     String                 @db.Uuid
+  achievement       ReferralAchievement    @relation(fields: [achievementId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  unitNo            Int
+  rewardType        String
+  rewardSnapshot    Json
+  status            String                 @default("AVAILABLE")
+  grantedAt         DateTime               @default(now()) @db.Timestamptz(3)
+  expiresAt         DateTime               @db.Timestamptz(3)
+  usedAt            DateTime?              @db.Timestamptz(3)
+  invalidatedAt     DateTime?              @db.Timestamptz(3)
+  invalidatedReason String?
+  dayPassId         String?                @unique @db.Uuid
+  dayPass           DayPass?               @relation(fields: [dayPassId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  entitlementId     String?                @unique @db.Uuid
+  entitlement       Entitlement?           @relation(fields: [entitlementId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@unique([userId, benefitVersionId, unitNo])
+  @@index([userId, status, expiresAt])
+  @@index([benefitVersionId, status])
+  @@map("referral_benefit_grants")
 }
 
 model PaymentTransaction {
@@ -1344,32 +1449,33 @@ model RacePaperPreview {
 }
 
 model ContentItem {
-  id                String           @id @default(uuid()) @db.Uuid
-  kind              String
-  status            String           @default("DRAFT")
-  isVisible         Boolean          @default(false)
-  revision          Int              @default(1)
-  title             String
-  summary           String
-  body              String
-  thumbnailUrl      String?
-  mediaUrl          String?
-  category          String
-  tags              String[]         @default([])
-  relatedRaceIds    String[]         @default([]) @db.Uuid
-  relatedHorseIds   String[]         @default([]) @db.Uuid
-  visibility        String
-  scheduledAt       DateTime?        @db.Timestamptz(3)
-  scheduledRevision Int?
-  scheduleReason    String?
-  scheduleError     String?
-  createdBy         String           @db.Uuid
-  creator           User             @relation("ContentItemCreator", fields: [createdBy], references: [id], onDelete: Restrict, onUpdate: NoAction)
-  updatedBy         String           @db.Uuid
-  updater           User             @relation("ContentItemUpdater", fields: [updatedBy], references: [id], onDelete: Restrict, onUpdate: NoAction)
-  createdAt         DateTime         @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime         @default(now()) @db.Timestamptz(3)
-  versions          ContentVersion[]
+  id                      String                          @id @default(uuid()) @db.Uuid
+  kind                    String
+  status                  String                          @default("DRAFT")
+  isVisible               Boolean                         @default(false)
+  revision                Int                             @default(1)
+  title                   String
+  summary                 String
+  body                    String
+  thumbnailUrl            String?
+  mediaUrl                String?
+  category                String
+  tags                    String[]                        @default([])
+  relatedRaceIds          String[]                        @default([]) @db.Uuid
+  relatedHorseIds         String[]                        @default([]) @db.Uuid
+  visibility              String
+  scheduledAt             DateTime?                       @db.Timestamptz(3)
+  scheduledRevision       Int?
+  scheduleReason          String?
+  scheduleError           String?
+  createdBy               String                          @db.Uuid
+  creator                 User                            @relation("ContentItemCreator", fields: [createdBy], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  updatedBy               String                          @db.Uuid
+  updater                 User                            @relation("ContentItemUpdater", fields: [updatedBy], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  createdAt               DateTime                        @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime                        @default(now()) @db.Timestamptz(3)
+  versions                ContentVersion[]
+  referralBenefitVersions ReferralBenefitVersionContent[]
 
   @@index([status, scheduledAt])
   @@index([isVisible, updatedAt])
@@ -1804,37 +1910,37 @@ model Win5EvaluationLeg {
 }
 
 model SystemSetting {
-  id                              String   @id
-  revision                        Int      @default(1)
-  newRegistrationsEnabled         Boolean  @default(true)
-  registrationPauseMessage        String   @default("")
-  registrationCaptchaEnabled      Boolean  @default(false)
+  id                              String    @id
+  revision                        Int       @default(1)
+  newRegistrationsEnabled         Boolean   @default(true)
+  registrationPauseMessage        String    @default("")
+  registrationCaptchaEnabled      Boolean   @default(false)
   turnstileSiteKey                String?
   turnstileSecretEncrypted        String?
-  emailNotificationsEnabled       Boolean  @default(true)
-  predictionPublicationEnabled    Boolean  @default(true)
-  csvImportEnabled                Boolean  @default(true)
-  lineNotificationsEnabled        Boolean  @default(false)
-  lineLoginEnabled                Boolean  @default(false)
-  newPurchasesEnabled             Boolean  @default(false)
-  founderSalesEnabled             Boolean  @default(false)
-  standardSalesEnabled            Boolean  @default(true)
-  dayPassSalesEnabled             Boolean  @default(true)
-  founderPriceYen                 Int      @default(1980)
-  standardPriceYen                Int      @default(2980)
-  dayPassPriceYen                 Int      @default(980)
-  founderSalesLimit               Int      @default(100)
-  billingGraceDays                Int      @default(0)
-  contentAccessPolicy             Json     @default("{\"monthly\":{\"paddock\":true,\"win5\":true,\"racePaper\":true,\"content\":true,\"aiRaceGuide\":true},\"dayPass\":{\"paddock\":true,\"win5\":true,\"racePaper\":true,\"content\":false,\"aiRaceGuide\":true},\"manual\":{\"paddock\":true,\"win5\":true,\"racePaper\":true,\"content\":true,\"aiRaceGuide\":true}}")
-  freePredictionTrialEnabled      Boolean  @default(false)
+  emailNotificationsEnabled       Boolean   @default(true)
+  predictionPublicationEnabled    Boolean   @default(true)
+  csvImportEnabled                Boolean   @default(true)
+  lineNotificationsEnabled        Boolean   @default(false)
+  lineLoginEnabled                Boolean   @default(false)
+  newPurchasesEnabled             Boolean   @default(false)
+  founderSalesEnabled             Boolean   @default(false)
+  standardSalesEnabled            Boolean   @default(true)
+  dayPassSalesEnabled             Boolean   @default(true)
+  founderPriceYen                 Int       @default(1980)
+  standardPriceYen                Int       @default(2980)
+  dayPassPriceYen                 Int       @default(980)
+  founderSalesLimit               Int       @default(100)
+  billingGraceDays                Int       @default(0)
+  contentAccessPolicy             Json      @default("{\"monthly\":{\"paddock\":true,\"win5\":true,\"racePaper\":true,\"content\":true,\"aiRaceGuide\":true},\"dayPass\":{\"paddock\":true,\"win5\":true,\"racePaper\":true,\"content\":false,\"aiRaceGuide\":true},\"manual\":{\"paddock\":true,\"win5\":true,\"racePaper\":true,\"content\":true,\"aiRaceGuide\":true}}")
+  freePredictionTrialEnabled      Boolean   @default(false)
   freePredictionTrialEndsAt       DateTime? @db.Timestamptz(3)
-  maintenanceMessage              String   @default("")
-  notificationMaxAttempts         Int      @default(5)
-  notificationBaseDelaySeconds    Int      @default(30)
-  predictionCorrectionPolicy      String   @default("ADMIN_ONLY")
-  delayedPublicationPolicy        String   @default("CLOSED")
-  win5DefaultAmountPerPointYen    Int      @default(100)
-  win5CombinationWarningLimit     Int      @default(1000)
+  maintenanceMessage              String    @default("")
+  notificationMaxAttempts         Int       @default(5)
+  notificationBaseDelaySeconds    Int       @default(30)
+  predictionCorrectionPolicy      String    @default("ADMIN_ONLY")
+  delayedPublicationPolicy        String    @default("CLOSED")
+  win5DefaultAmountPerPointYen    Int       @default(100)
+  win5CombinationWarningLimit     Int       @default(1000)
   lineChannelId                   String?
   lineChannelSecretEncrypted      String?
   lineAccessTokenEncrypted        String?
@@ -1843,15 +1949,15 @@ model SystemSetting {
   lineLoginCallbackUrl            String?
   stripeSecretKeyEncrypted        String?
   stripeWebhookSecretEncrypted    String?
-  stripeLiveMode                  Boolean  @default(false)
+  stripeLiveMode                  Boolean   @default(false)
   stripePriceFounder              String?
   stripePriceStandard             String?
   stripePriceDayPass              String?
   mailApiKeyEncrypted             String?
   mailWebhookSecretEncrypted      String?
   mailFrom                        String?
-  updatedBy                       String?  @db.Uuid
-  updatedAt                       DateTime @default(now()) @db.Timestamptz(3)
+  updatedBy                       String?   @db.Uuid
+  updatedAt                       DateTime  @default(now()) @db.Timestamptz(3)
 
   @@map("system_settings")
 }

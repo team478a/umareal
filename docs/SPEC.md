@@ -1455,6 +1455,14 @@ SENTRY_DSN=
 - 特典設定はADMIN+AAL2、変更理由、revision競合検出、監査ログを必須とする。受取・利用APIは冪等とし、自己紹介、重複成立、二重付与、二重利用、期限切れ利用を拒否する。
 - 詳細な現状差分は[Phase A監査](MEMBER_CONTENT_REFERRAL_PHASE_A_AUDIT.md)、実装順は[実装計画](MEMBER_CONTENT_REFERRAL_IMPLEMENTATION_PLAN.md)を正とする。
 
+## 27F. 紹介特典設定・付与基盤 Phase B
+
+- 既存3人・10人一日券V1を維持したまま、同じ必要紹介人数へ複数の`DAY_PASS`、`MONTHLY_ACCESS`、`LIMITED_CONTENT`を設定できる追記型基盤を追加する。migrationで新特典をseedまたは有効化しない。
+- 紹介成立時の直前人数・成立後人数・時刻と、その時点で有効な特典版を固定する。通常の設定追加・変更を過去達成者へ遡及適用しない。
+- 設定変更はADMIN+AAL2、理由、revision、Idempotency-Key、監査を必須とする。新規付与停止は既得特典を取消さない。
+- 月額相当特典は専用の期間付きEntitlementだけを作成し、Stripe Subscriptionを作成・変更しない。限定コンテンツはCMS本文・media URLを返す前にサーバー側でGrantを検証する。
+- 詳細は[Phase B実装結果](MEMBER_CONTENT_REFERRAL_PHASE_B_RESULTS.md)を正とする。会員画面、1日券開始条件、登録特典統一はPhase Cで扱う。
+
 ## 28. 実装上の禁止事項
 
 - 公開済み予想を更新する通常のCRUD APIを作らない。
