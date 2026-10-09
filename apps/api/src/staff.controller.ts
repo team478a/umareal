@@ -81,6 +81,11 @@ export class StaffController {
         const dependencies = await this.dependencies(tx, target.id);
         if (target.role === 'OPERATOR' && input.nextRole !== 'OPERATOR' && dependencies.pendingPublicationSchedules) throw new ConflictException({ code: 'STAFF_SCHEDULES_PENDING', message: '待機中または処理中の配信予約を取消・完了してから運用責任者ロールを変更してください。' });
         if (target.role === 'OPERATOR' && input.nextRole !== 'OPERATOR' && dependencies.pendingContentSchedules) throw new ConflictException({ code: 'STAFF_CONTENT_SCHEDULES_PENDING', message: '予約中のコンテンツを取消または公開してから運用責任者ロールを変更してください。' });
+        if (target.role === 'OPERATOR' && input.nextRole !== 'OPERATOR' && (dependencies.upcomingRaceAssignments || dependencies.activeWin5Products)) throw new ConflictException({
+          code: 'STAFF_OPERATOR_STILL_ASSIGNED',
+          message: '今後の担当レースまたは有効なWIN5担当を解除してから運用責任者ロールを変更してください。',
+          details: dependencies
+        });
         if (target.role === 'EDITOR' && input.nextRole !== 'EDITOR' && dependencies.pendingContentSchedules) throw new ConflictException({ code: 'STAFF_CONTENT_SCHEDULES_PENDING', message: '予約中のコンテンツを取消または公開してから編集担当ロールを変更してください。' });
         if (target.role === 'EXPERT' && input.nextRole !== 'EXPERT') {
           if (dependencies.upcomingRaceAssignments || dependencies.activeWin5Products) throw new ConflictException({

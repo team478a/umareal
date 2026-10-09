@@ -238,7 +238,7 @@ export class Win5Controller {
       const prior = await tx.idempotencyKey.findUnique({ where: { key } });
       if (prior) { if (prior.requestHash !== requestHash) throw new ConflictException({ code: 'IDEMPOTENCY_CONFLICT', message: '再送の内容が変わっています。' }); return prior.response; }
       const expert = await tx.user.findUnique({ where: { id: input.expertId }, select: { role: true, disabledAt: true } });
-      if (!expert || expert.role !== 'EXPERT' || expert.disabledAt) throw new BadRequestException({ code: 'INVALID_EXPERT', message: '有効な予想担当を指定してください。' });
+      if (!expert || !['EXPERT', 'OPERATOR'].includes(expert.role) || expert.disabledAt) throw new BadRequestException({ code: 'INVALID_EXPERT', message: '有効な予想担当または運用責任者を指定してください。' });
       if (await tx.predictionProduct.findUnique({ where: { type_targetDate: { type: input.type, targetDate: input.targetDate } }, select: { id: true } })) throw new ConflictException({ code: 'WIN5_DUPLICATE_TARGET_DATE', message: '同じ対象日のWIN5予想はすでに作成されています。' });
       const product = await tx.predictionProduct.create({ data: { type: input.type, targetDate: input.targetDate, title: input.title, expertId: input.expertId, scheduledPublishAt: new Date(input.scheduledPublishAt), accessScope: input.accessScope, confidence: input.confidence, summary: input.summary, showFreeConfidence: input.showFreeConfidence, updatedBy: actor.id } });
       await tx.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: 'WIN5_PRODUCT_CREATE', targetType: 'PREDICTION_PRODUCT', targetId: product.id, reason: input.reason, details: json({ type: product.type, targetDate: product.targetDate, expertId: product.expertId }), requestId: req.requestId } });
@@ -254,7 +254,7 @@ export class Win5Controller {
       if (!before) throw new NotFoundException();
       if (before.revision !== input.revision) throw new ConflictException({ code: 'WIN5_DRAFT_CONFLICT', message: '別の端末でWIN5予想が変更されました。再読み込みしてください。' });
       const expert = await tx.user.findUnique({ where: { id: input.expertId }, select: { role: true, disabledAt: true } });
-      if (!expert || expert.role !== 'EXPERT' || expert.disabledAt) throw new BadRequestException({ code: 'INVALID_EXPERT', message: '有効な予想担当を指定してください。' });
+      if (!expert || !['EXPERT', 'OPERATOR'].includes(expert.role) || expert.disabledAt) throw new BadRequestException({ code: 'INVALID_EXPERT', message: '有効な予想担当または運用責任者を指定してください。' });
       const product = await tx.predictionProduct.update({ where: { id: productId }, data: { title: input.title, expertId: input.expertId, scheduledPublishAt: new Date(input.scheduledPublishAt), accessScope: input.accessScope, confidence: input.confidence, summary: input.summary, showFreeConfidence: input.showFreeConfidence, revision: { increment: 1 }, updatedBy: actor.id, updatedAt: new Date() } });
       await tx.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: 'WIN5_PRODUCT_UPDATE', targetType: 'PREDICTION_PRODUCT', targetId: product.id, reason: input.reason, details: json({ fromRevision: before.revision, toRevision: product.revision }), requestId: req.requestId } });
       return product;
