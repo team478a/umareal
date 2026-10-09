@@ -1,5 +1,7 @@
 # 友達紹介制度 V1
 
+> この文書は現在稼働するV1の仕様を記録する。複数種別・設定版・同一人数の複数特典を含む次期設計は[Phase A監査](MEMBER_CONTENT_REFERRAL_PHASE_A_AUDIT.md)と[実装計画](MEMBER_CONTENT_REFERRAL_IMPLEMENTATION_PLAN.md)を参照する。Phase A時点ではV1の実行時挙動を変更しない。
+
 ## 制度概要
 
 ログイン可能な一般会員は、個人情報を含まない一意の紹介コードと紹介URLを持つ。本番の紹介URLは `https://umareal.com/?invite=...` とし、LPから `/register?invite=...` へコードを引き継ぐ。公開本番ではRenderの`MARKETING_BASE_URL`が欠落しても本番LPを安全な既定値として使用し、登録画面へ直接フォールバックしない。配備前検査は同変数がHTTPS originとして明示されていない公開APIリリースを拒否する。紹介された人が通常の無料会員登録と本人確認を完了すると紹介が成立する。初期マイルストーンはDBで管理し、3人と10人の成立時にそれぞれ一日券を1枚付与する。
