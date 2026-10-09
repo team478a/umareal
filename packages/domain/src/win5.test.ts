@@ -97,4 +97,17 @@ describe('WIN5 domain', () => {
     expect(win5LegUpdateSchema.safeParse({ ...base, evaluations: [primary, { ...primary, evaluationType: 'WATCH' }] }).success).toBe(false);
     expect(win5LegUpdateSchema.safeParse({ ...base, evaluations: [primary, { ...primary, entryId: other }] }).success).toBe(false);
   });
+
+  it('allows an official target race to be saved before the prediction is entered', () => {
+    expect(win5LegUpdateSchema.safeParse({
+      productRevision: 1,
+      legNumber: 1,
+      raceId: '33333333-3333-4333-8333-333333333333',
+      confidence: 'C',
+      paceView: '',
+      shortComment: '',
+      evaluations: [],
+      reason: '公式WIN5対象レースの事前登録'
+    }).success).toBe(true);
+  });
 });
