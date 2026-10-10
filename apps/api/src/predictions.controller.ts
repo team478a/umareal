@@ -9,7 +9,7 @@ import { hashToken } from './security';
 type Tx = Prisma.TransactionClient;
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const previewSnapshotSchema = z.object({ correctionReason: z.string(), nextVersion: z.number().int().positive() });
-const versionSelect = { id: true, version: true, status: true, visibility: true, confidence: true, formatVersion: true, summary: true, assessmentSnapshot: true, publisherId: true, publishedAt: true, deadlineAt: true, correctionReason: true, previousVersionId: true, marks: { orderBy: { horseNumber: 'asc' as const } } };
+const versionSelect = { id: true, version: true, status: true, visibility: true, confidence: true, formatVersion: true, summary: true, contentSnapshot: true, assessmentSnapshot: true, publisherId: true, publishedAt: true, deadlineAt: true, correctionReason: true, previousVersionId: true, marks: { orderBy: { horseNumber: 'asc' as const } } };
 @Controller()
 export class PredictionsController {
   constructor(@Inject(AuthService) private readonly auth: AuthService) {}
@@ -35,7 +35,7 @@ export class PredictionsController {
     const current = predictionDraftSchema.safeParse(value);
     if (current.success) return current.data;
     const legacy = legacyPredictionDraftSchema.parse(value);
-    return { visibility: legacy.visibility, confidence: legacy.stance === 'SKIP' ? 'SKIP' : legacy.confidence, summary: legacy.summary, marks: legacy.stance === 'SKIP' ? [] : legacy.marks };
+    return { mode: 'DETAILED', visibility: legacy.visibility, confidence: legacy.stance === 'SKIP' ? 'SKIP' : legacy.confidence, summary: legacy.summary, marks: legacy.stance === 'SKIP' ? [] : legacy.marks };
   }
   private validateDraft(draft: PredictionDraft, state: Awaited<ReturnType<PredictionsController['state']>>) {
     const valid = publishablePredictionSchema.parse(draft);
@@ -160,7 +160,7 @@ export class PredictionsController {
     const trialAccess = canUseFreePredictionTrial({ now, registeredMember: identity?.role === 'MEMBER', contentKind: 'PADDOCK', enabled: settings.freePredictionTrialEnabled, endsAt: settings.freePredictionTrialEndsAt });
     const canView = (version: typeof latest) => !!staffAccess || trialAccess || canReadPrediction({ now, publishedAt: version.publishedAt, visibility: 'PAID', raceDate: race.raceDate, entitlements, contentKind: 'PADDOCK', contentAccessPolicy: parseContentAccessPolicy(settings.contentAccessPolicy) });
     const redact = (version: NonNullable<typeof latest>) => canView(version)
-      ? { ...version, locked: false }
+      ? (({ contentSnapshot, ...visible }) => ({ ...visible, displayMode: typeof contentSnapshot === 'object' && contentSnapshot !== null && !Array.isArray(contentSnapshot) && contentSnapshot.mode === 'QUICK_PICK' ? 'QUICK_PICK' : 'DETAILED', locked: false }))(version)
       : { id: version.id, version: version.version, status: version.status, visibility: version.visibility, publishedAt: version.publishedAt, previousVersionId: version.previousVersionId, locked: true };
     const visibleLatest = redact(latest);
     return publicPredictionResponseSchema.parse({ race: raceSummary, latest: visibleLatest, versions: pageVersions.map(redact), total, page, limit: 20, locked: visibleLatest.locked });

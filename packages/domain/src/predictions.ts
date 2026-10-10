@@ -4,6 +4,7 @@ import { assessmentSchema } from './assessments';
 import { entryStatuses, raceStatuses } from './races';
 
 export const publicationVisibilities = ['FREE', 'PAID'] as const;
+export const predictionModes = ['DETAILED', 'QUICK_PICK'] as const;
 export const confidences = ['S', 'A', 'B', 'C'] as const;
 export const stances = ['BET', 'NORMAL', 'SMALL', 'SKIP'] as const;
 export const finalMarks = ['HONMEI', 'TAIKO', 'TANANA', 'RENKA', 'ANA', 'DANGER'] as const;
@@ -24,20 +25,27 @@ const marksSchema = z.array(markSchema).max(18).superRefine((marks, context) => 
 });
 
 export const predictionDraftSchema = z.object({
+  mode: z.enum(predictionModes).default('DETAILED'),
   visibility: z.enum(publicationVisibilities).nullable(),
   confidence: z.enum(evaluationConfidences).nullable(),
   summary: z.string().trim().max(5000),
   marks: marksSchema
 }).strict();
 export type PredictionDraft = z.infer<typeof predictionDraftSchema>;
-export const emptyPredictionDraft: PredictionDraft = { visibility: null, confidence: null, summary: '', marks: [] };
+export const emptyPredictionDraft: PredictionDraft = { mode: 'DETAILED', visibility: null, confidence: null, summary: '', marks: [] };
 
 export const publishablePredictionSchema = predictionDraftSchema.superRefine((value, context) => {
   if (!value.visibility) context.addIssue({ code: 'custom', path: ['visibility'], message: '公開範囲を選択してください。' });
   if (!value.confidence) context.addIssue({ code: 'custom', path: ['confidence'], message: '信頼度または見送りを選択してください。' });
   if (!value.summary) context.addIssue({ code: 'custom', path: ['summary'], message: '最終見解を入力してください。' });
-  if (value.confidence === 'SKIP' && value.marks.length) context.addIssue({ code: 'custom', path: ['marks'], message: '見送り時は最終評価馬を設定できません。' });
-  if (value.confidence !== 'SKIP' && value.marks.filter(mark => mark.mark === 'HONMEI').length !== 1) context.addIssue({ code: 'custom', path: ['marks'], message: '見送り以外は最終本命を1頭設定してください。' });
+  if (value.mode === 'QUICK_PICK') {
+    if (value.confidence === 'SKIP') context.addIssue({ code: 'custom', path: ['confidence'], message: '速報入力では見送りを選択できません。' });
+    if (!value.marks.length) context.addIssue({ code: 'custom', path: ['marks'], message: '速報の注目馬を1頭以上選択してください。' });
+    if (value.marks.some(mark => mark.mark !== 'TAIKO')) context.addIssue({ code: 'custom', path: ['marks'], message: '速報の注目馬はすべて同じ「○」評価で保存します。' });
+  } else {
+    if (value.confidence === 'SKIP' && value.marks.length) context.addIssue({ code: 'custom', path: ['marks'], message: '見送り時は最終評価馬を設定できません。' });
+    if (value.confidence !== 'SKIP' && value.marks.filter(mark => mark.mark === 'HONMEI').length !== 1) context.addIssue({ code: 'custom', path: ['marks'], message: '見送り以外は最終本命を1頭設定してください。' });
+  }
 });
 export const predictionSaveSchema = z.object({ draft: predictionDraftSchema, revision: z.number().int().min(0), raceRevision: z.number().int().positive(), mutationId: z.string().uuid(), reason: z.string().trim().min(1).max(500) }).strict();
 export const publishPreviewSchema = z.object({ predictionRevision: z.number().int().positive(), raceRevision: z.number().int().positive(), correctionReason: z.string().trim().max(500).default('') }).strict();
@@ -158,6 +166,7 @@ export const publicPredictionLockedVersionSchema = z.object({
 
 export const publicPredictionFullVersionSchema = z.object({
   ...publicPredictionVersionMetadataShape,
+  displayMode: z.enum(predictionModes).default('DETAILED'),
   confidence: z.enum(evaluationConfidences),
   formatVersion: z.string().min(1),
   summary: z.string(),
