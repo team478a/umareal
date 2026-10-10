@@ -26,7 +26,7 @@ const billing = spawnSync(process.execPath, ['dist/main.js'], {
   cwd: resolve('apps/api'), env: { ...process.env, ...productionBase, NODE_ENV: 'production', AUTH_PROVIDER: 'supabase', NOTIFICATION_TRANSPORT: 'line', LINE_OAUTH_TRANSPORT: 'line', BILLING_TRANSPORT: 'test' },
   encoding: 'utf8', timeout: 20000, windowsHide: true
 });
-if (billing.status === 0 || !billing.stderr.includes('Full production launch requires an external billing transport')) throw new Error('Production billing guard did not reject test mode');
+if (billing.status === 0 || !billing.stderr.includes('Full production launch requires an approved billing transport')) throw new Error('Production billing guard did not reject test mode');
 console.info('PASS: compiled API refuses the local billing test transport in production.');
 const stagingExternalBilling = spawnSync(process.execPath, ['dist/main.js'], {
   cwd: resolve('apps/api'), env: { ...process.env, ...productionBase, LAUNCH_MODE: 'CLOUD_STAGING', NODE_ENV: 'production', AUTH_PROVIDER: 'supabase', NOTIFICATION_TRANSPORT: 'disabled', LINE_OAUTH_TRANSPORT: 'disabled', BILLING_TRANSPORT: 'stripe', STRIPE_LIVE_MODE: 'false' },
@@ -62,7 +62,7 @@ const stripeMode = spawnSync(process.execPath, ['dist/main.js'], {
   cwd: resolve('apps/api'), env: { ...process.env, ...productionBase, NODE_ENV: 'production', AUTH_PROVIDER: 'supabase', NOTIFICATION_TRANSPORT: 'line', LINE_OAUTH_TRANSPORT: 'line', BILLING_TRANSPORT: 'stripe', STRIPE_LIVE_MODE: 'false' },
   encoding: 'utf8', timeout: 20000, windowsHide: true
 });
-if (stripeMode.status === 0 || !stripeMode.stderr.includes('Full production launch requires Stripe live mode')) throw new Error('Production billing guard did not reject Stripe test mode');
+if (stripeMode.status === 0 || !stripeMode.stderr.includes('Full production launch with Stripe requires live mode')) throw new Error('Production billing guard did not reject Stripe test mode');
 console.info('PASS: compiled API refuses Stripe test mode in production.');
 const mail = spawnSync(process.execPath, ['dist/main.js'], {
   cwd: resolve('apps/api'), env: { ...process.env, ...productionBase, NODE_ENV: 'production', AUTH_PROVIDER: 'supabase', NOTIFICATION_TRANSPORT: 'line', LINE_OAUTH_TRANSPORT: 'line', BILLING_TRANSPORT: 'stripe', STRIPE_LIVE_MODE: 'true', MAIL_TRANSPORT: 'test' },

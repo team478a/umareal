@@ -1,5 +1,5 @@
 import { BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Req, ServiceUnavailableException } from '@nestjs/common';
-import { adminBillingCheckoutResolutionResponseSchema, adminBillingCouponsResponseSchema, adminBillingDayPassRefundResponseSchema, adminBillingFailureSimulationResponseSchema, adminBillingRecoverySimulationResponseSchema, adminBillingResponseSchema, adminBillingSupportStatusResponseSchema, billingCouponCreateSchema, billingCouponDeactivateSchema, billingCouponPreviewResponseSchema, billingCouponPreviewSchema, billingDayPassCheckoutResponseSchema, billingPlansResponseSchema, billingPortalResponseSchema, billingReceiptResponseSchema, billingReviewResolutionSchema, billingSubscriptionCheckoutResponseSchema, billingSubscriptionLifecycleResponseSchema, billingSupportRequestCreatedResponseSchema, billingSupportRequestSchema, billingSupportStatusSchema, canManage, dayPassCheckoutWithCouponSchema, jstDate, launchCapabilities, memberBillingResponseSchema, requiresMfa, resolveLaunchMode, subscriptionCheckoutSchema } from '@keiba/domain';
+import { adminBillingCheckoutResolutionResponseSchema, adminBillingCouponsResponseSchema, adminBillingDayPassRefundResponseSchema, adminBillingFailureSimulationResponseSchema, adminBillingRecoverySimulationResponseSchema, adminBillingResponseSchema, adminBillingSupportStatusResponseSchema, bankTransferCreateResponseSchema, bankTransferCreateSchema, bankTransferReportResponseSchema, bankTransferReportSchema, bankTransferReviewResponseSchema, bankTransferReviewSchema, bankTransferSettingsResponseSchema, bankTransferSettingsUpdateSchema, billingCouponCreateSchema, billingCouponDeactivateSchema, billingCouponPreviewResponseSchema, billingCouponPreviewSchema, billingDayPassCheckoutResponseSchema, billingPlansResponseSchema, billingPortalResponseSchema, billingReceiptResponseSchema, billingReviewResolutionSchema, billingSubscriptionCheckoutResponseSchema, billingSubscriptionLifecycleResponseSchema, billingSupportRequestCreatedResponseSchema, billingSupportRequestSchema, billingSupportStatusSchema, canManage, dayPassCheckoutWithCouponSchema, jstDate, launchCapabilities, memberBillingResponseSchema, requiresMfa, resolveLaunchMode, subscriptionCheckoutSchema } from '@keiba/domain';
 import type { Role } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -15,6 +15,7 @@ import { BillingLocalSimulationService } from './billing-local-simulation.servic
 import { BillingLocalCheckoutService } from './billing-local-checkout.service';
 import { BillingQueryService } from './billing-query.service';
 import { BillingCouponService } from './billing-coupon.service';
+import { BankTransferService } from './bank-transfer.service';
 
 const reasonSchema = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 
@@ -31,10 +32,12 @@ export class BillingController {
     @Inject(BillingLocalSimulationService) private readonly localSimulation: BillingLocalSimulationService,
     @Inject(BillingLocalCheckoutService) private readonly localCheckout: BillingLocalCheckoutService,
     @Inject(BillingQueryService) private readonly billingQuery: BillingQueryService,
-    @Inject(BillingCouponService) private readonly coupons: BillingCouponService
+    @Inject(BillingCouponService) private readonly coupons: BillingCouponService,
+    @Inject(BankTransferService) private readonly bankTransfers: BankTransferService
   ) {}
 
   private transport() {
+    if (process.env.BILLING_TRANSPORT === 'bank_transfer') return 'bank_transfer' as const;
     if (!launchCapabilities(resolveLaunchMode(process.env.LAUNCH_MODE)).billing) throw new ServiceUnavailableException({ code: 'BILLING_NOT_IN_LAUNCH', message: '有料プランは現在準備中です。' });
     const transport = process.env.BILLING_TRANSPORT;
     if (transport !== 'test' && transport !== 'stripe') throw new ServiceUnavailableException({ code: 'BILLING_TRANSPORT_UNAVAILABLE', message: 'この環境では申込を処理できません。' });
@@ -87,6 +90,7 @@ export class BillingController {
   @Post('billing/checkout')
   async checkout(@Req() req: AppRequest, @Body() body: unknown) {
     const transport = this.transport(); const actor = await this.auth.authenticate(req); const input = subscriptionCheckoutSchema.parse(body);
+    if (transport === 'bank_transfer') throw new ConflictException({ code: 'BANK_TRANSFER_ENDPOINT_REQUIRED', message: '銀行振込の申込画面からお申し込みください。' });
     if (actor.role !== 'MEMBER') throw new ForbiddenException({ code: 'MEMBER_REQUIRED', message: '会員本人としてログインしてください。' });
     if (!this.purchaseIdentityReady(actor.user)) throw new ForbiddenException({ code: 'VERIFIED_LOGIN_REQUIRED', message: '申込前にメールアドレスの確認を完了してください。' });
     const key = this.key(req, 'subscription-checkout', actor.id); const requestHash = hashToken(JSON.stringify(input));
@@ -99,6 +103,7 @@ export class BillingController {
   @Post('billing/day-pass')
   async dayPass(@Req() req: AppRequest, @Body() body: unknown) {
     const transport = this.transport(); const actor = await this.auth.authenticate(req); const input = dayPassCheckoutWithCouponSchema.parse(body);
+    if (transport === 'bank_transfer') throw new ConflictException({ code: 'BANK_TRANSFER_ENDPOINT_REQUIRED', message: '銀行振込の申込画面からお申し込みください。' });
     if (actor.role !== 'MEMBER') throw new ForbiddenException({ code: 'MEMBER_REQUIRED', message: '会員本人としてログインしてください。' });
     if (!this.purchaseIdentityReady(actor.user)) throw new ForbiddenException({ code: 'VERIFIED_LOGIN_REQUIRED', message: '申込前にメールアドレスの確認を完了してください。' });
     if (input.raceDate < jstDate(new Date())) throw new BadRequestException({ code: 'PAST_RACE_DATE', message: '過去の日付は購入できません。' });
@@ -107,6 +112,27 @@ export class BillingController {
       ? await this.stripeCheckout.create(req, actor.id, actor.user.email, 'DAY_PASS', 'DAY_PASS', input.raceDate, input.couponCode, key, requestHash)
       : await this.localCheckout.dayPass(actor.id, input.raceDate, input.couponCode, key, requestHash);
     return billingDayPassCheckoutResponseSchema.parse(response);
+  }
+
+  @Post('billing/bank-transfers')
+  async createBankTransfer(@Req() req: AppRequest, @Body() body: unknown) {
+    if (this.transport() !== 'bank_transfer') throw new ConflictException({ code: 'BANK_TRANSFER_UNAVAILABLE', message: '現在の決済方式では銀行振込を利用できません。' });
+    const actor = await this.auth.authenticate(req);
+    if (actor.role !== 'MEMBER') throw new ForbiddenException({ code: 'MEMBER_REQUIRED', message: '会員本人としてログインしてください。' });
+    if (!this.purchaseIdentityReady(actor.user)) throw new ForbiddenException({ code: 'VERIFIED_LOGIN_REQUIRED', message: '申込前にメールアドレスの確認を完了してください。' });
+    const input = bankTransferCreateSchema.parse(body);
+    const key = this.key(req, 'bank-transfer-create', actor.id);
+    return bankTransferCreateResponseSchema.parse(await this.bankTransfers.create(req, actor.id, input, key, hashToken(JSON.stringify(input))));
+  }
+
+  @Post('billing/bank-transfers/:id/report')
+  async reportBankTransfer(@Param('id') id: string, @Req() req: AppRequest, @Body() body: unknown) {
+    const actor = await this.auth.authenticate(req);
+    if (actor.role !== 'MEMBER') throw new ForbiddenException({ code: 'MEMBER_REQUIRED', message: '会員本人としてログインしてください。' });
+    z.string().uuid().parse(id);
+    const input = bankTransferReportSchema.parse(body);
+    const key = this.key(req, 'bank-transfer-report', actor.id);
+    return bankTransferReportResponseSchema.parse(await this.bankTransfers.report(req, actor.id, id, input, key, hashToken(JSON.stringify({ id, ...input }))));
   }
 
   @Post('billing/coupons/preview')
@@ -128,12 +154,14 @@ export class BillingController {
   @Post('billing/subscriptions/:id/cancel')
   async cancel(@Param('id') id: string, @Req() req: AppRequest) {
     const transport = this.transport(); const actor = await this.auth.authenticate(req); z.string().uuid().parse(id);
+    if (transport === 'bank_transfer') throw new ConflictException({ code: 'BANK_TRANSFER_NOT_RECURRING', message: '銀行振込の期間利用は自動更新されません。解約予約は不要です。' });
     return billingSubscriptionLifecycleResponseSchema.parse(await this.subscriptionLifecycle.scheduleCancellation(req, actor.id, id, transport));
   }
 
   @Post('billing/subscriptions/:id/resume')
   async resume(@Param('id') id: string, @Req() req: AppRequest) {
     const transport = this.transport(); const actor = await this.auth.authenticate(req); z.string().uuid().parse(id);
+    if (transport === 'bank_transfer') throw new ConflictException({ code: 'BANK_TRANSFER_NOT_RECURRING', message: '銀行振込の期間利用は自動更新されません。期間終了後に改めてお申し込みください。' });
     return billingSubscriptionLifecycleResponseSchema.parse(await this.subscriptionLifecycle.resume(req, actor.id, id, transport));
   }
 
@@ -153,6 +181,22 @@ export class BillingController {
   async admin(@Req() req: AppRequest) {
     await this.staff(req, ['ADMIN']);
     return adminBillingResponseSchema.parse(await this.billingQuery.admin());
+  }
+
+  @Post('admin/billing/bank-transfers/:id/review')
+  async reviewBankTransfer(@Param('id') id: string, @Req() req: AppRequest, @Body() body: unknown) {
+    const actor = await this.staff(req, ['ADMIN']);
+    z.string().uuid().parse(id);
+    const input = bankTransferReviewSchema.parse(body);
+    const key = this.key(req, 'bank-transfer-review', actor.id);
+    return bankTransferReviewResponseSchema.parse(await this.bankTransfers.review(req, actor.id, id, input, key, hashToken(JSON.stringify({ id, ...input }))));
+  }
+
+  @Post('admin/billing/bank-transfer-settings')
+  async updateBankTransferSettings(@Req() req: AppRequest, @Body() body: unknown) {
+    const actor = await this.staff(req, ['ADMIN']);
+    const input = bankTransferSettingsUpdateSchema.parse(body);
+    return bankTransferSettingsResponseSchema.parse(await this.bankTransfers.updateSettings(req, actor.id, input));
   }
 
   @Get('admin/billing/coupons')

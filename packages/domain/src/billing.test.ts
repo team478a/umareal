@@ -109,6 +109,7 @@ describe('billing periods', () => {
       dayPasses: [{ id: '10000000-0000-4000-8000-000000000002', raceDate: '2027-02-07', status: 'ACTIVE', priceYen: 980 }],
       payments: [{ id: '10000000-0000-4000-8000-000000000003', provider: 'STRIPE', kind: 'SUBSCRIPTION', status: 'SUCCEEDED', amountYen: 2980, occurredAt: new Date('2027-01-01T00:00:00Z') }],
       supportRequests: [{ id: '10000000-0000-4000-8000-000000000004', paymentTransactionId: null, category: 'OTHER' as const, message: '請求について確認したいです。', status: 'OPEN' as const, createdAt: new Date('2027-01-02T00:00:00Z'), updatedAt: new Date('2027-01-02T00:00:00Z'), events: [{ eventType: 'CREATED', occurredAt: new Date('2027-01-02T00:00:00Z') }] }],
+      bankTransfers: [],
       customerPortalAvailable: true
     };
     expect(memberBillingResponseSchema.parse(response)).toEqual({
@@ -125,7 +126,7 @@ describe('billing periods', () => {
   it('keeps the administrator billing dashboard within its explicit operational contract', () => {
     const subscription = { id: '20000000-0000-4000-8000-000000000001', planCode: 'STANDARD', status: 'ACTIVE', priceYen: 2980, currentPeriodEndsAt: new Date('2027-02-01T00:00:00Z'), graceEndsAt: null, cancelAtPeriodEnd: false, user: { email: 'member@example.test', displayName: '会員' } };
     const payment = { id: '20000000-0000-4000-8000-000000000002', provider: 'STRIPE', kind: 'SUBSCRIPTION', status: 'SUCCEEDED', amountYen: 2980, occurredAt: new Date('2027-01-01T00:00:00Z'), user: { email: 'member@example.test', displayName: '会員' } };
-    const response = { billingTransport: 'stripe' as const, subscriptions: [subscription], dayPasses: [], payments: [payment], checkouts: [], stripeWebhooks: [], supportRequests: [], pendingDayPassReviews: [], reviewCheckouts: [] };
+    const response = { billingTransport: 'stripe' as const, subscriptions: [subscription], dayPasses: [], payments: [payment], checkouts: [], stripeWebhooks: [], supportRequests: [], pendingDayPassReviews: [], reviewCheckouts: [], bankTransfers: [], bankTransferSettings: { revision: 1, enabled: false, bankName: '', branchName: '', accountType: '' as const, accountNumber: '', accountHolder: '', instructions: '', requestValidityDays: 3, monthlyAccessDays: 30 } };
     expect(adminBillingResponseSchema.parse(response)).toEqual({
       ...response,
       subscriptions: [{ ...subscription, currentPeriodEndsAt: '2027-02-01T00:00:00.000Z' }],
