@@ -14,6 +14,17 @@ async function preview(fixture: Awaited<ReturnType<typeof assessmentFixture>>, p
   return client.call(`expert/races/${fixture.race.id}/prediction/preview`, 'POST', { predictionRevision, raceRevision: fixture.race.revision, correctionReason });
 }
 describe('prediction drafts, publication and immutable versions', () => {
+  it('publishes multiple quick picks as equal circles in a dedicated immutable format', async () => {
+    const fixture = await assessmentFixture();
+    const draft: PredictionDraft = { mode: 'QUICK_PICK', visibility: 'FREE', confidence: 'A', summary: 'パドックで直前に確認した注目馬です。', marks: fixture.entries.map(entry => ({ entryId: entry.id, mark: 'TAIKO', reason: 'パドック速報で選択' })) };
+    const saved = await save(fixture, draft); expect(saved.result.status).toBe(201);
+    const checked = await preview(fixture, saved.result.body.revision); expect(checked.status).toBe(201);
+    const published = await fixture.client.call(`expert/races/${fixture.race.id}/prediction/publish/${checked.body.previewId}`, 'POST'); expect(published.status, JSON.stringify(published.body)).toBe(201);
+    const version = await db.predictionVersion.findUniqueOrThrow({ where: { id: published.body.versionId }, include: { marks: true } });
+    expect(version.formatVersion).toBe('HORSE_EVALUATION_V1'); expect(version.contentSnapshot).toMatchObject({ mode: 'QUICK_PICK' });
+    expect(version.marks.map(mark => mark.mark)).toEqual(['TAIKO', 'TAIKO']);
+    await expect(db.predictionVersion.update({ where: { id: version.id }, data: { summary: '書き換え' } })).rejects.toThrow();
+  });
   it('allows an AAL2 race operator to publish an initial prediction without gaining correction authority', async () => {
     const target = await assessmentFixture(); const operator = await assessmentFixture('OPERATOR'); const low = await assessmentFixture('OPERATOR', 1);
     const endpoint = `expert/races/${target.race.id}/prediction`;

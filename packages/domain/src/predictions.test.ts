@@ -18,6 +18,13 @@ describe('current horse-evaluation prediction validation', () => {
     expect(publishablePredictionSchema.safeParse({ ...current, confidence: 'SKIP' }).success).toBe(false);
   });
 
+  it('allows equal quick-pick circles without inventing a main horse', () => {
+    const quick = { ...current, mode: 'QUICK_PICK' as const, marks: [{ entryId, mark: 'TAIKO' as const, reason: 'パドックで選択' }] };
+    expect(publishablePredictionSchema.safeParse(quick).success).toBe(true);
+    expect(publishablePredictionSchema.safeParse({ ...quick, marks: [] }).success).toBe(false);
+    expect(publishablePredictionSchema.safeParse({ ...quick, marks: current.marks }).success).toBe(false);
+  });
+
   it('rejects duplicate horses and requires every selected horse reason', () => {
     expect(predictionDraftSchema.safeParse({ ...current, marks: [current.marks[0], { ...current.marks[0], mark: 'TAIKO' }] }).success).toBe(false);
     expect(predictionDraftSchema.safeParse({ ...current, marks: [{ ...current.marks[0], reason: '' }] }).success).toBe(false);
