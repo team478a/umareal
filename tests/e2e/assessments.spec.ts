@@ -4,6 +4,30 @@ import { blankAssessment } from '../../packages/domain/src';
 import { assessmentFixture } from '../assessment-fixtures';
 import { db } from '../helpers';
 test.afterAll(() => db.$disconnect());
+test('keeps Japanese IME composition active until the paddock comment is converted', async ({ page, context }) => {
+  const fixture = await assessmentFixture();
+  await context.addCookies([{ name: 'keiba_session', value: fixture.token, domain: 'localhost', path: '/', httpOnly: true, sameSite: 'Lax' }]);
+  await page.goto('/expert'); await page.getByRole('button', { name: '評価・予想を入力' }).click();
+  const comment = page.getByLabel('パドック短評', { exact: true });
+  await comment.evaluate(element => {
+    element.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: 'に' }));
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+    setter?.call(element, 'にほん');
+    element.dispatchEvent(new InputEvent('input', { bubbles: true, data: 'にほん', inputType: 'insertCompositionText', isComposing: true }));
+  });
+  await page.waitForTimeout(900);
+  await expect(comment).toBeEnabled();
+  await expect(comment).toHaveValue('にほん');
+  expect(await db.assessment.findUnique({ where: { entryId: fixture.entries[0].id } })).toBeNull();
+  await comment.evaluate(element => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+    setter?.call(element, '日本');
+    element.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '日本' }));
+  });
+  await expect(comment).toHaveValue('日本');
+  await expect(page.locator('.assessment-progress [role=status]')).toHaveText('保存済み');
+  expect((await db.assessment.findUniqueOrThrow({ where: { entryId: fixture.entries[0].id } })).content).toMatchObject({ paddockComment: '日本' });
+});
 test('completes the current horse and advances to the next incomplete horse without filling observations automatically', async ({ page, context }) => {
   const fixture = await assessmentFixture('EXPERT', 2, 3);
   await db.assessment.create({ data: { entryId: fixture.entries[1].id, revision: 1, updatedBy: fixture.owner.user.id, content: { ...blankAssessment, body: 3, walk: 3, coat: 3, focus: 3, sweating: 3, calmness: 3, change: 'SAME' } } });

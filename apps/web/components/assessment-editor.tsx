@@ -1,11 +1,34 @@
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type CompositionEvent, type TextareaHTMLAttributes } from 'react';
 import { assessmentSaveSchema, blankAssessment, changeLabels, changes, markLabels, marks, metricLabels, metrics, metricValues, paddockComplete, preComplete, uniformPaddockMetrics, type AssessmentInput, type AssessmentSaveInput, type ExpertAssessmentHistoryResponse, type ExpertAssessmentSaveResponse, type ExpertAssessmentWorkspaceResponse } from '@keiba/domain';
 import { PredictionEditor } from './prediction-editor';
 import { readAssessmentDrafts, writeAssessmentDrafts } from './assessment-draft-storage';
 type Entry = ExpertAssessmentWorkspaceResponse['entries'][number];
 type Draft = AssessmentSaveInput;
 type Drafts = Record<string, Draft>;
+type ImeSafeTextareaProps = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'onChange'> & { value: string; onCommit: (value: string) => void; onCompositionChange?: (composing: boolean) => void };
+function ImeSafeTextarea({ value, onCommit, onCompositionChange, ...props }: ImeSafeTextareaProps) {
+  const [draft, setDraft] = useState(value);
+  const composing = useRef(false);
+  const lastCommitted = useRef(value);
+  useEffect(() => {
+    if (composing.current || value === lastCommitted.current) return;
+    lastCommitted.current = value; setDraft(value);
+  }, [value]);
+  useEffect(() => () => onCompositionChange?.(false), [onCompositionChange]);
+  const commit = (next: string) => {
+    if (next === lastCommitted.current) return;
+    lastCommitted.current = next; onCommit(next);
+  };
+  const finishComposition = (event: CompositionEvent<HTMLTextAreaElement>) => {
+    composing.current = false; const next = event.currentTarget.value;
+    setDraft(next); commit(next); onCompositionChange?.(false);
+  };
+  return <textarea {...props} value={draft}
+    onCompositionStart={() => { composing.current = true; onCompositionChange?.(true); }}
+    onCompositionEnd={finishComposition}
+    onChange={event => { const next = event.currentTarget.value; setDraft(next); if (!composing.current) commit(next); }} />;
+}
 const fieldLabels: Record<string, string> = { preScore: '事前点数', preRank: '事前順位', preMark: '事前印', preComment: '事前短評', ...metricLabels, change: '総合変化', paddockComment: 'パドック短評' };
 function valueText(key: string, value: unknown) {
   if (value === null || value === undefined) return '未入力';
@@ -29,17 +52,18 @@ export function AssessmentEditor({ raceId, userId, onClose }: { raceId: string; 
   const [review, setReview] = useState(false); const [history, setHistory] = useState<ExpertAssessmentHistoryResponse['items']>([]);
   const [storageNotice, setStorageNotice] = useState('');
   const [onlineVersion, setOnlineVersion] = useState(0);
+  const [imeComposing, setImeComposing] = useState(false);
   const [historyPage, setHistoryPage] = useState(1); const [historyTotal, setHistoryTotal] = useState(0);
-  const storageKey = `keiba:assessment:${userId}:${raceId}`; const raw = useRef<string | null>(null); const sending = useRef(false);
+  const storageKey = `keiba:assessment:${userId}:${raceId}`; const raw = useRef<string | null>(null); const sending = useRef(false); const draftsRef = useRef<Drafts>({});
   const persist = useCallback((next: Drafts) => {
-    raw.current = writeAssessmentDrafts(localStorage, storageKey, next, raw.current); setDrafts(next);
+    raw.current = writeAssessmentDrafts(localStorage, storageKey, next, raw.current); draftsRef.current = next; setDrafts(next);
   }, [storageKey]);
   const load = useCallback(async () => {
     try {
       const result = await request<ExpertAssessmentWorkspaceResponse>(`${raceId}/assessments`);
       const stored = readAssessmentDrafts(localStorage, storageKey); raw.current = stored.raw;
       setStorageNotice(stored.expired ? '24時間を過ぎた未送信の評価は、この端末から消去しました。' : stored.migrated ? '以前の未送信評価を復元しました。復元後24時間で自動消去します。' : '');
-      setWorkspace(result); setDrafts(stored.drafts); setReady(true); setError('');
+      setWorkspace(result); draftsRef.current = stored.drafts; setDrafts(stored.drafts); setReady(true); setError('');
     } catch (e) { setError((e as Error).message); }
   }, [raceId, storageKey]);
   useEffect(() => { void load(); }, [load]);
@@ -52,14 +76,19 @@ export function AssessmentEditor({ raceId, userId, onClose }: { raceId: string; 
     window.addEventListener('beforeunload', leave); return () => window.removeEventListener('beforeunload', leave);
   }, [drafts]);
   useEffect(() => {
-    if (!ready || failed || conflict || busy || !Object.keys(drafts).length) return;
+    if (!ready || failed || conflict || busy || imeComposing || !Object.keys(drafts).length) return;
     const timer = setTimeout(async () => {
       if (sending.current || !navigator.onLine) return;
       const [entryId, draft] = Object.entries(drafts)[0]; sending.current = true; setBusy(true);
       try {
         if (localStorage.getItem(storageKey) !== raw.current) throw new Error('別のタブが一時保存を変更しました。再読み込みして確認してください。');
         const saved = await request<ExpertAssessmentSaveResponse>(`${raceId}/entries/${entryId}/assessment`, draft);
-        const next = { ...drafts }; delete next[entryId]; persist(next);
+        const latestDrafts = draftsRef.current;
+        if (latestDrafts[entryId]?.mutationId === draft.mutationId) {
+          const next = { ...latestDrafts }; delete next[entryId]; persist(next);
+        } else if (latestDrafts[entryId]) {
+          persist({ ...latestDrafts, [entryId]: { ...latestDrafts[entryId], revision: saved.revision } });
+        }
         setWorkspace(current => current ? { ...current, entries: current.entries.map(e => e.id === entryId ? { ...e, assessment: saved } : e) } : current);
         setError('');
       } catch (e) {
@@ -71,19 +100,19 @@ export function AssessmentEditor({ raceId, userId, onClose }: { raceId: string; 
       } finally { sending.current = false; setBusy(false); }
     }, Object.keys(drafts).length > 1 ? 0 : 650);
     return () => clearTimeout(timer);
-  }, [ready, failed, conflict, busy, drafts, persist, raceId, storageKey, onlineVersion]);
+  }, [ready, failed, conflict, busy, drafts, persist, raceId, storageKey, onlineVersion, imeComposing]);
   if (!workspace || !ready) return <section className="panel panel-body"><h2>評価入力</h2><p role={error ? 'alert' : 'status'}>{error || '読み込み中…'}</p><button className="button secondary" onClick={() => void load()}>再読み込み</button><button className="text-link" onClick={onClose}>担当一覧に戻る</button></section>;
   const entry = workspace.entries[index];
   const contentFor = (e: Entry) => drafts[e.id]?.content ?? e.assessment?.content ?? blankAssessment;
   const content = entry ? contentFor(entry) : blankAssessment;
   const usesLegacyCondition = content.calm !== null && content.sweating === null && content.calmness === null;
   function edit(patch: Partial<AssessmentInput>) {
-    if (!entry || busy || failed || conflict) return false;
+    if (!entry || failed || conflict) return false;
     const previous = drafts[entry.id];
     const next = { ...drafts, [entry.id]: { content: { ...content, ...patch }, revision: previous?.revision ?? entry.assessment?.revision ?? 0, raceRevision: previous?.raceRevision ?? workspace!.race.revision, horseId: entry.horseId, mutationId: crypto.randomUUID(), reason: reason.trim() } };
     if (!assessmentSaveSchema.safeParse(next[entry.id]).success) { setError('入力範囲を確認してください。点数0〜100、順位1〜18、短評1000文字以内です。'); return false; }
     try { persist(next); setError(''); return true; }
-    catch (e) { setDrafts(next); setFailed(true); setError(`端末に保存できません：${(e as Error).message} 入力を控えてから再読み込みしてください。`); return false; }
+    catch (e) { draftsRef.current = next; setDrafts(next); setFailed(true); setError(`端末に保存できません：${(e as Error).message} 入力を控えてから再読み込みしてください。`); return false; }
   }
   function completeAndAdvance(change: AssessmentInput['change']) {
     if (!metrics.every(metric => content[metric] !== null) || !edit({ change })) return;
@@ -136,14 +165,14 @@ export function AssessmentEditor({ raceId, userId, onClose }: { raceId: string; 
       <div className="assessment-tabs"><button className="button secondary" aria-pressed={mode === 'pre'} onClick={() => setMode('pre')}>事前評価</button><button className="button secondary" aria-pressed={mode === 'paddock'} onClick={() => setMode('paddock')}>パドック評価</button></div>
       <section className="panel panel-body"><h2>{entry.number}番 {entry.horseName}</h2><p>{entry.status === 'ACTIVE' ? '出走予定' : `出走状態：${entry.status}`}</p>
         <label className="field">入力・変更理由<input aria-label="入力・変更理由" value={reason} maxLength={500} disabled={busy} onChange={e => setReason(e.target.value)} /></label>
-        <fieldset disabled={busy || failed || !!conflict || !reason.trim()} className="assessment-fields">
-          {mode === 'pre' ? <><div className="race-form-grid"><label className="field">事前点数<input aria-label="事前点数" type="number" min={0} max={100} value={content.preScore ?? ''} onChange={e => edit({ preScore: e.target.value === '' ? null : Number(e.target.value) })} /></label><label className="field">事前順位<input aria-label="事前順位" type="number" min={1} max={18} value={content.preRank ?? ''} onChange={e => edit({ preRank: e.target.value === '' ? null : Number(e.target.value) })} /></label><label className="field">事前印<select aria-label="事前印" value={content.preMark ?? ''} onChange={e => edit({ preMark: e.target.value ? e.target.value as AssessmentInput['preMark'] : null })}><option value="">未入力</option>{marks.map(m => <option key={m} value={m}>{markLabels[m]}</option>)}</select></label></div><label className="field">事前短評<textarea aria-label="事前短評" maxLength={1000} value={content.preComment} onChange={e => edit({ preComment: e.target.value })} /></label></> : <>
+        <fieldset disabled={failed || !!conflict || !reason.trim()} className="assessment-fields">
+          {mode === 'pre' ? <><div className="race-form-grid"><label className="field">事前点数<input aria-label="事前点数" type="number" min={0} max={100} value={content.preScore ?? ''} onChange={e => edit({ preScore: e.target.value === '' ? null : Number(e.target.value) })} /></label><label className="field">事前順位<input aria-label="事前順位" type="number" min={1} max={18} value={content.preRank ?? ''} onChange={e => edit({ preRank: e.target.value === '' ? null : Number(e.target.value) })} /></label><label className="field">事前印<select aria-label="事前印" value={content.preMark ?? ''} onChange={e => edit({ preMark: e.target.value ? e.target.value as AssessmentInput['preMark'] : null })}><option value="">未入力</option>{marks.map(m => <option key={m} value={m}>{markLabels[m]}</option>)}</select></label></div><label className="field">事前短評<ImeSafeTextarea aria-label="事前短評" maxLength={1000} value={content.preComment} onCommit={value => edit({ preComment: value })} onCompositionChange={setImeComposing} /></label></> : <>
           {usesLegacyCondition && <div className="notice warning">旧形式の「発汗・落ち着き」評価（{content.calm === 0 ? '判断不能' : content.calm}）で保存済みです。内容を修正する場合は、発汗と落ち着きをそれぞれ入力してください。</div>}
           <fieldset className="metric metric-quick"><legend>6項目まとめて設定</legend><p className="form-note">現在の馬だけに反映します。異なる項目は下で個別に調整できます。</p><div className="metric-options">{metricValues.map(value => <button type="button" key={value} aria-label={`6項目を${value === 0 ? '判断不能' : value}に設定`} aria-pressed={metrics.every(metric => content[metric] === value)} onClick={() => edit(uniformPaddockMetrics(value))}>{value === 0 ? '判断不能' : value}</button>)}</div></fieldset>
           {metrics.map(metric => <fieldset className="metric" key={metric}><legend>{metricLabels[metric]}</legend><div className="metric-options">{metricValues.map(value => <button type="button" key={value} aria-label={`${metricLabels[metric]} ${value === 0 ? '判断不能' : value}`} aria-pressed={content[metric] === value} onClick={() => edit({ [metric]: value, ...(metric === 'sweating' || metric === 'calmness' ? { calm: null } : {}) })}>{value === 0 ? '判断不能' : value}</button>)}</div></fieldset>)}
           <fieldset className="metric"><legend>総合変化</legend><div className="change-options">{changes.map(change => <button key={change} type="button" aria-pressed={content.change === change} onClick={() => edit({ change })}>{changeLabels[change]}</button>)}</div></fieldset>
           <fieldset className="metric metric-complete"><legend>総合変化を確定して次の未入力馬へ</legend><p className="form-note">6項目を確認後、選んだ総合変化を保存して、未入力の馬を馬番順に表示します。評価内容は自動入力しません。</p><div className="change-options">{changes.map(change => <button key={change} type="button" disabled={!metrics.every(metric => content[metric] !== null)} onClick={() => completeAndAdvance(change)}>{changeLabels[change]}で完了→次</button>)}</div></fieldset>
-          <label className="field">パドック短評<textarea aria-label="パドック短評" maxLength={1000} value={content.paddockComment} onChange={e => edit({ paddockComment: e.target.value })} placeholder="端末の音声入力も使用できます" /></label><div className="comment-templates">{['歩様がスムーズ', '落ち着いている', '判断材料が不足'].map(text => <button className="button secondary small" key={text} onClick={() => edit({ paddockComment: `${content.paddockComment}${content.paddockComment ? '。' : ''}${text}`.slice(0, 1000) })}>{text}</button>)}</div>
+          <label className="field">パドック短評<ImeSafeTextarea aria-label="パドック短評" maxLength={1000} value={content.paddockComment} onCommit={value => edit({ paddockComment: value })} onCompositionChange={setImeComposing} placeholder="端末の音声入力も使用できます" /></label><div className="comment-templates">{['歩様がスムーズ', '落ち着いている', '判断材料が不足'].map(text => <button className="button secondary small" key={text} onClick={() => edit({ paddockComment: `${content.paddockComment}${content.paddockComment ? '。' : ''}${text}`.slice(0, 1000) })}>{text}</button>)}</div>
           </>}
         </fieldset>
       </section>
