@@ -188,7 +188,12 @@ WIN5初版・訂正版の公開時は商品公開版と通知eventを同じDBト
 
 ## 料金・契約
 
-`BILLING_TRANSPORT=test` はローカルと`CLOUD_STAGING`の請求なし検証専用で、外部通信、カード入力、実請求を行わない。`stripe` はHosted Checkoutと署名付きWebhookを使用する。`STRIPE_SANDBOX`では`stripe`とテストモード、`FREE_REGISTRATION`では`disabled`、`FULL`本番では`stripe`とライブモードだけを許可する。`GET /billing/plans`はStripe接続時に`stripeMode=TEST|LIVE`を返し、テスト画面が実請求と誤認されないようにする。新規購入停止は月額と1日利用の両方へ適用する。
+`BILLING_TRANSPORT=test` はローカルと`CLOUD_STAGING`の請求なし検証専用で、外部通信、カード入力、実請求を行わない。`stripe` はHosted Checkoutと署名付きWebhookを使用する。`bank_transfer` は会員申込と振込報告、ADMIN+AAL2による着金確認を分離し、確認後だけ有限期間権限または1日利用を付与する。`FREE_REGISTRATION`と`FULL`は`bank_transfer`を許可するが、管理画面の受付設定は初期値OFFとする。`GET /billing/plans`はStripe接続時に`stripeMode=TEST|LIVE`を返し、テスト画面が実請求と誤認されないようにする。新規購入停止は月額と1日利用の両方へ適用する。
+
+- `POST /billing/bank-transfers`：本人が銀行振込を申し込む。`Idempotency-Key`必須。権限は付与しない。
+- `POST /billing/bank-transfers/:id/report`：本人が振込名義を報告する。着金確認ではない。
+- `POST /admin/billing/bank-transfers/:id/review`：ADMIN+AAL2が着金額・日時を確認して承認、または理由付きで却下する。
+- `POST /admin/billing/bank-transfer-settings`：ADMIN+AAL2が口座・期限・利用日数・案内・受付状態を変更する。
 
 管理設定は全体停止に加え、創設会員、通常月額、1日利用の新規販売を個別に停止できる。クーポン付き申込ではサーバーが管理価格から割引を再計算し、`billing_checkouts`へ通常金額、割引額、今回支払額、月額継続金額を固定する。Stripe Priceは通常金額と照合し、割引はCheckout専用のStripe Couponを固定冪等キーで作成して適用する。コードのプレビューは利用枠を予約せず、実際のCheckout開始時に上限を直列化して予約する。
 

@@ -20,7 +20,7 @@ export class AuthController {
   constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(RegistrationCaptchaService) private readonly captcha: RegistrationCaptchaService, @Inject(AuthSessionService) private readonly sessions: AuthSessionService, @Inject(AuthRegistrationService) private readonly registration: AuthRegistrationService, @Inject(AuthCredentialService) private readonly credentials: AuthCredentialService, @Inject(AuthMfaService) private readonly mfa: AuthMfaService, @Inject(AuthLoginService) private readonly loginService: AuthLoginService, @Inject(AuthSessionLifecycleService) private readonly sessionLifecycle: AuthSessionLifecycleService) {}
   @Get('config') async config() {
     const mode = resolveLaunchMode(process.env.LAUNCH_MODE);
-    const capabilities = launchCapabilities(mode);
+    const capabilities = { ...launchCapabilities(mode), billing: launchCapabilities(mode).billing || process.env.BILLING_TRANSPORT === 'bank_transfer' };
     const [settings, registration, captcha] = await Promise.all([
       this.auth.db.systemSetting.findUnique({ where: { id: 'global' }, select: { emailNotificationsEnabled: true, lineLoginEnabled: true, lineNotificationsEnabled: true } }),
       this.auth.registrationAvailability(),

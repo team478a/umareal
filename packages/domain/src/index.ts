@@ -18,6 +18,7 @@ export * from './line-login';
 export * from './line-rich-menu';
 export * from './results';
 export * from './billing';
+export * from './bank-transfer';
 export * from './billing-support';
 export * from './support';
 export * from './free-report';

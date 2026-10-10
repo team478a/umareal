@@ -51,7 +51,7 @@ describe('billing support requests', () => {
   it('returns only the member own requests without internal response reasons', async () => {
     const mine = await member.call('billing/me');
     expect(mine.status).toBe(200);
-    expect(Object.keys(mine.body).sort()).toEqual(['customerPortalAvailable', 'dayPasses', 'payments', 'subscriptions', 'supportRequests']);
+    expect(Object.keys(mine.body).sort()).toEqual(['bankTransfers', 'customerPortalAvailable', 'dayPasses', 'payments', 'subscriptions', 'supportRequests'].sort());
     expect(Object.keys(mine.body.subscriptions[0]).sort()).toEqual(['cancelAtPeriodEnd', 'currentPeriodEndsAt', 'graceEndsAt', 'id', 'planCode', 'priceYen', 'status']);
     expect(Object.keys(mine.body.payments[0]).sort()).toEqual(['amountYen', 'id', 'kind', 'occurredAt', 'provider', 'status']);
     const support = mine.body.supportRequests.find((item: { id: string }) => item.id === requestId);

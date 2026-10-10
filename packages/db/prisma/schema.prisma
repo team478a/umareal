@@ -55,6 +55,8 @@ model User {
   billingCouponsCreated          BillingCoupon[]            @relation("BillingCouponCreator")
   billingCouponsDeactivated      BillingCoupon[]            @relation("BillingCouponDeactivator")
   billingCouponRedemptions       BillingCouponRedemption[]
+  bankTransferRequests           BankTransferRequest[]      @relation("BankTransferRequester")
+  bankTransfersReviewed          BankTransferRequest[]      @relation("BankTransferReviewer")
   supportRequests                SupportRequest[]           @relation("SupportRequester")
   assignedSupportRequests        SupportRequest[]           @relation("SupportAssignee")
   supportEvents                  SupportEvent[]             @relation("SupportActor")
@@ -329,6 +331,7 @@ model Entitlement {
   subscription         Subscription?
   dayPass              DayPass?
   referralBenefitGrant ReferralBenefitGrant?
+  bankTransferRequest  BankTransferRequest?
 
   @@index([userId, endsAt])
   @@map("entitlements")
@@ -377,6 +380,7 @@ model DayPass {
   events               BillingEvent[]
   referralReward       ReferralReward?
   referralBenefitGrant ReferralBenefitGrant?
+  bankTransferRequest  BankTransferRequest?
   createdAt            DateTime              @default(now()) @db.Timestamptz(3)
   updatedAt            DateTime              @default(now()) @db.Timestamptz(3)
 
@@ -556,6 +560,8 @@ model PaymentTransaction {
   dayPass           DayPass?                 @relation(fields: [dayPassId], references: [id])
   billingCheckoutId String?                  @db.Uuid
   billingCheckout   BillingCheckout?         @relation(fields: [billingCheckoutId], references: [id])
+  bankTransferRequestId String?               @unique @db.Uuid
+  bankTransferRequest   BankTransferRequest?  @relation(fields: [bankTransferRequestId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   supportRequests   BillingSupportRequest[]
   couponRedemption  BillingCouponRedemption?
   occurredAt        DateTime                 @default(now()) @db.Timestamptz(3)
@@ -564,6 +570,43 @@ model PaymentTransaction {
   @@index([userId, occurredAt])
   @@index([billingCheckoutId])
   @@map("payment_transactions")
+}
+
+model BankTransferRequest {
+  id                    String              @id @default(uuid()) @db.Uuid
+  userId                String              @db.Uuid
+  user                  User                @relation("BankTransferRequester", fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  kind                  String
+  planCode              String
+  raceDate              String?
+  amountYen             Int
+  referenceCode         String              @unique
+  bankAccountSnapshot   Json
+  status                String              @default("AWAITING_TRANSFER")
+  payerName             String?
+  reportedAt            DateTime?           @db.Timestamptz(3)
+  receivedAt            DateTime?           @db.Timestamptz(3)
+  expiresAt             DateTime            @db.Timestamptz(3)
+  confirmedAt           DateTime?           @db.Timestamptz(3)
+  rejectedAt            DateTime?           @db.Timestamptz(3)
+  reviewedById          String?              @db.Uuid
+  reviewedBy            User?               @relation("BankTransferReviewer", fields: [reviewedById], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  reviewReason          String?
+  entitlementId         String?              @unique @db.Uuid
+  entitlement           Entitlement?         @relation(fields: [entitlementId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  dayPassId             String?              @unique @db.Uuid
+  dayPass               DayPass?             @relation(fields: [dayPassId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  payment               PaymentTransaction?
+  events                BillingEvent[]
+  idempotencyKey        String               @unique
+  requestHash           String
+  revision              Int                 @default(1)
+  createdAt             DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime            @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@index([userId, status, createdAt])
+  @@index([status, reportedAt])
+  @@map("bank_transfer_requests")
 }
 
 model BillingSupportRequest {
@@ -651,6 +694,8 @@ model BillingEvent {
   dayPass           DayPass?           @relation(fields: [dayPassId], references: [id])
   billingCheckoutId String?            @db.Uuid
   billingCheckout   BillingCheckout?   @relation(fields: [billingCheckoutId], references: [id])
+  bankTransferRequestId String?         @db.Uuid
+  bankTransferRequest   BankTransferRequest? @relation(fields: [bankTransferRequestId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   details           Json
   actorId           String             @db.Uuid
   occurredAt        DateTime           @default(now()) @db.Timestamptz(3)
@@ -1953,6 +1998,15 @@ model SystemSetting {
   stripePriceFounder              String?
   stripePriceStandard             String?
   stripePriceDayPass              String?
+  bankTransferEnabled             Boolean   @default(false)
+  bankTransferBankName            String?
+  bankTransferBranchName          String?
+  bankTransferAccountType         String?
+  bankTransferAccountNumber       String?
+  bankTransferAccountHolder       String?
+  bankTransferInstructions        String    @default("")
+  bankTransferRequestValidityDays Int       @default(3)
+  bankTransferMonthlyAccessDays   Int       @default(30)
   mailApiKeyEncrypted             String?
   mailWebhookSecretEncrypted      String?
   mailFrom                        String?

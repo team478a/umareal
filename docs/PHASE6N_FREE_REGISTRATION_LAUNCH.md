@@ -6,7 +6,7 @@
 
 - `FREE_REGISTRATION` はLINE登録・ログイン、メール登録・確認・ログイン、会員ページ、Webお知らせ、無料情報を有効にする。
 - 同モードではLINE・メールの公開通知を有効化できる。Stripe購入は引き続き画面とAPIの両方で停止する。LINE連携済みで受信可能な無料会員へ対象レース告知、無料速報、WIN5・通常紙面の公開通知を送れる。有料予想本文や具体的な馬番は通知へ含めない。従来PAID指定のパドック通知の対象は変更しない。
-- 本番APIのLINE OAuthは `line`。APIとworkerの `NOTIFICATION_TRANSPORT` は `disabled` または `line` を許可し、開発用 `test` は拒否する。`BILLING_TRANSPORT=disabled` を維持する。
+- 本番APIのLINE OAuthは `line`。APIとworkerの `NOTIFICATION_TRANSPORT` は `disabled` または `line` を許可し、開発用 `test` は拒否する。銀行振込を別承認で開始するまでは`BILLING_TRANSPORT=disabled`を維持し、開始時は`bank_transfer`と管理画面の受付Gateを使用する。
 - `disabled` のworkerはLINE資格情報を読み込まず、通知eventを `SKIPPED` に確定してLINE配送を作らない。予約公開、メール配送、Web内お知らせは継続する。`line` 有効化時も過去の展開済みeventを巻き戻さない。`line`では既存Messaging API transport・既存配信対象判定を再利用する。
 - 管理画面のLINE通知スイッチ、本人の通知カテゴリ、ブロック・連携解除・退会状態を維持する。公開設定APIの `capabilities.lineNotifications` は提供可能な機能、`lineNotificationsEnabled` はAPI側transportと管理スイッチが有効な状態を示す。実送信成功は保証せず、workerの稼働と配送履歴を別途確認する。
 - 管理画面の本番準備チェックはLINE設定不足を表示し、担当者本人へのテスト送信を案内する。無料募集モードだから対象外とは表示しない。Stripeは引き続き対象外。

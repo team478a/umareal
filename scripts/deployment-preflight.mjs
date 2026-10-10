@@ -68,9 +68,10 @@ export function validateDeploymentEnvironment(service, env) {
   requireValue('CAPTCHA_TRANSPORT', env.CAPTCHA_TRANSPORT === 'turnstile', 'CAPTCHA_TRANSPORT must be turnstile.');
   const expectedLineOAuthTransport = ['FREE_REGISTRATION', 'FULL'].includes(launchMode) ? 'line' : 'disabled';
   requireValue('LINE_OAUTH_TRANSPORT', env.LINE_OAUTH_TRANSPORT === expectedLineOAuthTransport, `LINE_OAUTH_TRANSPORT must be ${expectedLineOAuthTransport} for ${launchMode ?? 'the selected launch mode'}.`);
-  const expectedBillingTransport = ['FULL', 'STRIPE_SANDBOX'].includes(launchMode) ? 'stripe' : launchMode === 'CLOUD_STAGING' ? 'test' : 'disabled';
-  requireValue('BILLING_TRANSPORT', env.BILLING_TRANSPORT === expectedBillingTransport, `BILLING_TRANSPORT must be ${expectedBillingTransport} for ${launchMode ?? 'the selected launch mode'}.`);
-  requireValue('STRIPE_LIVE_MODE', env.STRIPE_LIVE_MODE === (limitedLaunch ? 'false' : 'true'), `STRIPE_LIVE_MODE must be ${limitedLaunch ? 'false' : 'true'} for ${launchMode ?? 'the selected launch mode'}.`);
+  const allowedBillingTransports = launchMode === 'FULL' ? ['stripe', 'bank_transfer'] : launchMode === 'STRIPE_SANDBOX' ? ['stripe'] : launchMode === 'CLOUD_STAGING' ? ['test'] : ['disabled', 'bank_transfer'];
+  requireValue('BILLING_TRANSPORT', allowedBillingTransports.includes(env.BILLING_TRANSPORT), `BILLING_TRANSPORT must be ${allowedBillingTransports.join(' or ')} for ${launchMode ?? 'the selected launch mode'}.`);
+  const expectedStripeLiveMode = launchMode === 'FULL' && env.BILLING_TRANSPORT === 'stripe' ? 'true' : 'false';
+  requireValue('STRIPE_LIVE_MODE', env.STRIPE_LIVE_MODE === expectedStripeLiveMode, `STRIPE_LIVE_MODE must be ${expectedStripeLiveMode} for ${launchMode ?? 'the selected launch mode'} and selected billing transport.`);
   const rateLimit = Number(env.AUTH_RATE_LIMIT);
   requireValue('AUTH_RATE_LIMIT', Number.isInteger(rateLimit) && rateLimit >= 1 && rateLimit <= 60, 'AUTH_RATE_LIMIT must be an integer from 1 to 60.');
   manual.push({ code: 'DATABASE_RUNTIME_ROLE', message: 'Verify that DATABASE_URL uses the restricted runtime role.' });
@@ -82,8 +83,8 @@ export function validateDeploymentEnvironment(service, env) {
     : launchMode === 'STRIPE_SANDBOX'
       ? 'Complete Supabase, Resend, Turnstile, and Stripe test-mode Checkout and webhook tests. Stripe live credentials are forbidden.'
     : launchMode === 'FREE_REGISTRATION'
-      ? 'Complete Supabase, Resend, Turnstile, and LINE Login live tests. When enabling LINE notifications, verify API/worker transports and a self-test delivery separately. Stripe remains disabled.'
-      : 'Complete Supabase, Resend, Turnstile, LINE, and Stripe live tests.' });
+      ? env.BILLING_TRANSPORT === 'bank_transfer' ? 'Complete Supabase, Resend, Turnstile, LINE Login, and the bank-transfer application and manual confirmation rehearsal. Stripe remains disabled.' : 'Complete Supabase, Resend, Turnstile, and LINE Login live tests. When enabling LINE notifications, verify API/worker transports and a self-test delivery separately. Stripe remains disabled.'
+      : env.BILLING_TRANSPORT === 'bank_transfer' ? 'Complete Supabase, Resend, Turnstile, LINE, and the bank-transfer application and manual confirmation rehearsal. Stripe remains disabled.' : 'Complete Supabase, Resend, Turnstile, LINE, and Stripe live tests.' });
   return { service, launchMode, ok: errors.length === 0, errors, manual };
 }
 
