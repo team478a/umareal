@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { account, Client, db } from './helpers';
 
-describe('bank transfer payment lifecycle', () => {
+describe.skipIf(process.env.BILLING_TRANSPORT !== 'bank_transfer')('bank transfer payment lifecycle', () => {
   let member: Client;
   let memberId: string;
   let admin: Client;

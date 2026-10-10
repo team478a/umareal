@@ -85,6 +85,25 @@ jobs:
           node scripts/wait-services.mjs
       - name: Database and API integration tests with local transports
         run: pnpm test:integration
+      - name: Restart API in local bank-transfer mode
+        env:
+          BILLING_TRANSPORT: bank_transfer
+          STRIPE_LIVE_MODE: 'false'
+        run: |
+          api_test_pid="$(cat .local/api.pid)"
+          kill "$api_test_pid"
+          for attempt in $(seq 1 50); do
+            if ! kill -0 "$api_test_pid" 2>/dev/null; then break; fi
+            sleep 0.2
+          done
+          (cd apps/api && exec node dist/main.js) > .local/api-bank-transfer.log 2>&1 &
+          echo $! > .local/api.pid
+          node scripts/wait-services.mjs
+      - name: Bank-transfer application and manual confirmation integration tests
+        env:
+          BILLING_TRANSPORT: bank_transfer
+          STRIPE_LIVE_MODE: 'false'
+        run: pnpm test:integration:bank-transfer
       - name: Restart API in local Stripe webhook mode
         env:
           BILLING_TRANSPORT: stripe
