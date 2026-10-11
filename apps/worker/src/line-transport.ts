@@ -22,7 +22,7 @@ export class LineMessagingTransport implements NotificationTransport {
         const acceptedId = response.headers.get('x-line-accepted-request-id');
         if (acceptedId) return { kind: 'SENT', providerMessageId: acceptedId };
       }
-      if (response.status >= 500) return { kind: 'TRANSIENT_FAILURE', errorCode: `LINE_HTTP_${response.status}` };
+      if (response.status === 429 || response.status >= 500) return { kind: 'TRANSIENT_FAILURE', errorCode: `LINE_HTTP_${response.status}` };
       return { kind: 'PERMANENT_FAILURE', errorCode: `LINE_HTTP_${response.status}` };
     } catch (error) {
       return { kind: 'TRANSIENT_FAILURE', errorCode: error instanceof Error && error.name === 'TimeoutError' ? 'LINE_TIMEOUT' : 'LINE_NETWORK_ERROR' };

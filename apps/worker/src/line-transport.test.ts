@@ -15,10 +15,14 @@ describe('LINE Messaging API transport', () => {
   it('treats an accepted retry as sent and classifies failures without response bodies', async () => {
     const accepted = vi.fn(async () => new Response('{}', { status: 409, headers: { 'x-line-accepted-request-id': 'accepted-request' } }));
     expect(await new LineMessagingTransport('token', accepted).send(input)).toEqual({ kind: 'SENT', providerMessageId: 'accepted-request' });
-    for (const [status, kind] of [[400, 'PERMANENT_FAILURE'], [401, 'PERMANENT_FAILURE'], [429, 'PERMANENT_FAILURE'], [500, 'TRANSIENT_FAILURE'], [503, 'TRANSIENT_FAILURE']] as const) {
+    for (const [status, kind] of [[400, 'PERMANENT_FAILURE'], [401, 'PERMANENT_FAILURE'], [500, 'TRANSIENT_FAILURE'], [503, 'TRANSIENT_FAILURE']] as const) {
       const request = vi.fn(async () => new Response('sensitive provider response', { status }));
       expect(await new LineMessagingTransport('token', request).send(input)).toEqual({ kind, errorCode: `LINE_HTTP_${status}` });
     }
+  });
+  it('treats LINE throttling as transient so the notification runner schedules a retry', async () => {
+    const request = vi.fn(async () => new Response('rate limited', { status: 429 }));
+    expect(await new LineMessagingTransport('token', request).send(input)).toEqual({ kind: 'TRANSIENT_FAILURE', errorCode: 'LINE_HTTP_429' });
   });
   it('retries network failures using a safe error code', async () => {
     const request = vi.fn(async () => { throw new Error('response may contain a secret'); });
