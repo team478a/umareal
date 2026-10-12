@@ -38,7 +38,7 @@ describe('external operational alerts', () => {
   it('records source failures once, sends safe external mail, and audits acknowledgement and resolution', async () => {
     const original = await db.operationalAlertSetting.findUniqueOrThrow({ where: { id: 'global' } });
     const adminFixture = await account('ADMIN'); const recipient = await account(); const now = new Date();
-    const race = await db.race.create({ data: { raceDate: new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(now), venue: `外部通知-${randomUUID().slice(0, 6)}`, number: 4, name: '本文へ含めないレース名', startsAt: new Date(now.getTime() - 60_000) } });
+    const race = await db.race.create({ data: { raceDate: new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(now), venue: `外部通知-${randomUUID().slice(0, 6)}`, number: 4, name: '本文へ含めないレース名', startsAt: new Date(now.getTime() - 60_000), assignments: { create: { userId: adminFixture.user.id } } } });
     const announcement = await db.raceAnnouncement.create({ data: { raceId: race.id, version: 1, publishedBy: adminFixture.user.id, reason: '運用アラート試験' } });
     const event = await db.notificationEvent.create({ data: { announcementId: announcement.id, eventType: 'RACE_ANNOUNCED', status: 'FAILED', payload: { privatePrediction: '外部へ送らない予想本文' } } });
     const delivery = await db.notificationDelivery.create({ data: { eventId: event.id, userId: recipient.user.id, channel: 'EMAIL', status: 'FAILED', idempotencyKey: `alert-${randomUUID()}`, attemptCount: 5, lastErrorCode: 'TEST_FINAL_FAILURE' } });
@@ -76,6 +76,30 @@ describe('external operational alerts', () => {
       expect(await db.auditLog.count({ where: { targetId: alert.id, action: { in: ['OPERATIONAL_ALERT_ACKNOWLEDGED', 'OPERATIONAL_ALERT_RESOLVED'] } } })).toBe(2);
       expect(await db.auditLog.count({ where: { targetId: externalDelivery.id, action: 'OPERATIONAL_ALERT_DELIVERY_RETRY' } })).toBe(1);
       const member = new Client(); await member.login(recipient); expect((await member.call('admin/operational-alerts')).status).toBe(403);
+    } finally {
+      await db.operationalAlertSetting.update({ where: { id: 'global' }, data: { enabled: original.enabled, minimumSeverity: original.minimumSeverity, destinationEmails: original.destinationEmails, revision: original.revision, updatedBy: original.updatedBy, updatedAt: original.updatedAt } });
+    }
+  });
+
+  it('limits deadline alerts to announced paddock targets and resolves stale false positives', async () => {
+    const original = await db.operationalAlertSetting.findUniqueOrThrow({ where: { id: 'global' } });
+    const expert = await account('EXPERT'); const publisher = await account('ADMIN'); const now = new Date();
+    const raceDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(now);
+    const past = new Date(now.getTime() - 60_000);
+    const paperOnly = await db.race.create({ data: { raceDate, venue: `紙面のみ-${randomUUID().slice(0, 6)}`, number: 1, name: '紙面のみ', startsAt: past } });
+    const assignedOnly = await db.race.create({ data: { raceDate, venue: `担当のみ-${randomUUID().slice(0, 6)}`, number: 2, name: '担当のみ', startsAt: past, assignments: { create: { userId: expert.user.id } } } });
+    const announcedOnly = await db.race.create({ data: { raceDate, venue: `告知のみ-${randomUUID().slice(0, 6)}`, number: 3, name: '告知のみ', startsAt: past } });
+    await db.raceAnnouncement.create({ data: { raceId: announcedOnly.id, version: 1, publishedBy: publisher.user.id, reason: '告知のみの試験' } });
+    const target = await db.race.create({ data: { raceDate, venue: `対象-${randomUUID().slice(0, 6)}`, number: 4, name: 'パドック対象', startsAt: past, assignments: { create: { userId: expert.user.id } } } });
+    await db.raceAnnouncement.create({ data: { raceId: target.id, version: 1, publishedBy: publisher.user.id, reason: 'パドック対象の試験' } });
+    const stale = await db.operationalAlert.create({ data: { dedupeKey: `PUBLICATION_DEADLINE_MISSED:${paperOnly.id}`, code: 'PUBLICATION_DEADLINE_MISSED', severity: 'CRITICAL', sourceType: 'RACE', sourceId: paperOnly.id, title: '最終予想の公開期限を超過', summary: '旧条件で作成された誤検知です。', detectedAt: now, lastObservedAt: now } });
+    await db.operationalAlertSetting.update({ where: { id: 'global' }, data: { enabled: false, minimumSeverity: 'CRITICAL', destinationEmails: [] } });
+    try {
+      await runOperationalAlerts({ db, now: () => now });
+      expect(await db.operationalAlert.findUnique({ where: { dedupeKey: `PUBLICATION_DEADLINE_MISSED:${assignedOnly.id}` } })).toBeNull();
+      expect(await db.operationalAlert.findUnique({ where: { dedupeKey: `PUBLICATION_DEADLINE_MISSED:${announcedOnly.id}` } })).toBeNull();
+      expect(await db.operationalAlert.findUnique({ where: { dedupeKey: `PUBLICATION_DEADLINE_MISSED:${target.id}` } })).toMatchObject({ status: 'OPEN', code: 'PUBLICATION_DEADLINE_MISSED' });
+      expect(await db.operationalAlert.findUniqueOrThrow({ where: { id: stale.id } })).toMatchObject({ status: 'RESOLVED', resolutionReason: 'SYSTEM: パドック対象または最終予想の公開期限条件が解消されました。' });
     } finally {
       await db.operationalAlertSetting.update({ where: { id: 'global' }, data: { enabled: original.enabled, minimumSeverity: original.minimumSeverity, destinationEmails: original.destinationEmails, revision: original.revision, updatedBy: original.updatedBy, updatedAt: original.updatedAt } });
     }
