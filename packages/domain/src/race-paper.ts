@@ -33,7 +33,12 @@ export const racePaperPreviewInputSchema = z.object({ revision: z.number().int()
 export const racePaperMetadataSchema = z.object({ id: z.string().uuid(), version: z.number().int().positive(), publishedAt: dateTime, targetDate: dateSchema, title: z.string(), accessScope: z.enum(['MEMBERS', 'PAID']), correctionReason: z.string().nullable() }).strict();
 export const racePaperPreviewSchema = z.object({ previewId: z.string().uuid(), expiresAt: dateTime, deadlineAt: dateTime, version: z.number().int().positive(), correctionReason: z.string(), snapshot: racePaperSnapshotSchema, notificationText: z.string() }).strict();
 export type RacePaperPreview = z.infer<typeof racePaperPreviewSchema>;
-export const racePaperWorkspaceSchema = z.object({ id: z.string().uuid(), revision: z.number().int().positive(), draft: racePaperDraftSchema, snapshot: racePaperSnapshotSchema, versions: z.array(racePaperMetadataSchema) }).strict();
+export const racePaperRosterSchema = z.object({
+  raceId: z.string().uuid(), revision: z.number().int().positive(), venue: z.string(), number: z.number().int().min(1).max(12), name: z.string(),
+  entries: z.array(z.object({ id: z.string().uuid(), number: z.number().int().min(1).max(18), horseName: z.string().min(1), status: z.enum(['ACTIVE', 'SCRATCHED', 'EXCLUDED', 'STOPPED']) }).strict()).max(18)
+}).strict();
+export type RacePaperRoster = z.infer<typeof racePaperRosterSchema>;
+export const racePaperWorkspaceSchema = z.object({ id: z.string().uuid(), revision: z.number().int().positive(), draft: racePaperDraftSchema, snapshot: racePaperSnapshotSchema, rosters: z.array(racePaperRosterSchema), versions: z.array(racePaperMetadataSchema) }).strict();
 export type RacePaperWorkspace = z.infer<typeof racePaperWorkspaceSchema>;
 export const racePaperListSchema = z.object({ items: z.array(racePaperMetadataSchema), page: z.number().int().positive(), total: z.number().int().nonnegative() }).strict();
 export type RacePaperList = z.infer<typeof racePaperListSchema>;

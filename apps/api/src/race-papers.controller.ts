@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Controller, ForbiddenException, Get, Inject, NotFoundException, Param, Post, Query, Req, Body } from '@nestjs/common';
 import { Prisma } from '@keiba/db';
-import { buildRacePaperNotice, canEditRace, canReadPrediction, paperNameKey, parseContentAccessPolicy, parseRacePaper, racePaperDraftSchema, racePaperImportSchema, racePaperListSchema, racePaperMetadataSchema, racePaperPreviewInputSchema, racePaperPreviewSchema, racePaperReadSchema, racePaperSaveSchema, racePaperSnapshotSchema, racePaperWorkspaceSchema } from '@keiba/domain';
+import { buildRacePaperNotice, canEditRace, canReadPrediction, paperNameKey, parseContentAccessPolicy, parseRacePaper, racePaperDraftSchema, racePaperImportSchema, racePaperListSchema, racePaperMetadataSchema, racePaperPreviewInputSchema, racePaperPreviewSchema, racePaperReadSchema, racePaperRosterSchema, racePaperSaveSchema, racePaperSnapshotSchema, racePaperWorkspaceSchema } from '@keiba/domain';
 import type { RacePaperDraft, RacePaperSnapshot } from '@keiba/domain';
 import { z } from 'zod';
 import { AuthService } from './auth.service';
@@ -36,7 +36,11 @@ export class RacePapersController {
         return { ...m, number: entry.number, horseName: entry.horseName };
       }) };
     }) };
-    return { races, snapshot: racePaperSnapshotSchema.parse(snapshot) };
+    const rosters = draft.races.map(input => {
+      const race = races.find(item => item.id === input.raceId)!;
+      return racePaperRosterSchema.parse({ raceId: race.id, revision: race.revision, venue: race.venue, number: race.number, name: race.name, entries: race.entries.slice().sort((a, b) => a.number - b.number).map(entry => ({ id: entry.id, number: entry.number, horseName: entry.horseName, status: entry.status })) });
+    });
+    return { races, snapshot: racePaperSnapshotSchema.parse(snapshot), rosters };
   }
   private async load(tx: Tx, id: string, actor: AuthContext) {
     const paper = await tx.racePaper.findUnique({ where: { id }, include: { versions: { orderBy: { version: 'desc' } } } });
@@ -86,7 +90,8 @@ export class RacePapersController {
           return { entryId: entry.id, symbol: m.symbol, reason: '' };
         }) };
       }) });
-      return { draft, snapshot: (await this.state(tx, draft, actor, true)).snapshot };
+      const state = await this.state(tx, draft, actor, true);
+      return { draft, snapshot: state.snapshot, rosters: state.rosters };
     });
   }
   @Get('expert/papers') async drafts(@Req() req: AppRequest) {
@@ -99,7 +104,7 @@ export class RacePapersController {
   }
   @Get('expert/papers/:id') async workspace(@Req() req: AppRequest, @Param('id') id: string) {
     z.string().uuid().parse(id); const actor = await this.staff(req);
-    return this.locked(async tx => { const s = await this.load(tx, id, actor); return racePaperWorkspaceSchema.parse({ id, revision: s.paper.revision, draft: s.draft, snapshot: s.snapshot, versions: s.paper.versions.map(v => metadata({ ...v, id: v.id })) }); });
+    return this.locked(async tx => { const s = await this.load(tx, id, actor); return racePaperWorkspaceSchema.parse({ id, revision: s.paper.revision, draft: s.draft, snapshot: s.snapshot, rosters: s.rosters, versions: s.paper.versions.map(v => metadata({ ...v, id: v.id })) }); });
   }
   @Post('expert/papers/draft') async save(@Req() req: AppRequest, @Body() body: unknown) {
     const actor = await this.staff(req); const input = racePaperSaveSchema.parse(body);
@@ -131,7 +136,23 @@ export class RacePapersController {
       if (preview.confirmedVersionId) return { published: true, versionId: preview.confirmedVersionId, alreadyPublished: true };
       if (preview.expiresAt <= new Date() || this.fingerprint(s) !== preview.baselineHash) throw new ConflictException({ code: 'STALE_PREVIEW', message: '内容変更または確認期限切れです。公開前確認をやり直してください。' });
       const deadlineAt = await this.publication(tx, actor, s, preview.correctionReason);
-      const v = await tx.racePaperVersion.create({ data: { paperId: id, version: preview.version, targetDate: s.draft.targetDate, title: s.draft.title, accessScope: s.draft.accessScope, snapshot: json(s.snapshot), deadlineAt, publishedBy: actor.id, correctionReason: preview.version > 1 ? preview.correctionReason : null } });
+      const v = await tx.racePaperVersion.create({
+        data: {
+          paperId: id,
+          version: preview.version,
+          targetDate: s.draft.targetDate,
+          title: s.draft.title,
+          accessScope: s.draft.accessScope,
+          snapshot: json(s.snapshot),
+          deadlineAt,
+          publishedBy: actor.id,
+          correctionReason: preview.version > 1 ? preview.correctionReason : null,
+          // The append-only DB trigger replaces this with clock_timestamp().
+          // An application timestamp can be milliseconds ahead of the DB clock
+          // and be rejected as an invalid future publication time.
+          publishedAt: new Date(0),
+        },
+      });
       await tx.notificationEvent.create({ data: { paperVersionId: v.id, eventType: preview.version > 1 ? 'RACE_PAPER_CORRECTED' : 'RACE_PAPER_PUBLISHED', status: 'QUEUED', payload: { paperVersionId: v.id } } });
       await tx.racePaperPreview.update({ where: { id: previewId }, data: { confirmedVersionId: v.id } });
       await tx.auditLog.create({ data: { actorId: actor.id, actorRole: actor.role, action: preview.version > 1 ? 'RACE_PAPER_CORRECTED' : 'RACE_PAPER_PUBLISHED', targetType: 'RACE_PAPER_VERSION', targetId: v.id, reason: preview.correctionReason || '通常レース紙面の公開', details: { paperId: id, version: v.version }, requestId: req.requestId } });
