@@ -92,7 +92,7 @@ export function RaceManager({ userId, canCorrectIdentity = false }: { userId: st
 }
 
 const operationLabels: Record<string, string> = {
-  RACE_CREATE: 'レース作成', RACE_UPDATE: 'レース更新', ENTRY_SAVE: '出走馬保存', MANUAL_ENTRY_CREATE: '出走馬簡易登録', MANUAL_ENTRY_BATCH_CREATE: '出走馬一括簡易登録',
+  RACE_CREATE: 'レース作成', RACE_UPDATE: 'レース更新', ENTRY_SAVE: '出走馬保存', MANUAL_ENTRY_CREATE: '出走馬簡易登録', MANUAL_ENTRY_BATCH_CREATE: '出走馬一括簡易登録', MANUAL_ENTRY_ROSTER_SYNC: '紙面対象レースの全出走馬照合',
   RACE_ANNOUNCE: '対象レース告知', ASSESSMENT_SAVE: 'パドック評価保存', PREDICTION_DRAFT_SAVE: '予想下書き保存',
   PREDICTION_PUBLISH: '予想公開', PREDICTION_CORRECT: '予想訂正版公開', RACE_RESULT_DRAFT_SAVE: '結果下書き保存',
   RACE_RESULT_CONFIRM: '結果確定', RACE_RESULT_CSV_IMPORT_CONFIRMED: '結果CSV取込', AI_GUIDE_GENERATION_REQUEST: 'AIガイド生成',

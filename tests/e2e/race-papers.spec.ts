@@ -17,8 +17,15 @@ test('imports and reviews a normal paper, publishes to registered members, and p
   await page.getByLabel('紙面タイトル').fill(title);
   await page.getByLabel('紙面原稿').fill('東京\n９Ｒ 八ヶ岳特別\n◎１・評価試験馬1\n○２・評価試験馬2\n△３・評価試験馬3\n△４・評価試験馬4\n✕５・評価試験馬5');
   await page.getByRole('button', { name: '原稿を読み取り・照合' }).click();
-  await expect(page.getByText('原稿と登録済みレース・出走馬が一致しました。内容を確認して下書きを保存してください。')).toBeVisible();
+  await expect(page.getByText('原稿と登録済みレース・出走馬が一致しました。全出走馬を確認してから下書きを保存してください。')).toBeVisible();
   await expect(page.locator('.paper-marks li')).toHaveCount(5);
+  await expect(page.getByRole('heading', { name: '2. パドック用の全出走馬を確認' })).toBeVisible();
+  await expect(page.getByText('登録済み 5頭')).toBeVisible();
+  await page.getByLabel('東京9Rの全出走馬一覧').fill('1,評価試験馬1\n2,評価試験馬2\n3,評価試験馬3\n4,評価試験馬4\n5,評価試験馬5\n6,評価試験馬6');
+  await page.getByRole('button', { name: '全出走馬を登録・照合' }).click();
+  await expect(page.getByText('1頭を追加し、5頭を照合しました。')).toBeVisible();
+  await expect(page.getByText('登録済み 6頭')).toBeVisible();
+  expect(await db.raceEntry.count({ where: { raceId: admin.race.id } })).toBe(6);
   await page.getByLabel('保存理由').fill('配信原稿を登録');
   await page.getByRole('button', { name: '紙面の下書きを保存' }).click();
   await expect(page.getByText('下書きを保存しました。続いて公開前確認へ進んでください。')).toBeVisible();

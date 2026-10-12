@@ -261,7 +261,7 @@ export class RacesController {
     const actorIds = [...new Set(audits.flatMap(audit => audit.actorId ? [audit.actorId] : []))];
     const actors = actorIds.length ? await this.auth.db.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, displayName: true } }) : [];
     const actorNames = new Map(actors.map(actor => [actor.id, actor.displayName]));
-    const sourceType = (action: string) => action.startsWith('JRA_VAN_') ? 'JRA_VAN' as const : action.startsWith('CSV_') ? 'CSV' as const : ['RACE_CREATE', 'RACE_UPDATE', 'ENTRY_SAVE', 'MANUAL_ENTRY_CREATE', 'MANUAL_ENTRY_BATCH_CREATE', 'RACE_ANNOUNCE'].includes(action) ? 'MANUAL' as const : 'UMAREAL' as const;
+    const sourceType = (action: string) => action.startsWith('JRA_VAN_') ? 'JRA_VAN' as const : action.startsWith('CSV_') ? 'CSV' as const : ['RACE_CREATE', 'RACE_UPDATE', 'ENTRY_SAVE', 'MANUAL_ENTRY_CREATE', 'MANUAL_ENTRY_BATCH_CREATE', 'MANUAL_ENTRY_ROSTER_SYNC', 'RACE_ANNOUNCE'].includes(action) ? 'MANUAL' as const : 'UMAREAL' as const;
     return raceOperationHistoryResponseSchema.parse({
       items: audits.map(audit => ({ id: audit.id, action: audit.action, targetType: audit.targetType, targetId: audit.targetId, reason: audit.reason, actorRole: audit.actorRole, actorDisplayName: audit.actorId ? actorNames.get(audit.actorId) ?? null : null, sourceType: sourceType(audit.action), createdAt: audit.createdAt.toISOString(), requestId: audit.requestId })),
       total, page, limit
@@ -377,6 +377,36 @@ export class RacesController {
       return {
         entries: created.map(item => ({ entry: item.saved, identity: { id: item.identity.id, provider: item.identity.provider, status: item.identity.matchStatus, duplicateCandidateCount: item.duplicateCandidates.length } })),
         duplicateNames: created.filter(item => item.duplicateCandidates.length).map(item => item.saved.horseName)
+      };
+    });
+  }
+  @Post('races/:id/entries/manual-roster') async manualEntryRoster(@Req() req: AppRequest, @Param('id') id: string, @Body() body: unknown) {
+    await this.staff(req); z.string().uuid().parse(id);
+    const { entries, revision, reason } = z.object({ entries: manualEntryBatchInputSchema, revision: z.number().int().positive(), reason: reasonSchema }).strict().parse(body);
+    return this.mutate(req, `manual-entry-roster:${id}`, body, async tx => {
+      const before = await tx.race.findUnique({ where: { id }, include: fullRace });
+      if (!before) throw new NotFoundException();
+      if (before.revision !== revision) throw new ConflictException({ code: 'STALE_REVISION', message: '他の操作で変更されました。再読み込みして確認してください。' });
+      const normalized = (value: string) => value.normalize('NFKC').replace(/\s/g, '');
+      for (const input of entries) {
+        const existing = before.entries.find(item => item.number === input.number);
+        if (existing && normalized(existing.horseName) !== normalized(input.horseName)) {
+          throw new ConflictException({ code: 'ROSTER_ENTRY_MISMATCH', message: `${input.number}番は登録済みの「${existing.horseName}」と一致しません。出馬表と登録内容を確認してください。` });
+        }
+      }
+      const created = [];
+      for (const input of entries.filter(item => !before.entries.some(existing => existing.number === item.number))) created.push(await this.createManualEntry(tx, id, input));
+      if (created.length) await tx.race.update({ where: { id }, data: { revision: { increment: 1 } } });
+      const after = await tx.race.findUniqueOrThrow({ where: { id }, include: fullRace });
+      const supplied = new Set(entries.map(item => item.number));
+      const omitted = after.entries.filter(item => !supplied.has(item.number)).map(item => ({ number: item.number, horseName: item.horseName }));
+      await this.log(tx, req, 'MANUAL_ENTRY_ROSTER_SYNC', 'RACE', id, reason, {
+        suppliedCount: entries.length, createdCount: created.length, retainedCount: entries.length - created.length, omitted,
+        created: created.map(item => ({ entryId: item.saved.id, number: item.saved.number, horseName: item.saved.horseName, identityId: item.identity.id, identityStatus: item.identity.matchStatus }))
+      });
+      return {
+        revision: after.revision, createdCount: created.length, retainedCount: entries.length - created.length, omitted,
+        entries: after.entries.map(item => ({ id: item.id, number: item.number, horseName: item.horseName, status: item.status }))
       };
     });
   }

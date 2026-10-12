@@ -61,6 +61,8 @@ describe('regular race paper publication and access', () => {
     const imported = await f.client.call('expert/papers/import', 'POST', input);
     expect(imported.status).toBe(201);
     expect(imported.body.snapshot.races[0].marks.map((m: { symbol: string }) => m.symbol)).toEqual(['◎', '○', '△', '△', '✕']);
+    expect(imported.body.rosters[0]).toMatchObject({ raceId: f.race.id, revision: expect.any(Number), venue: '東京', number: 9 });
+    expect(imported.body.rosters[0].entries.map((entry: { number: number }) => entry.number)).toEqual([1, 2, 3, 4, 5]);
     expect((await f.client.call('expert/papers/import', 'POST', { ...input, text: text.replace('八ヶ岳特別', '別レース') })).body.code).toBe('PAPER_RACE_MISMATCH');
     expect((await f.client.call('expert/papers/import', 'POST', { ...input, text: text.replace('評価試験馬5', '違う馬') })).body.code).toBe('PAPER_HORSE_MISMATCH');
     expect((await f.client.call('expert/papers/import', 'POST', { ...input, text: text + '\n買い目 1-2' })).body.code).toBe('PAPER_IMPORT_INVALID');

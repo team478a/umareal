@@ -191,6 +191,25 @@ describe('race management and transactional CSV imports', () => {
     const history = await admin.call(`admin/races/${batchRaceId}/history?limit=50`);
     expect(history.body.items).toContainEqual(expect.objectContaining({ action: 'MANUAL_ENTRY_BATCH_CREATE', sourceType: 'MANUAL', reason: '出馬表18頭を確認して一括登録' }));
   });
+  it('adds only missing runners from a complete paper-race roster and exposes every runner to paddock input', async () => {
+    const response = await admin.call('admin/races', 'POST', { race: raceInput(10), reason: '紙面対象レースの準備' }, undefined, headers());
+    expect(response.status).toBe(201); const rosterRaceId = response.body.id as string; const suffix = randomUUID().slice(0, 8);
+    const firstName = `紙面掲載馬-${suffix}`;
+    const first = await admin.call(`admin/races/${rosterRaceId}/entries/manual`, 'POST', { entry: { number: 1, horseName: firstName }, revision: 1, reason: '紙面掲載馬を先行登録' }, undefined, headers());
+    expect(first.status).toBe(201);
+    const roster = [{ number: 1, horseName: firstName }, { number: 2, horseName: `全頭馬2-${suffix}` }, { number: 3, horseName: `全頭馬3-${suffix}` }];
+    const key = headers();
+    const synced = await admin.call(`admin/races/${rosterRaceId}/entries/manual-roster`, 'POST', { entries: roster, revision: 2, reason: '出馬表の全頭を照合' }, undefined, key);
+    expect(synced).toMatchObject({ status: 201, body: { revision: 3, createdCount: 2, retainedCount: 1, omitted: [] } });
+    expect(synced.body.entries.map((entry: { number: number }) => entry.number)).toEqual([1, 2, 3]);
+    expect((await admin.call(`admin/races/${rosterRaceId}/entries/manual-roster`, 'POST', { entries: roster, revision: 2, reason: '出馬表の全頭を照合' }, undefined, key)).body).toEqual(synced.body);
+    const paddock = await expertClient.call(`expert/races/${rosterRaceId}/assessments`);
+    expect(paddock.status).toBe(200);
+    expect(paddock.body.entries.map((entry: { number: number }) => entry.number)).toEqual([1, 2, 3]);
+    const mismatch = await admin.call(`admin/races/${rosterRaceId}/entries/manual-roster`, 'POST', { entries: [{ number: 1, horseName: `別馬-${suffix}` }], revision: 3, reason: '不一致を拒否' }, undefined, headers());
+    expect(mismatch).toMatchObject({ status: 409, body: { code: 'ROSTER_ENTRY_MISMATCH' } });
+    expect(await db.auditLog.count({ where: { targetId: rosterRaceId, action: 'MANUAL_ENTRY_ROSTER_SYNC' } })).toBe(1);
+  });
   it('reports invalid CSV and previews without mutation; concurrent confirmation applies once', async () => {
     const rows = [entryInput(2), entryInput(3)];
     const bad = await preview('entries', [rows[0], { ...rows[1], number: 2 }], raceId);
