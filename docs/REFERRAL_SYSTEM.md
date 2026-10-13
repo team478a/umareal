@@ -11,6 +11,7 @@
 ## DB構造
 
 - `users.referralCode`: 既存・新規会員に付く20文字のランダムなURL安全コード。DB既定値、一意索引、NOT NULLを持ち、変更機能を設けない。
+- `line_accounts.identityOwnerUserId` と `referralIdentityConsumedAt`: LINE識別子を退会後の新規会員へ再割当しても、最初の会員履歴と紹介対象登録を一度だけに制限した状態を維持する。LINEのsubject自体は既存どおりDBに保存し、ログへ出力しない。
 - `referrals`: 紹介者、被紹介者、`PENDING / QUALIFIED / INVALIDATED`、成立時刻、無効化理由・管理者を保持する。`referredUserId` は一意で、自己紹介もCHECK制約で拒否する。
 - `referral_milestones`: 必要成立人数、特典種別、数量、有効日数、有効状態、表示順を保持する。初期値は `3 / DAY_PASS / 1 / 60日` と `10 / DAY_PASS / 1 / 60日`。
 - `referral_rewards`: 会員とマイルストーンの組を一意にし、`AVAILABLE / REDEEMED / EXPIRED / INVALIDATED`、付与・期限・利用時刻、一日利用IDを保持する。
@@ -25,7 +26,7 @@
 
 メール登録はフォーム再描画中もURLの `invite` を保持し、登録時にサーバーDBへ `PENDING` を保存する。ローカル確認URL、Supabase確認コールバック、確認済みセッションのいずれでも同じ冪等な成立処理を通るため、確認画面へ紹介コードを露出・再送する必要はない。LINE登録は開始時に `invite` をOAuth flowへ保存し、callback後の使い切り登録grantへ引き継ぎ、会員・LINEアカウント・紹介成立を同じトランザクションで作る。LOGINとLINK用途には紹介コードを受け付けず、通常登録にはReferralを作らない。
 
-成立後の紹介者変更APIは設けない。被紹介者一意制約により複数紹介者への計上をDBでも拒否する。既存メール、既存LINE subject、解除済みLINE tombstone、退会記録に関する既存の再登録防止を利用する。通常退会では過去の成立実績を自動減算しない。
+成立後の紹介者変更APIは設けない。被紹介者一意制約により複数紹介者への計上をDBでも拒否する。既存メール、現会員へ連携済みのLINE subject、退会していない利用停止会員のLINE tombstoneは再登録を拒否する。`AccountClosure`が存在する正式な退会済みLINEだけは、新しい無料会員として再登録できる。旧会員の契約、失効済み権限、プロフィール、Referral/Reward、予想履歴は新会員へ移さない。LINE識別子の最初の所有者と紹介適用済み時刻は保持し、同一LINEで紹介対象登録・成立を二度計上しない。通常退会では過去の成立実績を自動減算しない。
 
 ## マイルストーンとReward
 

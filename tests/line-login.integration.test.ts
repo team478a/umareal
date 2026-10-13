@@ -123,26 +123,34 @@ describe('LINE Login account lifecycle', () => {
     expect(response.headers.get('set-cookie')).toBeNull();
   });
 
-  it('returns a closed LINE account to recovery guidance without creating a duplicate member', async () => {
+  it('allows a closed LINE identity to create a new member while preserving the old account and consuming referral credit only once', async () => {
     const subject = `U-closed-${randomUUID()}`;
     const closed = await account();
+    const referrer = await account();
     const closedAt = new Date();
     await db.lineAccount.create({ data: { userId: closed.user.id, subject, unlinkedAt: closedAt, notificationDisabledAt: closedAt } });
     await db.user.update({ where: { id: closed.user.id }, data: { disabledAt: closedAt } });
-    const usersBefore = await db.user.count();
+    const originalClosure = await db.accountClosure.create({ data: { userId: closed.user.id, reasonCode: 'SERVICE_NO_LONGER_NEEDED', requestedAt: closedAt, accessRevokedAt: closedAt, retentionPolicyVersion: 'test-v1' } });
 
     const registerClient = new Client();
-    const registerStart = await registerClient.call('auth/line/start', 'POST', { purpose: 'REGISTER', memberReferralCode: 'CLOSEDACCOUNTREFERRAL' });
+    const registerStart = await registerClient.call('auth/line/start', 'POST', { purpose: 'REGISTER', memberReferralCode: referrer.user.referralCode });
     const registerState = new URL(registerStart.body.authorizationUrl).searchParams.get('state')!;
     const registerResponse = await callback(registerClient, registerState, subject);
     expect(registerResponse.status).toBe(303);
     const registerLocation = new URL(registerResponse.headers.get('location')!);
-    expect(registerLocation.pathname).toBe('/login');
-    expect(registerLocation.searchParams.get('line')).toBe('account-unavailable');
-    expect(registerLocation.searchParams.has('invite')).toBe(false);
+    expect(registerLocation.pathname).toBe('/register/line');
+    expect(registerLocation.searchParams.get('re-register')).toBe('1');
     expect(registerResponse.headers.get('set-cookie')).toBeNull();
-    expect(await db.user.count()).toBe(usersBefore);
-    expect(await db.referral.count({ where: { referredUserId: closed.user.id } })).toBe(0);
+    const token = registerLocation.searchParams.get('token');
+    const newMember = await registerClient.call('auth/line/register', 'POST', { token, displayName: '再登録会員', adult: true, terms: true, privacy: true, termsVersion: '2026-10-01-v1', privacyVersion: '2026-10-01-v1' });
+    expect(newMember.status).toBe(201);
+    expect(newMember.body.user.id).not.toBe(closed.user.id);
+    expect(await db.user.findUniqueOrThrow({ where: { id: closed.user.id } })).toMatchObject({ disabledAt: closedAt });
+    expect(await db.accountClosure.findUniqueOrThrow({ where: { id: originalClosure.id } })).toMatchObject({ userId: closed.user.id });
+    expect(await db.referral.findUnique({ where: { referredUserId: newMember.body.user.id } })).toMatchObject({ referrerUserId: referrer.user.id, status: 'QUALIFIED' });
+    const reassigned = await db.lineAccount.findUniqueOrThrow({ where: { subject } });
+    expect(reassigned).toMatchObject({ userId: newMember.body.user.id, identityOwnerUserId: closed.user.id, referralIdentityConsumedAt: expect.any(Date), unlinkedAt: null });
+    expect(reassigned.notificationDisabledAt).toBeNull();
 
     const loginClient = new Client();
     const loginStart = await loginClient.call('auth/line/start', 'POST', { purpose: 'LOGIN' });
@@ -150,9 +158,40 @@ describe('LINE Login account lifecycle', () => {
     const loginResponse = await callback(loginClient, loginState, subject);
     expect(loginResponse.status).toBe(303);
     const loginLocation = new URL(loginResponse.headers.get('location')!);
-    expect(loginLocation.pathname).toBe('/login');
-    expect(loginLocation.searchParams.get('line')).toBe('account-unavailable');
-    expect(loginResponse.headers.get('set-cookie')).toBeNull();
+    expect(loginLocation.pathname).toBe('/account');
+    expect(loginLocation.searchParams.get('line')).toBe('login');
+    expect(loginResponse.headers.get('set-cookie')).toContain('HttpOnly');
+
+    const reClosedAt = new Date();
+    await db.lineAccount.update({ where: { userId: newMember.body.user.id }, data: { unlinkedAt: reClosedAt, notificationDisabledAt: reClosedAt } });
+    await db.user.update({ where: { id: newMember.body.user.id }, data: { disabledAt: reClosedAt } });
+    await db.accountClosure.create({ data: { userId: newMember.body.user.id, reasonCode: 'SERVICE_NO_LONGER_NEEDED', requestedAt: reClosedAt, accessRevokedAt: reClosedAt, retentionPolicyVersion: 'test-v1' } });
+    const secondReferrer = await account();
+    const repeatClient = new Client();
+    const repeatStart = await repeatClient.call('auth/line/start', 'POST', { purpose: 'REGISTER', memberReferralCode: secondReferrer.user.referralCode });
+    const repeatState = new URL(repeatStart.body.authorizationUrl).searchParams.get('state')!;
+    const repeatCallback = await callback(repeatClient, repeatState, subject);
+    const repeatLocation = new URL(repeatCallback.headers.get('location')!);
+    expect(repeatLocation.pathname).toBe('/register/line');
+    expect(repeatLocation.searchParams.get('referral')).toBe('already-used');
+    const repeated = await repeatClient.call('auth/line/register', 'POST', { token: repeatLocation.searchParams.get('token'), displayName: '再々登録会員', adult: true, terms: true, privacy: true, termsVersion: '2026-10-01-v1', privacyVersion: '2026-10-01-v1' });
+    expect(repeated.status).toBe(201);
+    expect(await db.referral.findUnique({ where: { referredUserId: repeated.body.user.id } })).toBeNull();
+    expect(await db.referral.count({ where: { referrerUserId: secondReferrer.user.id } })).toBe(0);
+  });
+
+  it('does not treat an ordinary unlinked LINE tombstone as a closed-account re-registration', async () => {
+    const member = await account();
+    const subject = `U-active-unlinked-${randomUUID()}`;
+    const unlinkedAt = new Date();
+    await db.lineAccount.create({ data: { userId: member.user.id, subject, unlinkedAt, notificationDisabledAt: unlinkedAt } });
+    const client = new Client();
+    const started = await client.call('auth/line/start', 'POST', { purpose: 'REGISTER' });
+    const state = new URL(started.body.authorizationUrl).searchParams.get('state')!;
+    const response = await callback(client, state, subject);
+    expect(new URL(response.headers.get('location')!, origin).searchParams.get('line')).toBe('already-linked');
+    expect(response.headers.get('set-cookie')).toBeNull();
+    expect(await db.lineAccount.findUniqueOrThrow({ where: { subject } })).toMatchObject({ userId: member.user.id, unlinkedAt });
   });
 
   it('binds a link flow to the starting session and prevents subject reassignment', async () => {

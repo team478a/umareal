@@ -41,6 +41,7 @@ model User {
   sessions                       Session[]
   preferences                    NotificationPreference?
   lineAccount                    LineAccount?
+  originalLineAccounts           LineAccount[]              @relation("LineIdentityOwner")
   lineOAuthFlows                 LineOAuthFlow[]
   notificationDeliveries         NotificationDelivery[]
   notificationReads              MemberNotificationRead[]
@@ -235,14 +236,17 @@ model NotificationPreference {
 }
 
 model LineAccount {
-  id                     String    @id @default(uuid()) @db.Uuid
-  userId                 String    @unique @db.Uuid
-  user                   User      @relation(fields: [userId], references: [id])
-  subject                String    @unique
-  linkedAt               DateTime  @default(now()) @db.Timestamptz(3)
-  unlinkedAt             DateTime? @db.Timestamptz(3)
-  notificationDisabledAt DateTime? @db.Timestamptz(3)
-  lastWebhookAt          DateTime? @db.Timestamptz(3)
+  id                         String    @id @default(uuid()) @db.Uuid
+  userId                     String    @unique @db.Uuid
+  user                       User      @relation(fields: [userId], references: [id])
+  identityOwnerUserId        String?   @db.Uuid
+  identityOwner              User?     @relation("LineIdentityOwner", fields: [identityOwnerUserId], references: [id])
+  referralIdentityConsumedAt DateTime? @db.Timestamptz(3)
+  subject                    String    @unique
+  linkedAt                   DateTime  @default(now()) @db.Timestamptz(3)
+  unlinkedAt                 DateTime? @db.Timestamptz(3)
+  notificationDisabledAt     DateTime? @db.Timestamptz(3)
+  lastWebhookAt              DateTime? @db.Timestamptz(3)
 
   @@map("line_accounts")
 }
