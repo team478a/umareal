@@ -130,7 +130,7 @@ describe('LINE Login account lifecycle', () => {
     const closedAt = new Date();
     await db.lineAccount.create({ data: { userId: closed.user.id, subject, unlinkedAt: closedAt, notificationDisabledAt: closedAt } });
     await db.user.update({ where: { id: closed.user.id }, data: { disabledAt: closedAt } });
-    const originalClosure = await db.accountClosure.create({ data: { userId: closed.user.id, reasonCode: 'VOLUNTARY', accessRevokedAt: closedAt, retentionPolicyVersion: 'test-v1' } });
+    const originalClosure = await db.accountClosure.create({ data: { userId: closed.user.id, reasonCode: 'SERVICE_NO_LONGER_NEEDED', accessRevokedAt: closedAt, retentionPolicyVersion: 'test-v1' } });
 
     const registerClient = new Client();
     const registerStart = await registerClient.call('auth/line/start', 'POST', { purpose: 'REGISTER', memberReferralCode: referrer.user.referralCode });
@@ -165,7 +165,7 @@ describe('LINE Login account lifecycle', () => {
     const reClosedAt = new Date();
     await db.lineAccount.update({ where: { userId: newMember.body.user.id }, data: { unlinkedAt: reClosedAt, notificationDisabledAt: reClosedAt } });
     await db.user.update({ where: { id: newMember.body.user.id }, data: { disabledAt: reClosedAt } });
-    await db.accountClosure.create({ data: { userId: newMember.body.user.id, reasonCode: 'VOLUNTARY', accessRevokedAt: reClosedAt, retentionPolicyVersion: 'test-v1' } });
+    await db.accountClosure.create({ data: { userId: newMember.body.user.id, reasonCode: 'SERVICE_NO_LONGER_NEEDED', accessRevokedAt: reClosedAt, retentionPolicyVersion: 'test-v1' } });
     const secondReferrer = await account();
     const repeatClient = new Client();
     const repeatStart = await repeatClient.call('auth/line/start', 'POST', { purpose: 'REGISTER', memberReferralCode: secondReferrer.user.referralCode });
