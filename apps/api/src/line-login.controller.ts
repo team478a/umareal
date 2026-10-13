@@ -34,13 +34,14 @@ export class LineLoginController {
     try { callbackActor = await this.auth.authenticate(req); } catch (error) { if (!(error instanceof UnauthorizedException)) throw error; }
     const { flow, identity, subjectHash } = await this.line.consume(query.state, query.code, callbackActor?.id);
     if (flow.purpose === 'REGISTER') {
-      const account = await this.auth.db.lineAccount.findUnique({ where: { subject: identity.subject }, include: { user: true } });
+      const account = await this.auth.db.lineAccount.findUnique({ where: { subject: identity.subject }, include: { user: { include: { accountClosure: { select: { id: true } } } } } });
       if (account && !account.unlinkedAt && !account.user.disabledAt) {
         req.auth = { id: account.user.id, role: account.user.role, aal: 1, user: account.user };
         const session = await this.auth.db.$transaction(async tx => { await this.auth.audit(tx, req, 'LINE_LOGIN', account.user.id, '登録済みLINEアカウントでログイン', { subjectHash }); return this.auth.session(tx, account.user.id); });
         this.sessions.setLocalSession(res, session); return res.redirect(303, `${process.env.APP_BASE_URL}/account?line=login`);
       }
-      if (account) return res.redirect(303, `${process.env.APP_BASE_URL}/login?line=account-unavailable`);
+      const closedReRegistration = !!account && !!account.unlinkedAt && !!account.user.disabledAt && !!account.user.accountClosure;
+      if (account && !closedReRegistration) return res.redirect(303, `${process.env.APP_BASE_URL}/login?line=already-linked`);
       if (!identity.friend) {
         const registrationUrl = new URL('/register', process.env.APP_BASE_URL);
         registrationUrl.searchParams.set('entry', 'line');
@@ -59,7 +60,11 @@ export class LineLoginController {
       await this.auth.requireNewRegistration();
       const token = newToken();
       await this.auth.db.lineRegistrationGrant.create({ data: { tokenHash: hashToken(token), subjectHash, subjectEncrypted: encrypt(identity.subject), expiresAt: new Date(Date.now() + 15 * 60000), acquisition: flow.acquisition ?? undefined, memberReferralCode: flow.memberReferralCode } });
-      return res.redirect(303, `${process.env.APP_BASE_URL}/register/line?token=${encodeURIComponent(token)}`);
+      const registrationUrl = new URL('/register/line', process.env.APP_BASE_URL);
+      registrationUrl.searchParams.set('token', token);
+      if (closedReRegistration) registrationUrl.searchParams.set('re-register', '1');
+      if (closedReRegistration && (account.referralIdentityConsumedAt || await this.auth.db.referral.findUnique({ where: { referredUserId: account.identityOwnerUserId ?? account.userId }, select: { id: true } }))) registrationUrl.searchParams.set('referral', 'already-used');
+      return res.redirect(303, registrationUrl.toString());
     }
     if (flow.purpose === 'LINK') {
       const actor = callbackActor!;
@@ -75,8 +80,8 @@ export class LineLoginController {
       if (outcome === 'ALREADY_LINKED') return res.redirect(303, `${process.env.APP_BASE_URL}/account?line=already-linked`);
       return res.redirect(303, `${process.env.APP_BASE_URL}/account?line=linked`);
     }
-    const account = await this.auth.db.lineAccount.findUnique({ where: { subject: identity.subject }, include: { user: true } });
-    if (account?.user.disabledAt) return res.redirect(303, `${process.env.APP_BASE_URL}/login?line=account-unavailable`);
+    const account = await this.auth.db.lineAccount.findUnique({ where: { subject: identity.subject }, include: { user: { include: { accountClosure: { select: { id: true } } } } } });
+    if (account?.user.disabledAt) return res.redirect(303, `${process.env.APP_BASE_URL}/login?line=${account.unlinkedAt && account.user.accountClosure ? 'closed-account' : 'account-unavailable'}`);
     if (!account || account.unlinkedAt) {
       const returnPath = lineLoginReturnPathSchema.safeParse(flow.returnPath);
       const loginUrl = new URL('/login', process.env.APP_BASE_URL);
@@ -106,16 +111,29 @@ export class LineLoginController {
       const consumed = await tx.lineRegistrationGrant.updateMany({ where: { id: grant.id, usedAt: null, expiresAt: { gt: now } }, data: { usedAt: now, subjectEncrypted: encrypt(newToken()) } });
       if (consumed.count !== 1) throw new BadRequestException({ code: 'LINE_REGISTRATION_INVALID', message: 'LINE登録はすでに使用されています。' });
       const subject = decrypt(grant.subjectEncrypted);
-      if (hashToken(subject) !== grant.subjectHash || await tx.lineAccount.findUnique({ where: { subject } })) throw new ConflictException({ code: 'LINE_ACCOUNT_ALREADY_LINKED', message: 'このLINEアカウントは登録済みです。' });
+      if (hashToken(subject) !== grant.subjectHash) throw new ConflictException({ code: 'LINE_ACCOUNT_ALREADY_LINKED', message: 'このLINEアカウントを確認できませんでした。もう一度お試しください。' });
+      const existingLineAccount = await tx.lineAccount.findUnique({ where: { subject }, include: { user: { include: { accountClosure: { select: { id: true } } } } } });
+      const closedReRegistration = !!existingLineAccount && !!existingLineAccount.unlinkedAt && !!existingLineAccount.user.disabledAt && !!existingLineAccount.user.accountClosure;
+      if (existingLineAccount && !closedReRegistration) throw new ConflictException({ code: 'LINE_ACCOUNT_ALREADY_LINKED', message: 'このLINEアカウントは現在の会員情報に連携されています。' });
       const parsedAcquisition = acquisitionSchema.safeParse(grant.acquisition); const acquisition = parsedAcquisition.success ? parsedAcquisition.data : undefined;
-      const user = await tx.user.create({ data: { email: null, displayName: input.displayName, registrationMethod: 'LINE', preferences: { create: {} }, lineAccount: { create: { subject } }, acquisition: { create: { source: acquisition?.source ?? 'direct', medium: acquisition?.medium, campaign: acquisition?.campaign, content: acquisition?.content, term: acquisition?.term, landingPath: acquisition?.landingPath ?? '/register', referralCode: acquisition?.referralCode } }, consents: { create: [
+      const identityOwnerUserId = existingLineAccount ? existingLineAccount.identityOwnerUserId ?? existingLineAccount.userId : null;
+      const existingReferral = identityOwnerUserId ? await tx.referral.findUnique({ where: { referredUserId: identityOwnerUserId }, select: { id: true } }) : null;
+      const referralAlreadyUsed = !!existingLineAccount && (!!existingLineAccount.referralIdentityConsumedAt || !!existingReferral);
+      const user = await tx.user.create({ data: { email: null, displayName: input.displayName, registrationMethod: 'LINE', preferences: { create: {} }, acquisition: { create: { source: acquisition?.source ?? 'direct', medium: acquisition?.medium, campaign: acquisition?.campaign, content: acquisition?.content, term: acquisition?.term, landingPath: acquisition?.landingPath ?? '/register', referralCode: acquisition?.referralCode } }, consents: { create: [
         { documentType: 'AGE_20', version: '1', source: 'line-registration' },
         { documentType: 'TERMS', version: input.termsVersion, source: 'line-registration' },
         { documentType: 'PRIVACY', version: input.privacyVersion, source: 'line-registration' }
       ] } } });
+      if (existingLineAccount) {
+        await tx.lineAccount.update({ where: { subject }, data: { userId: user.id, identityOwnerUserId, referralIdentityConsumedAt: referralAlreadyUsed ? existingLineAccount.referralIdentityConsumedAt ?? now : null, linkedAt: now, unlinkedAt: null, notificationDisabledAt: null } });
+      } else {
+        await tx.lineAccount.create({ data: { userId: user.id, subject, identityOwnerUserId: user.id } });
+      }
       req.auth = { id: user.id, role: user.role, aal: 1, user };
-      await this.auth.audit(tx, req, 'LINE_REGISTER', user.id, 'LINE無料会員登録', { subjectHash: grant.subjectHash });
-      await this.referrals.createPending(tx, user.id, grant.memberReferralCode ?? undefined);
+      const referral = await this.referrals.createPending(tx, user.id, referralAlreadyUsed ? undefined : grant.memberReferralCode ?? undefined);
+      if (referral) await tx.lineAccount.update({ where: { userId: user.id }, data: { referralIdentityConsumedAt: now } });
+      if (closedReRegistration && existingLineAccount) await this.auth.audit(tx, req, 'LINE_IDENTITY_REASSIGNED', existingLineAccount.userId, '退会済みLINE識別子を新規会員へ再割当', { newUserId: user.id, closureId: existingLineAccount.user.accountClosure?.id ?? null, subjectHash: grant.subjectHash });
+      await this.auth.audit(tx, req, 'LINE_REGISTER', user.id, closedReRegistration ? '退会後のLINE再登録' : 'LINE無料会員登録', { subjectHash: grant.subjectHash, reRegistered: closedReRegistration, referralInviteApplied: !!referral });
       await this.referrals.qualify(tx, user.id, req);
       await this.auth.journey(tx, user.id, 'LINE_GUIDANCE_VIEWED');
       return { user, session: await this.auth.session(tx, user.id) };

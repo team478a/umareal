@@ -90,7 +90,7 @@ test('does not continue to system registration until LINE friendship is confirme
   expect(starts).toBe(0);
 });
 
-test('shows recovery guidance instead of raw JSON for a closed LINE account', async ({ page }) => {
+test('offers a clear new-registration path for a closed LINE account', async ({ page }) => {
   await page.route('**/api/v1/auth/config', async route => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
       provider: 'local', localOnly: true, launchMode: 'FREE_REGISTRATION',
@@ -100,12 +100,25 @@ test('shows recovery guidance instead of raw JSON for a closed LINE account', as
     }) });
   });
 
-  await page.goto('/login?line=account-unavailable');
-  await expect(page.getByText('このLINEは既存または退会済みの会員情報に紐づいているため、新しい会員として再登録できません。')).toBeVisible();
-  await expect(page.getByText('退会後の再利用には運営の確認が必要です。')).toBeVisible();
-  await expect(page.getByText(/別のLINEやメールで登録し直さず/)).toBeVisible();
-  await expect(page.getByText(/紹介コードは自動では後付けされず/)).toBeVisible();
+  await page.goto('/login?line=closed-account');
+  await expect(page.getByText('このLINEの会員は退会済みです。新しい無料会員として再登録できます。以前の会員情報・閲覧権限・紹介実績は引き継がれません。')).toBeVisible();
+  await expect(page.getByText('同じLINEで新しい無料会員登録へ進めます。')).toBeVisible();
+  await expect(page.getByRole('link', { name: '無料会員登録' }).first()).toBeVisible();
   await expect(page.getByLabel('メールアドレス', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'LINEでログイン' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test('explains what is not transferred when a closed LINE identity is used for a new registration', async ({ page }) => {
+  await page.route('**/api/v1/auth/config', async route => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      provider: 'local', localOnly: true, launchMode: 'FREE_REGISTRATION',
+      capabilities: { emailRegistration: true, freeContent: true, lineLogin: true, lineNotifications: false, billing: false },
+      registration: { enabled: true, message: '' }, captcha: { enabled: false, siteKey: null, mode: 'TEST_ONLY' },
+      emailNotificationsEnabled: false, lineEnabled: true, lineNotificationsEnabled: false
+    }) });
+  });
+  await page.goto('/register/line?token=e2e-token&re-register=1&referral=already-used');
+  await expect(page.getByText('退会前の会員情報は引き継がれません。')).toBeVisible();
+  await expect(page.getByText('このLINEでは紹介特典の対象登録が完了済みのため、今回の登録に紹介コードを適用できません。')).toBeVisible();
 });

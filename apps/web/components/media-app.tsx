@@ -171,14 +171,16 @@ function AuthForm({ path, onSuccess, lineEnabled, localOnly, registrationEnabled
   const lineNotLinked = path === '/login' && search.get('line') === 'not-linked';
   const lineAlreadyLinked = path === '/login' && search.get('line') === 'already-linked';
   const lineAccountUnavailable = path === '/login' && search.get('line') === 'account-unavailable';
+  const lineAccountClosed = path === '/login' && search.get('line') === 'closed-account';
   useEffect(() => {
     if (path !== '/login') return;
     if (search.get('closed') === '1') setMessage('退会手続きが完了し、すべての端末からログアウトしました。');
-    else if (lineAccountUnavailable) setMessage('このLINEは既存または退会済みの会員情報に紐づいているため、新しい会員として再登録できません。');
+    else if (lineAccountUnavailable) setMessage('このLINEに紐づく会員情報を確認できません。以前の会員でログインするか、運営へお問い合わせください。');
+    else if (lineAccountClosed) setMessage('このLINEの会員は退会済みです。新しい無料会員として再登録できます。以前の会員情報・閲覧権限・紹介実績は引き継がれません。');
     else if (lineAlreadyLinked) setMessage('元の会員を確認するため、下の「LINEでログイン」を押してください。会員情報をまとめたい場合は、ログイン後にお問い合わせください。');
     else if (lineNotLinked) setMessage('このLINEではログイン登録がまだ完了していません。初めての方は無料会員登録へ進んでください。メールで登録済みの方は、メールでログイン後にマイページからLINEを連携できます。');
     else setMessage('');
-  }, [lineAccountUnavailable, lineAlreadyLinked, lineNotLinked, path, search]);
+  }, [lineAccountUnavailable, lineAccountClosed, lineAlreadyLinked, lineNotLinked, path, search]);
   const acquisition = useMemo(() => registration ? { source: search.get('utm_source') || undefined, medium: search.get('utm_medium') || undefined, campaign: search.get('utm_campaign') || undefined, content: search.get('utm_content') || undefined, term: search.get('utm_term') || undefined, referralCode: search.get('ref') || undefined, landingPath: '/register' } : undefined, [registration, search]);
   const memberReferralCode = registration ? search.get('invite') || undefined : undefined;
   const directLineEntry = registration && lineEnabled && search.get('entry') === 'line';
@@ -222,7 +224,8 @@ function AuthForm({ path, onSuccess, lineEnabled, localOnly, registrationEnabled
       <div className="auth-switch">すでに登録済みの方は <Link href="/login">ログイン</Link></div>
     </div> : <form onSubmit={submit}>
       <Notice text={error} error /><Notice text={message} />
-      {lineAccountUnavailable && <div className="notice error" role="alert"><strong>退会後の再利用には運営の確認が必要です。</strong><br />別のLINEやメールで登録し直さず、公式LINEのトークへ戻って「退会後の再登録」とお知らせください。登録時の表示名、退会したおおよその日時、利用したい紹介コードをお伝えください。パスワードや認証コードは送らないでください。紹介コードは自動では後付けされず、重複・自己紹介に該当しないか運営が確認します。</div>}
+      {lineAccountClosed && <div className="notice" role="status"><strong>同じLINEで新しい無料会員登録へ進めます。</strong><br />下の「無料会員登録」からLINEを選択してください。紹介URLをお持ちの場合は、そのURLから登録を開始してください。</div>}
+      {lineAccountUnavailable && <div className="notice error" role="alert"><strong>このLINEでは再登録手続きを開始できません。</strong><br />以前の会員でログインできる場合はログインし、解決しない場合は公式LINEのトークから運営へお問い合わせください。パスワードや認証コードは送らないでください。</div>}
       {lineNotLinked && registrationEnabled && <Link className="button line-button full" href="/register">LINE無料登録へ<ArrowRight size={17} /></Link>}
       {registration && lineEnabled && <button type="button" className="text-link registration-method-back" onClick={() => { setError(''); setMessage(''); setRegistrationMethod('CHOICE'); }}>登録方法を選び直す</button>}
       {registration && <label className="field">表示名<input name="displayName" autoComplete="nickname" maxLength={60} required placeholder="例：山田 太郎" /></label>}
@@ -240,11 +243,12 @@ function AuthForm({ path, onSuccess, lineEnabled, localOnly, registrationEnabled
 
 function LineRegistration({ onSuccess }: { onSuccess: () => Promise<void> }) {
   const router = useRouter(); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  const search = useSearchParams(); const reRegister = search.get('re-register') === '1'; const referralAlreadyUsed = search.get('referral') === 'already-used';
   async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setBusy(true); setError(''); const form = new FormData(event.currentTarget); const token = new URL(window.location.href).searchParams.get('token'); try {
     await api('auth/line/register', 'POST', { token, displayName: form.get('displayName'), adult: form.get('adult') === 'on', terms: form.get('terms') === 'on', privacy: form.get('privacy') === 'on', termsVersion: consentVersions.terms, privacyVersion: consentVersions.privacy });
     await onSuccess(); router.push('/account?line=registered');
   } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }
-  return <div className="auth-grid"><div className="auth-intro"><span className="eyebrow">STEP 2 OF 2</span><h1>システム会員登録</h1><p>LINE認証と友だち追加を確認しました。表示名と必要な同意を入力すると、無料会員登録が完了します。</p></div><section className="panel auth-panel"><form onSubmit={submit}><Notice text={error} error /><div className="notice">LINEの確認は完了しています。こちらが最後の登録画面です。</div><label className="field">表示名<input name="displayName" autoComplete="nickname" maxLength={60} required /></label><div className="consents"><label><input type="checkbox" name="adult" required /><span>20歳以上です。</span></label><label><input type="checkbox" name="terms" required /><span><Link href="/terms" target="_blank">{legalDocumentLabel(legalDocuments.terms)}</Link>に同意します。</span></label><label><input type="checkbox" name="privacy" required /><span><Link href="/privacy" target="_blank">{legalDocumentLabel(legalDocuments.privacy)}</Link>に同意します。</span></label></div><button className="button line-button full" disabled={busy}>{busy ? '登録中…' : '同意してシステム登録を完了'}<ArrowRight size={17} /></button></form></section></div>;
+  return <div className="auth-grid"><div className="auth-intro"><span className="eyebrow">STEP 2 OF 2</span><h1>システム会員登録</h1><p>{reRegister ? '退会前とは別の新しい無料会員として登録します。' : 'LINE認証と友だち追加を確認しました。表示名と必要な同意を入力すると、無料会員登録が完了します。'}</p></div><section className="panel auth-panel"><form onSubmit={submit}><Notice text={error} error /><div className="notice">LINEの確認は完了しています。こちらが最後の登録画面です。</div>{reRegister && <div className="notice" role="status"><strong>退会前の会員情報は引き継がれません。</strong><br />以前の閲覧権限・紹介実績・登録情報は新しい会員へ移りません。</div>}{referralAlreadyUsed && <div className="notice" role="status">このLINEでは紹介特典の対象登録が完了済みのため、今回の登録に紹介コードを適用できません。</div>}<label className="field">表示名<input name="displayName" autoComplete="nickname" maxLength={60} required /></label><div className="consents"><label><input type="checkbox" name="adult" required /><span>20歳以上です。</span></label><label><input type="checkbox" name="terms" required /><span><Link href="/terms" target="_blank">{legalDocumentLabel(legalDocuments.terms)}</Link>に同意します。</span></label><label><input type="checkbox" name="privacy" required /><span><Link href="/privacy" target="_blank">{legalDocumentLabel(legalDocuments.privacy)}</Link>に同意します。</span></label></div><button className="button line-button full" disabled={busy}>{busy ? '登録中…' : '同意してシステム登録を完了'}<ArrowRight size={17} /></button></form></section></div>;
 }
 
 function EmailVerification({ onSuccess }: { onSuccess: () => Promise<void> }) {
