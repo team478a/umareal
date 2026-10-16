@@ -6,6 +6,12 @@ import { PrismaClient } from '../../packages/db/src';
 import { account } from '../helpers';
 
 const db = new PrismaClient();
+let previousBillingAvailability: { newPurchasesEnabled: boolean; standardSalesEnabled: boolean } | undefined;
+test.afterEach(async () => {
+  if (!previousBillingAvailability) return;
+  await db.systemSetting.update({ where: { id: 'global' }, data: previousBillingAvailability });
+  previousBillingAvailability = undefined;
+});
 test.afterAll(() => db.$disconnect());
 
 test('register, save preferences, sign out and sign in on desktop/mobile', async ({ page }, testInfo) => {
@@ -83,6 +89,8 @@ test('register, save preferences, sign out and sign in on desktop/mobile', async
   await page.getByLabel('パスワード', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'ログイン', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'マイページ', exact: true })).toBeVisible();
+  previousBillingAvailability = await db.systemSetting.findUniqueOrThrow({ where: { id: 'global' }, select: { newPurchasesEnabled: true, standardSalesEnabled: true } });
+  await db.systemSetting.update({ where: { id: 'global' }, data: { newPurchasesEnabled: true, standardSalesEnabled: true } });
   await page.goto('/plans');
   await expect.poll(() => db.memberJourneyEvent.count({ where: { userId: user.id, eventType: 'PLAN_VIEWED' } })).toBe(1);
   const standardPlan = page.locator('.plan-card').filter({ has: page.getByRole('heading', { name: '通常会員', exact: true }) });

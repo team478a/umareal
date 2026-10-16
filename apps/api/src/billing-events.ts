@@ -15,6 +15,7 @@ export async function recordBillingEvent(tx: Prisma.TransactionClient, input: {
   subscriptionId?: string;
   dayPassId?: string;
   billingCheckoutId?: string;
+  bankTransferRequestId?: string;
   actorId: string;
   details: Prisma.InputJsonValue;
 }, notificationType?: BillingNotificationType) {
@@ -23,7 +24,8 @@ export async function recordBillingEvent(tx: Prisma.TransactionClient, input: {
       ...input,
       subscriptionId: input.subscriptionId ?? null,
       dayPassId: input.dayPassId ?? null,
-      billingCheckoutId: input.billingCheckoutId ?? null
+      billingCheckoutId: input.billingCheckoutId ?? null,
+      bankTransferRequestId: input.bankTransferRequestId ?? null
     }
   });
   if (notificationType) {

@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DbService } from './db.service';
 import { BillingQueryService } from './billing-query.service';
+import type { BankTransferService } from './bank-transfer.service';
+
+const bankSettings = { revision: 1, enabled: false, bankName: '', branchName: '', accountType: '' as const, accountNumber: '', accountHolder: '', instructions: '', requestValidityDays: 3, monthlyAccessDays: 30 };
+const bankTransfers = { settings: vi.fn().mockResolvedValue(bankSettings), memberRequests: vi.fn().mockResolvedValue([]), adminRequests: vi.fn().mockResolvedValue([]) };
 
 const originalLaunchMode = process.env.LAUNCH_MODE;
 const originalBillingTransport = process.env.BILLING_TRANSPORT;
@@ -20,8 +24,9 @@ describe('BillingQueryService', () => {
       systemSetting: { findUniqueOrThrow: vi.fn().mockResolvedValue({ newPurchasesEnabled: true, founderSalesEnabled: true, standardSalesEnabled: true, dayPassSalesEnabled: true, founderPriceYen: 1980, standardPriceYen: 2980, dayPassPriceYen: 980, founderSalesLimit: 5 }) },
       subscription: { count: subscriptionCount },
       billingCheckout: { count: checkoutCount },
+      bankTransferRequest: { count: vi.fn().mockResolvedValue(0) },
     };
-    const service = new BillingQueryService(db as unknown as DbService);
+    const service = new BillingQueryService(db as unknown as DbService, bankTransfers as unknown as BankTransferService);
 
     const result = await service.plans();
 
@@ -59,11 +64,11 @@ describe('BillingQueryService', () => {
       dayPass: { findMany: dayPasses },
       paymentTransaction: { findMany: payments },
       billingSupportRequest: { findMany: supportRequests },
-    } as unknown as DbService);
+    } as unknown as DbService, bankTransfers as unknown as BankTransferService);
 
     const result = await service.member('member-1');
 
-    expect(result).toEqual({ subscriptions: [publicSubscription], dayPasses: [pass], payments: [payment], supportRequests: [supportRequest], customerPortalAvailable: true });
+    expect(result).toEqual({ subscriptions: [publicSubscription], dayPasses: [pass], payments: [payment], supportRequests: [supportRequest], bankTransfers: [], customerPortalAvailable: true });
     expect(subscriptions).toHaveBeenCalledWith({ where: { userId: 'member-1' }, select: { id: true, planCode: true, status: true, priceYen: true, currentPeriodEndsAt: true, graceEndsAt: true, cancelAtPeriodEnd: true, provider: true }, orderBy: { createdAt: 'desc' } });
     expect(dayPasses).toHaveBeenCalledWith({ where: { userId: 'member-1' }, select: { id: true, raceDate: true, status: true, priceYen: true }, orderBy: { createdAt: 'desc' } });
     expect(payments).toHaveBeenCalledWith({ where: { userId: 'member-1' }, select: { id: true, provider: true, kind: true, status: true, amountYen: true, occurredAt: true }, orderBy: { occurredAt: 'desc' } });
@@ -93,7 +98,7 @@ describe('BillingQueryService', () => {
       billingCheckout: { findMany: checkoutFindMany },
       stripeWebhookEvent: { findMany: webhookFindMany },
       billingSupportRequest: { findMany: supportFindMany },
-    } as unknown as DbService);
+    } as unknown as DbService, bankTransfers as unknown as BankTransferService);
 
     const result = await service.admin();
 
@@ -107,6 +112,8 @@ describe('BillingQueryService', () => {
       supportRequests: [supportRequest],
       pendingDayPassReviews: [pendingReview],
       reviewCheckouts: [reviewCheckout],
+      bankTransfers: [],
+      bankTransferSettings: bankSettings,
     });
     expect(subscriptionFindMany).toHaveBeenCalledWith(expect.objectContaining({ select: expect.objectContaining({ id: true, user: { select: { email: true, displayName: true } } }), orderBy: { createdAt: 'desc' }, take: 100 }));
     expect(paymentFindMany).toHaveBeenCalledWith(expect.objectContaining({ select: expect.not.objectContaining({ providerPaymentId: true, userId: true }), take: 100 }));

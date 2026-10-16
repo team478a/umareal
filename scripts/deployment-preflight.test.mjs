@@ -56,6 +56,16 @@ describe('deployment environment preflight', () => {
     }
   });
 
+  it('permits bank transfer without Stripe live mode in free-registration and full launch modes', () => {
+    const base = { ...common, AUTH_PROVIDER: 'supabase', ADMIN_BASE_URL: common.APP_BASE_URL, SUPABASE_URL: 'https://project.supabase.co', SUPABASE_ANON_KEY: 'configured', JOB_SECRET: 'x'.repeat(32), RESEND_WEBHOOK_SECRET: 'configured', CAPTCHA_TRANSPORT: 'turnstile', LINE_OAUTH_TRANSPORT: 'line', BILLING_TRANSPORT: 'bank_transfer', STRIPE_LIVE_MODE: 'false', AUTH_RATE_LIMIT: '60' };
+    for (const launchMode of ['FREE_REGISTRATION', 'FULL']) {
+      const result = validateDeploymentEnvironment('api', { ...base, LAUNCH_MODE: launchMode, NOTIFICATION_TRANSPORT: launchMode === 'FULL' ? 'line' : 'disabled' });
+      assert.equal(result.ok, true);
+      assert.ok(result.manual.some(item => item.code === 'PROVIDER_LIVE_TESTS' && item.message.includes('bank-transfer')));
+    }
+    assert.ok(validateDeploymentEnvironment('api', { ...base, STRIPE_LIVE_MODE: 'true' }).errors.some(item => item.code === 'STRIPE_LIVE_MODE'));
+  });
+
   it('keeps staging noindex checks and permits only no-charge billing rehearsal', () => {
     const api = validateDeploymentEnvironment('api', { ...common, LAUNCH_MODE: 'CLOUD_STAGING', AUTH_PROVIDER: 'supabase', ADMIN_BASE_URL: common.APP_BASE_URL, SUPABASE_URL: 'https://project.supabase.co', SUPABASE_ANON_KEY: 'configured', JOB_SECRET: 'x'.repeat(32), RESEND_WEBHOOK_SECRET: 'configured', CAPTCHA_TRANSPORT: 'turnstile', LINE_OAUTH_TRANSPORT: 'disabled', BILLING_TRANSPORT: 'test', STRIPE_LIVE_MODE: 'false', AUTH_RATE_LIMIT: '60' });
     assert.equal(api.ok, true);

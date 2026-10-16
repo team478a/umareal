@@ -91,7 +91,7 @@ describe('local billing lifecycle', () => {
     const admin = new Client(); await admin.login(await account('ADMIN')); expect((await admin.call('admin/billing')).body.code).toBe('MFA_REQUIRED'); await admin.mfa();
     const dashboard = await admin.call('admin/billing');
     expect(dashboard.status).toBe(200);
-    expect(Object.keys(dashboard.body).sort()).toEqual(['billingTransport', 'checkouts', 'dayPasses', 'payments', 'pendingDayPassReviews', 'reviewCheckouts', 'stripeWebhooks', 'subscriptions', 'supportRequests']);
+    expect(Object.keys(dashboard.body).sort()).toEqual(['bankTransferSettings', 'bankTransfers', 'billingTransport', 'checkouts', 'dayPasses', 'payments', 'pendingDayPassReviews', 'reviewCheckouts', 'stripeWebhooks', 'subscriptions', 'supportRequests'].sort());
     const dashboardSubscription = dashboard.body.subscriptions.find((item: { id: string }) => item.id === subscriptionId);
     expect(Object.keys(dashboardSubscription).sort()).toEqual(['cancelAtPeriodEnd', 'currentPeriodEndsAt', 'graceEndsAt', 'id', 'planCode', 'priceYen', 'status', 'user']);
     const dashboardPayment = dashboard.body.payments.find((item: { id: string }) => item.id === paymentId);

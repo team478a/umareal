@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { billingSupportCategories, billingSupportStatuses } from './billing-support';
 import { dateSchema } from './races';
+import { adminBankTransferRequestSchema, bankTransferRequestSchema, bankTransferSettingsResponseSchema } from './bank-transfer';
 
 export const subscriptionPlans = ['FOUNDER', 'STANDARD'] as const;
 export const billingPlanCodes = ['FOUNDER', 'STANDARD', 'DAY_PASS'] as const;
@@ -40,7 +41,7 @@ const dayPassBillingPlanSchema = z.object({
 export const billingPlansResponseSchema = z.object({
   newPurchasesEnabled: z.boolean(),
   developmentTerms: z.literal(true),
-  billingTransport: z.enum(['test', 'stripe', 'disabled']),
+  billingTransport: z.enum(['test', 'stripe', 'bank_transfer', 'disabled']),
   stripeMode: z.enum(['TEST', 'LIVE']).nullable(),
   currency: z.literal('JPY'),
   taxIncluded: z.literal(true),
@@ -164,6 +165,7 @@ export const memberBillingResponseSchema = z.object({
   dayPasses: z.array(memberDayPassSchema),
   payments: z.array(memberPaymentSchema),
   supportRequests: z.array(memberBillingSupportRequestSchema),
+  bankTransfers: z.array(bankTransferRequestSchema),
   customerPortalAvailable: z.boolean()
 }).strict();
 export type MemberBillingResponse = z.infer<typeof memberBillingResponseSchema>;
@@ -248,7 +250,7 @@ const adminReviewCheckoutSchema = z.object({
   }).strict())
 }).strict();
 export const adminBillingResponseSchema = z.object({
-  billingTransport: z.enum(['test', 'stripe', 'disabled']),
+  billingTransport: z.enum(['test', 'stripe', 'bank_transfer', 'disabled']),
   subscriptions: z.array(adminBillingSubscriptionSchema),
   dayPasses: z.array(adminBillingDayPassSchema),
   payments: z.array(adminBillingPaymentSchema),
@@ -256,7 +258,9 @@ export const adminBillingResponseSchema = z.object({
   stripeWebhooks: z.array(adminStripeWebhookSchema),
   supportRequests: z.array(adminBillingSupportRequestSchema),
   pendingDayPassReviews: z.array(adminPendingDayPassReviewSchema),
-  reviewCheckouts: z.array(adminReviewCheckoutSchema)
+  reviewCheckouts: z.array(adminReviewCheckoutSchema),
+  bankTransfers: z.array(adminBankTransferRequestSchema),
+  bankTransferSettings: bankTransferSettingsResponseSchema
 }).strict();
 export type AdminBillingResponse = z.infer<typeof adminBillingResponseSchema>;
 const validDayPassDate = (value: { raceDate: string }, context: z.RefinementCtx) => {
