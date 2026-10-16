@@ -25,7 +25,7 @@ async function candidates(db: PrismaClient, now: Date): Promise<AlertCandidate[]
   const [failedDeliveries, failedSchedules, missedRaces, supportDeadlines] = await Promise.all([
     db.$queryRaw<Array<{ id: string; channel: string; eventType: string }>>(Prisma.sql`SELECT d.id, d.channel, e."eventType" FROM notification_deliveries d JOIN notification_events e ON e.id = d."eventId" WHERE d.status = 'FAILED' AND NOT EXISTS (SELECT 1 FROM operational_alerts a WHERE a."dedupeKey" = 'DELIVERY_FAILED:' || d.id::text) ORDER BY d."updatedAt" DESC, d.id LIMIT 200`),
     db.$queryRaw<Array<{ id: string; kind: string; raceDate: string; venue: string; number: number }>>(Prisma.sql`SELECT s.id, s.kind, r."raceDate", r.venue, r.number FROM publication_schedules s JOIN races r ON r.id = s."raceId" WHERE s.status = 'FAILED' AND NOT EXISTS (SELECT 1 FROM operational_alerts a WHERE a."dedupeKey" = 'PUBLICATION_SCHEDULE_FAILED:' || s.id::text) ORDER BY s."processedAt" DESC, s.id LIMIT 200`),
-    db.$queryRaw<Array<{ id: string; raceDate: string; venue: string; number: number }>>(Prisma.sql`SELECT r.id, r."raceDate", r.venue, r.number FROM races r LEFT JOIN predictions p ON p."raceId" = r.id WHERE r."startsAt" > ${since} AND r."startsAt" <= ${now} AND r.status <> 'CANCELLED' AND NOT EXISTS (SELECT 1 FROM prediction_versions v WHERE v."predictionId" = p.id) AND NOT EXISTS (SELECT 1 FROM operational_alerts a WHERE a."dedupeKey" = 'PUBLICATION_DEADLINE_MISSED:' || r.id::text) ORDER BY r."startsAt" DESC, r.id LIMIT 200`),
+    db.$queryRaw<Array<{ id: string; raceDate: string; venue: string; number: number }>>(Prisma.sql`SELECT r.id, r."raceDate", r.venue, r.number FROM races r WHERE r."startsAt" > ${since} AND r."startsAt" <= ${now} AND r.status <> 'CANCELLED' AND EXISTS (SELECT 1 FROM expert_assignments ea JOIN users u ON u.id = ea."userId" WHERE ea."raceId" = r.id AND u."disabledAt" IS NULL) AND EXISTS (SELECT 1 FROM race_announcements ra WHERE ra."raceId" = r.id) AND NOT EXISTS (SELECT 1 FROM predictions p JOIN prediction_versions v ON v."predictionId" = p.id WHERE p."raceId" = r.id) AND NOT EXISTS (SELECT 1 FROM operational_alerts a WHERE a."dedupeKey" = 'PUBLICATION_DEADLINE_MISSED:' || r.id::text) ORDER BY r."startsAt" DESC, r.id LIMIT 200`),
     db.$queryRaw<Array<{ id: string; dueAt: Date }>>(Prisma.sql`SELECT id, "dueAt" FROM support_requests WHERE status <> 'RESOLVED' AND "dueAt" IS NOT NULL AND "dueAt" <= ${dueSoon} ORDER BY "dueAt", id LIMIT 200`)
   ]);
   return [
@@ -63,6 +63,23 @@ async function detect(db: PrismaClient, now: Date) {
   for (const alert of staleSupportAlerts) {
     if (activeSupportIds.has(alert.sourceId)) continue;
     await db.operationalAlert.update({ where: { id: alert.id }, data: { status: 'RESOLVED', resolvedAt: now, resolvedBy: null, resolutionReason: 'SYSTEM: 問い合わせの対応期限条件が解消されました。', dedupeKey: `${alert.dedupeKey}:ARCHIVED:${alert.id}`, lastObservedAt: now } });
+  }
+  const staleDeadlineAlerts = await db.operationalAlert.findMany({ where: { sourceType: 'RACE', code: 'PUBLICATION_DEADLINE_MISSED', status: { in: ['OPEN', 'ACKNOWLEDGED'] } }, select: { id: true, sourceId: true, dedupeKey: true } });
+  const stillMissedRaces = staleDeadlineAlerts.length ? await db.race.findMany({
+    where: {
+      id: { in: staleDeadlineAlerts.map(item => item.sourceId) },
+      startsAt: { lte: now },
+      status: { not: 'CANCELLED' },
+      assignments: { some: { user: { disabledAt: null } } },
+      announcements: { some: {} },
+      OR: [{ prediction: null }, { prediction: { versions: { none: {} } } }]
+    },
+    select: { id: true }
+  }) : [];
+  const stillMissedRaceIds = new Set(stillMissedRaces.map(item => item.id));
+  for (const alert of staleDeadlineAlerts) {
+    if (stillMissedRaceIds.has(alert.sourceId)) continue;
+    await db.operationalAlert.update({ where: { id: alert.id }, data: { status: 'RESOLVED', resolvedAt: now, resolvedBy: null, resolutionReason: 'SYSTEM: パドック対象または最終予想の公開期限条件が解消されました。', dedupeKey: `${alert.dedupeKey}:ARCHIVED:${alert.id}`, lastObservedAt: now } });
   }
   if (setting.enabled && setting.destinationEmails.length) {
     const severity = setting.minimumSeverity === 'CRITICAL' ? 'CRITICAL' : { in: ['CRITICAL', 'WARNING'] };
